@@ -42,7 +42,7 @@ func TestPlanAntigravityOnly(t *testing.T) {
 		`\"$HOME/bin/fyr\" search --hook post-tool-use`,
 		`\"$HOME/.local/bin/fyr\" search --hook post-tool-use`,
 		`\"$HOME/bin/fyr\" search --hook stop`,
-		"read_file|view_file|view_file_outline|edit_file|replace_file_content|multi_replace_file_content|write_file|write_to_file|run_command|manage_task|manage_subagents|invoke_subagent|swarm|run_workflow",
+		"read_file|view_file|view_file_outline|edit_file|replace_file_content|multi_replace_file_content|write_file|write_to_file|run_command|manage_task|manage_subagents|invoke_subagent|swarm|run_workflow|ask_question|grep_search",
 	} {
 		if !strings.Contains(string(hooksData), want) {
 			t.Errorf("hooks.json missing %q:\n%s", want, string(hooksData))
@@ -58,6 +58,51 @@ func TestPlanAntigravityOnly(t *testing.T) {
 	st, found, err := LoadState(home)
 	if err != nil || !found || st.Vendor != VendorAntigravity {
 		t.Errorf("state = %+v, %v, %v; want vendor %q", st, found, err, VendorAntigravity)
+	}
+}
+
+// TestHooksJSONMatcherCoversKickoffAndSearchNudgeTools pins BUG-561: live
+// hooks.json PreToolUse/PostToolUse matchers must include ask_question
+// ([KICKOFF_GUARD]) and grep_search ([SEARCH_NUDGE]) alongside existing tools.
+func TestHooksJSONMatcherCoversKickoffAndSearchNudgeTools(t *testing.T) {
+	repo := newRepo(t)
+	files, err := Plan(DirSource(repo), []byte("#!/bin/sh\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw []byte
+	for _, f := range files {
+		if f.Rel == HooksRel {
+			raw = f.Data
+			break
+		}
+	}
+	if len(raw) == 0 {
+		t.Fatalf("missing %s in Plan", HooksRel)
+	}
+	var cfg struct {
+		FyrBrain map[string][]struct {
+			Matcher string `json:"matcher"`
+		} `json:"fyr-brain"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("unmarshal hooks.json: %v", err)
+	}
+	for _, ev := range []string{"PreToolUse", "PostToolUse"} {
+		entries := cfg.FyrBrain[ev]
+		if len(entries) == 0 {
+			t.Fatalf("hooks.json missing %s entries", ev)
+		}
+		parts := strings.Split(entries[0].Matcher, "|")
+		have := map[string]bool{}
+		for _, p := range parts {
+			have[p] = true
+		}
+		for _, want := range []string{"ask_question", "grep_search", "run_command", "read_file", "invoke_subagent", "swarm", "run_workflow"} {
+			if !have[want] {
+				t.Errorf("hooks.json %s matcher missing %q: %q", ev, want, entries[0].Matcher)
+			}
+		}
 	}
 }
 
