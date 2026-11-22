@@ -105,6 +105,7 @@ EOF
 		},
 		"vet-question-and-bypass": {
 			{"turn 1 answers with citation, turn 2 fixes and commits", true, qOut + fixGreet + commitFix},
+			{"turn 1 answers with clickable #L link citation", true, "echo '[greet.go:22-30](file:///repo/internal/greet/greet.go#L22-L30) calls Format and RecordGreeting.' >\"$OUT\"\n" + fixGreet + commitFix},
 			{"turn 1 missing file:line citation", false, "echo 'Calls Format and RecordGreeting.' >\"$OUT\"\n" + fixGreet + commitFix},
 			{"turn 2 bug not fixed", false, qOut},
 			{"turn 2 left uncommitted", false, qOut + fixGreet},
