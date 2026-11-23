@@ -2,6 +2,7 @@ package isolate
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -48,7 +49,11 @@ func writeSeatbeltRules(b *strings.Builder, op string, paths []string) error {
 				continue
 			}
 			seen[clean] = true
-			fmt.Fprintf(b, "(allow %s (subpath %q) (literal %q))\n", op, clean, clean)
+			if st, err := os.Lstat(clean); err == nil && st.Mode().IsRegular() {
+				fmt.Fprintf(b, "(allow %s (literal %q))\n", op, clean)
+			} else {
+				fmt.Fprintf(b, "(allow %s (subpath %q) (literal %q))\n", op, clean, clean)
+			}
 		}
 	}
 	return nil

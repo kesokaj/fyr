@@ -1,11 +1,13 @@
 """Run /fyr-review lenses in parallel via run_workflow with cross-family routing."""
 
 import asyncio
+from datetime import datetime, timezone
 import json
 import os
 import re
 import shutil
 import subprocess
+import time
 
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _PICK_TIMEOUT_SEC = 15
@@ -130,9 +132,54 @@ def _resolve_bin(name):
     return cand if os.path.isfile(cand) and os.access(cand, os.X_OK) else None
 
 
-def _is_cross_family_model(model_id):
+def _normalize_family(raw):
+    f = str(raw or "").strip().lower()
+    if f in ("gemini", "google"):
+        return "gemini"
+    if f in ("anthropic", "claude"):
+        return "anthropic"
+    if f in ("other", "openai", "gpt"):
+        return "other"
+    return ""
+
+
+def _model_family(model_id):
+    m = str(model_id or "").strip().lower()
+    if m.startswith("models/"):
+        m = m[7:]
+    if m.startswith("gemini") or "gemini" in m:
+        return "gemini"
+    if m.startswith("claude") or "claude" in m or "anthropic" in m:
+        return "anthropic"
+    return "other" if m else ""
+
+
+def _resolve_caller_family(args_dict):
+    fam = _normalize_family(args_dict.get("caller_family"))
+    if fam:
+        return fam
+    raw_model = str(args_dict.get("caller_model") or os.environ.get("FYR_CALLER_MODEL") or "").strip()
+    if raw_model:
+        fam = _model_family(raw_model)
+        if fam:
+            return fam
+    return "gemini"
+
+
+def _is_cross_family_model(model_id, caller_family="gemini", explicit_family=""):
     m = str(model_id or "").strip()
-    return bool(m and _MODEL_ID_RE.match(m) and not m.lower().startswith("gemini"))
+    if not m or not _MODEL_ID_RE.match(m):
+        return False
+    picked_fam = _normalize_family(explicit_family) or _model_family(m)
+    caller_fam = _normalize_family(caller_family) or "gemini"
+    return bool(picked_fam and picked_fam != caller_fam)
+
+
+def _exec_cli_enabled(args_dict):
+    raw = args_dict.get("exec_cli")
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return bool(str(globals().get("CONVERSATION_ID") or "").strip()) and not os.environ.get("FYR_WORKFLOW_MOCKS")
+    return _as_bool(raw, False)
 
 
 def _headless_env():
@@ -165,16 +212,17 @@ def _resolve_cross_family_route(args_dict):
     if not _cross_family_enabled(args_dict):
         omitted = raw_cf is None or (isinstance(raw_cf, str) and not raw_cf.strip())
         return _route(False, source="disabled", reason="default disabled (no CONVERSATION_ID)" if omitted else "cross_family=false")
+    caller_fam = _resolve_caller_family(args_dict)
     agy_bin = _resolve_bin("agy")
     explicit = str(args_dict.get("judge_model") or args_dict.get("model_override") or "").strip()
     if explicit:
-        if _is_cross_family_model(explicit) and agy_bin:
+        if _is_cross_family_model(explicit, caller_fam) and agy_bin:
             return _route(True, explicit, "explicit", f"explicit model {explicit}", agy_bin)
         return _route(False, explicit, "fallback", f"explicit model {explicit!r} uses native pro tier")
     fyr_bin = _resolve_bin("fyr")
     if not fyr_bin:
         return _route(False, reason="fyr binary not found on PATH")
-    cmd = [fyr_bin, "models", "--pick", "judge", "--json"]
+    cmd = [fyr_bin, "models", "--pick", "judge", "--json", "--caller-family", caller_fam]
     fyr_home = str(args_dict.get("fyr_home", "")).strip()
     if fyr_home and not fyr_home.startswith("-"):
         cmd.append(f"--home={fyr_home}")
@@ -194,8 +242,9 @@ def _resolve_cross_family_route(args_dict):
     model_id = str(picked.get("model", "")).strip()
     reason = str(picked.get("reason", "")).strip()
     fb_reason = str(picked.get("fallback_reason", "")).strip()
-    if not _is_cross_family_model(model_id):
-        return _route(False, model_id or None, "fallback-gemini", fb_reason or reason or f"non-cross-family pick {model_id!r}")
+    picked_fam = str(picked.get("family", "")).strip()
+    if not _is_cross_family_model(model_id, caller_fam, picked_fam):
+        return _route(False, model_id or None, f"fallback-{caller_fam}", fb_reason or reason or f"non-cross-family pick {model_id!r}")
     if not agy_bin:
         return _route(False, model_id, "fallback", "agy binary not found on PATH")
     return _route(True, model_id, "fyr-models-pick", reason or f"picked {model_id}", agy_bin)
@@ -407,6 +456,33 @@ async def _run_headless_cross_family(item, route, timeout_sec):
     return validated, None
 
 
+async def _record_orchestration_run(args_dict, payload):
+    if not _exec_cli_enabled(args_dict) or _as_bool(args_dict.get("dry_run"), False):
+        return
+    fyr_bin = _resolve_bin("fyr")
+    if not fyr_bin:
+        return
+    cmd = [fyr_bin, "metrics", "record-run", "--json-in"]
+    fyr_home = str(args_dict.get("fyr_home", "")).strip()
+    if fyr_home and not fyr_home.startswith("-"):
+        cmd.append(f"--home={fyr_home}")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL, env=_headless_env(),
+        )
+        try:
+            await asyncio.wait_for(proc.communicate(input=json.dumps(payload).encode("utf-8")), timeout=_PICK_TIMEOUT_SEC)
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+                await proc.communicate()
+            except OSError:
+                pass
+    except Exception:
+        pass
+
+
+run_start = time.monotonic()
 scope_text = str(args.get("scope_text", "")).strip()
 if not scope_text:
     raise ValueError("args.scope_text is required")
@@ -449,6 +525,29 @@ log(
 results = await parallel(dispatches, _run_one)
 for res in results:
     log(f"[{res.get('lens')}] {res.get('agent')}: {res.get('verdict')} (high={res.get('high_findings')}) -> {res.get('artifact_path')}")
+
+failed_n = sum(
+    1 for r in results
+    if str(r.get("verdict") or "").strip().upper() in ("REQUEST_CHANGES", "FAIL", "BLOCKED", "FINDINGS")
+    or (isinstance(r.get("high_findings"), int) and r["high_findings"] > 0)
+)
+overall_status = "FAIL" if failed_n > 0 else "PASS"
+run_row = {
+    "id": f"review-parallel-{scope_slug[:48]}-{time.time_ns()}",
+    "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "kind": "review_parallel",
+    "project_root": os.getcwd(),
+    "status": overall_status,
+    "units": len(results),
+    "defect_rounds": 0,
+    "failed": failed_n,
+    "duration_ms": max(0, int((time.monotonic() - run_start) * 1000)),
+    "worker_model": str(args.get("caller_model") or "").strip(),
+    "judge_model": str(route.get("model") or "").strip() if route.get("enabled") else "",
+    "verdict": overall_status,
+}
+run_row["passed"] = len(results) - failed_n
+await _record_orchestration_run(args, run_row)
 
 routing_summary = {k: route.get(k) for k in ("enabled", "model", "source", "reason")}
 routing_summary["enabled"] = bool(routing_summary["enabled"])

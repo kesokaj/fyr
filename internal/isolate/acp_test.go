@@ -105,10 +105,15 @@ func TestACPClientProtocolAndHazards(t *testing.T) {
 	s2cR, s2cW := io.Pipe()
 	var denied []string
 	var deniedMu sync.Mutex
+	denyCh := make(chan struct{}, 4)
 	client := NewACPClient(s2cR, c2sW, []string{"command(git)"}, func(tool string) {
 		deniedMu.Lock()
 		denied = append(denied, tool)
 		deniedMu.Unlock()
+		select {
+		case denyCh <- struct{}{}:
+		default:
+		}
 	})
 	defer func() {
 		_ = c2sW.Close()
@@ -151,6 +156,10 @@ func TestACPClientProtocolAndHazards(t *testing.T) {
 	}
 	if err := client.CloseSession(ctx, sid); err != nil {
 		t.Fatalf("CloseSession: %v", err)
+	}
+	select {
+	case <-denyCh:
+	case <-time.After(2 * time.Second):
 	}
 	deniedMu.Lock()
 	if len(denied) == 0 || !strings.Contains(denied[0], "rm") {

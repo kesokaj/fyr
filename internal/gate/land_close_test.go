@@ -355,7 +355,9 @@ func writeFakeLandJudgeAgy(t *testing.T, binDir, wantTreeSHA, mainHead, branchHe
 // fresh ok=true verify.stamp matching the scratch-merged tree (never "missing
 // for head" or main's stale pre-land stamp), and FAIL must abort cleanly.
 func TestLandJudgeRunsAfterScratchVerifyStamp(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	realHome := t.TempDir()
+	stageFakeJudgeAuth(t, realHome)
+	t.Setenv("HOME", realHome)
 	ctx := context.Background()
 	cases := []struct {
 		name, branch, file, src, testFile, testSrc, lease, judge, diffNeedle, verdictJSON string

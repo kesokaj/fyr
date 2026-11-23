@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/gate"
+	iso "github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/metrics"
 )
 
@@ -160,10 +161,34 @@ func queryJudgeVerdictsT(t *testing.T, home, repo string) []metrics.JudgeVerdict
 	return rows
 }
 
+func setTestHomeWithAuth(t *testing.T, home string, stageAuth bool) {
+	t.Helper()
+	if os.Getenv("GOCACHE") == "" {
+		if cacheDir, err := os.UserCacheDir(); err == nil {
+			goCache := filepath.Join(cacheDir, "go-build")
+			if st, err := os.Stat(goCache); err == nil && st.IsDir() {
+				t.Setenv("GOCACHE", goCache)
+			}
+		}
+	}
+	t.Setenv("HOME", home)
+	if !stageAuth {
+		return
+	}
+	p := filepath.Join(home, filepath.FromSlash(iso.TokenRel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatalf("mkdir auth dir: %v", err)
+	}
+	if err := os.WriteFile(p, []byte("cli-test-auth\n"), 0o600); err != nil {
+		t.Fatalf("write auth file: %v", err)
+	}
+}
+
 func TestVerbGateJudge(t *testing.T) {
 	repo := initCLITestRepo(t)
 	home := t.TempDir()
 	binDir := t.TempDir()
+	setTestHomeWithAuth(t, home, true)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	runGitCLI(t, repo, "checkout", "-b", "feat")
@@ -212,6 +237,82 @@ func TestVerbGateJudge(t *testing.T) {
 	rows = queryJudgeVerdictsT(t, home, repo)
 	if len(rows) != 3 {
 		t.Fatalf("metrics rows after land PASS (%d rows) rows=%+v", len(rows), rows)
+	}
+}
+
+func hasJudgeAttribution(rows []metrics.JudgeVerdictRow, model, sess string) bool {
+	for _, r := range rows {
+		if r.WorkerModel == model && r.WorkerSessionID == sess {
+			return true
+		}
+	}
+	return false
+}
+
+func commitBranchFilesT(t *testing.T, repo, branch string, files map[string]string) {
+	t.Helper()
+	runGitCLI(t, repo, "checkout", "-b", branch, "main")
+	for rel, body := range files {
+		writeCLITestFile(t, filepath.Join(repo, filepath.FromSlash(rel)), body)
+		runGitCLI(t, repo, "add", rel)
+	}
+	runGitCLI(t, repo, "commit", "-m", "commit "+branch)
+	runGitCLI(t, repo, "checkout", "main")
+}
+
+func TestV910VerbGateLandWorkerFlagsAndDetail(t *testing.T) {
+	repo := initCLITestRepo(t)
+	home, binDir := t.TempDir(), t.TempDir()
+	setTestHomeWithAuth(t, home, true)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeFakeCLIJudgeAgy(t, binDir, `{"verdict":"PASS","reason":"looks good"}`)
+
+	commitBranchFilesT(t, repo, "feat-w", map[string]string{
+		"w.go":      "package main\n\nfunc wVal() int { return 9 }\n",
+		"w_test.go": "package main\n\nimport \"testing\"\n\nfunc TestWVal(t *testing.T) {\n\tif wVal() != 9 {\n\t\tt.Fatal()\n\t}\n}\n",
+	})
+	commitBranchFilesT(t, repo, "feat-fail", map[string]string{
+		"fail_test.go": "package main\n\nimport \"testing\"\n\nfunc TestBoom(t *testing.T) {\n\tt.Fatal(\"boom-detail\")\n}\n",
+	})
+
+	outStr, errStr, code := runCLIWithErr("gate", "feat-w", "--home", home, "--dir", repo,
+		"--judge", "check worker", "--worker-model", "gemini-4-carbon-high", "--worker-session", "conv-gate-1")
+	if code != 0 {
+		t.Fatalf("gate with worker flags failed: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	if rows := queryJudgeVerdictsT(t, home, repo); !hasJudgeAttribution(rows, "gemini-4-carbon-high", "conv-gate-1") {
+		t.Fatalf("gate verdict missing worker attribution: %+v", rows)
+	}
+
+	// Failing land (verify failure & lease failure) populates LandReport.Detail.
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"land", "feat-fail", "--home", home, "--dir", repo, "--json"}, "verify"},
+		{[]string{"land", "feat-w", "--home", home, "--dir", repo, "--lease", "docs/**", "--json"}, "outside lease"},
+	} {
+		out, _, c := runCLIWithErr(tc.args...)
+		var rep gate.LandReport
+		if c != 1 || json.Unmarshal([]byte(out), &rep) != nil || rep.OK || !strings.Contains(rep.Detail, tc.want) {
+			t.Fatalf("land fail %v: code=%d detail=%q want %q out=%s", tc.args, c, rep.Detail, tc.want, out)
+		}
+	}
+
+	outStr, errStr, code = runCLIWithErr("land", "feat-w", "--home", home, "--dir", repo,
+		"--judge", "check land", "--worker-model", "claude-opus-5-5-high", "--worker-session", "conv-land-2", "--json")
+	var landRep gate.LandReport
+	if code != 0 || json.Unmarshal([]byte(outStr), &landRep) != nil || !landRep.OK {
+		t.Fatalf("land with worker flags failed: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	if rows := queryJudgeVerdictsT(t, home, repo); !hasJudgeAttribution(rows, "claude-opus-5-5-high", "conv-land-2") {
+		t.Fatalf("land verdict missing worker attribution: %+v", rows)
+	}
+
+	emptyHome := t.TempDir()
+	setTestHomeWithAuth(t, emptyHome, false)
+	if _, errStr, code = runCLIWithErr("gate", "feat-fail", "--home", emptyHome, "--dir", repo, "--judge", "check auth"); code != 2 || !strings.Contains(errStr, "OAuth") {
+		t.Fatalf("gate --judge without OAuth file: code=%d err=%q, want exit 2 OAuth refusal", code, errStr)
 	}
 }
 

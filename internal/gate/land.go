@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ type LandOptions struct {
 	Branch          string
 	Message         string
 	Home            string
+	RealHome        string
 	Vocab           check.Vocabulary
 	Timeout         time.Duration
 	Lease           []string
@@ -41,6 +43,7 @@ type LandReport struct {
 	LandCommit string        `json:"landCommit,omitempty"`
 	BranchDel  bool          `json:"branchDeleted"`
 	StampPath  string        `json:"stampPath,omitempty"`
+	Detail     string        `json:"detail,omitempty"`
 	Gate       *GateReport   `json:"gate,omitempty"`
 	Verify     *VerifyReport `json:"verify,omitempty"`
 }
@@ -60,11 +63,11 @@ type landCtx struct {
 func Land(ctx context.Context, opts LandOptions) (LandReport, error) {
 	lc, err := prepareLand(ctx, opts)
 	if err != nil {
-		return LandReport{}, err
+		return LandReport{Branch: opts.Branch, Detail: search.Printable(err.Error())}, err
 	}
 	rep := LandReport{MainRoot: lc.root, Target: lc.mainBranch, Branch: opts.Branch}
 	gateOpts := GateOptions{
-		Dir: lc.root, Target: opts.Branch, Base: lc.baseHead, Home: opts.Home,
+		Dir: lc.root, Target: opts.Branch, Base: lc.baseHead, Home: opts.Home, RealHome: opts.RealHome,
 		Lease: opts.Lease, LeaseFile: opts.LeaseFile,
 		MaxFiles: opts.MaxFiles, MaxLines: opts.MaxLines,
 		JudgeModel: opts.JudgeModel, WorkerModel: opts.WorkerModel,
@@ -74,17 +77,21 @@ func Land(ctx context.Context, opts LandOptions) (LandReport, error) {
 	gateRep, err := Gate(ctx, gateOpts)
 	rep.Gate = &gateRep
 	if err != nil {
+		rep.Detail = summarizeLandFailure(rep, err)
 		return rep, err
 	}
 	gatedHead := gateRep.Head
 	if gatedHead == "" {
-		return rep, refusef("gate returned empty head for branch %s", opts.Branch)
+		err = refusef("gate returned empty head for branch %s", opts.Branch)
+		rep.Detail = search.Printable(err.Error())
+		return rep, err
 	}
 	gateOpts.Judge = opts.Judge
 	landCommit, verifyRep, judgeRep, err := verifyInScratchWorktree(ctx, lc, gatedHead, opts, gateOpts)
 	rep.Verify = verifyRep
 	mergeGateJudgeReport(rep.Gate, judgeRep, err)
 	if err != nil {
+		rep.Detail = summarizeLandFailure(rep, err)
 		return rep, err
 	}
 	return finishLand(ctx, lc, opts.Branch, gatedHead, landCommit, &rep)
@@ -242,33 +249,80 @@ func mergeGateJudgeReport(dst, src *GateReport, err error) {
 }
 
 func finishLand(ctx context.Context, lc landCtx, branch, gatedHead, landCommit string, rep *LandReport) (LandReport, error) {
-	if err := checkoutUnchanged(ctx, lc.root, lc.snap); err != nil {
+	fail := func(err error) (LandReport, error) {
+		rep.Detail = search.Printable(err.Error())
 		return *rep, err
+	}
+	if err := checkoutUnchanged(ctx, lc.root, lc.snap); err != nil {
+		return fail(err)
 	}
 	curHead, err := verifyCommitRef(ctx, lc.root, "refs/heads/"+branch)
 	if err != nil {
-		return *rep, refusef("verify branch %s head: %v", branch, err)
+		return fail(refusef("verify branch %s head: %v", branch, err))
 	}
 	if curHead != gatedHead {
-		return *rep, refusef("branch %s changed during land (%s != %s)", branch, curHead[:min(12, len(curHead))], gatedHead[:min(12, len(gatedHead))])
+		return fail(refusef("branch %s changed during land (%s != %s)", branch, curHead[:min(12, len(curHead))], gatedHead[:min(12, len(gatedHead))]))
 	}
 	if _, err := gitBytes(ctx, lc.root, "merge", "--ff-only", landCommit); err != nil {
-		return *rep, err
+		return fail(err)
 	}
 	rep.LandCommit = landCommit
 	if _, err := gitBytes(ctx, lc.root, "update-ref", "-d", "refs/heads/"+branch, gatedHead); err != nil {
-		return *rep, err
+		return fail(err)
 	}
 	rep.BranchDel = true
 	if rep.Verify != nil {
 		stampPath, err := refreshMainStamp(lc.root, lc.mainBranch, landCommit, rep.Verify)
 		if err != nil {
-			return *rep, err
+			return fail(err)
 		}
 		rep.StampPath = stampPath
 	}
 	rep.OK = true
 	return *rep, nil
+}
+
+func summarizeLandFailure(rep LandReport, err error) string {
+	if rep.Verify != nil {
+		for _, s := range rep.Verify.Steps {
+			if !s.OK {
+				detail := firstLineCompact(s.Detail, 300)
+				if detail != "" {
+					return fmt.Sprintf("verify %s failed: %s", s.Name, detail)
+				}
+				return fmt.Sprintf("verify %s failed", s.Name)
+			}
+		}
+	}
+	if rep.Gate != nil && len(rep.Gate.Findings) > 0 {
+		parts := make([]string, 0, min(len(rep.Gate.Findings), 3))
+		for _, f := range rep.Gate.Findings {
+			if len(parts) >= 3 {
+				break
+			}
+			if f.Path != "" {
+				parts = append(parts, fmt.Sprintf("[%s] %s: %s", f.Check, f.Path, search.Printable(f.Detail)))
+			} else {
+				parts = append(parts, fmt.Sprintf("[%s] %s", f.Check, search.Printable(f.Detail)))
+			}
+		}
+		return strings.Join(parts, "; ")
+	}
+	if err != nil {
+		return firstLineCompact(err.Error(), 300)
+	}
+	return "land failed"
+}
+
+func firstLineCompact(raw string, maxLen int) string {
+	s := strings.TrimSpace(search.Printable(raw))
+	if idx := strings.IndexByte(s, '\n'); idx >= 0 {
+		s = strings.TrimSpace(s[:idx])
+	}
+	if maxLen > 0 && len(s) > maxLen {
+		return string(trimIncompleteUTF8([]byte(s[:maxLen]))) + "..."
+	}
+	return s
 }
 
 func refreshMainStamp(root, branch, head string, vRep *VerifyReport) (string, error) {

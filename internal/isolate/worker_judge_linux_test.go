@@ -22,6 +22,7 @@ func TestRunJudgePrintLandlockDisabled(t *testing.T) {
 
 	okAgy := filepath.Join(binDir, "ok-agy")
 	put(t, okAgy, "#!/bin/sh\nprintf '{\"verdict\":\"PASS\",\"reason\":\"ok\"}\\n'\n", 0o755)
+	put(t, filepath.Join(home, filepath.FromSlash(TokenRel)), "landlock-test-auth", 0o600)
 
 	prev := testSkipLandlock
 	testSkipLandlock = true

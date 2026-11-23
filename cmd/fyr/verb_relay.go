@@ -9,7 +9,9 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/relay"
 	"github.com/kesokaj/fyr/internal/search"
@@ -54,14 +56,86 @@ func runRelay(c *ctx) error {
 	}
 	sig, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
+	start := time.Now()
 	rep, runErr := relay.Run(sig, relay.Options{
-		Dir: wd, Home: c.home, PlanID: strings.TrimSpace(c.relayPlan),
+		Dir: wd, Home: c.home, RealHome: realUserHome(), PlanID: strings.TrimSpace(c.relayPlan),
 		MaxPhases: c.relayMaxPhases, JudgeModel: strings.TrimSpace(c.relayJudgeModel),
 		DryRun: c.dryRun, Vocab: vocabulary(), SessionRunner: relaySessionRunner,
 		QuotaCheck: relayQuotaCheck, VerifyFn: relayVerifyFn, JudgeFn: relayJudgeFn,
 		RecordVerdict: recordGateJudgeVerdict(c.home),
 	})
+	if !c.dryRun && rep.Status != "" {
+		recordRelayOrchestrationRun(c.home, wd, rep, start, time.Since(start))
+	}
 	return emitRelayOutcome(c, rep, runErr)
+}
+
+func recordRelayOrchestrationRun(home, wd string, rep relay.Report, start time.Time, elapsed time.Duration) {
+	if strings.TrimSpace(home) == "" {
+		return
+	}
+	var okN, failN int
+	var workerModel, judgeModel, verdict string
+	for _, ph := range rep.Phases {
+		if ph.Status == "PASS" {
+			okN++
+		} else {
+			failN++
+		}
+		if m := strings.TrimSpace(ph.WorkerModel); m != "" {
+			workerModel = m
+		}
+		if jm := strings.TrimSpace(ph.JudgeModel); jm != "" {
+			judgeModel = jm
+		}
+		if jv := strings.TrimSpace(ph.JudgeVerdict); jv != "" {
+			verdict = jv
+		}
+	}
+	if verdict == "" {
+		if rep.OK {
+			verdict = "PASS"
+		} else {
+			verdict = "FAIL"
+		}
+	}
+	root := strings.TrimSpace(rep.RepoRoot)
+	if root == "" {
+		root = wd
+	}
+	row := metrics.OrchestrationRunRow{
+		ID:          relayRunID(rep.PlanID, start),
+		TS:          time.Now().UTC().Format(time.RFC3339),
+		Kind:        "relay",
+		ProjectRoot: root,
+		Status:      rep.Status,
+		HaltCode:    rep.HaltReason,
+		Units:       len(rep.Phases),
+		Failed:      failN,
+		DurationMS:  max(int64(0), elapsed.Milliseconds()),
+		WorkerModel: workerModel,
+		JudgeModel:  judgeModel,
+		Verdict:     verdict,
+	}
+	row.Passed = okN
+	_ = metrics.RecordOrchestrationRun(home, row)
+}
+
+func relayRunID(planID string, start time.Time) string {
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(planID) {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			b.WriteRune(r)
+		}
+		if b.Len() >= 48 {
+			break
+		}
+	}
+	slug := b.String()
+	if slug == "" {
+		slug = "run"
+	}
+	return fmt.Sprintf("relay-%s-%d", slug, start.UTC().UnixNano())
 }
 
 func emitRelayUsageErr(c *ctx, msg string) error {

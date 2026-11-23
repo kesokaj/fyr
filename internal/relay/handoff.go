@@ -69,7 +69,7 @@ func recoveryHint(reason, headBefore, planID string) string {
 	case HaltPlanTampered:
 		return fmt.Sprintf("Plan %s changed outside checkbox markers during relay; inspect `fyr record get %s`, restore the approved plan body, then re-run `fyr relay --plan %s`.", planID, planID, planID)
 	case HaltBudgetFloor:
-		return fmt.Sprintf("Wait for Gemini quota pools above %d%% 5h / %d%% weekly, refresh `fyr models --refresh`, then resume `fyr relay --plan %s`.", GeminiFloorFive, GeminiFloorWeek, planID)
+		return fmt.Sprintf("Wait for target provider quota pools above %d%% 5h / %d%% weekly, refresh `fyr models --refresh`, then resume `fyr relay --plan %s`.", GeminiFloorFive, GeminiFloorWeek, planID)
 	case HaltRepeatingErrorHash:
 		return fmt.Sprintf("Same normalized failure repeated twice. Resolve root cause manually, then resume `fyr relay --plan %s`.", planID)
 	default:

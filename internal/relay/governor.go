@@ -41,6 +41,13 @@ func CheckBudgetFloor(home string, requireQuota bool) (QuotaStatus, error) {
 // CheckBudgetFloorAt checks cached models.json pool quotas at clock time now,
 // validating DefaultPoolQuotaTTL freshness and skipping DisabledWindow (-1).
 func CheckBudgetFloorAt(home string, requireQuota bool, now time.Time) (QuotaStatus, error) {
+	return CheckBudgetFloorForModelAt(home, "", requireQuota, now)
+}
+
+// CheckBudgetFloorForModelAt checks cached models.json pool quotas for the
+// provider family of targetModel (defaulting to Gemini when empty) at clock
+// time now, validating DefaultPoolQuotaTTL freshness and skipping DisabledWindow (-1).
+func CheckBudgetFloorForModelAt(home, targetModel string, requireQuota bool, now time.Time) (QuotaStatus, error) {
 	cat, ok, err := models.LoadCatalog(home)
 	if err != nil {
 		return QuotaStatus{OK: false, Note: "models.json unreadable: " + err.Error()}, nil
@@ -48,7 +55,7 @@ func CheckBudgetFloorAt(home string, requireQuota bool, now time.Time) (QuotaSta
 	if !ok {
 		return QuotaStatus{OK: !requireQuota, Note: missingQuotaNote(requireQuota, "models.json")}, nil
 	}
-	status := EvaluatePoolsFloor(cat.Pools, requireQuota)
+	status := EvaluatePoolsFloorForModel(cat.Pools, targetModel, requireQuota)
 	if len(cat.Pools) > 0 && !models.HasFreshPoolQuotas(cat, now, models.DefaultPoolQuotaTTL) {
 		status.Note = "stale quota cache: " + status.Note
 		if requireQuota {
@@ -68,31 +75,64 @@ func missingQuotaNote(required bool, what string) string {
 // EvaluatePoolsFloor checks active Gemini pools against the 20% 5h / 15% weekly floors,
 // skipping disabled (-1) windows rather than treating them as below floor.
 func EvaluatePoolsFloor(pools []models.Pool, requireQuota bool) QuotaStatus {
+	return EvaluatePoolsFloorForModel(pools, "", requireQuota)
+}
+
+// EvaluatePoolsFloorForModel checks active provider pools matching targetModel's
+// model family (defaulting to Gemini when empty) against the 20% 5h / 15% weekly
+// floors, skipping disabled (-1) windows.
+func EvaluatePoolsFloorForModel(pools []models.Pool, targetModel string, requireQuota bool) QuotaStatus {
 	if len(pools) == 0 {
 		return QuotaStatus{OK: !requireQuota, Note: missingQuotaNote(requireQuota, "quota pools")}
 	}
-	var gemPools []models.Pool
-	for _, p := range pools {
-		low := strings.ToLower(p.Name)
-		if strings.Contains(low, "gemini") || strings.Contains(low, "google") {
-			gemPools = append(gemPools, p)
-		}
+	matched, label := matchPoolsForModel(pools, targetModel)
+	if len(matched) == 0 {
+		return QuotaStatus{OK: !requireQuota, Note: missingQuotaNote(requireQuota, label), Pools: pools}
 	}
-	if len(gemPools) == 0 {
-		return QuotaStatus{OK: !requireQuota, Note: missingQuotaNote(requireQuota, "Gemini pool"), Pools: pools}
-	}
-	parts := make([]string, 0, len(gemPools))
-	for _, p := range gemPools {
+	parts := make([]string, 0, len(matched))
+	for _, p := range matched {
 		fiveLow := p.Five != models.DisabledWindow && p.Five < GeminiFloorFive
 		weekLow := p.Week != models.DisabledWindow && p.Week < GeminiFloorWeek
 		if fiveLow || weekLow {
 			note := fmt.Sprintf("%s below floor (5h=%s, week=%s; floor %d%%/%d%%)",
 				p.Name, formatPct(p.Five), formatPct(p.Week), GeminiFloorFive, GeminiFloorWeek)
-			return QuotaStatus{OK: false, Note: note, Pools: gemPools}
+			return QuotaStatus{OK: false, Note: note, Pools: matched}
 		}
 		parts = append(parts, fmt.Sprintf("%s 5h=%s week=%s", p.Name, formatPct(p.Five), formatPct(p.Week)))
 	}
-	return QuotaStatus{OK: true, Note: strings.Join(parts, "; "), Pools: gemPools}
+	return QuotaStatus{OK: true, Note: strings.Join(parts, "; "), Pools: matched}
+}
+
+func matchPoolsForModel(pools []models.Pool, targetModel string) ([]models.Pool, string) {
+	fam := "gemini"
+	if m := strings.TrimSpace(targetModel); m != "" {
+		fam, _, _ = models.ClassifyModel(m, "")
+	}
+	label := "Gemini pool"
+	if fam == "anthropic" {
+		label = "Anthropic/Claude pool"
+	} else if fam != "gemini" {
+		label = "provider pool"
+	}
+	var matched []models.Pool
+	for _, p := range pools {
+		if poolMatchesFamily(p.Name, fam) {
+			matched = append(matched, p)
+		}
+	}
+	return matched, label
+}
+
+func poolMatchesFamily(poolName, fam string) bool {
+	low := strings.ToLower(poolName)
+	switch fam {
+	case "anthropic":
+		return strings.Contains(low, "claude") || strings.Contains(low, "anthropic")
+	case "gemini":
+		return strings.Contains(low, "gemini") || strings.Contains(low, "google")
+	default:
+		return strings.Contains(low, "gpt") || strings.Contains(low, "openai")
+	}
 }
 
 func formatPct(v int) string {

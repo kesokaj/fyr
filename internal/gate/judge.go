@@ -43,6 +43,7 @@ type JudgeVerdictRecord struct {
 // JudgeRequest carries the fenced diff, verification summary, and criterion to JudgeRunner.
 type JudgeRequest struct {
 	Home            string
+	RealHome        string
 	RepoDir         string
 	Target          string
 	MergeBase       string
@@ -92,7 +93,8 @@ func EvaluateJudge(ctx context.Context, opts GateOptions, tgt gateTarget) (Judge
 		repoDir = tgt.mainRoot
 	}
 	req := JudgeRequest{
-		Home: home, RepoDir: repoDir, Target: opts.Target, MergeBase: tgt.mergeBase,
+		Home: home, RealHome: resolveRealHome(opts.RealHome), RepoDir: repoDir,
+		Target: opts.Target, MergeBase: tgt.mergeBase,
 		Head: tgt.head, Criterion: opts.Judge, ExplicitModel: opts.JudgeModel,
 		WorkerModel: opts.WorkerModel, WorkerSessionID: opts.WorkerSessionID,
 		Diff: f.Data("git-diff", "branch", diffText), StampSummary: stampSummary,
@@ -205,6 +207,14 @@ func readGateJudgeStamp(tgt gateTarget) (string, error) {
 	return "verify.stamp: missing", nil
 }
 
+func resolveRealHome(explicit string) string {
+	if h := strings.TrimSpace(explicit); h != "" {
+		return h
+	}
+	h, _ := os.UserHomeDir()
+	return strings.TrimSpace(h)
+}
+
 func runGateJudge(ctx context.Context, opts GateOptions, agyPath, model, fb string, req JudgeRequest) (JudgeResult, error) {
 	if opts.JudgeRunner != nil {
 		res, err := opts.JudgeRunner(ctx, req)
@@ -212,10 +222,22 @@ func runGateJudge(ctx context.Context, opts GateOptions, agyPath, model, fb stri
 			if errors.Is(err, ErrRefused) {
 				return JudgeResult{}, err
 			}
-			return JudgeResult{Model: model, FallbackReason: fb, Verdict: "FAIL", Reason: err.Error()}, nil
+			if errors.Is(err, isolate.ErrNoAuthToken) {
+				return JudgeResult{}, fmt.Errorf("%w: %w", ErrRefused, err)
+			}
+			return JudgeResult{
+				Model: model, WorkerModel: req.WorkerModel, WorkerSessionID: req.WorkerSessionID,
+				FallbackReason: fb, Verdict: "FAIL", Reason: err.Error(),
+			}, nil
 		}
 		if res.Model == "" {
 			res.Model = model
+		}
+		if res.WorkerModel == "" {
+			res.WorkerModel = req.WorkerModel
+		}
+		if res.WorkerSessionID == "" {
+			res.WorkerSessionID = req.WorkerSessionID
 		}
 		if res.FallbackReason == "" {
 			res.FallbackReason = fb
@@ -234,21 +256,33 @@ func runIsolatedJudge(ctx context.Context, agyPath, model, fb string, req JudgeR
 		return JudgeResult{}, refusef("judge prompt exceeds %d bytes (%d)", maxGateJudgePromptBytes, len(prompt))
 	}
 	out, err := isolate.JudgeExecFunc(ctx, isolate.JudgeExecOptions{
-		Home: req.Home, RepoDir: req.RepoDir, AgyPath: agyPath, Model: model, Prompt: prompt,
+		Home: req.Home, RealHome: req.RealHome, RepoDir: req.RepoDir, AgyPath: agyPath, Model: model, Prompt: prompt,
 	})
+	if errors.Is(err, isolate.ErrNoAuthToken) {
+		return JudgeResult{}, fmt.Errorf("%w: %w", ErrRefused, err)
+	}
 	verdict, reason, perr := isolate.ParseJudgeVerdict(out.Stdout)
 	if err != nil || out.ExitCode != 0 {
 		msg := firstNonEmptyStr(reason, strings.TrimSpace(out.Stderr), errMsg(err), fmt.Sprintf("judge exit %d", out.ExitCode))
-		return JudgeResult{Model: model, FallbackReason: fb, Verdict: "FAIL", Reason: msg}, nil
+		return JudgeResult{
+			Model: model, WorkerModel: req.WorkerModel, WorkerSessionID: req.WorkerSessionID,
+			FallbackReason: fb, Verdict: "FAIL", Reason: msg,
+		}, nil
 	}
 	if perr != nil {
 		msg := firstNonEmptyStr(errMsg(perr), strings.TrimSpace(out.Stderr))
 		if s := strings.TrimSpace(out.Stderr); s != "" && !strings.Contains(msg, s) {
 			msg += ": " + s
 		}
-		return JudgeResult{Model: model, FallbackReason: fb, Verdict: "FAIL", Reason: msg}, nil
+		return JudgeResult{
+			Model: model, WorkerModel: req.WorkerModel, WorkerSessionID: req.WorkerSessionID,
+			FallbackReason: fb, Verdict: "FAIL", Reason: msg,
+		}, nil
 	}
-	return JudgeResult{Model: model, FallbackReason: fb, Verdict: verdict, Reason: reason}, nil
+	return JudgeResult{
+		Model: model, WorkerModel: req.WorkerModel, WorkerSessionID: req.WorkerSessionID,
+		FallbackReason: fb, Verdict: verdict, Reason: reason,
+	}, nil
 }
 
 func buildGateJudgePrompt(req JudgeRequest) string {

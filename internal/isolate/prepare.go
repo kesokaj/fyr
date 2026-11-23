@@ -239,6 +239,11 @@ func (b *Box) Install(ctx context.Context) bool {
 		b.Fail(ReasonInstall)
 		return false
 	}
+	if err := StageModelsCatalog(b.c.RealHome, b.sb); err != nil {
+		b.Note("stage models.json: %v", err)
+		b.Fail(ReasonInstall)
+		return false
+	}
 	return true
 }
 

@@ -3,6 +3,7 @@ package relay
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -27,11 +28,13 @@ type SessionRequest struct {
 	Timeout                                                              time.Duration
 }
 
-// SessionResult captures exit status, output, and duration of a phase session.
+// SessionResult captures exit status, output, attribution, and duration of a phase session.
 type SessionResult struct {
-	ExitCode       int
-	Stdout, Stderr string
-	Duration       time.Duration
+	ExitCode        int
+	Stdout, Stderr  string
+	Duration        time.Duration
+	WorkerModel     string
+	WorkerSessionID string
 }
 
 // SessionRunner executes one fresh phase session; injectable for tests.
@@ -78,7 +81,56 @@ func RunAgySession(ctx context.Context, req SessionRequest) (SessionResult, erro
 	cmd.Dir = req.RepoDir
 	cmd.Env = relaySessionEnv(req)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	return execSessionCmd(ctx, cmd, timeout)
+	res, err := execSessionCmd(ctx, cmd, timeout)
+	res.WorkerModel, res.WorkerSessionID = parseSessionAttribution(res.Stdout, req.Model)
+	return res, err
+}
+
+type agySessionEnvelope struct {
+	ConversationID string `json:"conversation_id"`
+	SessionID      string `json:"session_id"`
+	Model          string `json:"model"`
+	ModelID        string `json:"model_id"`
+}
+
+func parseSessionAttribution(stdout, fallbackModel string) (model, sessionID string) {
+	model = strings.TrimSpace(fallbackModel)
+	trimmed := strings.TrimSpace(stdout)
+	if trimmed == "" {
+		return model, ""
+	}
+	if m, s, ok := decodeSessionEnvelope(trimmed); ok {
+		return firstNonEmptyStr(m, model), s
+	}
+	lines := strings.Split(trimmed, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(line, "{") {
+			if m, s, ok := decodeSessionEnvelope(line); ok {
+				return firstNonEmptyStr(m, model), s
+			}
+		}
+	}
+	return model, ""
+}
+
+func decodeSessionEnvelope(raw string) (model, sessionID string, ok bool) {
+	var env agySessionEnvelope
+	if err := json.Unmarshal([]byte(raw), &env); err != nil {
+		return "", "", false
+	}
+	model = firstNonEmptyStr(env.Model, env.ModelID)
+	sessionID = firstNonEmptyStr(env.ConversationID, env.SessionID)
+	return model, sessionID, model != "" || sessionID != ""
+}
+
+func firstNonEmptyStr(vals ...string) string {
+	for _, v := range vals {
+		if s := strings.TrimSpace(v); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func relaySessionEnv(req SessionRequest) []string {

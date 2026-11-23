@@ -59,19 +59,23 @@ func isValidCheckboxTick(beforeLine, afterLine string) bool {
 	return false
 }
 
-func checkLiveSessionHome(home string) error {
+func checkLiveSessionHome(home, realHome string) error {
 	h := strings.TrimSpace(home)
 	if h == "" {
 		return nil
 	}
-	realHome, err := os.UserHomeDir()
-	if err != nil || strings.TrimSpace(realHome) == "" {
-		return refusef("cannot resolve host HOME to verify --home %q for live agy session", h)
+	rh := strings.TrimSpace(realHome)
+	if rh == "" {
+		var err error
+		rh, err = os.UserHomeDir()
+		if err != nil || strings.TrimSpace(rh) == "" {
+			return refusef("cannot resolve host HOME to verify --home %q for live agy session", h)
+		}
 	}
-	if sameCleanPath(h, realHome) {
+	if sameCleanPath(h, rh) {
 		return nil
 	}
-	return refusef("refusing live agy session with mismatched --home %q (host HOME is %q); use --dry-run for scratch homes or run installed fyr without --home", h, realHome)
+	return refusef("refusing live agy session with mismatched --home %q (host HOME is %q); use --dry-run for scratch homes or run installed fyr without --home", h, rh)
 }
 
 func sameCleanPath(a, b string) bool {

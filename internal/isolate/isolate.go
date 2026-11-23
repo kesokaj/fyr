@@ -110,7 +110,7 @@ func policyPaths(realHome, bin string, baseRW, extraRW, baseRO, extraRO []string
 	}
 	rw = appendUniqueClean(rw, extraRW...)
 
-	ro = addPathPair(nil, bin)
+	ro = appendAgyROPaths(nil, realHome, bin)
 	ro = appendExistingPaths(ro, baseRO)
 	ro = appendExistingPaths(ro, systemROCandidates)
 	if gr := runtime.GOROOT(); gr != "" {
@@ -234,5 +234,22 @@ func (b *Box) buildAgentCmd(bin string, args []string) (*exec.Cmd, func(), error
 		}
 		bin = abs
 	}
+	b.ensureAgyWrapper(bin)
 	return prepareIsolatedCmd(b.policyFor(bin, args))
+}
+
+func (b *Box) ensureAgyWrapper(bin string) {
+	if !isAgyExecutableName(bin) {
+		return
+	}
+	binDir := filepath.Join(b.sb, "bin")
+	if st, err := os.Lstat(binDir); err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
+		return
+	}
+	dst := filepath.Join(binDir, "agy")
+	if _, err := os.Lstat(dst); err == nil {
+		return
+	}
+	script := "#!/usr/bin/env bash\nexec " + ShellQuote(bin) + " \"$@\"\n"
+	_ = os.WriteFile(dst, []byte(script), 0o755)
 }

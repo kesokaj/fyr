@@ -22,6 +22,7 @@ type GateOptions struct {
 	Target          string
 	Base            string
 	Home            string
+	RealHome        string
 	Lease           []string
 	LeaseFile       string
 	MaxFiles        int

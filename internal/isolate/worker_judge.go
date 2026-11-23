@@ -41,6 +41,10 @@ type JudgeExecOutput struct {
 	ExitCode       int
 }
 
+// ErrNoAuthToken is returned before spawning `agy -p` when no regular-file
+// Antigravity OAuth token can be staged for the isolated judge.
+var ErrNoAuthToken error = errors.New("judge exec: no Antigravity OAuth token found")
+
 // JudgeExecFunc runs the cross-family judge; overridden in unit tests.
 var JudgeExecFunc = RunJudgePrint
 
@@ -54,7 +58,7 @@ func RunJudgePrint(ctx context.Context, opts JudgeExecOptions) (JudgeExecOutput,
 	if err != nil {
 		return JudgeExecOutput{ExitCode: -1}, err
 	}
-	scratchHome, tmpDir, tok, cleanScratch, err := prepareJudgeScratch(absHome, absReal)
+	scratchHome, tmpDir, tok, cleanScratch, err := prepareJudgeScratch(absHome, absReal, opts.Unconfined)
 	if err != nil {
 		return JudgeExecOutput{ExitCode: -1}, err
 	}
@@ -89,7 +93,7 @@ func resolveJudgeDirs(opts JudgeExecOptions) (absHome, absReal, absRepo string, 
 	return absHome, absReal, absRepo, err
 }
 
-func prepareJudgeScratch(absHome, absReal string) (scratchHome, tmpDir, tok string, cleanup func(), err error) {
+func prepareJudgeScratch(absHome, absReal string, unconfined bool) (scratchHome, tmpDir, tok string, cleanup func(), err error) {
 	stateDir := filepath.Join(absHome, harness.StateDir)
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return "", "", "", nil, err
@@ -115,7 +119,12 @@ func prepareJudgeScratch(absHome, absReal string) (scratchHome, tmpDir, tok stri
 			return "", "", "", nil, err
 		}
 	}
-	if tok, err = linkJudgeToken(scratchHome, absHome, absReal); err == nil {
+	if tok, err = linkJudgeToken(scratchHome, absHome, absReal, unconfined); err == nil {
+		if stageSrc := firstNonEmpty(absReal, absHome); stageSrc != "" {
+			err = StageModelsCatalog(stageSrc, scratchHome)
+		}
+	}
+	if err == nil {
 		sp := filepath.Join(scratchHome, ".gemini", "antigravity-cli", "settings.json")
 		err = os.WriteFile(sp, []byte(`{"permissions":{"allow":[]}}`+"\n"), 0o600)
 	}
@@ -126,26 +135,26 @@ func prepareJudgeScratch(absHome, absReal string) (scratchHome, tmpDir, tok stri
 	return scratchHome, tmpDir, tok, cleanup, nil
 }
 
-func linkJudgeToken(scratchHome, absHome, absReal string) (string, error) {
-	var tok string
-	var err error
-	if absReal != "" {
-		tok, err = SyncWorkToken(absHome, absReal, hostOS)
-	} else {
+func linkJudgeToken(scratchHome, absHome, absReal string, unconfined bool) (string, error) {
+	if absReal == "" && unconfined {
 		_, e1 := os.Lstat(filepath.Join(absHome, filepath.FromSlash(TokenRel)))
 		_, e2 := os.Lstat(filepath.Join(absHome, filepath.FromSlash(WorkTokenRel)))
-		tok, err = SyncWorkToken(absHome, absHome, hostOS)
-		if err != nil && e1 != nil && e2 != nil {
+		if errors.Is(e1, fs.ErrNotExist) && errors.Is(e2, fs.ErrNotExist) {
 			return "", nil
 		}
 	}
+	realDir := firstNonEmpty(absReal, absHome)
+	tok, err := SyncWorkToken(absHome, realDir, hostOS)
 	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrNoAuthToken, err)
+	}
+	if st, statErr := os.Lstat(tok); statErr != nil || !st.Mode().IsRegular() {
+		return "", fmt.Errorf("%w: %s is not a regular file", ErrNoAuthToken, tok)
+	}
+	if err := os.Symlink(tok, filepath.Join(scratchHome, filepath.FromSlash(TokenRel))); err != nil {
 		return "", err
 	}
-	if tok != "" {
-		err = os.Symlink(tok, filepath.Join(scratchHome, filepath.FromSlash(TokenRel)))
-	}
-	return tok, err
+	return tok, nil
 }
 
 func buildJudgeCmd(opts JudgeExecOptions, absRepo, scratchHome, tmpDir, tok string) (*exec.Cmd, func(), error) {

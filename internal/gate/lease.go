@@ -135,6 +135,8 @@ func splitLeaseTokens(s string) []string {
 	return out
 }
 
+const forbiddenTrailPath = ".agents/trail.jsonl"
+
 func normalizeLeasePattern(p string) (string, error) {
 	p = strings.TrimSpace(strings.Trim(strings.TrimSpace(p), "`\"'"))
 	if p == "" {
@@ -144,8 +146,21 @@ func normalizeLeasePattern(p string) (string, error) {
 	if strings.HasPrefix(slash, "/") || strings.Contains(slash, "..") {
 		return "", refusef("invalid lease pattern %q", p)
 	}
-	slash = strings.TrimPrefix(slash, "./")
+	for strings.HasPrefix(slash, "./") {
+		slash = slash[2:]
+	}
+	if leaseMatchesForbiddenTrail(slash) {
+		return "", refusef("lease pattern %q may not match %s", p, forbiddenTrailPath)
+	}
 	return slash, nil
+}
+
+func leaseMatchesForbiddenTrail(pat string) bool {
+	clean := strings.TrimSuffix(pat, "/")
+	if clean == ".agents" || clean == forbiddenTrailPath {
+		return true
+	}
+	return matchLeasePattern(pat, forbiddenTrailPath)
 }
 
 func matchesAnyLease(patterns []string, relPath string) bool {

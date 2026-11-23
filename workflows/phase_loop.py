@@ -1,10 +1,13 @@
 """Run a parallel build -> gate/review -> defect loop-back -> sequential land phase loop via run_workflow."""
 
-import asyncio, hashlib, json, os, re, shutil
+import asyncio, hashlib, json, os, re, shutil, time
+from datetime import datetime, timezone
 
 _MAX_CLI_TIMEOUT_SEC, _DEFAULT_CLI_TIMEOUT_SEC, _DEFAULT_BUILDER_CALL_CAP = 1800, 300, 120
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _BRANCH_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
+_FORBIDDEN_TRAIL_PATH = ".agents/trail.jsonl"
 _BLOCKING_VERDICTS = frozenset({"REQUEST_CHANGES", "FINDINGS", "FAIL", "BLOCKED"})
 
 BUILDER_SCHEMA = {
@@ -97,6 +100,8 @@ def _norm_lease_path(raw):
     p = p.rstrip("/")
     if not p or p.startswith("/") or ".." in p.split("/"):
         raise ValueError(f"invalid lease path: {raw!r}")
+    if p == "." or _match_lease(p, _FORBIDDEN_TRAIL_PATH):
+        raise ValueError(f"lease pattern {raw!r} may not match {_FORBIDDEN_TRAIL_PATH}")
     return p
 
 def _normalize_files(raw_files):
@@ -264,6 +269,7 @@ def _validate_slices(raw_slices, phase_slug, default_base, default_max_lines):
         validated.append({
             "id": sid, "goal": goal, "files": files, "branch": branch, "base_ref": base_ref,
             "verify_cmd": str(raw.get("verify_cmd", "")).strip(), "judge_criterion": str(raw.get("judge_criterion", "")).strip(),
+            "worker_model": str(raw.get("worker_model", "")).strip(), "worker_session": str(raw.get("worker_session", "")).strip(),
             "max_lines": _clamp_int(raw.get("max_lines"), 1, 50000, default_max_lines), "max_files": _clamp_int(raw.get("max_files"), 0, 500, 0),
         })
     for i in range(len(validated)):
@@ -361,6 +367,13 @@ def _lease_cli_flags(s):
         out.extend(["--lease", pat])
     return out
 
+def _judge_and_worker_cli_flags(s, cfg):
+    out = []
+    if s["judge_criterion"] and cfg["cross_family"]:
+        out += ["--judge", s["judge_criterion"]] + (["--judge-model", cfg["judge_model"]] if cfg["judge_model"] and _MODEL_ID_RE.match(cfg["judge_model"]) else [])
+    wm, ws = s.get("worker_model") or cfg.get("worker_model") or "", s.get("worker_session") or cfg.get("worker_session") or ""
+    return out + (["--worker-model", wm] if wm and _MODEL_ID_RE.match(wm) else []) + (["--worker-session", ws] if ws and _SESSION_ID_RE.match(ws) else [])
+
 async def _run_fyr_gate(s, branch, round_num, cfg):
     mocked = _mock_entry(cfg["mocks"], "gate", s["id"], round_num)
     if isinstance(mocked, dict):
@@ -369,11 +382,7 @@ async def _run_fyr_gate(s, branch, round_num, cfg):
         if not cfg["mocks"]:
             return {"ok": False, "findings": [{"check": "gate", "detail": "exec_cli disabled without mocks (missing CONVERSATION_ID)"}]}
         return {"ok": True, "findings": [], "judgeVerdict": "PASS" if s["judge_criterion"] else ""}
-    cli_args = ["gate", branch] + _lease_cli_flags(s) + (["--base", s["base_ref"]] if s["base_ref"] else [])
-    if s["judge_criterion"] and cfg["cross_family"]:
-        cli_args.extend(["--judge", s["judge_criterion"]])
-        if cfg["judge_model"] and _MODEL_ID_RE.match(cfg["judge_model"]):
-            cli_args.extend(["--judge-model", cfg["judge_model"]])
+    cli_args = ["gate", branch] + _lease_cli_flags(s) + (["--base", s["base_ref"]] if s["base_ref"] else []) + _judge_and_worker_cli_flags(s, cfg)
     parsed, rc, err_tail = await _exec_fyr_json(cli_args, cfg)
     return {**parsed, "ok": parsed.get("ok", rc == 0)} if isinstance(parsed, dict) else {"ok": rc == 0, "findings": [] if rc == 0 else [{"check": "gate", "detail": err_tail}]}
 
@@ -385,7 +394,8 @@ async def _run_fyr_land(s, branch, cfg):
         if not cfg["mocks"]:
             return {"ok": False, "branch": branch, "detail": "exec_cli disabled without mocks (missing CONVERSATION_ID)"}
         return {"ok": True, "branch": branch, "landCommit": "mock-land"}
-    parsed, rc, err_tail = await _exec_fyr_json(["land", branch] + _lease_cli_flags(s), cfg)
+    cli_args = ["land", branch] + _lease_cli_flags(s) + _judge_and_worker_cli_flags(s, cfg)
+    parsed, rc, err_tail = await _exec_fyr_json(cli_args, cfg)
     return {**parsed, "ok": parsed.get("ok", rc == 0)} if isinstance(parsed, dict) else {"ok": rc == 0, "branch": branch, "detail": "" if rc == 0 else err_tail}
 
 async def _run_fyr_verify(cfg):
@@ -493,7 +503,52 @@ async def _run_slice(s, cfg):
         del worker
     return _slice_res(s, "ESCALATE", branch, commit, rounds_run, packets, "slice loop exited without verdict")
 
-plan_id = str(args.get("plan_id", "")).strip()
+def _extract_cli_failure_detail(res, fallback):
+    if not isinstance(res, dict):
+        return fallback
+    if str(res.get("detail") or "").strip():
+        return str(res.get("detail")).strip()
+    v_obj = res.get("verify") if isinstance(res.get("verify"), dict) else res
+    parts = [
+        f"{str(st.get('name') or 'step').strip()}: {str(st.get('detail') or '').strip().splitlines()[0].strip()}"
+        if str(st.get("detail") or "").strip() else f"{str(st.get('name') or 'step').strip()} failed"
+        for st in (v_obj.get("steps") or []) if isinstance(st, dict) and not st.get("ok")
+    ] if isinstance(v_obj, dict) else []
+    if parts:
+        return "verify " + "; ".join(parts[:3])
+    if isinstance(res.get("gate"), dict):
+        lh, oth, _ = _extract_gate_defects(res["gate"])
+        if lh or oth:
+            return "; ".join((lh + oth)[:3])
+    return str(res.get("error") or "").strip() or fallback
+
+async def _record_orchestration_run(cfg, overall_status, slice_results, landed, ok_slices, total_slices, run_start):
+    fyr_bin = _resolve_bin("fyr") if (cfg["exec_cli"] and not cfg["dry_run"]) else None
+    if not fyr_bin:
+        return
+    ok_n = sum(1 for item in landed if item.get("ok")) if cfg["land"] else len(ok_slices)
+    payload = {
+        "id": f"phase-loop-{_safe_slug(cfg['plan_id'] or cfg['phase_name'], 'run')[:48]}-{time.time_ns()}",
+        "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "kind": "phase_loop", "project_root": os.getcwd(),
+        "status": overall_status, "units": total_slices, "defect_rounds": sum(len(r.get("defect_packets") or []) for r in slice_results),
+        "failed": max(0, total_slices - ok_n), "duration_ms": max(0, int((time.monotonic() - run_start) * 1000)),
+        "worker_model": cfg.get("worker_model", ""), "judge_model": cfg.get("judge_model", ""), "verdict": overall_status,
+    }
+    payload["passed"] = ok_n
+    cmd = [fyr_bin, "metrics", "record-run", "--json-in"] + ([f"--home={cfg['fyr_home']}"] if cfg["fyr_home"] else [])
+    proc = None
+    try:
+        proc = await asyncio.create_subprocess_exec(*cmd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL, env=_cli_env())
+        await asyncio.wait_for(proc.communicate(input=json.dumps(payload).encode("utf-8")), timeout=min(15, cfg["cli_timeout_sec"]))
+    except Exception:
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.communicate()
+            except OSError:
+                pass
+
+run_start, plan_id = time.monotonic(), str(args.get("plan_id", "")).strip()
 phase_name = str(args.get("phase_name") or args.get("wave_name") or "phase").strip()
 phase_slug, date = _safe_slug(phase_name, "phase"), _safe_slug(args.get("date"), "today")
 slices = _validate_slices(args.get("slices"), phase_slug, str(args.get("base_ref", "HEAD")).strip() or "HEAD", _clamp_int(args.get("max_lines"), 1, 50000, 1500))
@@ -504,7 +559,8 @@ cfg = {
     "run_verifier": _as_bool(args.get("run_verifier"), False), "land": _as_bool(args.get("land"), True),
     "land_partial": _as_bool(args.get("land_partial"), False), "dry_run": _as_bool(args.get("dry_run"), False),
     "cross_family": _flag_default_live(args, "cross_family"), "exec_cli": _flag_default_live(args, "exec_cli"),
-    "judge_model": str(args.get("judge_model", "")).strip(), "fyr_home": "" if raw_home.startswith("-") else raw_home,
+    "judge_model": str(args.get("judge_model", "")).strip(), "worker_model": str(args.get("worker_model", "")).strip(),
+    "worker_session": str(args.get("worker_session", "")).strip(), "fyr_home": "" if raw_home.startswith("-") else raw_home,
     "cli_timeout_sec": _clamp_int(args.get("cli_timeout_sec"), 30, _MAX_CLI_TIMEOUT_SEC, _DEFAULT_CLI_TIMEOUT_SEC),
     "builder_call_cap": _clamp_int(args.get("builder_call_cap"), 10, 500, _DEFAULT_BUILDER_CALL_CAP), "mocks": _load_env_mocks(),
 }
@@ -526,14 +582,16 @@ else:
             land_res = await _run_fyr_land(slice_by_id[r["slice_id"]], r["branch"], cfg)
             landed.append({"slice_id": r["slice_id"], "branch": r["branch"], "ok": bool(land_res.get("ok")), "commit": land_res.get("landCommit", "")})
             if not land_res.get("ok"):
-                escalations.append({"slice_id": r["slice_id"], "reason": f"fyr land failed: {land_res.get('detail', 'unknown')}", "rounds": r["rounds"]})
+                escalations.append({"slice_id": r["slice_id"], "reason": f"fyr land failed: {_extract_cli_failure_detail(land_res, 'land failed without detail')}", "rounds": r["rounds"]})
                 break
         if landed and all(item["ok"] for item in landed):
             phase("Final main verification")
             final_verify = await _run_fyr_verify(cfg)
             if not final_verify.get("ok"):
-                escalations.append({"slice_id": "main", "reason": f"final fyr verify failed: {final_verify.get('detail', 'unknown')}", "rounds": 0})
+                escalations.append({"slice_id": "main", "reason": f"final fyr verify failed: {_extract_cli_failure_detail(final_verify, 'verify failed without detail')}", "rounds": 0})
     overall_status = "PASS" if (not escalations and len(ok_slices) == len(slices)) else "ESCALATE"
     for r in slice_results:
         log(f"[{r['slice_id']}] status={r['status']} rounds={r['rounds']} branch={r['branch']}")
+    if not any(str(e.get("reason", "")).startswith("invalid branch ref from builder") for e in escalations):
+        await _record_orchestration_run(cfg, overall_status, slice_results, landed, ok_slices, len(slices), run_start)
     print(json.dumps({"plan_id": plan_id, "phase": phase_name, "status": overall_status, "max_rounds": cfg["max_rounds"], "cross_family": cfg["cross_family"], "exec_cli": cfg["exec_cli"], "mocked": not cfg["exec_cli"], "slices": slice_results, "landed": landed, "final_verify": final_verify, "escalations": escalations}, indent=2))

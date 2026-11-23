@@ -77,35 +77,37 @@ type GateFunc func(ctx context.Context, opts gate.GateOptions) (gate.GateReport,
 
 // Options configures a `fyr relay` invocation.
 type Options struct {
-	Dir, Home, PlanID, JudgeModel string
-	MaxPhases, MaxFiles, MaxLines int
-	DryRun, RequireQuota          bool
-	SessionTimeout, VerifyTimeout time.Duration
-	Vocab                         check.Vocabulary
-	PriorErrorHashes              []string
-	Now                           func() time.Time
-	SessionRunner                 SessionRunner
-	QuotaCheck                    QuotaCheckFunc
-	VerifyFn                      VerifyFunc
-	GateFn, JudgeFn               GateFunc
-	RecordVerdict                 func(gate.JudgeVerdictRecord) error
+	Dir, Home, RealHome, PlanID, JudgeModel string
+	MaxPhases, MaxFiles, MaxLines           int
+	DryRun, RequireQuota                    bool
+	SessionTimeout, VerifyTimeout           time.Duration
+	Vocab                                   check.Vocabulary
+	PriorErrorHashes                        []string
+	Now                                     func() time.Time
+	SessionRunner                           SessionRunner
+	QuotaCheck                              QuotaCheckFunc
+	VerifyFn                                VerifyFunc
+	GateFn, JudgeFn                         GateFunc
+	RecordVerdict                           func(gate.JudgeVerdictRecord) error
 }
 
 // PhaseResult records the outcome of one executed relay phase.
 type PhaseResult struct {
-	PhaseID       string   `json:"phaseId"`
-	PhaseTitle    string   `json:"phaseTitle"`
-	Status        string   `json:"status"`
-	HaltReason    string   `json:"haltReason,omitempty"`
-	Detail        string   `json:"detail,omitempty"`
-	ErrorHash     string   `json:"errorHash,omitempty"`
-	HeadBefore    string   `json:"headBefore,omitempty"`
-	HeadAfter     string   `json:"headAfter,omitempty"`
-	ChangedFiles  []string `json:"changedFiles,omitempty"`
-	VerifyTreeSHA string   `json:"verifyTreeSha,omitempty"`
-	JudgeModel    string   `json:"judgeModel,omitempty"`
-	JudgeVerdict  string   `json:"judgeVerdict,omitempty"`
-	HandoffID     string   `json:"handoffId,omitempty"`
+	PhaseID         string   `json:"phaseId"`
+	PhaseTitle      string   `json:"phaseTitle"`
+	Status          string   `json:"status"`
+	HaltReason      string   `json:"haltReason,omitempty"`
+	Detail          string   `json:"detail,omitempty"`
+	ErrorHash       string   `json:"errorHash,omitempty"`
+	HeadBefore      string   `json:"headBefore,omitempty"`
+	HeadAfter       string   `json:"headAfter,omitempty"`
+	ChangedFiles    []string `json:"changedFiles,omitempty"`
+	VerifyTreeSHA   string   `json:"verifyTreeSha,omitempty"`
+	WorkerModel     string   `json:"workerModel,omitempty"`
+	WorkerSessionID string   `json:"workerSessionId,omitempty"`
+	JudgeModel      string   `json:"judgeModel,omitempty"`
+	JudgeVerdict    string   `json:"judgeVerdict,omitempty"`
+	HandoffID       string   `json:"handoffId,omitempty"`
 }
 
 // Report summarizes a `fyr relay` run for human and JSON output.
@@ -155,7 +157,7 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 		return runDryRun(ctx, opts, top, plan, next, rep)
 	}
 	if opts.SessionRunner == nil {
-		if err := checkLiveSessionHome(opts.Home); err != nil {
+		if err := checkLiveSessionHome(opts.Home, opts.RealHome); err != nil {
 			return rep, err
 		}
 	}
@@ -192,7 +194,7 @@ func runDryRun(ctx context.Context, opts Options, top string, plan ParsedPlan, n
 	if err != nil {
 		return rep, err
 	}
-	q, err := runQuotaCheck(ctx, opts)
+	q, err := runQuotaCheck(ctx, opts, next.Model)
 	if err != nil {
 		return rep, err
 	}

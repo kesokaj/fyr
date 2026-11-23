@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/gate"
+	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/relay"
 )
 
@@ -158,5 +161,68 @@ func TestCLIRelayDryRunPassAndHalt(t *testing.T) {
 				t.Fatalf("unexpected json refusal payload: %+v", errObj)
 			}
 		})
+	}
+}
+
+func TestV910CLIRelayOrchestrationRuns(t *testing.T) {
+	repo := initCLITestRepo(t)
+	home := t.TempDir()
+	planBody := "# Plan — Relay Metrics\n\n#### Phase 1 — Add piece\n`Files:` `piece.go`\n\n- [ ] Add piece.go\n"
+	planID, err := brain.Add(brain.Options{Home: home, Dir: repo}, brain.AddInput{
+		Kind: "plan", ID: "PLAN-2026-11-23-orch", Title: "Relay Metrics", Body: strings.NewReader(planBody),
+	})
+	if err != nil {
+		t.Fatalf("add plan: %v", err)
+	}
+	prevRunner, prevVerify, prevJudge := relaySessionRunner, relayVerifyFn, relayJudgeFn
+	t.Cleanup(func() {
+		relaySessionRunner, relayVerifyFn, relayJudgeFn = prevRunner, prevVerify, prevJudge
+	})
+	relayVerifyFn = func(context.Context, gate.VerifyOptions) (gate.VerifyReport, error) {
+		return gate.VerifyReport{OK: true, TreeSHA256: "1234567890abcdef"}, nil
+	}
+	relayJudgeFn = func(context.Context, gate.GateOptions) (gate.GateReport, error) {
+		return gate.GateReport{OK: true, JudgeModel: "claude-opus-5-5-high", JudgeVerdict: "PASS"}, nil
+	}
+
+	// 1. --dry-run writes 0 orchestration_runs rows.
+	if out, errOut, code := runCLIWithErr("relay", "--home", home, "--dir", repo, "--plan", planID, "--dry-run", "--json"); code != 0 {
+		t.Fatalf("dry-run failed: code=%d out=%s err=%s", code, out, errOut)
+	}
+	if _, statErr := os.Stat(metrics.Path(home)); statErr == nil {
+		st, err := metrics.Open(metrics.Path(home))
+		if err != nil {
+			t.Fatalf("metrics.Open after dry-run: %v", err)
+		}
+		rows, err := st.QueryOrchestrationRuns("relay", time.Time{}, time.Now().Add(time.Hour), 10)
+		st.Close()
+		if err != nil || len(rows) != 0 {
+			t.Fatalf("dry-run wrote orchestration_runs rows: err=%v rows=%+v", err, rows)
+		}
+	}
+
+	// 2. Non-dry-run relay persists one kind="relay" row in metrics.db.
+	relaySessionRunner = func(_ context.Context, req relay.SessionRequest) (relay.SessionResult, error) {
+		writeCLITestFile(t, filepath.Join(req.RepoDir, "piece.go"), "package main\nfunc piece() int { return 1 }\n")
+		runGitCLI(t, req.RepoDir, "add", "piece.go")
+		runGitCLI(t, req.RepoDir, "commit", "-m", "add piece")
+		return relay.SessionResult{ExitCode: 0, WorkerModel: "gemini-4-carbon-high", WorkerSessionID: "conv-rel-1"}, nil
+	}
+	if out, errOut, code := runCLIWithErr("relay", "--home", home, "--dir", repo, "--plan", planID, "--json"); code != 0 {
+		t.Fatalf("relay run failed: code=%d out=%s err=%s", code, out, errOut)
+	}
+	st, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatalf("metrics.Open: %v", err)
+	}
+	defer st.Close()
+	rows, err := st.QueryOrchestrationRuns("relay", time.Time{}, time.Now().Add(time.Hour), 10)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("orchestration_runs after relay: err=%v rows=%+v", err, rows)
+	}
+	r := rows[0]
+	if r.Kind != "relay" || r.Status != relay.StatusOK || r.Units != 1 || r.Passed != 1 || r.Failed != 0 ||
+		r.WorkerModel != "gemini-4-carbon-high" || r.JudgeModel != "claude-opus-5-5-high" || r.Verdict != "PASS" {
+		t.Fatalf("unexpected relay orchestration_runs row: %+v", r)
 	}
 }

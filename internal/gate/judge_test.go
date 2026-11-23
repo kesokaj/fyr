@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/isolate"
@@ -51,7 +52,9 @@ func writeFakeGateAgy(t *testing.T, binDir, modelsText, usageText, verdictJSON s
 }
 
 func TestGateJudgeCrossFamily(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	realHome := t.TempDir()
+	stageFakeJudgeAuth(t, realHome)
+	t.Setenv("HOME", realHome)
 	ctx := context.Background()
 	repo := initTestGoRepo(t)
 	wt := addWorktreeBranch(t, repo, "feat-judge")
@@ -553,6 +556,217 @@ func TestGateJudgeTruncationAndHomeValidation(t *testing.T) {
 		gotSingle := truncateUTF8Newline(single, 8)
 		if !utf8.Valid(gotSingle) || string(gotSingle) != "abc€" {
 			t.Fatalf("truncateUTF8Newline(single, 8) = %q, want %q", gotSingle, "abc€")
+		}
+	})
+}
+
+func stageFakeJudgeAuth(t *testing.T, realHome string) string {
+	t.Helper()
+	p := filepath.Join(realHome, filepath.FromSlash(isolate.TokenRel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("fake-auth-fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestV910GateRelayIsolateAndWorkflows(t *testing.T) {
+	ctx := context.Background()
+	repo := initTestGoRepo(t)
+	wt := addWorktreeBranch(t, repo, "feat-v910-gate")
+	writeFile(t, filepath.Join(wt, "pkg", "v910.go"), "package pkg\n\nfunc V910() int { return 910 }\n")
+	runGit(t, wt, "add", "pkg/v910.go")
+	runGit(t, wt, "commit", "-m", "add V910")
+
+	t.Run("F-030 missing auth fails fast with ErrRefused and zero verdict rows", func(t *testing.T) {
+		realHome := t.TempDir()
+		t.Setenv("HOME", realHome)
+		home := t.TempDir()
+		binDir := filepath.Join(t.TempDir(), "bin")
+		marker := filepath.Join(t.TempDir(), "agy-spawned")
+		if err := os.MkdirAll(binDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		modelsText := "claude-opus-5-5-high\tClaude Opus 5.5 (High)\n"
+		script := "#!/bin/sh\n" +
+			"if [ \"$1\" = \"models\" ]; then printf '%s' " + shSingleQuote(modelsText) + "; exit 0; fi\n" +
+			"if [ \"$1\" = \"-p\" ] && [ \"$2\" = \"/usage\" ]; then printf 'Claude and GPT models\\tWeekly Limit Remaining\\t50%%\\tx\\nClaude and GPT models\\tFive Hour Limit Remaining\\t70%%\\tx\\n'; exit 0; fi\n" +
+			"echo ran > " + shSingleQuote(marker) + "\nsleep 10\n"
+		if err := os.WriteFile(filepath.Join(binDir, "agy"), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		var recorded []JudgeVerdictRecord
+		start := time.Now()
+		_, err := Gate(ctx, GateOptions{
+			Dir:           repo,
+			Target:        wt,
+			Home:          home,
+			Lease:         []string{"pkg/**"},
+			Judge:         "V910 returns 910",
+			JudgeModel:    "claude-opus-5-5-high",
+			RecordVerdict: func(r JudgeVerdictRecord) error { recorded = append(recorded, r); return nil },
+		})
+		elapsed := time.Since(start)
+		if !errors.Is(err, ErrRefused) || !errors.Is(err, isolate.ErrNoAuthToken) {
+			t.Fatalf("missing auth err = %v, want ErrRefused wrapping isolate.ErrNoAuthToken", err)
+		}
+		if elapsed >= time.Second {
+			t.Fatalf("missing auth took %s, want < 1s", elapsed)
+		}
+		if len(recorded) != 0 {
+			t.Fatalf("missing auth wrote %d bogus verdict rows: %+v", len(recorded), recorded)
+		}
+		if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+			t.Fatalf("agy was spawned despite missing auth")
+		}
+
+		// Symlinked auth file in explicit RealHome must also fail fast with ErrRefused and zero verdict rows.
+		symHome := t.TempDir()
+		realTarget := filepath.Join(t.TempDir(), "real-auth")
+		writeFile(t, realTarget, "fake-auth-fixture\n")
+		symAuth := filepath.Join(symHome, filepath.FromSlash(isolate.TokenRel))
+		if err := os.MkdirAll(filepath.Dir(symAuth), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(realTarget, symAuth); err != nil {
+			t.Fatal(err)
+		}
+		_, err = Gate(ctx, GateOptions{
+			Dir:           repo,
+			Target:        wt,
+			Home:          t.TempDir(),
+			RealHome:      symHome,
+			Lease:         []string{"pkg/**"},
+			Judge:         "V910 returns 910",
+			JudgeModel:    "claude-opus-5-5-high",
+			RecordVerdict: func(r JudgeVerdictRecord) error { recorded = append(recorded, r); return nil },
+		})
+		if !errors.Is(err, ErrRefused) || !errors.Is(err, isolate.ErrNoAuthToken) || len(recorded) != 0 {
+			t.Fatalf("symlink auth err=%v recorded=%d, want ErrRefused+ErrNoAuthToken and 0 rows", err, len(recorded))
+		}
+	})
+
+	t.Run("F-030 explicit RealHome threads into isolate.JudgeExecOptions and passes with regular auth", func(t *testing.T) {
+		decoyHome := t.TempDir()
+		t.Setenv("HOME", decoyHome)
+		explicitReal := t.TempDir()
+		stageFakeJudgeAuth(t, explicitReal)
+		home := t.TempDir()
+		binDir := filepath.Join(t.TempDir(), "bin")
+		modelsText := "claude-opus-5-5-high\tClaude Opus 5.5 (High)\n"
+		usageText := "Claude and GPT models\tWeekly Limit Remaining\t50%\tx\nClaude and GPT models\tFive Hour Limit Remaining\t70%\tx\n"
+		script := "#!/bin/sh\n" +
+			"if [ \"$1\" = \"models\" ]; then printf '%s' " + shSingleQuote(modelsText) + "; exit 0; fi\n" +
+			"if [ \"$1\" = \"-p\" ] && [ \"$2\" = \"/usage\" ]; then printf '%s' " + shSingleQuote(usageText) + "; exit 0; fi\n" +
+			"printf '{\"conversation_id\":\"c-v910\",\"status\":\"SUCCESS\",\"structured_output\":{\"verdict\":\"PASS\",\"reason\":\"real home ok\"}}\\n'\n"
+		if err := os.MkdirAll(binDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(binDir, "agy"), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		var recorded []JudgeVerdictRecord
+		rep, err := Gate(ctx, GateOptions{
+			Dir:             repo,
+			Target:          wt,
+			Home:            home,
+			RealHome:        explicitReal,
+			Lease:           []string{"pkg/**"},
+			Judge:           "V910 returns 910",
+			JudgeModel:      "claude-opus-5-5-high",
+			WorkerModel:     "gemini-4-carbon-high",
+			WorkerSessionID: "sess-v910",
+			RecordVerdict:   func(r JudgeVerdictRecord) error { recorded = append(recorded, r); return nil },
+		})
+		if err != nil || !rep.OK || rep.JudgeVerdict != "PASS" {
+			t.Fatalf("Gate with explicit RealHome failed: err=%v rep=%+v", err, rep)
+		}
+		if len(recorded) != 1 || recorded[0].WorkerModel != "gemini-4-carbon-high" || recorded[0].WorkerSessionID != "sess-v910" {
+			t.Fatalf("unexpected recorded attribution: %+v", recorded)
+		}
+	})
+
+	t.Run("F-033 LandReport.Detail populated on gate, verify, conflict, and refusal failures", func(t *testing.T) {
+		landRepo := initTestGoRepo(t)
+		home := t.TempDir()
+
+		// 1. Gate finding failure populates Detail.
+		wtGate := filepath.Join(t.TempDir(), "wt-gate-fail")
+		runGit(t, landRepo, "worktree", "add", "-b", "br-gate-fail", wtGate, "main")
+		writeFile(t, filepath.Join(wtGate, "outside.go"), "package main\nfunc Out() {}\n")
+		runGit(t, wtGate, "add", "outside.go")
+		runGit(t, wtGate, "commit", "-m", "outside")
+		runGit(t, landRepo, "worktree", "remove", wtGate)
+		lRep, err := Land(ctx, LandOptions{Dir: landRepo, Branch: "br-gate-fail", Home: home, Lease: []string{"pkg/**"}})
+		if !errors.Is(err, ErrFailed) || !strings.Contains(lRep.Detail, "[lease]") || !strings.Contains(lRep.Detail, "outside.go") {
+			t.Fatalf("gate failure Detail = %q (err=%v), want [lease] outside.go", lRep.Detail, err)
+		}
+
+		// 2. Verify failing step populates Detail with step name and detail.
+		wtVer := filepath.Join(t.TempDir(), "wt-ver-fail")
+		runGit(t, landRepo, "worktree", "add", "-b", "br-ver-fail", wtVer, "main")
+		writeFile(t, filepath.Join(wtVer, "bad_test.go"), "package main\n\nimport \"testing\"\n\nfunc TestBadV910(t *testing.T) { t.Fatal(\"v910 boom\") }\n")
+		runGit(t, wtVer, "add", "bad_test.go")
+		runGit(t, wtVer, "commit", "-m", "broken test")
+		runGit(t, landRepo, "worktree", "remove", wtVer)
+		lRep, err = Land(ctx, LandOptions{Dir: landRepo, Branch: "br-ver-fail", Home: home})
+		if !errors.Is(err, ErrFailed) || !strings.Contains(lRep.Detail, "verify go-test failed") {
+			t.Fatalf("verify failure Detail = %q (err=%v), want verify go-test failed", lRep.Detail, err)
+		}
+
+		// 3. Merge conflict populates Detail.
+		wtConf := filepath.Join(t.TempDir(), "wt-conflict")
+		runGit(t, landRepo, "worktree", "add", "-b", "br-conflict", wtConf, "main")
+		writeFile(t, filepath.Join(wtConf, "main.go"), "package main\n\nfunc main() { println(\"branch\") }\n")
+		runGit(t, wtConf, "add", "main.go")
+		runGit(t, wtConf, "commit", "-m", "branch edit")
+		runGit(t, landRepo, "worktree", "remove", wtConf)
+		writeFile(t, filepath.Join(landRepo, "main.go"), "package main\n\nfunc main() { println(\"main\") }\n")
+		runGit(t, landRepo, "add", "main.go")
+		runGit(t, landRepo, "commit", "-m", "main edit")
+		lRep, err = Land(ctx, LandOptions{Dir: landRepo, Branch: "br-conflict", Home: home})
+		if !errors.Is(err, ErrFailed) || !strings.Contains(lRep.Detail, "squash merge failed") {
+			t.Fatalf("merge conflict Detail = %q (err=%v), want squash merge failed", lRep.Detail, err)
+		}
+
+		// 4. Dirty main refusal populates Detail.
+		writeFile(t, filepath.Join(landRepo, "dirty.txt"), "uncommitted\n")
+		lRep, err = Land(ctx, LandOptions{Dir: landRepo, Branch: "br-conflict", Home: home})
+		if !errors.Is(err, ErrRefused) || !strings.Contains(lRep.Detail, "dirty") {
+			t.Fatalf("dirty main Detail = %q (err=%v), want dirty refusal", lRep.Detail, err)
+		}
+		_ = os.Remove(filepath.Join(landRepo, "dirty.txt"))
+	})
+
+	t.Run("F-033 lease refuses patterns matching .agents/trail.jsonl while allowing safe globs", func(t *testing.T) {
+		for _, bad := range []string{
+			".agents/trail.jsonl",
+			"./.agents/trail.jsonl",
+			".agents/trail.*",
+			".agents/*",
+			".agents/**",
+			".agents",
+			".agents/",
+			"**",
+			"**/*.jsonl",
+		} {
+			if _, err := ParseLease("Files: " + bad); !errors.Is(err, ErrRefused) {
+				t.Errorf("ParseLease(%q) err = %v, want ErrRefused", bad, err)
+			}
+			if _, err := Gate(ctx, GateOptions{Dir: repo, Target: wt, Lease: []string{bad}}); !errors.Is(err, ErrRefused) {
+				t.Errorf("Gate(Lease=%q) err = %v, want ErrRefused", bad, err)
+			}
+		}
+		for _, okPat := range []string{"docs/**", "*.go", ".agents/rules/**", ".agents/eval/**", "pkg/**"} {
+			if got, err := ParseLease("Files: " + okPat); err != nil || len(got) != 1 {
+				t.Errorf("ParseLease(%q) = %v, err=%v; want allowed", okPat, got, err)
+			}
 		}
 	})
 }

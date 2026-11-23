@@ -29,7 +29,7 @@ func checkPrePhaseTree(ctx context.Context, opts Options, top string, plan Parse
 }
 
 func checkPrePhaseQuota(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, rep *Report) error {
-	q, err := runQuotaCheck(ctx, opts)
+	q, err := runQuotaCheck(ctx, opts, ph.Model)
 	if err != nil {
 		return err
 	}
@@ -41,7 +41,7 @@ func checkPrePhaseQuota(ctx context.Context, opts Options, top string, plan Pars
 	return recordHaltAndAppend(opts, top, plan, ph, res, nil, nil, rep)
 }
 
-func runQuotaCheck(ctx context.Context, opts Options) (QuotaStatus, error) {
+func runQuotaCheck(ctx context.Context, opts Options, targetModel string) (QuotaStatus, error) {
 	if opts.QuotaCheck != nil {
 		return opts.QuotaCheck(ctx, opts.Home)
 	}
@@ -49,7 +49,7 @@ func runQuotaCheck(ctx context.Context, opts Options) (QuotaStatus, error) {
 	if opts.Now != nil {
 		now = opts.Now().UTC()
 	}
-	return CheckBudgetFloorAt(opts.Home, opts.RequireQuota, now)
+	return CheckBudgetFloorForModelAt(opts.Home, targetModel, opts.RequireQuota, now)
 }
 
 func invokePhaseSession(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, tracker *ErrorTracker, res *PhaseResult) error {
@@ -65,6 +65,9 @@ func invokePhaseSession(ctx context.Context, opts Options, top string, plan Pars
 		RepoDir: top, Home: opts.Home, PlanID: plan.ID, PhaseID: ph.ID,
 		Model: ph.Model, Prompt: BuildKickoff(top, plan, ph), Timeout: timeout, PrintTimeout: timeout.String(),
 	})
+	parsedModel, parsedSess := parseSessionAttribution(sRes.Stdout, ph.Model)
+	res.WorkerModel = firstNonEmptyStr(sRes.WorkerModel, parsedModel, ph.Model)
+	res.WorkerSessionID = firstNonEmptyStr(sRes.WorkerSessionID, parsedSess)
 	if err == nil && sRes.ExitCode == 0 {
 		return nil
 	}
@@ -171,7 +174,7 @@ func runDeterministicGate(ctx context.Context, opts Options, top string, ph Phas
 		gateFn = gate.Gate
 	}
 	gRep, gErr := gateFn(ctx, gate.GateOptions{
-		Dir: top, Target: top, Base: res.HeadBefore, Home: opts.Home,
+		Dir: top, Target: top, Base: res.HeadBefore, Home: opts.Home, RealHome: opts.RealHome,
 		Lease: ph.Files, MaxFiles: opts.MaxFiles, MaxLines: opts.MaxLines,
 	})
 	if gErr == nil && gRep.OK {
@@ -201,9 +204,11 @@ func runPhaseJudge(ctx context.Context, opts Options, top string, plan ParsedPla
 		judgeFn = gate.Gate
 	}
 	jRep, jErr := judgeFn(ctx, gate.GateOptions{
-		Dir: top, Target: top, Base: res.HeadBefore, Home: opts.Home,
+		Dir: top, Target: top, Base: res.HeadBefore, Home: opts.Home, RealHome: opts.RealHome,
 		Lease: ph.Files, MaxFiles: opts.MaxFiles, MaxLines: opts.MaxLines,
-		Judge: BuildJudgeCriterion(plan, ph), JudgeModel: opts.JudgeModel, RecordVerdict: opts.RecordVerdict,
+		Judge: BuildJudgeCriterion(plan, ph), JudgeModel: opts.JudgeModel,
+		WorkerModel: res.WorkerModel, WorkerSessionID: res.WorkerSessionID,
+		RecordVerdict: opts.RecordVerdict,
 	})
 	res.JudgeModel, res.JudgeVerdict = jRep.JudgeModel, jRep.JudgeVerdict
 	if jErr == nil && jRep.OK {

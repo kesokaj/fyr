@@ -58,7 +58,7 @@ type ctx struct {
 	gateLease                                                                                         stringSliceFlag
 	gateMaxFiles, gateMaxLines                                                                        int
 	gateTimeout                                                                                       time.Duration
-	gateJudge, gateJudgeModel                                                                         string
+	gateJudge, gateJudgeModel, gateWorkerModel, gateWorkerSession                                     string
 	watchConv                                                                                         string
 	watchIdleSec                                                                                      int
 	relayPlan, relayJudgeModel                                                                        string

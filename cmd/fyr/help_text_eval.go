@@ -185,7 +185,8 @@ var opsVerbPages = map[string]verbPage{
 	"gate": {
 		synopsis: []string{
 			"usage: fyr gate <worktree> [--base REF] [--lease GLOB] [--lease-file FILE]",
-			"                [--judge TEXT [--judge-model ID]]",
+			"                [--judge TEXT [--judge-model ID]] [--worker-model ID]",
+			"                [--worker-session ID]",
 		},
 		about: []string{
 			"Checks a clean worktree or branch against base (default HEAD) across",
@@ -200,7 +201,8 @@ var opsVerbPages = map[string]verbPage{
 	"land": {
 		synopsis: []string{
 			"usage: fyr land <branch> [--message TEXT] [--lease GLOB] [--lease-file FILE]",
-			"                [--judge TEXT [--judge-model ID]] [--json]",
+			"                [--judge TEXT [--judge-model ID]] [--worker-model ID]",
+			"                [--worker-session ID] [--json]",
 		},
 		about: []string{
 			"Runs gate on branch, squash-merges in a detached scratch worktree, runs",
@@ -236,7 +238,7 @@ var opsVerbPages = map[string]verbPage{
 		about: []string{
 			"Opt-in hands-off fresh-session phase runner for an open PLAN-* record in",
 			"brain.db. Resolves the next ready phase, checks clean git state and cached",
-			"Gemini quota floors (20% 5h, 15% week), builds a bounded Kickoff prompt,",
+			"provider quota floors (20% 5h, 15% week), builds a bounded Kickoff prompt,",
 			"and executes one isolated agy -p session per phase (up to --max-phases).",
 			"After each phase, checks HEAD progress, lease/gate rules, fyr verify, and",
 			"cross-family alignment judge, then stores an immutable handoff checkpoint.",

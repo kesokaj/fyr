@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/gate"
@@ -44,6 +45,8 @@ func registerGateFlags(c *ctx) {
 	c.fs.IntVar(&c.gateMaxLines, "max-lines", 0, "maximum changed lines `N` (default 1500)")
 	c.fs.StringVar(&c.gateJudge, "judge", "", "cross-family LLM judge acceptance criterion `TEXT`")
 	c.fs.StringVar(&c.gateJudgeModel, "judge-model", "", "explicit judge model `ID` (with --judge)")
+	c.fs.StringVar(&c.gateWorkerModel, "worker-model", "", "worker model `ID` attributed on judge verdict")
+	c.fs.StringVar(&c.gateWorkerSession, "worker-session", "", "worker session `ID` attributed on judge verdict")
 	c.fs.BoolVar(&c.jsonOut, "json", false, "print report as JSON")
 }
 
@@ -56,6 +59,8 @@ func registerLandFlags(c *ctx) {
 	c.fs.DurationVar(&c.gateTimeout, "timeout", 0, "per-command verify timeout `D` (default 30m)")
 	c.fs.StringVar(&c.gateJudge, "judge", "", "cross-family LLM judge acceptance criterion `TEXT`")
 	c.fs.StringVar(&c.gateJudgeModel, "judge-model", "", "explicit judge model `ID` (with --judge)")
+	c.fs.StringVar(&c.gateWorkerModel, "worker-model", "", "worker model `ID` attributed on judge verdict")
+	c.fs.StringVar(&c.gateWorkerSession, "worker-session", "", "worker session `ID` attributed on judge verdict")
 	c.fs.BoolVar(&c.jsonOut, "json", false, "print report as JSON")
 }
 
@@ -92,17 +97,20 @@ func runGate(c *ctx) error {
 		return err
 	}
 	rep, err := gate.Gate(context.Background(), gate.GateOptions{
-		Dir:           wd,
-		Target:        c.fs.Arg(0),
-		Base:          c.gateBase,
-		Home:          c.home,
-		Lease:         c.gateLease,
-		LeaseFile:     c.gateLeaseFile,
-		MaxFiles:      c.gateMaxFiles,
-		MaxLines:      c.gateMaxLines,
-		Judge:         c.gateJudge,
-		JudgeModel:    c.gateJudgeModel,
-		RecordVerdict: recordGateJudgeVerdict(c.home),
+		Dir:             wd,
+		Target:          c.fs.Arg(0),
+		Base:            c.gateBase,
+		Home:            c.home,
+		RealHome:        realUserHome(),
+		Lease:           c.gateLease,
+		LeaseFile:       c.gateLeaseFile,
+		MaxFiles:        c.gateMaxFiles,
+		MaxLines:        c.gateMaxLines,
+		Judge:           c.gateJudge,
+		JudgeModel:      c.gateJudgeModel,
+		WorkerModel:     strings.TrimSpace(c.gateWorkerModel),
+		WorkerSessionID: strings.TrimSpace(c.gateWorkerSession),
+		RecordVerdict:   recordGateJudgeVerdict(c.home),
 	})
 	return emitGateOutcome(c, rep, rep.MainRoot != "", err, printGateText)
 }
@@ -119,21 +127,29 @@ func runLand(c *ctx) error {
 		return err
 	}
 	rep, err := gate.Land(context.Background(), gate.LandOptions{
-		Dir:           wd,
-		Branch:        c.fs.Arg(0),
-		Message:       c.landMessage,
-		Home:          c.home,
-		Vocab:         vocabulary(),
-		Timeout:       c.gateTimeout,
-		Lease:         c.gateLease,
-		LeaseFile:     c.gateLeaseFile,
-		MaxFiles:      c.gateMaxFiles,
-		MaxLines:      c.gateMaxLines,
-		Judge:         c.gateJudge,
-		JudgeModel:    c.gateJudgeModel,
-		RecordVerdict: recordGateJudgeVerdict(c.home),
+		Dir:             wd,
+		Branch:          c.fs.Arg(0),
+		Message:         c.landMessage,
+		Home:            c.home,
+		RealHome:        realUserHome(),
+		Vocab:           vocabulary(),
+		Timeout:         c.gateTimeout,
+		Lease:           c.gateLease,
+		LeaseFile:       c.gateLeaseFile,
+		MaxFiles:        c.gateMaxFiles,
+		MaxLines:        c.gateMaxLines,
+		Judge:           c.gateJudge,
+		JudgeModel:      c.gateJudgeModel,
+		WorkerModel:     strings.TrimSpace(c.gateWorkerModel),
+		WorkerSessionID: strings.TrimSpace(c.gateWorkerSession),
+		RecordVerdict:   recordGateJudgeVerdict(c.home),
 	})
 	return emitGateOutcome(c, rep, rep.MainRoot != "", err, printLandText)
+}
+
+func realUserHome() string {
+	h, _ := os.UserHomeDir()
+	return strings.TrimSpace(h)
 }
 
 func recordGateJudgeVerdict(home string) func(gate.JudgeVerdictRecord) error {
@@ -296,10 +312,16 @@ func printLandText(w io.Writer, rep gate.LandReport) {
 		fmt.Fprintf(w, "land: PASS %s -> %s (%s)\n", rep.Branch, rep.Target, shortHash(rep.LandCommit, 12))
 		return
 	}
+	printed := false
 	if rep.Gate != nil && len(rep.Gate.Findings) > 0 {
 		printGateText(w, *rep.Gate)
+		printed = true
 	}
 	if rep.Verify != nil && len(rep.Verify.Steps) > 0 {
 		printVerifyText(w, *rep.Verify)
+		printed = true
+	}
+	if !printed && rep.Detail != "" {
+		fmt.Fprintf(w, "land: FAIL %s\n", search.Printable(rep.Detail))
 	}
 }
