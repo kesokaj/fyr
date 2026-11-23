@@ -77,19 +77,45 @@ func sessionDay(x sess) string {
 	return time.UnixMilli(ts).UTC().Format("2006-01-02")
 }
 
-func isBashReadVerb(v string) bool {
+func isUnrangedBashReadVerb(v string) bool {
 	fields := strings.Fields(v)
 	if len(fields) == 0 {
 		return false
 	}
 	switch fields[0] {
-	case "cat", "head", "tail", "nl", "bat", "batcat":
+	case "cat", "nl":
 		return true
-	case "sed":
-		return isSedReadFlags(fields[1:])
+	case "bat", "batcat":
+		return !isBatRangedFlags(fields[1:])
 	default:
 		return false
 	}
+}
+
+func isRangedBashReadVerb(v string) bool {
+	fields := strings.Fields(v)
+	if len(fields) == 0 {
+		return false
+	}
+	switch fields[0] {
+	case "head", "tail":
+		return true
+	case "sed":
+		return isSedReadFlags(fields[1:])
+	case "bat", "batcat":
+		return isBatRangedFlags(fields[1:])
+	default:
+		return false
+	}
+}
+
+func isBatRangedFlags(flags []string) bool {
+	for _, f := range flags {
+		if f == "-r" || f == "--line-range" || strings.HasPrefix(f, "--line-range=") || (strings.HasPrefix(f, "-r") && len(f) > 2) {
+			return true
+		}
+	}
+	return false
 }
 
 func isSedReadFlags(flags []string) bool {
@@ -107,25 +133,70 @@ func isSedReadFlags(flags []string) bool {
 	return hasN && !hasI
 }
 
+func firstNonCDBashVerb(verbs []string) string {
+	for _, v := range verbs {
+		if v == "cd" || strings.HasPrefix(v, "cd ") {
+			continue
+		}
+		return v
+	}
+	return ""
+}
+
 func isBashReadStep(st stp) bool {
 	if st.kind != "tool" || st.tool != "Bash" || st.denied {
 		return false
 	}
-	for _, v := range st.verbs {
-		if v == "cd" || strings.HasPrefix(v, "cd ") {
-			continue
-		}
-		return isBashReadVerb(v)
+	return isUnrangedBashReadVerb(firstNonCDBashVerb(st.verbs))
+}
+
+// bashReadTracker identifies true unguarded Bash file-read bypasses within one
+// session (F-022): unranged full-file reads (cat/nl/unranged bat) always count,
+// while allowed first-time ranged/ledger-tracked reads (head/tail/sed -n/bat -r)
+// are excluded unless repeated with the same cmd_hash without an edit/compaction.
+type bashReadTracker struct {
+	seenRanged map[string]bool
+}
+
+func (b *bashReadTracker) isUnguardedSkip(st stp) bool {
+	if st.kind == "compaction" || (!st.isErr && !st.denied && (st.tool == "Write" || st.tool == "Edit")) {
+		b.seenRanged = nil
+		return false
 	}
+	if st.kind != "tool" || st.tool != "Bash" || st.denied {
+		return false
+	}
+	v := firstNonCDBashVerb(st.verbs)
+	if isUnrangedBashReadVerb(v) {
+		return true
+	}
+	if !isRangedBashReadVerb(v) {
+		return false
+	}
+	if st.hash == "" {
+		return false
+	}
+	if b.seenRanged == nil {
+		b.seenRanged = map[string]bool{}
+	}
+	if b.seenRanged[st.hash] {
+		return true
+	}
+	b.seenRanged[st.hash] = true
 	return false
 }
 
 func populateAdherenceVerbs(sum *Summary, all []sess, stepsByID map[string][]stp) {
 	seen := map[string]bool{}
 	verbCounts := map[string]int{}
-	bypasses := map[string]int{}
+	skips := map[string]int{}
 	for _, x := range all {
+		var tracker bashReadTracker
 		for _, st := range stepsByID[x.id] {
+			if st.kind == "compaction" {
+				tracker.isUnguardedSkip(st)
+				continue
+			}
 			if st.kind != "tool" && st.kind != "assistant" && st.kind != "generation" {
 				continue
 			}
@@ -134,8 +205,8 @@ func populateAdherenceVerbs(sum *Summary, all []sess, stepsByID map[string][]stp
 				continue
 			}
 			seen[key] = true
-			if isBashReadStep(st) {
-				bypasses[x.vendor]++
+			if tracker.isUnguardedSkip(st) {
+				skips[x.vendor]++
 			}
 			if x.vendor != historical && st.kind == "tool" && st.tool == "Bash" {
 				for _, v := range st.verbs {
@@ -146,17 +217,17 @@ func populateAdherenceVerbs(sum *Summary, all []sess, stepsByID map[string][]stp
 			}
 		}
 	}
-	if sum.Sessions["agy"] > 0 || len(bypasses) > 0 {
-		outBypasses := map[string]int{}
-		if sum.Sessions["agy"] > 0 || bypasses["agy"] > 0 {
-			outBypasses["agy"] = bypasses["agy"]
+	if sum.Sessions["agy"] > 0 || len(skips) > 0 {
+		outSkips := map[string]int{}
+		if sum.Sessions["agy"] > 0 || skips["agy"] > 0 {
+			outSkips["agy"] = skips["agy"]
 		}
-		for v, c := range bypasses {
+		for v, c := range skips {
 			if v != "agy" && c > 0 {
-				outBypasses[v] = c
+				outSkips[v] = c
 			}
 		}
-		sum.C.BashReadSkips = outBypasses
+		sum.C.BashReadSkips = outSkips
 	}
 	sum.C.TopBashVerbs = topVerbCounts(verbCounts, 10)
 }

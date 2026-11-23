@@ -82,6 +82,10 @@ func (s *Store) Show(o ShowOptions) (*Summary, error) {
 }
 
 func (s *Store) populateSummaryExtras(sum *Summary, o ShowOptions, all []sess, trials []trial, data *showData, since, now time.Time) error {
+	home := resolveMetricsHome(o, s.path)
+	if o.Home == "" {
+		o.Home = home
+	}
 	populateAdherenceVerbs(sum, all, data.steps)
 	if err := s.populateSecondBrainAndProjects(sum, o, all, trials, data, since, now); err != nil {
 		return err
@@ -92,11 +96,19 @@ func (s *Store) populateSummaryExtras(sum *Summary, o ShowOptions, all []sess, t
 	if err := s.populateBackgroundRuns(sum, o, since, now); err != nil {
 		return err
 	}
+	if err := s.populateOrchestrationSummary(sum, o, since, now); err != nil {
+		return err
+	}
 	if err := s.populateHealthAndFallbacks(sum, o, all, trials, data, since, now); err != nil {
 		return err
 	}
 	sum.TriggerCoverage.OrchestrationCalls = sum.Health.OrchestrationCalls
 	sum.TriggerCoverage.DeterministicGates = sum.Health.DeterministicGates
+	sum.TriggerCoverage.ReadLedgerBlocks = dedupLedgerSaves(sum)
+	populateSIMSummary(sum, home, o)
+	if err := s.populateSkillTelemetry(sum, o, all, data, since, now); err != nil {
+		return err
+	}
 	if err := s.populateCohorts(sum, o, all, data, since, now); err != nil {
 		return err
 	}
@@ -106,6 +118,7 @@ func (s *Store) populateSummaryExtras(sum *Summary, o ShowOptions, all []sess, t
 	if err := s.populateDiagnostics(sum, o, since, now); err != nil {
 		return err
 	}
+	populateRuleTelemetry(sum)
 	return nil
 }
 
@@ -200,18 +213,20 @@ func (s *Store) stepsOf(id string) ([]stp, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	vr, err := s.db.Query(`SELECT ext_id, verb FROM step_verbs WHERE session_id = ? ORDER BY ext_id, n`, id)
+	vr, err := s.db.Query(`SELECT ext_id, n, verb FROM step_verbs WHERE session_id = ? ORDER BY ext_id, n`, id)
 	if err != nil {
 		return nil, err
 	}
 	defer vr.Close()
 	for vr.Next() {
 		var ext, verb string
-		if err := vr.Scan(&ext, &verb); err != nil {
+		var n int
+		if err := vr.Scan(&ext, &n, &verb); err != nil {
 			return nil, err
 		}
 		if i, ok := idx[ext]; ok {
 			out[i].verbs = append(out[i].verbs, verb)
+			out[i].verbNs = append(out[i].verbNs, n)
 		}
 	}
 	return out, vr.Err()

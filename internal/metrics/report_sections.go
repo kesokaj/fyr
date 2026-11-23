@@ -28,6 +28,12 @@ func reportSections(sum *Summary, series []serie, evals *EvalRows) []reportSecti
 	if len(sum.AgentRoles) > 0 {
 		secs = append(secs, agentRolesSection(sum.AgentRoles))
 	}
+	if sum.SIM != nil && sum.SIM.Available {
+		secs = append(secs, simSummarySection(sum.SIM))
+	}
+	if len(sum.SkillTelemetry) > 0 || len(sum.RuleTelemetry) > 0 {
+		secs = append(secs, skillRuleTelemetrySection(sum.SkillTelemetry, sum.RuleTelemetry))
+	}
 	if sum.TagCohort != nil {
 		secs = append(secs, tagCohortSection(sum.TagCohort))
 	}
@@ -117,6 +123,11 @@ func qualityLoopSection(s *Summary, series []serie, evals *EvalRows) reportSecti
 	addSeriesRow(&t, series, "Hook denials (excl. from error rate)", agyCol(fmt.Sprintf("%d (clamped:%d, ledger:%d, guards:%d)",
 		s.Health.HookDenials, s.Health.ClampedSaves, s.Health.HookBlocksLedger, s.Health.HookBlocksGuards)))
 	addSeriesRow(&t, series, "Eval pass^k / suite", agyCol(fmtEvalSummary(s.A.PassK, evals)))
+	if s.SIM != nil && s.SIM.Available {
+		addSeriesRow(&t, series, "SIM problems (active / resolved / workarounds)", agyCol(fmt.Sprintf("%d / %d / %d",
+			s.SIM.ActiveProblems, s.SIM.ResolvedProblems, s.SIM.Workarounds)))
+		addSeriesRow(&t, series, "SIM attempts", agyCol(fmt.Sprint(s.SIM.Attempts)))
+	}
 	return reportSection{Title: "3. Quality & Learning Loop", Table: t}
 }
 
@@ -144,6 +155,11 @@ func appendAutonomyV9Rows(t *table, series []serie, s *Summary) {
 	addSeriesRow(t, series, "Subagents over budget", agyCol(fmt.Sprint(h.SubagentsOverBudget)))
 	addSeriesRow(t, series, "Live quota pools", agyCol(formatPoolQuotas(h.PoolQuotas)))
 	addSeriesRow(t, series, "fyr auto open asks / verdict", agyCol(formatAutoHealth(h)))
+	if o := s.Orchestration; o != nil && o.Runs > 0 {
+		addSeriesRow(t, series, "Orchestration runs (units / ok / fail / rounds)", agyCol(fmt.Sprintf("%d (%d / %d / %d / %d; %s)",
+			o.Runs, o.Units, o.Succeeded, o.Failed, o.DefectRounds, fmtTopCounts(o.ByKind, 5))))
+		addSeriesRow(t, series, "Orchestration mean duration", agyCol(fmtDurationMS(o.Runs, o.MeanDurationMS)))
+	}
 }
 
 func projectBreakdownSection(s *Summary, series []serie) reportSection {
@@ -292,4 +308,59 @@ func fmtTopVerbCounts(verbs []VerbCount, limit int) string {
 		parts = append(parts, fmt.Sprintf("%s:%d", printable(vc.Verb), vc.Count))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func simSummarySection(sim *SIMSummary) reportSection {
+	t := table{
+		Head: []string{"Metric", "Value"},
+		Rows: [][]string{
+			{"Active / resolved problems", fmt.Sprintf("%d / %d", sim.ActiveProblems, sim.ResolvedProblems)},
+			{"Workarounds (total / active)", fmt.Sprintf("%d / %d", sim.Workarounds, sim.ActiveWorkarounds)},
+			{"Attempts", fmt.Sprint(sim.Attempts)},
+			{"Attempts by verdict", fmtTopCounts(sim.AttemptsByVerdict, 6)},
+			{"Field status counts", fmtTopCounts(sim.FieldStatusCounts, 6)},
+		},
+	}
+	return reportSection{
+		Title: "SIM Summary",
+		Note:  "Self-Improvement Memory ledger counts read from brain.db.",
+		Table: t,
+	}
+}
+
+func skillRuleTelemetrySection(skills []SkillTelemetry, rules []RuleTelemetry) reportSection {
+	t := table{Head: []string{"Skill", "Suggested", "Loaded", "Conversion %", "Sessions", "Mean Outcome", "Tool Error %", "Rewrite-Skill"}}
+	for _, sk := range skills {
+		t.Rows = append(t.Rows, []string{
+			printable(sk.Skill),
+			fmt.Sprint(sk.Suggested),
+			fmt.Sprint(sk.Loaded),
+			fmtFloatPtr(sk.ConversionRatePct, "%.1f%%"),
+			fmt.Sprint(sk.Sessions),
+			fmtFloatPtr(sk.MeanOutcomeScore, "%.2f"),
+			fmtFloatPtr(sk.ToolErrorRatePct, "%.2f%%"),
+			fmt.Sprint(sk.RewriteSkillCount),
+		})
+	}
+	if len(t.Rows) == 0 {
+		t.Rows = append(t.Rows, []string{"none", "0", "0", "n/a", "0", "n/a", "n/a", "0"})
+	}
+	sec := reportSection{
+		Title: "Skill & Rule Telemetry",
+		Note:  "Per-skill suggestion/load conversion, session outcomes, error rates, rewrite-skill actions, and rule telemetry.",
+		Table: t,
+	}
+	if len(rules) > 0 {
+		rt := table{Head: []string{"Rule", "Kind", "Count", "Severity"}}
+		for _, r := range rules {
+			sev := printable(r.Severity)
+			if sev == "" {
+				sev = "-"
+			}
+			rt.Rows = append(rt.Rows, []string{printable(r.Rule), printable(r.Kind), fmt.Sprint(r.Count), sev})
+		}
+		sec.SubTitle = "Rule Telemetry"
+		sec.SubTable = rt
+	}
+	return sec
 }

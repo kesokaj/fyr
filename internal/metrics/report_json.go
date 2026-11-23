@@ -113,7 +113,7 @@ func buildJSONScorecard(s *Summary) JSONScorecard {
 		PeakContext:             s.B.PeakContext["agy"],
 		SearchGrepRatio:         s.C.SearchGrepRatio["agy"],
 		RedundantReads:          s.C.RedundantReads["agy"],
-		BlockedLedgerSave:       s.E.LedgerSaved + s.Health.HookBlocksLedger,
+		BlockedLedgerSave:       dedupLedgerSaves(s),
 		ClampSaves:              s.Health.ClampedSaves,
 		BashReadSkips:           s.C.BashReadSkips["agy"],
 		PreInvocationTimeoutPct: s.E.TimeoutRatePct,

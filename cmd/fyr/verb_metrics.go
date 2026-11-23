@@ -34,7 +34,7 @@ func (c *ctx) metricsSummary(sub string) (*metrics.Summary, error) {
 // metricsSubverbs is what runMetrics dispatches, in its order: its refusal
 // texts are built from it and the check vocabulary reads it, and a test pins
 // it against the switch (plan fyr-check D14).
-var metricsSubverbs = []string{"ingest", "show", "report", "evals", "trajectory", "export"}
+var metricsSubverbs = []string{"ingest", "show", "report", "evals", "trajectory", "export", "record-run"}
 
 func runMetrics(c *ctx) error {
 	args := c.fs.Args()
@@ -55,6 +55,8 @@ func runMetrics(c *ctx) error {
 		return c.metricsTrajectory(args)
 	case "export":
 		return c.metricsExport(args)
+	case "record-run":
+		return c.metricsRecordRun(args)
 	}
 	return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics: unknown subcommand %q (%s)", sub, strings.Join(metricsSubverbs, ", ")))
 }

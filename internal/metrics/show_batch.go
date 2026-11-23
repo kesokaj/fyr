@@ -98,18 +98,20 @@ func loadBatchSteps(db *sql.DB, ids []string, steps map[string][]stp, stepIdx ma
 
 func loadBatchStepVerbs(db *sql.DB, ids []string, steps map[string][]stp, stepIdx map[string]map[string]int) error {
 	ph, args := inPlaceholders(ids)
-	rows, err := db.Query(`SELECT session_id, ext_id, verb FROM step_verbs WHERE session_id IN (`+ph+`) ORDER BY session_id, ext_id, n`, args...)
+	rows, err := db.Query(`SELECT session_id, ext_id, n, verb FROM step_verbs WHERE session_id IN (`+ph+`) ORDER BY session_id, ext_id, n`, args...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var sid, ext, verb string
-		if err := rows.Scan(&sid, &ext, &verb); err != nil {
+		var n int
+		if err := rows.Scan(&sid, &ext, &n, &verb); err != nil {
 			return err
 		}
 		if i, ok := stepIdx[sid][ext]; ok {
 			steps[sid][i].verbs = append(steps[sid][i].verbs, verb)
+			steps[sid][i].verbNs = append(steps[sid][i].verbNs, n)
 		}
 	}
 	return rows.Err()

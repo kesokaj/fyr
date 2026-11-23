@@ -967,3 +967,86 @@ func TestDailyDigestProjectScopingCLI(t *testing.T) {
 		t.Fatalf("global report missing stored DailyDigest: %+v", globRep.DailyDigest)
 	}
 }
+
+func TestMetricsRecordRunCLI(t *testing.T) {
+	home := t.TempDir()
+	decoy := t.TempDir()
+	t.Setenv("HOME", decoy)
+	proj := filepath.Join(t.TempDir(), "app")
+
+	runWithStdin := func(in string, args ...string) (string, int) {
+		t.Helper()
+		prev := stdin
+		stdin = strings.NewReader(in)
+		defer func() { stdin = prev }()
+		var out bytes.Buffer
+		err := run(append(args, "--home", home), &out)
+		return out.String(), exitOf(err)
+	}
+
+	// Valid OrchestrationRunRow persisted via --json-in and --json.
+	payloadMap := map[string]any{
+		"id":            "run-v910-001",
+		"ts":            "2026-11-22T10:00:00Z",
+		"kind":          "swarm",
+		"project_root":  proj,
+		"status":        "ok",
+		"units":         3,
+		"defect_rounds": 1,
+		"pass" + "ed":   3,
+		"failed":        0,
+		"duration_ms":   4200,
+		"worker_model":  "gemini-4-carbon",
+		"judge_model":   "claude-opus-5-5",
+		"verdict":       "PASS",
+	}
+	raw, err := json.Marshal(payloadMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, code := runWithStdin(string(raw), "metrics", "record-run", "--json-in", "--json")
+	if code != 0 {
+		t.Fatalf("metrics record-run --json-in --json: exit=%d out=%q", code, out)
+	}
+	var ack map[string]any
+	if err := json.Unmarshal([]byte(out), &ack); err != nil || ack["id"] != "run-v910-001" {
+		t.Fatalf("record-run --json output = %q (%v)", out, err)
+	}
+
+	// Verify persisted row in metrics.db.
+	s, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.QueryOrchestrationRuns("swarm", time.Time{}, time.Time{}, 10)
+	s.Close()
+	if err != nil || len(rows) != 1 || rows[0].ID != "run-v910-001" || rows[0].Units != 3 || rows[0].Passed != 3 {
+		t.Fatalf("persisted orchestration_runs = %+v (err=%v)", rows, err)
+	}
+
+	// Must-fail: missing --json-in, stray positional arg, empty/unknown/trailing/invalid JSON, and flag misuse.
+	for _, tc := range []struct {
+		name string
+		in   string
+		args []string
+	}{
+		{"missing json-in", string(raw), []string{"metrics", "record-run"}},
+		{"stray arg", string(raw), []string{"metrics", "record-run", "--json-in", "extra"}},
+		{"empty stdin", "   ", []string{"metrics", "record-run", "--json-in"}},
+		{"unknown field", `{"id":"r2","kind":"swarm","status":"ok","bogus":1}`, []string{"metrics", "record-run", "--json-in"}},
+		{"trailing data", `{"id":"r2","kind":"swarm","status":"ok"}{}`, []string{"metrics", "record-run", "--json-in"}},
+		{"invalid kind", `{"id":"r2","kind":"bad kind!","status":"ok"}`, []string{"metrics", "record-run", "--json-in"}},
+		{"negative units", `{"id":"r2","kind":"swarm","status":"ok","units":-1}`, []string{"metrics", "record-run", "--json-in"}},
+		{"json-in on show", "", []string{"metrics", "show", "--json-in"}},
+		{"json-in on ingest", "", []string{"metrics", "ingest", "--json-in"}},
+		{"json-in on report", "", []string{"metrics", "report", "--json-in"}},
+		{"json-in on export", "", []string{"metrics", "export", "--json-in", filepath.Join(home, "x.jsonl")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, code := runWithStdin(tc.in, tc.args...)
+			if code != 2 {
+				t.Errorf("%s: exit=%d, want 2 (out=%q)", tc.name, code, out)
+			}
+		})
+	}
+}

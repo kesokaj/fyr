@@ -80,9 +80,13 @@ func TestHelpShortPageListsEveryVerb(t *testing.T) {
 	}
 	// The metrics line names every subcommand runMetrics serves (P7's
 	// review: evals was missing from it and from main.go's doc comment).
-	line := regexp.MustCompile(`(?m)^  metrics +session shapes: (.*)$`).FindStringSubmatch(shortPage)
-	if line == nil || line[1] != strings.Join(metricsSubverbs, ", ") {
-		t.Errorf("the short page's metrics line %q, want %q", line, strings.Join(metricsSubverbs, ", "))
+	line := regexp.MustCompile(`(?m)^  metrics +session shapes: ([^\n]+(?:\n               [^\n]+)*)`).FindStringSubmatch(shortPage)
+	gotMetrics := ""
+	if line != nil {
+		gotMetrics = regexp.MustCompile(`\s*\n\s+`).ReplaceAllString(line[1], " ")
+	}
+	if line == nil || gotMetrics != strings.Join(metricsSubverbs, ", ") {
+		t.Errorf("the short page's metrics line %q, want %q", gotMetrics, strings.Join(metricsSubverbs, ", "))
 	}
 	src, err := os.ReadFile("main.go")
 	if err != nil {
@@ -222,7 +226,7 @@ func TestUsageErrSites(t *testing.T) {
 		"eval without a row":     {[]string{"eval"}, "eval", ""},
 		"memory frob":            {[]string{"memory", "frob"}, "memory", ""},
 		"bare metrics":           {[]string{"metrics"}, "metrics", ""},
-		"metrics frob":           {[]string{"metrics", "frob"}, "metrics", `fyr metrics: unknown subcommand "frob" (ingest, show, report, evals, trajectory, export)`},
+		"metrics frob":           {[]string{"metrics", "frob"}, "metrics", `fyr metrics: unknown subcommand "frob" (ingest, show, report, evals, trajectory, export, record-run)`},
 		"sync with a stray word": {[]string{"sync", "x", "--repo", "../.."}, "sync", `sync takes no arguments: ["x"]`},
 		"dream scope conflict":   {[]string{"dream", "--all", "--project", "x"}, "dream", "fyr dream: --all or --project <dir>, not both"},
 		"dream all and project":  {[]string{"dream", "--all", "--project", "x"}, "dream", "fyr dream: --all or --project <dir>, not both"},

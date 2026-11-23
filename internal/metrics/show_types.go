@@ -21,6 +21,10 @@ type Summary struct {
 	F               WorkSummary               `json:"F"`
 	TriggerCoverage TriggerCoverage           `json:"trigger_coverage"`
 	Health          HealthSignals             `json:"health"`
+	Orchestration   *OrchestrationSummary     `json:"orchestration,omitempty"`
+	SIM             *SIMSummary               `json:"sim,omitempty"`
+	SkillTelemetry  []SkillTelemetry          `json:"skill_telemetry,omitempty"`
+	RuleTelemetry   []RuleTelemetry           `json:"rule_telemetry,omitempty"`
 	TagCohort       *TagCohort                `json:"tag_cohort,omitempty"`
 	AgentRoles      []AgentRoleMetrics        `json:"agent_roles,omitempty"`
 	Deltas          *WindowDeltas             `json:"deltas,omitempty"`
@@ -307,6 +311,68 @@ type stp struct {
 	isErr, denied                                    bool
 	in, out, cr, cw, ctx                             int64
 	verbs                                            []string
+	verbNs                                           []int
+}
+
+func (st stp) verbN(idx int) int {
+	if idx < len(st.verbNs) {
+		return st.verbNs[idx]
+	}
+	return idx
+}
+
+// OrchestrationSummary aggregates shape-only orchestration_runs rows (schema 14, F-032).
+type OrchestrationSummary struct {
+	Runs           int            `json:"runs"`
+	ByKind         map[string]int `json:"by_kind,omitempty"`
+	ByStatus       map[string]int `json:"by_status,omitempty"`
+	Units          int            `json:"units"`
+	DefectRounds   int            `json:"defect_rounds"`
+	Succeeded      int            `json:"succeeded"`
+	Failed         int            `json:"failed"`
+	MeanDurationMS float64        `json:"mean_duration_ms,omitempty"`
+	JudgeOK        int            `json:"judge_ok,omitempty"`
+	JudgeFailed    int            `json:"judge_failed,omitempty"`
+	Halts          map[string]int `json:"halts,omitempty"`
+}
+
+// SIMSummary aggregates Self-Improvement Memory ledger counts from brain.db (F-051).
+type SIMSummary struct {
+	Available         bool           `json:"available"`
+	ActiveProblems    int            `json:"active_problems"`
+	ResolvedProblems  int            `json:"resolved_problems"`
+	MergedProblems    int            `json:"merged_problems,omitempty"`
+	Workarounds       int            `json:"workarounds"`
+	ActiveWorkarounds int            `json:"active_workarounds"`
+	Attempts          int            `json:"attempts"`
+	AttemptsByVerdict map[string]int `json:"attempts_by_verdict,omitempty"`
+	FieldStatusCounts map[string]int `json:"field_status_counts,omitempty"`
+}
+
+// SkillTelemetry aggregates per-skill suggestion/load conversion, session
+// outcome, tool error rate, and rewrite-skill flags (F-042).
+type SkillTelemetry struct {
+	Skill             string   `json:"skill"`
+	Suggested         int      `json:"suggested"`
+	Loaded            int      `json:"loaded"`
+	Converted         int      `json:"converted"`
+	ConversionRatePct *float64 `json:"conversion_rate_pct,omitempty"`
+	Sessions          int      `json:"sessions"`
+	RatedSessions     int      `json:"rated_sessions,omitempty"`
+	MeanOutcomeScore  *float64 `json:"mean_outcome_score,omitempty"`
+	ToolCalls         int      `json:"tool_calls"`
+	ToolErrors        int      `json:"tool_errors"`
+	ToolErrorRatePct  *float64 `json:"tool_error_rate_pct,omitempty"`
+	RewriteSkillCount int      `json:"rewrite_skill_count"`
+	NewSkillCount     int      `json:"new_skill_count,omitempty"`
+}
+
+// RuleTelemetry aggregates rule/guard enforcement and violation counts (F-042).
+type RuleTelemetry struct {
+	Rule     string `json:"rule"`
+	Kind     string `json:"kind"`
+	Count    int    `json:"count"`
+	Severity string `json:"severity,omitempty"`
 }
 
 type sessEvent struct {

@@ -20,7 +20,7 @@
 //	fyr graph       interactive AST and telemetry constellation
 //	fyr dream       consolidate project memory and trail into proposals
 //	fyr auto        idle-time runs: on, off, status, run, log, sim
-//	fyr metrics     session shapes: ingest, show, report, evals, trajectory, export
+//	fyr metrics     session shapes: ingest, show, report, evals, trajectory, export, record-run
 //	fyr report      project or global usage report (HTML, --md, --json, --web)
 //	fyr models      the live agy model catalog and role picks
 //	fyr eval        run behavioural rows against the CLI

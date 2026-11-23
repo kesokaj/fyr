@@ -456,8 +456,8 @@ func TestShowTagCohortAndPrePostWindow(t *testing.T) {
 		t.Fatalf("TagCohort = %+v", sum.TagCohort)
 	}
 	pre, post := sum.TagCohort.Pre, sum.TagCohort.Post
-	if pre.Sessions != 1 || pre.ToolCalls != 3 || pre.BashReadSkips != 2 || pre.PreInvocationTimedOut != 1 {
-		t.Fatalf("Pre cohort = %+v, want sessions=1 tools=3 bypasses=2 timedOut=1", pre)
+	if pre.Sessions != 1 || pre.ToolCalls != 3 || pre.BashReadSkips != 1 || pre.PreInvocationTimedOut != 1 {
+		t.Fatalf("Pre cohort = %+v, want sessions=1 tools=3 bypasses=1 timedOut=1", pre)
 	}
 	if post.Sessions != 1 || post.ToolCalls != 4 || post.BashReadSkips != 0 || post.TurnVets != 2 {
 		t.Fatalf("Post cohort = %+v, want sessions=1 tools=4 bypasses=0 turnVets=2", post)

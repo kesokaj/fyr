@@ -108,8 +108,18 @@ func fmtRepeatReadsKPI(s *Summary) string {
 	return fmt.Sprintf("%.1f%% (%d / %d)", pct, red, total)
 }
 
+// dedupLedgerSaves reconciles the overlapping ledger-block counters
+// (turn_vets.ledger_saved from search.db and hook_block(ledger) from
+// transcripts) so 1 ledger block reports 1 rather than 2 (F-028).
+func dedupLedgerSaves(s *Summary) int {
+	if s == nil {
+		return 0
+	}
+	return max(s.E.LedgerSaved, s.Health.HookBlocksLedger)
+}
+
 func fmtLedgerClampKPI(s *Summary) string {
-	ledger := s.E.LedgerSaved + s.Health.HookBlocksLedger
+	ledger := dedupLedgerSaves(s)
 	clamp := s.Health.ClampedSaves
 	return fmt.Sprintf("%d (ledger:%d, clamp:%d)", ledger+clamp, ledger, clamp)
 }
@@ -199,8 +209,8 @@ func fmtSavesDelta(d *WindowDeltas) string {
 	if !ok1 && !ok2 && !ok3 {
 		return "n/a"
 	}
-	cur := l1.Current + l2.Current + cl.Current
-	prev := l1.Previous + l2.Previous + cl.Previous
+	cur := max(l1.Current, l2.Current) + cl.Current
+	prev := max(l1.Previous, l2.Previous) + cl.Previous
 	return fmtMetricDeltaVal(newMetricDelta(cur, prev), "%.0f")
 }
 

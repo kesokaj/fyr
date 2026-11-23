@@ -135,7 +135,8 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.metricsSource, "source", "", "ingest: the sandbox home `DIR` to read instead of this one")
 		c.fs.StringVar(&c.metricsOutcome, "outcome", "", "ingest: the --source run's acceptance result, `pass|fail|error`")
 		c.registerReportFlags(true)
-		c.fs.BoolVar(&c.metricsJSON, "json", false, "show, report, evals, trajectory: print JSON (report: stdout unless --out)")
+		c.fs.BoolVar(&c.metricsJSON, "json", false, "show, report, evals, trajectory, record-run: print JSON (report: stdout unless --out)")
+		c.fs.BoolVar(&c.jsonIn, "json-in", false, "record-run: read JSON payload from stdin")
 		c.fs.StringVar(&c.metricsHarness, "harness", "", "evals: only the trials of the harness key `KEY`, exactly")
 		c.fs.IntVar(&c.limit, "limit", 0, "trajectory: print at most `N` main sessions (default 10)")
 	}, positional: true, run: runMetrics},

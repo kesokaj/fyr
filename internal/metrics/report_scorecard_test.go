@@ -318,3 +318,263 @@ func seedScorecardSecondBrainT(t *testing.T, s *Store, root string, ts int64) {
 		}
 	}
 }
+
+func TestV910ReportKPIs(t *testing.T) {
+	home := t.TempDir()
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	since := now.Add(-24 * time.Hour)
+	ts := now.Add(-2 * time.Hour).UnixMilli()
+	root := "/proj/v910kpi"
+
+	s := openT(t, Path(home))
+	seedV910KPIFixtureT(t, s, root, ts)
+
+	sum, err := s.Show(ShowOptions{Home: home, Since: since, Now: now})
+	if err != nil {
+		t.Fatalf("Show: %v", err)
+	}
+	// F-023: sv.n > 0 pipe greps excluded from overall and per-project grep counts;
+	// only standalone sv.n == 0 grep ('grep -rn') counts (1), against 2 fyr search verbs -> ratio 2.0.
+	if sum.C.SQLiteVerbs["agy"] != 2 || sum.C.GrepCalls["agy"] != 1 {
+		t.Fatalf("F-023 overall counts: sqlite=%d grep=%d, want 2, 1", sum.C.SQLiteVerbs["agy"], sum.C.GrepCalls["agy"])
+	}
+	if sum.C.SearchGrepRatio["agy"] == nil || *sum.C.SearchGrepRatio["agy"] != 2.0 {
+		t.Fatalf("F-023 overall SearchGrepRatio = %v, want 2.0", sum.C.SearchGrepRatio["agy"])
+	}
+	if len(sum.Projects) != 1 || sum.Projects[0].SearchGrepRatio == nil || *sum.Projects[0].SearchGrepRatio != 2.0 {
+		t.Fatalf("F-023 project SearchGrepRatio = %+v, want 2.0", sum.Projects)
+	}
+
+	// F-022: only unguarded bash reads count (unranged cat + repeated unguarded sed -n = 2);
+	// allowed first-time ranged reads (head -n, tail -n, sed -n, bat -r) and denied cat are excluded.
+	if got := sum.C.BashReadSkips["agy"]; got != 2 {
+		t.Fatalf("F-022 BashReadSkips = %d, want 2", got)
+	}
+
+	// F-028: 1 ledger block present in BOTH turn_vets.ledger_saved=1 and hook_block('ledger')
+	// must deduplicate to 1 (never 2).
+	var jsonBuf, mdBuf, htmlBuf bytes.Buffer
+	if err := RenderJSONReport(&jsonBuf, sum, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := RenderMarkdownReport(&mdBuf, sum, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := RenderReport(&htmlBuf, sum, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	var jr JSONReport
+	if err := json.Unmarshal(jsonBuf.Bytes(), &jr); err != nil {
+		t.Fatal(err)
+	}
+	if jr.Scorecard.BlockedLedgerSave != 1 {
+		t.Fatalf("F-028 BlockedLedgerSave = %d, want 1 (must not double-count E.LedgerSaved + HookBlocksLedger)", jr.Scorecard.BlockedLedgerSave)
+	}
+	if !strings.Contains(mdBuf.String(), "1 (ledger:1, clamp:0)") || !strings.Contains(htmlBuf.String(), "1 (ledger:1, clamp:0)") {
+		t.Fatalf("F-028 scorecard did not deduplicate ledger saves:\n%s", mdBuf.String())
+	}
+}
+
+func seedV910KPIFixtureT(t *testing.T, s *Store, root string, ts int64) {
+	t.Helper()
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES ('K1', 'agy', ?, ?, ?)`, []any{root, ts, ts + 9000}},
+		{`INSERT INTO steps(session_id, ext_id, ts, kind, tool, denied, cmd_hash) VALUES
+			('K1', 's1', ?, 'tool', 'Bash', 0, 'h_search1'),
+			('K1', 's2', ?, 'tool', 'Bash', 0, 'h_search2'),
+			('K1', 's3', ?, 'tool', 'Bash', 0, 'h_pipe_grep'),
+			('K1', 's4', ?, 'tool', 'Bash', 0, 'h_direct_grep'),
+			('K1', 's5', ?, 'tool', 'Bash', 0, 'h_cat_raw'),
+			('K1', 's6', ?, 'tool', 'Bash', 1, 'h_cat_denied'),
+			('K1', 's7', ?, 'tool', 'Bash', 0, 'h_head'),
+			('K1', 's8', ?, 'tool', 'Bash', 0, 'h_tail'),
+			('K1', 's9', ?, 'tool', 'Bash', 0, 'h_bat_ranged'),
+			('K1', 's10', ?, 'tool', 'Bash', 0, 'h_sed_same'),
+			('K1', 's11', ?, 'tool', 'Bash', 0, 'h_sed_same'),
+			('K1', 's12', ?, 'tool', 'Read', 1, 'r:abc:1-20')`,
+			[]any{ts + 10, ts + 20, ts + 30, ts + 40, ts + 50, ts + 60, ts + 70, ts + 80, ts + 90, ts + 100, ts + 110, ts + 120}},
+		{`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES
+			('K1', 's1', 0, 'fyr search --slice'),
+			('K1', 's2', 0, 'fyr search --refs'),
+			('K1', 's3', 0, 'go test'), ('K1', 's3', 1, 'grep'), ('K1', 's3', 2, 'rg'),
+			('K1', 's4', 0, 'grep -rn'),
+			('K1', 's5', 0, 'cat'),
+			('K1', 's6', 0, 'cat'),
+			('K1', 's7', 0, 'head -n'),
+			('K1', 's8', 0, 'tail -n'),
+			('K1', 's9', 0, 'bat -r'),
+			('K1', 's10', 0, 'sed -n'),
+			('K1', 's11', 0, 'sed -n')`, nil},
+		{`INSERT INTO events(session_id, ts, kind, ref, value) VALUES ('K1', ?, 'hook_block', 's12', 'ledger')`, []any{ts + 120}},
+		{`INSERT INTO turn_vets(project_root, conversation_id, turn_num, intent, gate, score, ledger_saved, created_at) VALUES (?, 'K1', 1, 'TASK', 'PROCEED', 90, 1, ?)`, []any{root, ts}},
+	} {
+		if _, err := s.db.Exec(q.sql, q.args...); err != nil {
+			t.Fatalf("%s: %v", q.sql, err)
+		}
+	}
+}
+
+func TestV910ReportKPIsSIMSkillsAndRecordRun(t *testing.T) {
+	home := t.TempDir()
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	since := now.Add(-24 * time.Hour)
+	ts := now.Add(-2 * time.Hour).UnixMilli()
+	root := "/proj/v910full"
+
+	// #28: Dynamic installed skill catalog (no hardcoded names).
+	seedInstalledSkillsCatalogT(t, home)
+
+	// F-051: brain.db SIM tables (active/resolved problems, workarounds, attempts).
+	seedSIMBrainFixtureT(t, home)
+
+	s := openT(t, Path(home))
+	seedV910SkillsAndRatingsFixtureT(t, s, root, ts)
+
+	// F-032: orchestration_runs via RecordOrchestrationRun.
+	runRow := OrchestrationRunRow{
+		ID: "orch-1", TS: now.Add(-time.Hour).UTC().Format(time.RFC3339),
+		Kind: "swarm", ProjectRoot: root, Status: "ok",
+		Units: 4, DefectRounds: 1, Failed: 1, DurationMS: 3600,
+		WorkerModel: "gemini-4-carbon", JudgeModel: "claude-opus-5-5", Verdict: "PASS",
+	}
+	runRow.Passed += 3
+	if err := s.InsertOrchestrationRun(runRow); err != nil {
+		t.Fatalf("InsertOrchestrationRun: %v", err)
+	}
+
+	sum, err := s.Show(ShowOptions{Home: home, Since: since, Now: now})
+	if err != nil {
+		t.Fatalf("Show: %v", err)
+	}
+	assertV910OrchestrationSIMAndSkillsT(t, sum)
+
+	var jsonBuf, mdBuf, htmlBuf bytes.Buffer
+	if err := RenderJSONReport(&jsonBuf, sum, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := RenderMarkdownReport(&mdBuf, sum, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := RenderReport(&htmlBuf, sum, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	var jr JSONReport
+	if err := json.Unmarshal(jsonBuf.Bytes(), &jr); err != nil {
+		t.Fatal(err)
+	}
+	if jr.Orchestration == nil || jr.Orchestration.Runs != 1 || jr.SIM == nil || !jr.SIM.Available || len(jr.SkillTelemetry) == 0 || len(jr.RuleTelemetry) == 0 {
+		t.Fatalf("JSONReport missing v910 panels: orch=%+v sim=%+v skills=%+v rules=%+v", jr.Orchestration, jr.SIM, jr.SkillTelemetry, jr.RuleTelemetry)
+	}
+	for _, want := range []string{
+		"Orchestration runs (units / ok / fail / rounds)",
+		"SIM Summary",
+		"Skill & Rule Telemetry",
+		"Rule Telemetry",
+		"Skill catalog coverage",
+		"custom-swarm",
+	} {
+		if !strings.Contains(mdBuf.String(), want) {
+			t.Errorf("markdown missing %q:\n%s", want, mdBuf.String())
+		}
+		if !strings.Contains(htmlBuf.String(), want) && !strings.Contains(htmlBuf.String(), esc(want)) {
+			t.Errorf("HTML missing %q", want)
+		}
+	}
+}
+
+func assertV910OrchestrationSIMAndSkillsT(t *testing.T, sum *Summary) {
+	t.Helper()
+	if sum.Orchestration == nil || sum.Orchestration.Runs != 1 || sum.Orchestration.Units != 4 || sum.Orchestration.Succeeded != 3 || sum.Orchestration.Failed != 1 || sum.Orchestration.DefectRounds != 1 {
+		t.Fatalf("F-032 Orchestration = %+v", sum.Orchestration)
+	}
+	if sum.SIM == nil || !sum.SIM.Available || sum.SIM.ActiveProblems != 2 || sum.SIM.ResolvedProblems != 1 || sum.SIM.Workarounds != 2 || sum.SIM.ActiveWorkarounds != 1 || sum.SIM.Attempts != 2 {
+		t.Fatalf("F-051 SIM = %+v", sum.SIM)
+	}
+	tc := sum.TriggerCoverage
+	if tc.InstalledSkillsCount != 3 || tc.TriggeredSkillsCount != 2 || tc.SwarmSkillLoads != 1 || tc.BuildTimeQuestions != 0 || len(tc.UntriggeredSkills) != 1 || tc.UntriggeredSkills[0] != "unused-skill" {
+		t.Fatalf("#28 TriggerCoverage = %+v", tc)
+	}
+	bySkill := map[string]SkillTelemetry{}
+	for _, row := range sum.SkillTelemetry {
+		bySkill[row.Skill] = row
+	}
+	sw := bySkill["custom-swarm"]
+	if sw.Suggested != 1 || sw.Loaded != 1 || sw.Converted != 1 || sw.ConversionRatePct == nil || *sw.ConversionRatePct != 100.0 ||
+		sw.MeanOutcomeScore == nil || *sw.MeanOutcomeScore != 4.0 || sw.ToolErrors != 1 || sw.RewriteSkillCount != 1 {
+		t.Fatalf("F-042 custom-swarm SkillTelemetry = %+v", sw)
+	}
+	if len(sum.RuleTelemetry) == 0 {
+		t.Fatalf("F-042 RuleTelemetry empty")
+	}
+}
+
+func seedInstalledSkillsCatalogT(t *testing.T, home string) {
+	t.Helper()
+	skills := map[string]string{
+		"custom-interview": "---\nname: custom-interview\ndescription: pre-build interview via ask_question\n---\nRun pre-build interview.\n",
+		"custom-swarm":     "---\nname: custom-swarm\ndescription: parallel orchestration via run_workflow\n---\nCoordinate parallel workers.\n",
+		"unused-skill":     "---\nname: unused-skill\ndescription: rarely invoked helper\n---\nBody.\n",
+	}
+	for dir, body := range skills {
+		p := filepath.Join(home, harness.AgyRoot, "skills", dir, "SKILL.md")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func seedSIMBrainFixtureT(t *testing.T, home string) {
+	t.Helper()
+	bdb := filepath.Join(home, harness.StateDir, "brain.db")
+	if err := os.MkdirAll(filepath.Dir(bdb), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sqliteT(t, bdb,
+		`PRAGMA user_version = 5`,
+		`CREATE TABLE sim_problems(pid INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, root_cause TEXT NOT NULL, norm_root_cause TEXT NOT NULL, mechanism_class TEXT NOT NULL DEFAULT '', signal_id TEXT NOT NULL DEFAULT '', target_paths TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active', provenance TEXT NOT NULL DEFAULT 'derived', opened_at TEXT NOT NULL, updated_at TEXT NOT NULL, opened_harness TEXT NOT NULL DEFAULT '', opened_model TEXT NOT NULL DEFAULT '')`,
+		`CREATE TABLE sim_attempts(id INTEGER PRIMARY KEY AUTOINCREMENT, problem_id TEXT NOT NULL, source_kind TEXT NOT NULL, eval_verdict TEXT NOT NULL DEFAULT 'none', field_status TEXT NOT NULL DEFAULT 'n/a', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`INSERT INTO sim_problems(pid, id, root_cause, norm_root_cause, mechanism_class, status, opened_at, updated_at) VALUES
+			(1, 'SIM-P001', 'cause1', 'cause1', 'model_workaround', 'active', '2026-11-20T00:00:00Z', '2026-11-22T00:00:00Z'),
+			(2, 'SIM-P002', 'cause2', 'cause2', 'code_guard', 'active', '2026-11-20T00:00:00Z', '2026-11-22T00:00:00Z'),
+			(3, 'SIM-P003', 'cause3', 'cause3', 'model_workaround', 'resolved', '2026-11-19T00:00:00Z', '2026-11-21T00:00:00Z')`,
+		`INSERT INTO sim_attempts(problem_id, source_kind, eval_verdict, field_status, created_at, updated_at) VALUES
+			('SIM-P001', 'manual', 'kept', 'improved', '2026-11-21T00:00:00Z', '2026-11-21T00:00:00Z'),
+			('SIM-P002', 'auto', 'reverted', 'pending_data', '2026-11-22T00:00:00Z', '2026-11-22T00:00:00Z')`,
+	)
+}
+
+func seedV910SkillsAndRatingsFixtureT(t *testing.T, s *Store, root string, ts int64) {
+	t.Helper()
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES ('SK1', 'agy', ?, ?, ?)`, []any{root, ts, ts + 5000}},
+		{`INSERT INTO steps(session_id, ext_id, ts, kind, tool, skill, is_error) VALUES
+			('SK1', 'k1', ?, 'tool', 'Read', 'custom-interview', 0),
+			('SK1', 'k2', ?, 'tool', 'agy:ask_question', '', 0),
+			('SK1', 'k3', ?, 'tool', 'Read', 'custom-swarm', 0),
+			('SK1', 'k4', ?, 'tool', 'Bash', '', 1)`,
+			[]any{ts + 10, ts + 20, ts + 30, ts + 40}},
+		{`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES ('SK1', 'k4', 0, 'cat')`, nil},
+		{`INSERT INTO turn_vets(project_root, conversation_id, turn_num, intent, gate, score, suggested_skills, created_at) VALUES
+			(?, 'SK1', 1, 'TASK', 'PROCEED', 90, 'custom-swarm,unused-skill', ?)`, []any{root, ts}},
+	} {
+		if _, err := s.db.Exec(q.sql, q.args...); err != nil {
+			t.Fatalf("%s: %v", q.sql, err)
+		}
+	}
+	if err := s.UpsertSessionRatings([]SessionRating{{
+		SessionID: "SK1", ProjectRoot: root, EvaluatedAt: ts + 6000,
+		OutcomeScore: 4, TokenEfficiency: 4, PlanAlignment: "matched",
+		SkillAction: "rewrite-skill", TargetSkill: "custom-swarm",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+}

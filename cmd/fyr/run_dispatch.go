@@ -199,7 +199,8 @@ func (c *ctx) writesState() bool {
 	case "memory":
 		return c.fs.Arg(0) == "add"
 	case "metrics":
-		return c.fs.Arg(0) == "ingest"
+		sub := c.fs.Arg(0)
+		return sub == "ingest" || sub == "record-run"
 	case "eval":
 		// Sandboxes, the metrics store and the testing record; --list reads,
 		// and a refused --home is refused before anything moves (D37).

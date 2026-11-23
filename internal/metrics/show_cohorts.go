@@ -89,10 +89,10 @@ func accumulateRoleSteps(a *roleAcc, x sess, steps []stp, seen map[string]bool) 
 		if st.tool == "Grep" {
 			a.grep++
 		}
-		for _, v := range st.verbs {
+		for i, v := range st.verbs {
 			if isSQLiteVerb(v) {
 				a.sqlite++
-			} else if isGrepVerb(v) {
+			} else if st.verbN(i) == 0 && isGrepVerb(v) {
 				a.grep++
 			}
 		}
@@ -245,7 +245,12 @@ func summarizeCohort(all []sess, stepsByID map[string][]stp, sbAcc *secondBrainA
 }
 
 func accumulateCohortSteps(cm *CohortMetrics, x sess, steps []stp, seen map[string]bool) {
+	var tracker bashReadTracker
 	for _, st := range steps {
+		if st.kind == "compaction" {
+			tracker.isUnguardedSkip(st)
+			continue
+		}
 		if st.kind == "tool" || st.kind == "assistant" || st.kind == "generation" {
 			key := x.vendor + "\x00" + x.label + "\x00" + st.ext
 			if seen[key] {
@@ -257,16 +262,16 @@ func accumulateCohortSteps(cm *CohortMetrics, x sess, steps []stp, seen map[stri
 			continue
 		}
 		cm.ToolCalls++
-		if isBashReadStep(st) {
+		if tracker.isUnguardedSkip(st) {
 			cm.BashReadSkips++
 		}
 		if st.tool == "Grep" {
 			cm.GrepCalls++
 		}
-		for _, v := range st.verbs {
+		for i, v := range st.verbs {
 			if isSQLiteVerb(v) {
 				cm.SQLiteVerbs++
-			} else if isGrepVerb(v) {
+			} else if st.verbN(i) == 0 && isGrepVerb(v) {
 				cm.GrepCalls++
 			}
 		}
