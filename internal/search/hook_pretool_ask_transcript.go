@@ -34,36 +34,37 @@ func readTranscriptLatestUserPrompt(path string) string {
 	if err != nil || !st.Mode().IsRegular() || !os.SameFile(fi, st) || st.Size() == 0 {
 		return ""
 	}
-	if text := readTranscriptTailUserPrompt(f, st.Size()); text != "" {
+	text, truncated := readTranscriptTailUserPrompt(f, st.Size())
+	if text != "" {
 		return text
 	}
-	if st.Size() <= askTranscriptTailBytes {
+	if truncated || st.Size() <= askTranscriptTailBytes {
 		return ""
 	}
 	return readTranscriptHeadUserPrompt(f)
 }
 
-func readTranscriptTailUserPrompt(f *os.File, size int64) string {
+func readTranscriptTailUserPrompt(f *os.File, size int64) (string, bool) {
 	skipFirst := false
 	if size > askTranscriptTailBytes {
 		scanStart := size - askTranscriptTailBytes
 		if _, err := f.Seek(scanStart-1, io.SeekStart); err != nil {
-			return ""
+			return "", false
 		}
 		var prev [1]byte
 		if _, err := io.ReadFull(f, prev[:]); err != nil {
-			return ""
+			return "", false
 		}
 		skipFirst = prev[0] != '\n'
 	}
 	data, err := io.ReadAll(io.LimitReader(f, askTranscriptTailBytes))
 	if err != nil || len(data) == 0 {
-		return ""
+		return "", false
 	}
 	if skipFirst {
 		idx := bytes.IndexByte(data, '\n')
 		if idx < 0 {
-			return ""
+			return "", false
 		}
 		data = data[idx+1:]
 	}
@@ -78,10 +79,11 @@ func readTranscriptHeadUserPrompt(f *os.File) string {
 	if err != nil || len(data) == 0 {
 		return ""
 	}
-	return findLatestTranscriptUserPrompt(data, askTranscriptMaxCandidates)
+	text, _ := findLatestTranscriptUserPrompt(data, askTranscriptMaxCandidates)
+	return text
 }
 
-func findLatestTranscriptUserPrompt(data []byte, maxCandidates int) string {
+func findLatestTranscriptUserPrompt(data []byte, maxCandidates int) (string, bool) {
 	seen := 0
 	end := len(data)
 	for end > 0 {
@@ -92,26 +94,41 @@ func findLatestTranscriptUserPrompt(data []byte, maxCandidates int) string {
 			continue
 		}
 		if seen++; seen > maxCandidates {
-			break
+			return "", true
 		}
 		if text := extractTranscriptUserText(string(raw)); text != "" {
-			return text
+			return text, false
 		}
 	}
-	return ""
+	return "", false
+}
+
+var transcriptUserMarkers = []string{
+	`"user"`,
+	`"human"`,
+	`"user_input"`,
+	`"userinput"`,
+	`"lastuserinput"`,
+	`"last_user_input"`,
+	`"prompt"`,
 }
 
 func mayContainTranscriptUserPrompt(line []byte) bool {
-	if bytes.Contains(line, []byte(`\u`)) || bytes.Contains(line, []byte(`\U`)) {
-		return true
-	}
 	low := strings.ToLower(string(line))
-	return strings.Contains(low, "user") || strings.Contains(low, "human") || strings.Contains(low, "prompt")
+	for _, marker := range transcriptUserMarkers {
+		if strings.Contains(low, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func extractTranscriptUserText(line string) string {
 	var row map[string]any
 	if json.Unmarshal([]byte(line), &row) != nil {
+		return ""
+	}
+	if hasExplicitNonUserRole(row) {
 		return ""
 	}
 	if s := extractStringArg(row, "userInput", "user_input", "lastUserInput", "last_user_input", "prompt"); s != "" {
@@ -131,13 +148,33 @@ func extractTranscriptUserText(line string) string {
 	return ""
 }
 
-func isUserTranscriptRole(row map[string]any) bool {
+func isUserTranscriptRoleValue(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "user", "user_input", "human":
+		return true
+	default:
+		return false
+	}
+}
+
+func hasExplicitNonUserRole(row map[string]any) bool {
 	for _, k := range []string{"type", "role", "author"} {
 		if s, ok := row[k].(string); ok {
-			switch strings.ToLower(strings.TrimSpace(s)) {
-			case "user", "user_input", "human":
+			if strings.TrimSpace(s) != "" && !isUserTranscriptRoleValue(s) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func isUserTranscriptRole(row map[string]any) bool {
+	if hasExplicitNonUserRole(row) {
+		return false
+	}
+	for _, k := range []string{"type", "role", "author"} {
+		if s, ok := row[k].(string); ok && isUserTranscriptRoleValue(s) {
+			return true
 		}
 	}
 	return false

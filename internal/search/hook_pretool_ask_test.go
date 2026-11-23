@@ -425,3 +425,175 @@ func TestKickoffGuardMixedSessionClearsOnInteractiveTurn(t *testing.T) {
 		})
 	})
 }
+
+func TestKickoffGuardTranscriptNonUserAndTruncation(t *testing.T) {
+	t.Setenv("FYR_RELAY", "")
+	dir, home := setupHookRepo(t), t.TempDir()
+
+	normalQ := map[string]any{
+		"questions": []any{map[string]any{"question": "Which helper name?", "options": []any{"a", "b"}}},
+	}
+	kickoffPrompt := "Project: /repo/fyr. Run fyr resume (handoff HANDOFF-1, plan PLAN-1); do Phase 2B only.\nFiles: internal/search/hook_pretool.go\nStanding approvals (closed set): tests and commit.\nDone when: tests pass."
+	autoKickoffPrompt := "This is a Kickoff written by fyr auto.\nFiles: a.go"
+	interactivePrompt := "Now let's interactively design the cache eviction policy for service.go"
+
+	invokePreTool := func(t *testing.T, conv, tr string) HookDecisionOutput {
+		t.Helper()
+		raw, err := json.Marshal(map[string]any{
+			"conversationId": conv,
+			"workspacePaths": []string{dir},
+			"transcriptPath": tr,
+			"toolCall":       map[string]any{"name": "ask_question", "args": normalQ},
+		})
+		if err != nil {
+			t.Fatalf("marshal pre-tool-use: %v", err)
+		}
+		var out bytes.Buffer
+		if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(raw)}, &out); err != nil {
+			t.Fatalf("pre-tool-use: %v", err)
+		}
+		var dec HookDecisionOutput
+		if err := json.Unmarshal(out.Bytes(), &dec); err != nil {
+			t.Fatalf("unmarshal %q: %v", out.String(), err)
+		}
+		return dec
+	}
+
+	writeRows := func(t *testing.T, rows []map[string]any) string {
+		t.Helper()
+		var buf bytes.Buffer
+		for _, row := range rows {
+			line, err := json.Marshal(row)
+			if err != nil {
+				t.Fatalf("marshal row: %v", err)
+			}
+			buf.Write(line)
+			buf.WriteByte('\n')
+		}
+		p := filepath.Join(t.TempDir(), "transcript.jsonl")
+		if err := os.WriteFile(p, buf.Bytes(), 0o600); err != nil {
+			t.Fatalf("write transcript: %v", err)
+		}
+		return p
+	}
+
+	t.Run("non-user row prompt never clears kickoff guard", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			row  map[string]any
+		}{
+			{"assistant_prompt", map[string]any{"type": "assistant", "prompt": "normal interactive text"}},
+			{"tool_use_prompt", map[string]any{"type": "tool_use", "prompt": "normal interactive text"}},
+			{"model_role_prompt", map[string]any{"role": "model", "prompt": "normal interactive text"}},
+			{"system_author_prompt", map[string]any{"author": "system", "prompt": "normal interactive text"}},
+			{"planner_userInput", map[string]any{"type": "PLANNER_RESPONSE", "userInput": "normal interactive text"}},
+			{"generic_lastUserInput", map[string]any{"type": "GENERIC", "lastUserInput": "normal interactive text"}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				tr := writeRows(t, []map[string]any{
+					{"type": "user", "content": kickoffPrompt},
+					tc.row,
+				})
+				if d := invokePreTool(t, "conv-nonuser-deny-"+tc.name, tr); d.Decision != "deny" || !strings.Contains(d.Reason, "[KICKOFF_GUARD]") {
+					t.Fatalf("%s: got %+v, want deny [KICKOFF_GUARD]", tc.name, d)
+				}
+			})
+		}
+	})
+
+	t.Run("tool or subagent kickoff prompt never false-triggers interactive session", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			row  map[string]any
+		}{
+			{"tool_use_subagent", map[string]any{"type": "tool_use", "name": "invoke_subagent", "prompt": autoKickoffPrompt}},
+			{"tool_role_prompt", map[string]any{"role": "tool", "prompt": autoKickoffPrompt}},
+			{"assistant_prompt", map[string]any{"type": "assistant", "prompt": autoKickoffPrompt}},
+			{"tool_result_user_input", map[string]any{"type": "tool_result", "user_input": autoKickoffPrompt}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				tr := writeRows(t, []map[string]any{
+					{"type": "user", "content": interactivePrompt},
+					tc.row,
+				})
+				if d := invokePreTool(t, "conv-nonuser-allow-"+tc.name, tr); d.Decision != "allow" {
+					t.Fatalf("%s: got %+v, want allow", tc.name, d)
+				}
+			})
+		}
+	})
+
+	t.Run("user-role and role-less prompt rows still enforce kickoff", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			row  map[string]any
+		}{
+			{"roleless_prompt", map[string]any{"prompt": kickoffPrompt}},
+			{"user_prompt", map[string]any{"type": "user", "prompt": kickoffPrompt}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				tr := writeRows(t, []map[string]any{tc.row})
+				if d := invokePreTool(t, "conv-valid-prompt-"+tc.name, tr); d.Decision != "deny" || !strings.Contains(d.Reason, "[KICKOFF_GUARD]") {
+					t.Fatalf("%s: got %+v, want deny [KICKOFF_GUARD]", tc.name, d)
+				}
+			})
+		}
+	})
+
+	t.Run("unicode escape noise does not starve tail scan", func(t *testing.T) {
+		pad16K := strings.Repeat("a", 16<<10)
+		noise200 := "<section>a & b</section>" + strings.Repeat("z", 180)
+		buildNoise := func(withInteractive bool) string {
+			rows := []map[string]any{{"type": "user", "content": kickoffPrompt}}
+			for range 20 {
+				rows = append(rows, map[string]any{"type": "assistant", "content": pad16K})
+			}
+			if withInteractive {
+				rows = append(rows, map[string]any{"type": "user", "content": interactivePrompt})
+			}
+			for range askTranscriptMaxCandidates + 50 {
+				rows = append(rows, map[string]any{"type": "assistant", "content": noise200})
+			}
+			p := writeRows(t, rows)
+			fi, err := os.Stat(p)
+			if err != nil || fi.Size() <= askTranscriptTailBytes {
+				t.Fatalf("expected > %d bytes transcript, got err=%v size=%v", askTranscriptTailBytes, err, fi)
+			}
+			return p
+		}
+
+		trMixed := buildNoise(true)
+		if d := invokePreTool(t, "conv-u-noise-mixed", trMixed); d.Decision != "allow" {
+			t.Fatalf("mixed transcript with >1024 \\u003c/\\u003e lines: got %+v, want allow", d)
+		}
+
+		trSingle := buildNoise(false)
+		if d := invokePreTool(t, "conv-u-noise-single", trSingle); d.Decision != "deny" || !strings.Contains(d.Reason, "[KICKOFF_GUARD]") {
+			t.Fatalf("single-turn kickoff with >1024 \\u003c/\\u003e lines: got %+v, want deny [KICKOFF_GUARD]", d)
+		}
+	})
+
+	t.Run("candidate cap truncation never falls back to stale turn1 kickoff", func(t *testing.T) {
+		pad16K := strings.Repeat("b", 16<<10)
+		pad200 := strings.Repeat("c", 200)
+		rows := []map[string]any{{"type": "user", "content": kickoffPrompt}}
+		for range 20 {
+			rows = append(rows, map[string]any{"type": "assistant", "content": pad16K})
+		}
+		for range askTranscriptMaxCandidates + 50 {
+			rows = append(rows, map[string]any{
+				"type":    "assistant",
+				"nested":  map[string]any{"prompt": "noop"},
+				"content": pad200,
+			})
+		}
+		tr := writeRows(t, rows)
+		fi, err := os.Stat(tr)
+		if err != nil || fi.Size() <= askTranscriptTailBytes {
+			t.Fatalf("expected > %d bytes transcript, got err=%v size=%v", askTranscriptTailBytes, err, fi)
+		}
+		if d := invokePreTool(t, "conv-cap-truncated", tr); d.Decision != "allow" {
+			t.Fatalf("truncated tail scan fell back to stale turn 1 kickoff: got %+v, want allow", d)
+		}
+	})
+}

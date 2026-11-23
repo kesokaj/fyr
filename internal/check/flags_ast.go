@@ -301,8 +301,14 @@ func isFlagBoundaryBefore(text string, i int) bool {
 		return true
 	}
 	switch text[i-1] {
-	case ' ', '\t', '\n', '\r', '[', '(', '{', ',', '|', '/', ':', ';', '*':
+	case ' ', '\t', '\n', '\r', '[', '(', '{', ',', '|', '/', ':', ';':
 		return true
+	case '*':
+		j := i - 1
+		for j > 0 && text[j-1] == '*' {
+			j--
+		}
+		return j == 0 || !isFlagTokenChar(text[j-1])
 	case '`', '"', '\'':
 		return i < 2 || !isFlagTokenChar(text[i-2])
 	default:

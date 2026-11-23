@@ -28,6 +28,16 @@ func TestCollectFlagTokens(t *testing.T) {
 			want: []string{"x"},
 		},
 		{
+			name: "markdown italic and bold flags",
+			text: "*--flag*, **-x**, and **--FlagName** plus (*--nested*).",
+			want: []string{"FlagName", "flag", "nested", "x"},
+		},
+		{
+			name: "must-not-match markdown emphasized hyphenated prose",
+			text: "Use *fyr*-based and **fyr**-based or ***v9***-based workflows.",
+			want: nil,
+		},
+		{
 			name: "must-not-match negative numbers and hyphenated prose",
 			text: "A well-known read-only single-dash v9-11-0 score is -1, -42, -0.5, --99, -1-foo, `fyr`-based, (foo)-bar, [a]-b, foo_bar-baz, ---triple, <!--comment-->, --opt=-val.\n- bullet item\n-- bare separator\n",
 			want: []string{"opt"},
