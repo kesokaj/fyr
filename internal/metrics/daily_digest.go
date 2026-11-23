@@ -305,7 +305,8 @@ func hasDigestRegression(d DailyDigest) bool {
 	if d.PreInvocationDiff.P95DurationMSDelta != nil && *d.PreInvocationDiff.P95DurationMSDelta >= 20 && d.PreInvocation.P95DurationMS != nil && *d.PreInvocation.P95DurationMS >= 100 {
 		return true
 	}
-	if d.Rolling7d.BashReadSkips.Delta > 0 && d.Rolling7d.BashReadSkips.Current >= float64(minDirectShellReads) {
+	if d.Rolling7d.BashReadSkips.Delta > 0 && d.Rolling7d.BashReadSkips.Current >= float64(minDirectShellReads) &&
+		(d.Rolling7d.Sessions.Current <= 0 || d.Rolling7d.BashReadSkips.Current/d.Rolling7d.Sessions.Current >= directShellReadMedRate) {
 		return true
 	}
 	if d.ASTDiff.HasPrevious && (d.ASTDiff.HiddenCouplingEditPairs > 0 || d.ASTDiff.ProdPkgCycles > 0) {

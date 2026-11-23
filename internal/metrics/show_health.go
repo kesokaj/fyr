@@ -1,11 +1,17 @@
 package metrics
 
 import (
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/search"
+)
+
+const (
+	auditSubagentCap   = 40
+	builderSubagentCap = 120
 )
 
 func collectStepHealth(h *HealthSignals, sum *Summary, all []sess, stepsByID map[string][]stp, home string) map[string]bool {
@@ -36,30 +42,43 @@ func collectStepHealth(h *HealthSignals, sum *Summary, all []sess, stepsByID map
 	return overBudget
 }
 
+// isAuditSubagentRole reports whether agent is an empty/unknown or specialized
+// audit role capped at auditSubagentCap (40), aligned with hook_watchdog.go.
+func isAuditSubagentRole(agent string) bool {
+	r := strings.ToLower(strings.TrimSpace(agent))
+	if r == "" {
+		return true
+	}
+	r = strings.TrimPrefix(strings.TrimPrefix(r, "workflow-"), "workflow_")
+	for _, p := range []string{"reviewer", "security", "verifier", "explorer", "dreamer", "documentation", "research", "subagent"} {
+		if r == p || strings.HasPrefix(r, p+"-") || strings.HasPrefix(r, p+"_") {
+			return true
+		}
+	}
+	return strings.HasPrefix(r, "sub-") || strings.HasPrefix(r, "sub_")
+}
+
 // isBuilderOrSelfRole reports whether agent is a general worker role
-// (self, builder, builder-*, builder_*) that shares the 120-call watchdog budget.
+// (self, builder, workflow-builder-*, coder, worker, etc.) sharing the 120-call budget.
 func isBuilderOrSelfRole(agent string) bool {
 	r := strings.ToLower(strings.TrimSpace(agent))
-	return r == "self" ||
-		r == "builder" ||
-		strings.HasPrefix(r, "builder-") ||
-		strings.HasPrefix(r, "builder_")
+	return r != "" && !isAuditSubagentRole(r)
 }
 
 // subagentCapForRole returns the per-subagent tool-call budget cap aligned with
-// internal/search/hook_watchdog.go: 120 for self/builder/builder-* workers and
-// 40 for audit/specialized roles (reviewer, security, verifier, explorer, etc.).
+// internal/search/hook_watchdog.go: 40 for audit/specialized/unknown roles and
+// 120 for builder/self/worker roles.
 func subagentCapForRole(agent string) int {
-	if isBuilderOrSelfRole(agent) {
-		return 120
+	if isAuditSubagentRole(agent) {
+		return auditSubagentCap
 	}
-	return 40
+	return builderSubagentCap
 }
 
 func countSessionStepHealth(h *HealthSignals, x sess, steps []stp, seen map[string]bool) int {
 	subTools := 0
 	for _, st := range steps {
-		if st.kind == "tool" && x.parent != "" && st.tool != "" {
+		if st.kind == "tool" && x.parent != "" && st.tool != "" && !isExemptSubagentStep(st) {
 			subTools++
 		}
 		if st.kind == "tool" || st.kind == "assistant" || st.kind == "generation" {
@@ -76,6 +95,79 @@ func countSessionStepHealth(h *HealthSignals, x sess, steps []stp, seen map[stri
 		}
 	}
 	return subTools
+}
+
+func isExemptSubagentStep(st stp) bool {
+	if st.denied {
+		return true
+	}
+	lowTool := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(st.tool)), "agy:")
+	switch {
+	case lowTool == "finish" || lowTool == "send_message" || lowTool == "sendmessage":
+		return true
+	case lowTool == "bash" || lowTool == "run_command":
+		return isExemptSubagentBashStep(st.verbs)
+	case isWriteOrEditTool(lowTool):
+		return isExemptScratchAgentTarget(st.kindOf, st.hash)
+	default:
+		return false
+	}
+}
+
+func isWriteOrEditTool(lowTool string) bool {
+	switch lowTool {
+	case "write", "edit", "write_file", "edit_file", "write_to_file", "replace_file_content", "multi_replace_file_content":
+		return true
+	}
+	return false
+}
+
+func isExemptScratchAgentTarget(kindOf, hash string) bool {
+	switch strings.ToLower(strings.TrimSpace(kindOf)) {
+	case "scratch_agent", "agent_scratch", "scratch_artifact", "agent_artifact", "scratch":
+		return true
+	}
+	for _, raw := range []string{kindOf, hash} {
+		if strings.Contains(strings.ToLower(filepath.ToSlash(strings.TrimSpace(raw))), ".agents/scratch/agents/") {
+			return true
+		}
+	}
+	return false
+}
+
+func isExemptSubagentBashStep(verbs []string) bool {
+	if len(verbs) == 0 {
+		return false
+	}
+	for _, v := range verbs {
+		if !isExemptWrapUpVerb(v) {
+			return false
+		}
+	}
+	return true
+}
+
+func isExemptWrapUpVerb(verb string) bool {
+	fields := strings.Fields(strings.TrimSpace(verb))
+	if len(fields) < 2 {
+		return false
+	}
+	switch fields[0] {
+	case "git":
+		switch fields[1] {
+		case "status", "diff", "add", "commit":
+			return true
+		case "checkout":
+			for _, f := range fields[2:] {
+				if f == "--detach" {
+					return true
+				}
+			}
+		}
+	case "fyr":
+		return fields[1] == "git-check"
+	}
+	return false
 }
 
 func classifyToolHealth(h *HealthSignals, st stp) {

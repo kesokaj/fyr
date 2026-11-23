@@ -1,6 +1,12 @@
 package metrics
 
-import "time"
+import (
+	"encoding/json"
+	"strings"
+	"time"
+
+	"github.com/kesokaj/fyr/internal/search"
+)
 
 // MetricDelta compares a shape-only KPI in the current window against the equal
 // prior window [since - (until - since), since).
@@ -41,18 +47,57 @@ func (s *Store) populateWindowDeltas(sum *Summary, o ShowOptions, since, now tim
 	if err != nil {
 		return err
 	}
+	if strings.TrimSpace(o.Project) == "" && o.Label == "" {
+		if prevAST, ok := s.priorStructuralSnapshot(since, now); ok {
+			prev.Health.Structural = prevAST
+		}
+	}
 	sum.Deltas = buildWindowDeltas(sum, prev, prevSince, since)
 	return nil
+}
+
+func (s *Store) priorStructuralSnapshot(since, now time.Time) (search.StructuralSignals, bool) {
+	if s == nil || s.db == nil {
+		return search.StructuralSignals{}, false
+	}
+	sinceDay := since.UTC().Format("2006-01-02")
+	nowDay := now.UTC().Format("2006-01-02")
+	if ast, ok := s.queryDigestASTSnapshot(`SELECT ast_json FROM daily_digests WHERE day <= ? AND day < ? ORDER BY day DESC LIMIT 1`, sinceDay, nowDay); ok {
+		return ast, true
+	}
+	return s.queryDigestASTSnapshot(`SELECT ast_json FROM daily_digests WHERE day < ? ORDER BY day DESC LIMIT 1`, nowDay)
+}
+
+func (s *Store) queryDigestASTSnapshot(q string, args ...any) (search.StructuralSignals, bool) {
+	var raw string
+	if err := s.db.QueryRow(q, args...).Scan(&raw); err != nil || strings.TrimSpace(raw) == "" {
+		return search.StructuralSignals{}, false
+	}
+	var wrap digestASTCol
+	if json.Unmarshal([]byte(raw), &wrap) != nil || !hasStructuralSignals(wrap.AST) {
+		return search.StructuralSignals{}, false
+	}
+	return wrap.AST, true
+}
+
+func hasStructuralSignals(st search.StructuralSignals) bool {
+	return st.TotalCodeFiles > 0 || st.TotalProdPkgs > 0 || st.HiddenCouplingPairs > 0 ||
+		st.HiddenCouplingEditPairs > 0 || st.HiddenCouplingReadPairs > 0 ||
+		st.GodNodeClampHits > 0 || st.GodNodeRepeatReads > 0 || st.ProdPkgCycles > 0 || st.LargeFilesOver350 > 0
 }
 
 func buildWindowDeltas(cur, prev *Summary, prevSince, prevUntil time.Time) *WindowDeltas {
 	curNum := cur.Numbers()
 	prevNum := prev.Numbers()
-	metricsMap := make(map[string]MetricDelta, len(curNum))
+	metricsMap := make(map[string]MetricDelta, len(curNum)+2)
 	for k, cv := range curNum {
 		if pv, ok := prevNum[k]; ok {
 			metricsMap[k] = newMetricDelta(cv, pv)
 		}
+	}
+	metricsMap["C.bash_read_skips.agy"] = newMetricDelta(float64(cur.C.BashReadSkips["agy"]), float64(prev.C.BashReadSkips["agy"]))
+	if cur.E.TimeoutRatePct != nil && prev.E.TimeoutRatePct != nil {
+		metricsMap["E.timeout_rate_pct"] = newMetricDelta(*cur.E.TimeoutRatePct, *prev.E.TimeoutRatePct)
 	}
 	d := &WindowDeltas{
 		PreviousWindow: map[string]string{

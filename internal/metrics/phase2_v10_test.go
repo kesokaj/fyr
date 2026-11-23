@@ -85,6 +85,10 @@ func TestSandboxFilterAndOptIn(t *testing.T) {
 			fmt.Sprintf("sb-%d", i), r, ts+int64(i)*1000, ts+int64(i)*1000+500); err != nil {
 			t.Fatal(err)
 		}
+		if _, err := s.db.Exec(`INSERT INTO turn_vets(project_root, conversation_id, turn_num, intent, gate, score, created_at) VALUES (?, ?, 1, 'TASK', 'PROCEED', 85, ?)`,
+			r, fmt.Sprintf("sb-%d", i), ts+int64(i)*1000); err != nil {
+			t.Fatal(err)
+		}
 	}
 	assertSandboxFilterModes(t, s, home, alpha, since, now)
 }
@@ -95,8 +99,8 @@ func assertSandboxFilterModes(t *testing.T, s *Store, home, alpha string, since,
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(defSum.Projects) != 2 {
-		t.Fatalf("default Projects len = %d (%+v), want 2 (alpha and /work/real-app)", len(defSum.Projects), defSum.Projects)
+	if len(defSum.Projects) != 2 || defSum.E.TurnVets != 2 {
+		t.Fatalf("default Projects=%d TurnVets=%d (%+v), want 2 and 2 (alpha and /work/real-app)", len(defSum.Projects), defSum.E.TurnVets, defSum.Projects)
 	}
 	hasAlpha := false
 	for _, p := range defSum.Projects {
@@ -108,12 +112,12 @@ func assertSandboxFilterModes(t *testing.T, s *Store, home, alpha string, since,
 		t.Fatalf("temp fixture %s was wrongly filtered: %+v", alpha, defSum.Projects)
 	}
 	optIn, err := s.Show(ShowOptions{Home: home, Since: since, Now: now, IncludeSandboxes: true})
-	if err != nil || len(optIn.Projects) <= len(defSum.Projects) {
-		t.Fatalf("IncludeSandboxes Projects = %+v, err=%v", optIn.Projects, err)
+	if err != nil || len(optIn.Projects) <= len(defSum.Projects) || optIn.E.TurnVets <= defSum.E.TurnVets {
+		t.Fatalf("IncludeSandboxes Projects=%+v TurnVets=%d, err=%v", optIn.Projects, optIn.E.TurnVets, err)
 	}
 	explicit, err := s.Show(ShowOptions{Home: home, Since: since, Now: now, Project: "/tmp/fyr-eval/s1"})
-	if err != nil || explicit.Sessions["agy"] != 1 {
-		t.Fatalf("explicit sandbox Project sessions = %+v, err=%v; want 1", explicit.Sessions, err)
+	if err != nil || explicit.Sessions["agy"] != 1 || explicit.E.TurnVets != 1 {
+		t.Fatalf("explicit sandbox Project sessions=%+v TurnVets=%d, err=%v; want 1 and 1", explicit.Sessions, explicit.E.TurnVets, err)
 	}
 }
 

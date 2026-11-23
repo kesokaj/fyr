@@ -3,10 +3,13 @@ package metrics
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -194,11 +197,24 @@ func TestDiagnosticsHealthRegressionRulesAndActionScopes(t *testing.T) {
 			t.Fatalf("medium timeout signal = %+v", repMed.Signals)
 		}
 
+		// Single-window high timeout rate downgrades to medium under 2-day hysteresis.
 		high := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
 		high.E = SecondBrain{TurnVets: 10, TimedOutTurns: 2, TimeoutRatePct: ptrF(20.0)}
+		repDay1 := BuildDiagnosticReport(*high, nil, "global", "")
+		if len(repDay1.Signals) != 1 || repDay1.Signals[0].Severity != "medium" {
+			t.Fatalf("day1 timeout signal = %+v, want medium under hysteresis", repDay1.Signals)
+		}
+		// Sustained timeout regression across prior window promotes to high.
+		high.Deltas = &WindowDeltas{
+			PreviousSessions: 5,
+			Metrics: map[string]MetricDelta{
+				"E.turn_vets":        {Current: 10, Previous: 10},
+				"E.timeout_rate_pct": {Current: 20.0, Previous: 10.0},
+			},
+		}
 		repHigh := BuildDiagnosticReport(*high, nil, "global", "")
 		if len(repHigh.Signals) != 1 || repHigh.Signals[0].Severity != "high" {
-			t.Fatalf("high timeout signal = %+v", repHigh.Signals)
+			t.Fatalf("sustained high timeout signal = %+v", repHigh.Signals)
 		}
 	})
 
@@ -226,12 +242,23 @@ func TestDiagnosticsHealthRegressionRulesAndActionScopes(t *testing.T) {
 			t.Fatalf("medium bash_read_bypass signal = %+v", repMed.Signals)
 		}
 
+		// Single-window high rate downgrades to medium; sustained prior-window rate promotes to high.
 		high := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
 		high.Sessions["agy"] = 5
 		high.C.BashReadSkips = map[string]int{"agy": 10}
+		repDay1 := BuildDiagnosticReport(*high, nil, "global", "")
+		if len(repDay1.Signals) != 1 || repDay1.Signals[0].Severity != "medium" {
+			t.Fatalf("day1 bash_read_bypass signal = %+v, want medium under hysteresis", repDay1.Signals)
+		}
+		high.Deltas = &WindowDeltas{
+			PreviousSessions: 5,
+			Metrics: map[string]MetricDelta{
+				"C.bash_read_skips.agy": {Current: 10, Previous: 4},
+			},
+		}
 		repHigh := BuildDiagnosticReport(*high, nil, "global", "")
 		if len(repHigh.Signals) != 1 || repHigh.Signals[0].Severity != "high" {
-			t.Fatalf("high bash_read_bypass signal = %+v", repHigh.Signals)
+			t.Fatalf("sustained high bash_read_bypass signal = %+v", repHigh.Signals)
 		}
 	})
 
@@ -295,4 +322,268 @@ func findDiagSignal(sigs []DiagnosticSignal, rule string) (DiagnosticSignal, boo
 		}
 	}
 	return DiagnosticSignal{}, false
+}
+
+func TestV910DiagnosticsRatesDigestAndDeltas(t *testing.T) {
+	t.Run("F056_small_counts_across_5000_sessions_zero_high", testV910SmallCountsZeroHigh)
+	t.Run("F056_two_day_hysteresis_and_static_invariants", testV910TwoDayHysteresis)
+	t.Run("F006_structured_auto_applied_marker", testV910StructuredAutoApplied)
+	t.Run("F018_structural_window_deltas_from_daily_digests", testV910StructuralDeltas)
+	t.Run("F013_sandbox_and_labeled_turn_vets_filtered", testV910SandboxTurnVetsFilter)
+	t.Run("F036_subagent_caps_and_exempt_wrapup_steps", testV910SubagentCapsAndExemptSteps)
+}
+
+func testV910SmallCountsZeroHigh(t *testing.T) {
+	sum := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+	sum.Sessions["agy"], sum.Health.MainSessions = 5000, 5000
+	sum.Health.SubagentsOverBudget, sum.Health.GuardedDowngrades = 5, 3
+	sum.A.EscapedBugs, sum.A.Corrections = 4, 6
+	sum.C.BashReadSkips = map[string]int{"agy": 10}
+	sum.D.RetryLoops, sum.C.RedundantReads = map[string]int{"agy": 10}, map[string]int{"agy": 10}
+	sum.Health.Structural = search.StructuralSignals{GodNodeClampHits: 10, GodNodeRepeatReads: 5, GodNodeChurnRate: 0.01}
+	sum.Deltas = &WindowDeltas{
+		PreviousSessions: 5000,
+		Metrics: map[string]MetricDelta{
+			"H.subagents_over_budget": {Current: 5, Previous: 5}, "H.guarded_downgrades": {Current: 3, Previous: 3},
+			"A.escaped_bugs": {Current: 4, Previous: 4}, "A.corrections": {Current: 6, Previous: 6},
+			"C.bash_read_skips.agy": {Current: 10, Previous: 10},
+		},
+	}
+	rep := BuildDiagnosticReport(*sum, nil, "global", "")
+	if len(rep.Signals) != 0 {
+		t.Fatalf("expected 0 signals (0 HIGH) for 5/3/4/6/10 across 5000 sessions, got %+v", rep.Signals)
+	}
+	// Sustained high rates across N=10 sessions: Day 1 downgrades to medium; confirmed Day 2 emits HIGH.
+	hi := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+	hi.Sessions["agy"], hi.Health.MainSessions = 10, 10
+	hi.Health.SubagentsOverBudget, hi.Health.GuardedDowngrades = 3, 2
+	hi.A.EscapedBugs, hi.A.Corrections = 2, 3
+	hi.C.BashReadSkips = map[string]int{"agy": 10}
+	for _, sig := range BuildDiagnosticReport(*hi, nil, "global", "").Signals {
+		if sig.Severity == "high" {
+			t.Fatalf("day1 unconfirmed high-rate signal should downgrade to medium: %+v", sig)
+		}
+	}
+	hi.Deltas = &WindowDeltas{
+		PreviousSessions: 10,
+		Metrics: map[string]MetricDelta{
+			"H.subagents_over_budget": {Current: 3, Previous: 2}, "H.guarded_downgrades": {Current: 2, Previous: 1},
+			"A.escaped_bugs": {Current: 2, Previous: 2}, "A.corrections": {Current: 3, Previous: 3},
+			"C.bash_read_skips.agy": {Current: 10, Previous: 4},
+		},
+	}
+	repHi := BuildDiagnosticReport(*hi, nil, "global", "")
+	for _, rule := range []string{"subagents_over_budget", "guarded_downgrades", "escaped_bugs_present", "corrections_elevated", "bash_read_bypass"} {
+		if sig, ok := findDiagSignal(repHi.Signals, rule); !ok || sig.Severity != "high" {
+			t.Fatalf("sustained high-rate %s = (%+v, %v), want high", rule, sig, ok)
+		}
+	}
+}
+
+func testV910TwoDayHysteresis(t *testing.T) {
+	home := t.TempDir()
+	s := openT(t, Path(home))
+	day1 := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	day2 := day1.Add(24 * time.Hour)
+	seedHighRateDayT(t, s, "/work/app", "d1", day1.Add(-2*time.Hour).UnixMilli())
+
+	// Day 1 without prior digest or prior window: high-rate spikes downgrade to medium.
+	sum1, err := s.Show(ShowOptions{Home: home, Since: day1.Add(-24 * time.Hour), Now: day1})
+	if err != nil {
+		t.Fatalf("Show day1: %v", err)
+	}
+	for _, rule := range []string{"bash_read_bypass", "pre_invocation_timeouts"} {
+		if sig, ok := findDiagSignal(sum1.Diagnostics.Signals, rule); !ok || sig.Severity != "medium" {
+			t.Fatalf("day1 %s = (%+v, %v), want medium under 2-day hysteresis", rule, sig, ok)
+		}
+	}
+	// Stale digest (3 days earlier) must NOT confirm Day 1.
+	if err := SaveDailyDigest(s, DailyDigest{
+		Day: "2026-11-18", Verdict: VerdictRegress,
+		Signals: []DigestAction{{SignalID: "sig:global:bash_read_bypass", Severity: "medium", Rule: "bash_read_bypass"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Build & save Day 1 digest; same-day Show must STILL not self-confirm to HIGH.
+	d1, err := BuildDailyDigest(s, home, "", day1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveDailyDigest(s, d1); err != nil {
+		t.Fatal(err)
+	}
+	sum1Same, err := s.Show(ShowOptions{Home: home, Since: day1.Add(-24 * time.Hour), Now: day1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sig, ok := findDiagSignal(sum1Same.Diagnostics.Signals, "bash_read_bypass"); !ok || sig.Severity != "medium" {
+		t.Fatalf("stale/same-day digest falsely confirmed day1 HIGH: %+v", sig)
+	}
+
+	// Day 2 with sustained high rates and consecutive Day 1 digest promotes cleanly to HIGH.
+	seedHighRateDayT(t, s, "/work/app", "d2", day2.Add(-2*time.Hour).UnixMilli())
+	sum2, err := s.Show(ShowOptions{Home: home, Since: day2.Add(-24 * time.Hour), Now: day2})
+	if err != nil {
+		t.Fatalf("Show day2: %v", err)
+	}
+	for _, rule := range []string{"bash_read_bypass", "pre_invocation_timeouts"} {
+		if sig, ok := findDiagSignal(sum2.Diagnostics.Signals, rule); !ok || sig.Severity != "high" {
+			t.Fatalf("day2 sustained %s = (%+v, %v), want high", rule, sig, ok)
+		}
+	}
+}
+
+func seedHighRateDayT(t *testing.T, s *Store, root, prefix string, ts int64) {
+	t.Helper()
+	for i := 0; i < 6; i++ {
+		sid := fmt.Sprintf("%s-%d", prefix, i)
+		if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES (?, 'agy', ?, ?, ?)`,
+			sid, root, ts+int64(i)*1000, ts+int64(i)*1000+500); err != nil {
+			t.Fatal(err)
+		}
+		for j := 0; j < 2; j++ {
+			ext := fmt.Sprintf("%s:b:%d", sid, j)
+			if _, err := s.db.Exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tool) VALUES (?, ?, ?, 'tool', 'Bash')`, sid, ext, ts+10+int64(j)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.db.Exec(`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES (?, ?, 0, 'cat')`, sid, ext); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := s.db.Exec(`INSERT INTO turn_vets(project_root, conversation_id, turn_num, intent, gate, score, duration_ms, timed_out, created_at) VALUES (?, ?, 1, 'TASK', 'PROCEED', 80, 260, 1, ?)`, root, sid, ts+20); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func testV910StructuredAutoApplied(t *testing.T) {
+	home := t.TempDir()
+	bdb := filepath.Join(home, harness.StateDir, "brain.db")
+	if err := os.MkdirAll(filepath.Dir(bdb), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sqliteT(t, bdb,
+		`CREATE TABLE records(rid INTEGER PRIMARY KEY, scope TEXT NOT NULL, id TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, date TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, project TEXT NOT NULL DEFAULT '', updated TEXT NOT NULL, provenance TEXT NOT NULL DEFAULT '', UNIQUE(scope, id))`,
+		`INSERT INTO records VALUES (1, '', 'REVIEW-2026-11-21-preflight', 'review', 'closed', '2026-11-21', 'preflight review', 'Applied fix from RecordDigestAppliedAction. See revert: git revert abc1234 and inline auto-applied: mention.', '/work/app', '2026-11-21T09:00:00Z', '')`,
+		"INSERT INTO records VALUES (2, '', 'REVIEW-2026-11-21-fenced', 'review', 'closed', '2026-11-21', 'code review', 'Example:\n```\nauto-applied: feed123\n```\n', '/work/app', '2026-11-21T09:05:00Z', '')",
+		"INSERT INTO records VALUES (3, '', 'REVIEW-2026-11-21-auto', 'review', 'closed', '2026-11-21', 'auto fix skills/golang', 'auto-applied: deadbee\nsig:global:search_grep_low install pending\nrevert: git revert deadbee', '/work/app', '2026-11-21T09:10:00Z', 'derived')",
+	)
+	got := readBrainAppliedActions(home, "/work/app", "2026-11-20")
+	if len(got) != 1 || got[0].SignalID != "sig:global:search_grep_low" || got[0].AppliedSHA != "deadbee" {
+		t.Fatalf("readBrainAppliedActions = %+v, want single structured auto-applied action", got)
+	}
+}
+
+func testV910StructuralDeltas(t *testing.T) {
+	home := t.TempDir()
+	proj := seedStructuralRepoWithSearchDB(t, home)
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	since := now.Add(-24 * time.Hour)
+	s := openT(t, Path(home))
+	if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES ('s-cur', 'agy', ?, ?, ?)`,
+		proj, now.Add(-2*time.Hour).UnixMilli(), now.Add(-time.Hour).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveDailyDigest(s, DailyDigest{
+		Day: "2026-11-20", Verdict: VerdictSteady,
+		ASTSnapshot: search.StructuralSignals{HiddenCouplingPairs: 1, HiddenCouplingReadPairs: 1, TotalCodeFiles: 2, TotalProdPkgs: 2},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sum, err := s.Show(ShowOptions{Home: home, Since: since, Now: now})
+	if err != nil || sum.Deltas == nil {
+		t.Fatalf("Show: err=%v deltas=%v", err, sum)
+	}
+	md, ok := sum.Deltas.Metrics["H.structural.hidden_coupling_edit_pairs"]
+	if !ok || md.Previous != 0 || md.Current != 1 || md.Delta != 1 {
+		t.Fatalf("H.structural.hidden_coupling_edit_pairs = (%+v, %v), want cur=1 prev=0 delta=+1", md, ok)
+	}
+	if clampMD, ok := sum.Deltas.Metrics["H.structural.god_node_clamp_hits"]; !ok || clampMD.Delta <= 0 {
+		t.Fatalf("H.structural.god_node_clamp_hits = (%+v, %v), want positive delta", clampMD, ok)
+	}
+	projSum, err := s.Show(ShowOptions{Home: home, Project: proj, Since: since, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, leaked := projSum.Deltas.Metrics["H.structural.hidden_coupling_edit_pairs"]; leaked {
+		t.Fatalf("project-scoped Show leaked global daily_digests AST delta: %+v", projSum.Deltas.Metrics)
+	}
+}
+
+func testV910SandboxTurnVetsFilter(t *testing.T) {
+	home := t.TempDir()
+	s := openT(t, Path(home))
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	since, ts := now.Add(-24*time.Hour), now.Add(-time.Hour).UnixMilli()
+	if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, project_root, label, started_at, ended_at) VALUES ('eval-s1', 'agy', '/work/real-app', 'eval=smoke', ?, ?)`, ts, ts+500); err != nil {
+		t.Fatal(err)
+	}
+	sandboxRoots := []string{
+		"/tmp/fyr-eval/s1", "/work/proj/.agents/scratch/sub", "/work/real-home-smoke-1", "/work/fyr-smoke-9",
+		"/Users/alice", "/", home, "/tmp", filepath.Join(home, harness.StateDir, "dev", "fyr-eval"),
+	}
+	for i, root := range sandboxRoots {
+		if _, err := s.db.Exec(`INSERT INTO turn_vets(project_root, conversation_id, turn_num, intent, gate, score, created_at) VALUES (?, ?, 1, 'TASK', 'PROCEED', 85, ?)`,
+			root, fmt.Sprintf("sb-conv-%d", i), ts+int64(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`INSERT INTO turn_vets(project_root, conversation_id, turn_num, intent, gate, score, created_at) VALUES ('/work/real-app', 'eval-s1', 1, 'TASK', 'PROCEED', 90, ?)`, ts+100); err != nil {
+		t.Fatal(err)
+	}
+	if defSum, err := s.Show(ShowOptions{Home: home, Since: since, Now: now}); err != nil || defSum.Sessions["agy"] != 0 || defSum.E.TurnVets != 0 {
+		t.Fatalf("default 0-session Show leaked turn_vets: err=%v sessions=%v E.TurnVets=%d", err, defSum.Sessions, defSum.E.TurnVets)
+	}
+	if withSB, err := s.Show(ShowOptions{Home: home, Since: since, Now: now, IncludeSandboxes: true}); err != nil || withSB.E.TurnVets != len(sandboxRoots) {
+		t.Fatalf("IncludeSandboxes E.TurnVets = %d (err=%v), want %d", withSB.E.TurnVets, err, len(sandboxRoots))
+	}
+	if allLbl, err := s.Show(ShowOptions{Home: home, Since: since, Now: now, AllLabels: true}); err != nil || allLbl.E.TurnVets != 1 {
+		t.Fatalf("AllLabels E.TurnVets = %d (err=%v), want 1", allLbl.E.TurnVets, err)
+	}
+	if explicit, err := s.Show(ShowOptions{Home: home, Since: since, Now: now, Project: "/tmp/fyr-eval/s1"}); err != nil || explicit.E.TurnVets != 1 {
+		t.Fatalf("explicit Project E.TurnVets = %d (err=%v), want 1", explicit.E.TurnVets, err)
+	}
+}
+
+func testV910SubagentCapsAndExemptSteps(t *testing.T) {
+	for role, want := range map[string]int{
+		"workflow-builder-8a62522f": 120, "coder-1": 120, "worker-2": 120, "implementer": 120,
+		"workflow-reviewer-1234": 40, "security-audit": 40, "sub-extra": 40,
+	} {
+		if got := subagentCapForRole(role); got != want {
+			t.Errorf("subagentCapForRole(%q) = %d, want %d", role, got, want)
+		}
+	}
+	home := t.TempDir()
+	s := openT(t, Path(home))
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	ts := now.Add(-time.Hour).UnixMilli()
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := s.db.Exec(q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES ('M1', 'agy', '/work/app', ?, ?)`, ts, ts+50000)
+	exec(`INSERT INTO sessions(id, vendor, project_root, parent_id, agent_type, started_at, ended_at) VALUES ('R_EX', 'agy', '/work/app', 'M1', 'reviewer', ?, ?), ('B_WK', 'agy', '/work/app', 'M1', 'workflow-builder-8a62522f', ?, ?)`, ts+100, ts+5000, ts+6000, ts+20000)
+	for i := 0; i < 40; i++ {
+		exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tool) VALUES ('R_EX', ?, ?, 'tool', 'Read')`, fmt.Sprintf("r:%d", i), ts+200+int64(i))
+	}
+	exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tool, denied, target_kind, cmd_hash) VALUES
+		('R_EX', 'r:den', ?, 'tool', 'Read', 1, '', ''), ('R_EX', 'r:fin', ?, 'tool', 'agy:finish', 0, '', ''),
+		('R_EX', 'r:msg', ?, 'tool', 'SendMessage', 0, '', ''), ('R_EX', 'r:art', ?, 'tool', 'Write', 0, 'scratch_agent', '.agents/scratch/agents/reviewer-1.md'),
+		('R_EX', 'r:git', ?, 'tool', 'Bash', 0, '', '')`, ts+300, ts+301, ts+302, ts+303, ts+304)
+	exec(`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES ('R_EX', 'r:git', 0, 'git add'), ('R_EX', 'r:git', 1, 'git commit -m'), ('R_EX', 'r:git', 2, 'git checkout --detach')`)
+	for i := 0; i < 120; i++ {
+		exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tool) VALUES ('B_WK', ?, ?, 'tool', 'Read')`, fmt.Sprintf("b:%d", i), ts+7000+int64(i))
+	}
+	exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tool) VALUES ('B_WK', 'b:fin', ?, 'tool', 'finish')`, ts+8000)
+	if sum, err := s.Show(ShowOptions{Home: home, Since: now.Add(-24 * time.Hour), Now: now}); err != nil || sum.Health.SubagentsOverBudget != 0 {
+		t.Fatalf("SubagentsOverBudget = %d (err=%v), want 0", sum.Health.SubagentsOverBudget, err)
+	}
+	exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tool) VALUES ('R_EX', 'r:over', ?, 'tool', 'Bash')`, ts+305)
+	exec(`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES ('R_EX', 'r:over', 0, 'go test')`)
+	if sum2, err := s.Show(ShowOptions{Home: home, Since: now.Add(-24 * time.Hour), Now: now}); err != nil || sum2.Health.SubagentsOverBudget != 1 {
+		t.Fatalf("SubagentsOverBudget after non-exempt step = %d (err=%v), want 1", sum2.Health.SubagentsOverBudget, err)
+	}
 }

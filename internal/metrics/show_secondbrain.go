@@ -24,15 +24,15 @@ type secondBrainAcc struct {
 
 func (s *Store) populateSecondBrainAndProjects(sum *Summary, o ShowOptions, all []sess, trials []trial, data *showData, since, now time.Time) error {
 	if o.Label == "" {
+		home := resolveMetricsHome(o, s.path)
 		where, args := windowAndProjectWhere("created_at", o, since, now)
-		acc, err := s.querySecondBrainWhere(where, args)
+		acc, err := s.querySecondBrainFiltered(where, args, o, home)
 		if err != nil {
 			return err
 		}
 		data.sbAcc = acc
 		sum.E = acc.sb
 		if o.Project == "" {
-			home := resolveMetricsHome(o, s.path)
 			sum.Projects = buildProjectRowsWithOpts(all, acc.byRoot, data.steps, data.events, o, home)
 		}
 	}
@@ -67,19 +67,37 @@ func beforeCutoffProjectWhere(tsCol string, o ShowOptions, cutoff time.Time) (st
 		w += ` AND (project_root = ? OR substr(project_root, 1, length(?)) = ?)`
 		args = append(args, p, p+"/", p+"/")
 	}
+	if o.Label == "" && !o.AllLabels {
+		w += excludeLabeledTurnVetsSQL
+	}
 	return w, args
 }
 
+const excludeLabeledTurnVetsSQL = ` AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id = turn_vets.conversation_id AND s.label IS NOT NULL AND s.label != '')`
+
 func (s *Store) querySecondBrain(o ShowOptions, since, now time.Time) (SecondBrain, map[string]*projVetAcc, error) {
+	home := resolveMetricsHome(o, s.path)
 	where, args := windowAndProjectWhere("created_at", o, since, now)
-	acc, err := s.querySecondBrainWhere(where, args)
+	acc, err := s.querySecondBrainFiltered(where, args, o, home)
 	if err != nil {
 		return SecondBrain{}, nil, err
 	}
 	return acc.sb, acc.byRoot, nil
 }
 
+func (s *Store) querySecondBrainFiltered(where string, args []any, o ShowOptions, home string) (*secondBrainAcc, error) {
+	if o.Label == "" && !o.AllLabels {
+		where += excludeLabeledTurnVetsSQL
+	}
+	filterSandboxes := o.Project == "" && !o.IncludeSandboxes
+	return s.scanSecondBrainWhere(where, args, filterSandboxes, home)
+}
+
 func (s *Store) querySecondBrainWhere(where string, args []any) (*secondBrainAcc, error) {
+	return s.scanSecondBrainWhere(where, args, false, "")
+}
+
+func (s *Store) scanSecondBrainWhere(where string, args []any, filterSandboxes bool, home string) (*secondBrainAcc, error) {
 	rows, err := s.db.Query(`SELECT project_root, conversation_id, gate, score, bypassed, pivots_count, ledger_saved, created_at,
 		COALESCE(duration_ms, 0), COALESCE(timed_out, 0), COALESCE(injected_bytes, 0),
 		COALESCE(pivots_used_count, 0), COALESCE(skills_loaded_count, 0)
@@ -97,6 +115,9 @@ func (s *Store) querySecondBrainWhere(where string, args []any) (*secondBrainAcc
 			&durMS, &timedOut, &injBytes, &pivotsUsed, &skillsLoaded); err != nil {
 			return nil, err
 		}
+		if filterSandboxes && isEphemeralTurnVetRoot(root, home) {
+			continue
+		}
 		acc.addRow(root, convID, gate, score, bypassed, pivots, ledger, durMS, timedOut, injBytes, pivotsUsed, skillsLoaded, createdAt)
 	}
 	if err := rows.Err(); err != nil {
@@ -104,6 +125,39 @@ func (s *Store) querySecondBrainWhere(where string, args []any) (*secondBrainAcc
 	}
 	acc.finish()
 	return acc, nil
+}
+
+func isEphemeralTurnVetRoot(root, home string) bool {
+	trimmed := strings.TrimSpace(root)
+	if trimmed == "" || isSandboxProjectRoot(trimmed, home) {
+		return true
+	}
+	clean := filepath.Clean(trimmed)
+	if isTempRoot(clean) {
+		return true
+	}
+	return hasExtraEphemeralTurnVetSegment(clean)
+}
+
+func hasExtraEphemeralTurnVetSegment(clean string) bool {
+	segs := strings.Split(filepath.ToSlash(clean), "/")
+	for i, seg := range segs {
+		switch {
+		case strings.HasPrefix(seg, "fyr-smoke-"):
+			return true
+		case seg == ".config" && i+2 < len(segs) && segs[i+1] == "fyr":
+			switch segs[i+2] {
+			case "auto", "eval", "sandbox", "dev":
+				return true
+			}
+			if strings.HasPrefix(segs[i+2], "dream-agy-home-") {
+				return true
+			}
+		case seg == ".gemini" && i+4 < len(segs) && segs[i+1] != "" && segs[i+2] == "brain" && segs[i+3] != "" && segs[i+4] == "scratch":
+			return true
+		}
+	}
+	return false
 }
 
 func (a *secondBrainAcc) addRow(root, convID, gate string, score, bypassed, pivots, ledger, durMS, timedOut, injBytes, pivotsUsed, skillsLoaded int, createdAt int64) {

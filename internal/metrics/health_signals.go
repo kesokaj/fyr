@@ -239,11 +239,14 @@ func subagentBudgetCap(id, agent, parent string, knownSub map[string]string, has
 		return subagentCapForRole(ka), true
 	}
 	lowID, lowAgent := strings.ToLower(id), strings.ToLower(strings.TrimSpace(agent))
-	if isBuilderOrSelfRole(lowAgent) || strings.Contains(lowID, "self") || isBuilderLikeID(lowID) {
-		return 120, true
+	if lowAgent != "" {
+		return subagentCapForRole(lowAgent), true
 	}
-	if parent != "" || lowAgent != "" || isSubagentLikeID(lowID) || !hasKnownMain {
-		return 40, true
+	if strings.Contains(lowID, "self") || isBuilderLikeID(lowID) || strings.Contains(lowID, "coder") || strings.Contains(lowID, "worker") {
+		return builderSubagentCap, true
+	}
+	if parent != "" || isSubagentLikeID(lowID) || !hasKnownMain {
+		return auditSubagentCap, true
 	}
 	return 0, false
 }

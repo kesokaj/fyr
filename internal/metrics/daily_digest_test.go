@@ -41,12 +41,13 @@ func TestDailyDigestBuildSavePathAndFailOpenReads(t *testing.T) {
 		}
 	}
 
-	// Seed brain.db with both auto/apply.go REVIEW format and PROPOSAL queued record.
+	// Seed brain.db with structured auto-applied REVIEW, ordinary preflight REVIEW prose (must be ignored), and PROPOSAL queued record.
 	bdb := filepath.Join(home, harness.StateDir, "brain.db")
 	sqliteT(t, bdb,
 		`CREATE TABLE records(rid INTEGER PRIMARY KEY, scope TEXT NOT NULL, id TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, date TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, project TEXT NOT NULL DEFAULT '', updated TEXT NOT NULL, provenance TEXT NOT NULL DEFAULT '', UNIQUE(scope, id))`,
-		`INSERT INTO records VALUES (1, '', 'REVIEW-2026-11-21-auto', 'review', 'closed', '2026-11-21', 'auto fix skills/golang', 'Applied by fyr auto (report REVIEW-1, handoff HANDOFF-1).\nsig:global:search_grep_low install pending\nrevert: git revert abc1234', '/work/app', '2026-11-21T09:00:00Z', 'derived')`,
+		`INSERT INTO records VALUES (1, '', 'REVIEW-2026-11-21-auto', 'review', 'closed', '2026-11-21', 'auto fix skills/golang', 'auto-applied: abc1234`+"\n"+`Applied by fyr auto (report REVIEW-1, handoff HANDOFF-1).`+"\n"+`sig:global:search_grep_low install pending`+"\n"+`revert: git revert abc1234', '/work/app', '2026-11-21T09:00:00Z', 'derived')`,
 		`INSERT INTO records VALUES (2, '', 'PROPOSAL-001', 'proposal', 'queued', '2026-11-21', 'propose guard', 'sig:global:bash_read_bypass', '/work/app', '2026-11-21T09:05:00Z', 'derived')`,
+		`INSERT INTO records VALUES (3, '', 'REVIEW-2026-11-21-preflight', 'review', 'closed', '2026-11-21', 'preflight review', 'Applied fix citing RecordDigestAppliedAction and revert: git revert deadbee', '/work/app', '2026-11-21T09:06:00Z', '')`,
 	)
 
 	d, err := BuildDailyDigest(s, home, "/work/app", now)
@@ -56,8 +57,14 @@ func TestDailyDigestBuildSavePathAndFailOpenReads(t *testing.T) {
 	if d.Day != "2026-11-21" || d.Verdict != VerdictRegress || len(d.Signals) == 0 || len(d.Actions) != 2 {
 		t.Fatalf("unexpected BuildDailyDigest: %+v", d)
 	}
-	if d.Actions[0].RevertCmd != "git revert abc1234" || d.Actions[0].AppliedSHA != "abc1234" || !d.Actions[0].InstallPending {
-		t.Fatalf("REVIEW action parsing missed apply.go format: %+v", d.Actions[0])
+	var revAct DigestAppliedAction
+	for _, a := range d.Actions {
+		if a.SignalID == "sig:global:search_grep_low" {
+			revAct = a
+		}
+	}
+	if revAct.RevertCmd != "git revert abc1234" || revAct.AppliedSHA != "abc1234" || !revAct.InstallPending {
+		t.Fatalf("REVIEW action parsing missed structured auto-applied format: %+v (all=%+v)", revAct, d.Actions)
 	}
 
 	wantPath := filepath.Join(home, harness.StateDir, "reports", "latest-daily-digest.json")
@@ -286,8 +293,12 @@ func TestDailyDigestProjectIsolationAndHyphenatedRecovery(t *testing.T) {
 		t.Fatalf("project BuildDailyDigest diffed against global prev: %+v", projDigest)
 	}
 
-	// Hyphenated project signal ID (sig:proj-12345678:my-rule) parses cleanly.
-	act, ok := parseAppliedActionRecord("REVIEW-1", "review", "closed", "2026-11-20", "auto fix", "Applied commit abcdef1\nsig:proj-12345678:my-rule\nrevert: git revert abcdef1")
+	// Ordinary review prose without structured auto-applied: marker must be ignored.
+	if _, ok := parseAppliedActionRecord("REVIEW-PROSE", "review", "closed", "2026-11-20", "preflight review", "Applied commit abcdef1 via RecordDigestAppliedAction\nrevert: git revert abcdef1"); ok {
+		t.Fatal("ordinary review prose without auto-applied: marker was falsely accepted")
+	}
+	// Hyphenated project signal ID (sig:proj-12345678:my-rule) parses cleanly with structured marker.
+	act, ok := parseAppliedActionRecord("REVIEW-1", "review", "closed", "2026-11-20", "auto fix", "auto-applied: abcdef1\nApplied commit abcdef1\nsig:proj-12345678:my-rule\nrevert: git revert abcdef1")
 	if !ok || act.SignalID != "sig:proj-12345678:my-rule" {
 		t.Fatalf("parseAppliedActionRecord hyphenated sig = (%+v, %v)", act, ok)
 	}

@@ -23,13 +23,18 @@ func TestSubagentBudgetCapsBuilderVsAuditRoles(t *testing.T) {
 		{"builder-phase2a", 120},
 		{"BUILDER-1", 120},
 		{"builder_slice", 120},
+		{"workflow-builder-8a62522f", 120},
+		{"coder", 120},
+		{"worker-1", 120},
 		{"reviewer", 40},
+		{"workflow-reviewer-abc", 40},
 		{"security", 40},
 		{"verifier", 40},
 		{"explorer", 40},
 		{"dreamer", 40},
 		{"documentation", 40},
 		{"research", 40},
+		{"sub-extra", 40},
 		{"", 40},
 	} {
 		if got := subagentCapForRole(tc.role); got != tc.want {

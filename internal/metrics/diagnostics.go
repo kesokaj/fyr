@@ -15,6 +15,24 @@ const (
 	minDiagnosticRuns      = 3
 	minHiddenCouplingPairs = 3
 	minProdPkgCycles       = 1
+
+	subagentOverBudgetMedRate  = 0.10
+	subagentOverBudgetHighRate = 0.25
+	guardedDowngradeMedRate    = 0.05
+	guardedDowngradeHighRate   = 0.15
+	correctionsMedRate         = 0.10
+	correctionsHighRate        = 0.25
+	escapedBugsMedRate         = 0.05
+	escapedBugsHighRate        = 0.15
+	retryLoopsMedRate          = 0.50
+	retryLoopsHighRate         = 2.00
+	redundantReadsLowRate      = 0.25
+	redundantReadsMedRate      = 1.00
+	redundantReadsHighRate     = 3.00
+	godNodeChurnMedRate        = 0.15
+	godNodeChurnHighRate       = 0.35
+	godNodeHitsPerSessMed      = 0.50
+	godNodeHitsPerSessHigh     = 2.00
 )
 
 // DiagnosticSignal is one strictly shape-only ranked diagnostic finding.
@@ -42,6 +60,10 @@ type DiagnosticReport struct {
 // BuildDiagnosticReport computes a deterministic, deduplicated, strictly
 // shape-only DiagnosticReport with zero raw paths, prose, labels, or tool args.
 func BuildDiagnosticReport(sum Summary, evals []EvalRow, scope, projectRoot string) DiagnosticReport {
+	return buildDiagnosticReport(sum, evals, scope, projectRoot, nil)
+}
+
+func buildDiagnosticReport(sum Summary, evals []EvalRow, scope, projectRoot string, prevDigest *DailyDigest) DiagnosticReport {
 	normScope, idPrefix := resolveDiagnosticScope(scope, projectRoot)
 	var raw []DiagnosticSignal
 	raw = appendSessionSignals(raw, sum, idPrefix)
@@ -49,6 +71,7 @@ func BuildDiagnosticReport(sum Summary, evals []EvalRow, scope, projectRoot stri
 	raw = appendStructuralSignals(raw, sum, idPrefix)
 	raw = appendHealthRegressionSignals(raw, sum, idPrefix)
 	raw = appendRunAndEvalSignals(raw, sum, evals, normScope, idPrefix)
+	applyPersistenceHysteresis(raw, sum, prevDigest)
 	signals := dedupAndSortSignals(raw)
 	assignDiagnosticActions(signals)
 	genAt := sum.Window["until"]
@@ -71,6 +94,7 @@ func (s *Store) populateDiagnostics(sum *Summary, o ShowOptions, since, now time
 		scope = "project"
 	}
 	var evalRows []EvalRow
+	var prevDigest *DailyDigest
 	if scope == "global" {
 		ev, err := ReportEvalsWithDevFallback(s, resolveMetricsHome(o, s.path), ShowOptions{
 			Since:   since,
@@ -84,8 +108,12 @@ func (s *Store) populateDiagnostics(sum *Summary, o ShowOptions, since, now time
 		if ev != nil {
 			evalRows = ev.Rows
 		}
+		day := now.UTC().Format("2006-01-02")
+		if pd, derr := PreviousDailyDigest(s, day); derr == nil && pd != nil && pd.Day == priorDayString(day) {
+			prevDigest = pd
+		}
 	}
-	rep := BuildDiagnosticReport(*sum, evalRows, scope, o.Project)
+	rep := buildDiagnosticReport(*sum, evalRows, scope, o.Project, prevDigest)
 	rep.GeneratedAt = now.UTC().Format(time.RFC3339)
 	sum.Diagnostics = &rep
 	return nil
@@ -117,18 +145,7 @@ func appendSessionSignals(out []DiagnosticSignal, sum Summary, pfx string) []Dia
 			out = append(out, makeSignal(pfx, "tool_error_rate_high", sev, "D.tool_error_rate.agy",
 				round4(*er), prev, sessions, fmt.Sprintf("tool error rate %.2f%% across %d sessions (%d tool calls)", *er*100, sessions, sum.B.ToolCalls["agy"])))
 		}
-		if sum.Health.SubagentsOverBudget >= 2 {
-			prev := priorMetricVal(sum, "H.subagents_over_budget")
-			sev := pickSev(sum.Health.SubagentsOverBudget >= 5, "high", "medium")
-			out = append(out, makeSignal(pfx, "subagents_over_budget", sev, "H.subagents_over_budget",
-				float64(sum.Health.SubagentsOverBudget), prev, sessions, fmt.Sprintf("%d subagent runs exceeded budget across %d sessions", sum.Health.SubagentsOverBudget, sessions)))
-		}
-		if sum.Health.GuardedDowngrades >= 1 {
-			prev := priorMetricVal(sum, "H.guarded_downgrades")
-			sev := pickSev(sum.Health.GuardedDowngrades >= 3, "high", "medium")
-			out = append(out, makeSignal(pfx, "guarded_downgrades", sev, "H.guarded_downgrades",
-				float64(sum.Health.GuardedDowngrades), prev, sessions, fmt.Sprintf("%d guarded subagent model downgrades across %d sessions", sum.Health.GuardedDowngrades, sessions)))
-		}
+		out = appendSubagentHealthSignals(out, sum, pfx, sessions)
 	}
 	if sum.A.RatingsCount >= minDiagnosticSessions && sum.A.MeanOutcomeScore != nil && *sum.A.MeanOutcomeScore < 3.5 {
 		prev := priorMetricVal(sum, "A.mean_outcome_score")
@@ -137,6 +154,37 @@ func appendSessionSignals(out []DiagnosticSignal, sum Summary, pfx string) []Dia
 			round4(*sum.A.MeanOutcomeScore), prev, sum.A.RatingsCount, fmt.Sprintf("mean rated session outcome %.2f/5 across %d rated sessions", *sum.A.MeanOutcomeScore, sum.A.RatingsCount)))
 	}
 	return out
+}
+
+func appendSubagentHealthSignals(out []DiagnosticSignal, sum Summary, pfx string, sessions int) []DiagnosticSignal {
+	denom := subagentSignalDenominator(sum, sessions)
+	if sum.Health.SubagentsOverBudget >= 2 {
+		rate := float64(sum.Health.SubagentsOverBudget) / float64(denom)
+		if rate >= subagentOverBudgetMedRate {
+			prev := priorMetricVal(sum, "H.subagents_over_budget")
+			sev := pickSev(rate >= subagentOverBudgetHighRate, "high", "medium")
+			out = append(out, makeSignal(pfx, "subagents_over_budget", sev, "H.subagents_over_budget",
+				float64(sum.Health.SubagentsOverBudget), prev, denom, fmt.Sprintf("%d subagent runs exceeded budget across %d runs (%.1f%%)", sum.Health.SubagentsOverBudget, denom, rate*100)))
+		}
+	}
+	if sum.Health.GuardedDowngrades >= 1 {
+		rate := float64(sum.Health.GuardedDowngrades) / float64(denom)
+		if rate >= guardedDowngradeMedRate {
+			prev := priorMetricVal(sum, "H.guarded_downgrades")
+			sev := pickSev(rate >= guardedDowngradeHighRate, "high", "medium")
+			out = append(out, makeSignal(pfx, "guarded_downgrades", sev, "H.guarded_downgrades",
+				float64(sum.Health.GuardedDowngrades), prev, denom, fmt.Sprintf("%d guarded subagent model downgrades across %d runs (%.1f%%)", sum.Health.GuardedDowngrades, denom, rate*100)))
+		}
+	}
+	return out
+}
+
+func subagentSignalDenominator(sum Summary, sessions int) int {
+	subTotal := 0
+	for _, c := range sum.Subagents["agy"] {
+		subTotal += c
+	}
+	return max(sessions, subTotal)
 }
 
 func appendAdherenceSignals(out []DiagnosticSignal, sum Summary, pfx string) []DiagnosticSignal {
@@ -151,10 +199,13 @@ func appendAdherenceSignals(out []DiagnosticSignal, sum Summary, pfx string) []D
 			round4(*r), prev, sessions, fmt.Sprintf("search-to-grep ratio %.2f across %d sessions (%d search vs %d grep)", *r, sessions, sum.C.SQLiteVerbs["agy"], sum.C.GrepCalls["agy"])))
 	}
 	if retries := sum.D.RetryLoops["agy"]; retries >= 5 {
-		prev := priorMetricVal(sum, "D.retry_loops.agy")
-		sev := pickSev(retries >= sessions*2, "high", "medium")
-		out = append(out, makeSignal(pfx, "retry_loops_elevated", sev, "D.retry_loops.agy",
-			float64(retries), prev, sessions, fmt.Sprintf("%d retry loops across %d sessions", retries, sessions)))
+		rate := float64(retries) / float64(sessions)
+		if rate >= retryLoopsMedRate {
+			prev := priorMetricVal(sum, "D.retry_loops.agy")
+			sev := pickSev(rate >= retryLoopsHighRate, "high", "medium")
+			out = append(out, makeSignal(pfx, "retry_loops_elevated", sev, "D.retry_loops.agy",
+				float64(retries), prev, sessions, fmt.Sprintf("%d retry loops across %d sessions (%.2f/session)", retries, sessions, rate)))
+		}
 	}
 	out = appendRedundantReadSignal(out, sum, pfx, sessions)
 	return appendCorrectionBugSignals(out, sum, pfx, sessions)
@@ -165,28 +216,38 @@ func appendRedundantReadSignal(out []DiagnosticSignal, sum Summary, pfx string, 
 	if red < 5 {
 		return out
 	}
+	rate := float64(red) / float64(sessions)
+	if rate < redundantReadsLowRate {
+		return out
+	}
 	sev := "low"
-	if red >= sessions*3 {
+	if rate >= redundantReadsHighRate {
 		sev = "high"
-	} else if red >= sessions {
+	} else if rate >= redundantReadsMedRate {
 		sev = "medium"
 	}
 	return append(out, makeSignal(pfx, "redundant_reads_elevated", sev, "C.redundant_reads.agy",
-		float64(red), priorMetricVal(sum, "C.redundant_reads.agy"), sessions, fmt.Sprintf("%d redundant file reads across %d sessions", red, sessions)))
+		float64(red), priorMetricVal(sum, "C.redundant_reads.agy"), sessions, fmt.Sprintf("%d redundant file reads across %d sessions (%.2f/session)", red, sessions, rate)))
 }
 
 func appendCorrectionBugSignals(out []DiagnosticSignal, sum Summary, pfx string, sessions int) []DiagnosticSignal {
 	if sum.A.Corrections >= 3 {
-		prev := priorMetricVal(sum, "A.corrections")
-		sev := pickSev(sum.A.Corrections >= 6, "high", "medium")
-		out = append(out, makeSignal(pfx, "corrections_elevated", sev, "A.corrections",
-			float64(sum.A.Corrections), prev, sessions, fmt.Sprintf("%d corrections recorded across %d sessions", sum.A.Corrections, sessions)))
+		rate := float64(sum.A.Corrections) / float64(sessions)
+		if rate >= correctionsMedRate {
+			prev := priorMetricVal(sum, "A.corrections")
+			sev := pickSev(rate >= correctionsHighRate, "high", "medium")
+			out = append(out, makeSignal(pfx, "corrections_elevated", sev, "A.corrections",
+				float64(sum.A.Corrections), prev, sessions, fmt.Sprintf("%d corrections recorded across %d sessions (%.1f%%)", sum.A.Corrections, sessions, rate*100)))
+		}
 	}
 	if sum.A.EscapedBugs >= 2 {
-		prev := priorMetricVal(sum, "A.escaped_bugs")
-		sev := pickSev(sum.A.EscapedBugs >= 4, "high", "medium")
-		out = append(out, makeSignal(pfx, "escaped_bugs_present", sev, "A.escaped_bugs",
-			float64(sum.A.EscapedBugs), prev, sessions, fmt.Sprintf("%d escaped bugs recorded across %d sessions", sum.A.EscapedBugs, sessions)))
+		rate := float64(sum.A.EscapedBugs) / float64(sessions)
+		if rate >= escapedBugsMedRate {
+			prev := priorMetricVal(sum, "A.escaped_bugs")
+			sev := pickSev(rate >= escapedBugsHighRate, "high", "medium")
+			out = append(out, makeSignal(pfx, "escaped_bugs_present", sev, "A.escaped_bugs",
+				float64(sum.A.EscapedBugs), prev, sessions, fmt.Sprintf("%d escaped bugs recorded across %d sessions (%.1f%%)", sum.A.EscapedBugs, sessions, rate*100)))
+		}
 	}
 	return out
 }
@@ -205,9 +266,12 @@ func appendStructuralSignals(out []DiagnosticSignal, sum Summary, pfx string) []
 	sessions := max(sum.Sessions["agy"], sum.Health.MainSessions)
 	churnHits := st.GodNodeClampHits + st.GodNodeRepeatReads
 	if sessions >= minDiagnosticSessions && churnHits >= 5 {
-		sev := pickSev(st.GodNodeChurnRate >= 0.35 || churnHits >= 15, "high", "medium")
-		out = append(out, makeSignal(pfx, "god_node_churn", sev, "H.structural.god_node_churn_rate",
-			st.GodNodeChurnRate, 0, sessions, fmt.Sprintf("top-10 hub files drew %d clamp hits and %d repeat reads (churn %.1f%%)", st.GodNodeClampHits, st.GodNodeRepeatReads, st.GodNodeChurnRate*100)))
+		hitsPerSess := float64(churnHits) / float64(sessions)
+		if st.GodNodeChurnRate >= godNodeChurnMedRate || hitsPerSess >= godNodeHitsPerSessMed {
+			sev := pickSev(st.GodNodeChurnRate >= godNodeChurnHighRate || hitsPerSess >= godNodeHitsPerSessHigh, "high", "medium")
+			out = append(out, makeSignal(pfx, "god_node_churn", sev, "H.structural.god_node_churn_rate",
+				st.GodNodeChurnRate, 0, sessions, fmt.Sprintf("top-10 hub files drew %d clamp hits and %d repeat reads (churn %.1f%%)", st.GodNodeClampHits, st.GodNodeRepeatReads, st.GodNodeChurnRate*100)))
+		}
 	}
 	if st.TotalCodeFiles >= minDiagnosticSessions && st.LargeFilesOver350 >= 3 && float64(st.LargeFilesOver350)/float64(st.TotalCodeFiles) >= 0.25 {
 		sev := pickSev(float64(st.LargeFilesOver350)/float64(st.TotalCodeFiles) >= 0.50, "medium", "low")

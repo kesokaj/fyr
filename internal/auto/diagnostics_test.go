@@ -40,14 +40,21 @@ func seedAutoKneeMetrics(t *testing.T, home, root string, now time.Time) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	ts := now.Add(-2 * time.Hour).UnixMilli()
-	for i := 0; i < 5; i++ {
-		sid := fmt.Sprintf("ak-%d", i)
-		if _, err := db.Exec(`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES (?, 'agy', ?, ?, ?)`, sid, root, ts+int64(i)*1000, ts+int64(i)*1000+500); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(`INSERT INTO steps(session_id, ext_id, ts, kind, context) VALUES (?, '1', ?, 'model', 210000)`, sid, ts+int64(i)*1000+10); err != nil {
-			t.Fatal(err)
+	for _, win := range []struct {
+		pfx string
+		ts  int64
+	}{
+		{"ak-prev", now.AddDate(0, 0, -8).UnixMilli()},
+		{"ak", now.Add(-2 * time.Hour).UnixMilli()},
+	} {
+		for i := 0; i < 5; i++ {
+			sid := fmt.Sprintf("%s-%d", win.pfx, i)
+			if _, err := db.Exec(`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES (?, 'agy', ?, ?, ?)`, sid, root, win.ts+int64(i)*1000, win.ts+int64(i)*1000+500); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`INSERT INTO steps(session_id, ext_id, ts, kind, context) VALUES (?, '1', ?, 'model', 210000)`, sid, win.ts+int64(i)*1000+10); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 }

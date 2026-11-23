@@ -12,9 +12,10 @@ import (
 )
 
 var (
-	revertSHARe  = regexp.MustCompile(`revert:\s*git revert ([0-9a-f]{7,40}|HEAD)`)
-	appliedSHARe = regexp.MustCompile(`Applied commit ` + "`?" + `([0-9a-f]{7,40})` + "`?")
-	sigIDRe      = regexp.MustCompile(`\bsig:(?:global|proj-[0-9a-f]{8}):[a-z0-9_-]+\b`)
+	revertSHARe      = regexp.MustCompile(`revert:\s*git revert ([0-9a-f]{7,40}|HEAD)`)
+	appliedSHARe     = regexp.MustCompile(`Applied commit ` + "`?" + `([0-9a-f]{7,40})` + "`?")
+	autoAppliedSHARe = regexp.MustCompile(`\b([0-9a-f]{7,40})\b`)
+	sigIDRe          = regexp.MustCompile(`\bsig:(?:global|proj-[0-9a-f]{8}):[a-z0-9_-]+\b`)
 )
 
 func collectDigestActions(home, repoRoot, day string, curSum *Summary, prev, today *DailyDigest, signals []DigestAction) []DigestAppliedAction {
@@ -43,7 +44,7 @@ func readBrainAppliedActions(home, repoRoot, sinceDay string) []DigestAppliedAct
 		return nil
 	}
 	defer cleanup()
-	q := `SELECT id, kind, status, date, title, body, COALESCE(project, '') FROM records WHERE date >= ? AND ((kind = 'review' AND (body LIKE '%Applied%' OR body LIKE '%revert: git revert %')) OR (kind = 'proposal' AND status IN ('queued', 'accepted'))) ORDER BY date DESC, id DESC`
+	q := `SELECT id, kind, status, date, title, body, COALESCE(project, '') FROM records WHERE date >= ? AND ((kind = 'review' AND body LIKE '%auto-applied:%') OR (kind = 'proposal' AND status IN ('queued', 'accepted'))) ORDER BY date DESC, id DESC`
 	rows, err := db.Query(q, sinceDay)
 	if err != nil {
 		return nil
@@ -74,6 +75,21 @@ func parseAppliedActionRecord(id, kind, status, date, title, body string) (Diges
 	if len(date) < 10 {
 		return DigestAppliedAction{}, false
 	}
+	var markerVal string
+	switch kind {
+	case "review":
+		var ok bool
+		markerVal, ok = extractAutoAppliedLine(body)
+		if !ok {
+			return DigestAppliedAction{}, false
+		}
+	case "proposal":
+		if status != "queued" && status != "accepted" {
+			return DigestAppliedAction{}, false
+		}
+	default:
+		return DigestAppliedAction{}, false
+	}
 	day := printable(date[:10])
 	sigID := sigIDRe.FindString(title + "\n" + body)
 	if sigID == "" {
@@ -83,10 +99,7 @@ func parseAppliedActionRecord(id, kind, status, date, title, body string) (Diges
 	if strings.Contains(body, "skills/") || strings.Contains(title, "skills/") {
 		scope = scopeAutoSkill
 	}
-	revertCmd, sha := extractAppliedCommitHints(body)
-	if kind == "review" && revertCmd == "" && !strings.Contains(body, "Applied") {
-		return DigestAppliedAction{}, false
-	}
+	revertCmd, sha := extractAppliedCommitHints(body, markerVal)
 	summary := "auto commit recorded"
 	if kind == "proposal" {
 		summary = "proposal " + printable(status)
@@ -98,10 +111,32 @@ func parseAppliedActionRecord(id, kind, status, date, title, body string) (Diges
 	}, true
 }
 
-func extractAppliedCommitHints(body string) (revertCmd, sha string) {
+func extractAutoAppliedLine(body string) (string, bool) {
+	inFence := false
+	for _, raw := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(raw), "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence || !strings.HasPrefix(raw, "auto-applied:") {
+			continue
+		}
+		if val := strings.TrimSpace(strings.TrimPrefix(raw, "auto-applied:")); val != "" {
+			return val, true
+		}
+	}
+	return "", false
+}
+
+func extractAppliedCommitHints(body, markerVal string) (revertCmd, sha string) {
 	if m := revertSHARe.FindStringSubmatch(body); len(m) == 2 {
 		revertCmd = "git revert " + m[1]
 		if m[1] != "HEAD" {
+			sha = m[1]
+		}
+	}
+	if sha == "" && markerVal != "" {
+		if m := autoAppliedSHARe.FindStringSubmatch(markerVal); len(m) == 2 {
 			sha = m[1]
 		}
 	}
