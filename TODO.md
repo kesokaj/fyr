@@ -7,14 +7,14 @@
 
 ## Now
 
-**Wave 6 (Phase 15) -> Waves 7–10 (Phases 13, 18, 19, 20)** (`PLAN-2026-11-22-2007-plan-fyr-v9-10-0-full-surface-mitigation-dynamic` — Phases 1–12, 14, 16, 17 landed; `15/20` complete):
-- [ ] **Phase 15 (WS8d — `F-015` 31/31 CLI `--json` parity):** Add `--json` flag & structured JSON output across the 16 remaining verbs (`install`, `sync`, `update`, `diff`, `uninstall`, `list`, `render`, `adopt`, `resume`, `index`, `dream`, `auto`, `eval`, `check`, `git-check`, `version`) with full `help_text*.go` & `TestHelpEvalGolden` alignment
+**Wave 7 (Phase 13) -> Waves 8–10 (Phases 18, 19, 20)** (`PLAN-2026-11-22-2007-plan-fyr-v9-10-0-full-surface-mitigation-dynamic` — Phases 1–12, 14–17 landed; `16/20` complete):
+- [ ] **Phase 13 (WS7b — `F-009`, `F-016`, `F-017` check/lint, `F-037`, `F-049`):** `fyr check` 8/8 drift coverage (`drift-M4`/`M5b`/`M7`/`M8`), `TDD.md` adjacent file-path attribution, fresh-clone R10 record-ID skip, `metrics record-run` flags, and `GUIDE-eval.md` regex hygiene
 
 ## Next
 
-- Wave 7 (Phase 13, after Phase 15): WS7b `fyr check` 8/8 drift coverage (`drift-M4`/`M5b`/`M7`/`M8`), fresh-clone R10 fix, and `GUIDE-eval.md` regex hygiene (`PLAN-2026-11-22-2007-plan-fyr-v9-10-0-full-surface-mitigation-dynamic`)
 - Wave 8 (Phase 18, after Phase 13): Living docs (`SDD.md`, `TDD.md`, `features/`) & `SPEC-fyr-*` alignment (`F-017`) (`PLAN-2026-11-22-2007-plan-fyr-v9-10-0-full-surface-mitigation-dynamic`)
-- Waves 9–10 (Phases 19, 20, sequential after Phase 18): Full `fyr verify` & 57-repro scratch-binary sweep + isolated 11-row `fyr eval` & independent `reviewer`/`security` close (`PLAN-2026-11-22-2007-plan-fyr-v9-10-0-full-surface-mitigation-dynamic`)
+- Wave 9 (Phase 19, after Phase 18): Full `fyr verify` & 57-repro scratch-binary sweep + `T5.2` 75-prompt benchmark (`PLAN-2026-11-22-2007-plan-fyr-v9-10-0-full-surface-mitigation-dynamic`)
+- Wave 10 (Phase 20, after Phase 19): Isolated 11-row `fyr eval` & independent `reviewer`/`security` close (`PLAN-2026-11-22-2007-plan-fyr-v9-10-0-full-surface-mitigation-dynamic`)
 - Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest `2026-11-23`)
 
 ## Backlog
