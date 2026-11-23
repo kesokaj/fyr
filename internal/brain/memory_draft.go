@@ -90,18 +90,21 @@ func applyMemoryDraftTx(c *sql.Conn, s *session, action, slug, recID, text strin
 
 func applyMemoryDraftMerge(c *sql.Conn, s *session, recID, text, curBody, curProv, curKind string, curEv int, curSessions string, opts MemoryDraftOptions, now time.Time, stamp string) error {
 	ctx := context.Background()
-	normType := resolveDraftType(opts.Type, text, curKind, curBody)
-	full := mergeMemoryBody(text, curBody, curProv, normType)
-	sessions := mergeSourceSessions(curSessions, opts.SourceSessions)
-	evCount := resolveDraftEvidence(true, curEv, opts, sessions)
 	var title string
 	if err := c.QueryRowContext(ctx, `SELECT title FROM records WHERE scope = ? AND id = ?`, s.scope, recID).Scan(&title); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
+	normType := resolveDraftType(opts.Type, text, curKind, curBody)
 	nextProv := "derived"
 	if curProv == "operator" {
 		nextProv = "operator"
+		normType = resolveDraftType(curKind, curBody, opts.Type, text)
+	} else {
+		text = appendRepoFilePinsBounded(s.top, title, text, maxMergedBodyBytes)
 	}
+	full := mergeMemoryBody(text, curBody, curProv, normType)
+	sessions := mergeSourceSessions(curSessions, opts.SourceSessions)
+	evCount := resolveDraftEvidence(true, curEv, opts, sessions)
 	rec := Record{
 		Scope: s.scope, RepoID: s.repoID, ID: recID, Kind: "memory", Status: "closed", Title: title, Body: full,
 		Provenance: nextProv, MemoryKind: normType, VerifiedAt: stamp,
@@ -123,7 +126,7 @@ func applyMemoryDraftAdd(c *sql.Conn, s *session, slug, recID, text, curProv str
 	}
 	title := draftAddTitle(text, slug)
 	normType := resolveDraftType(opts.Type, text, "", "")
-	full := ensureNormalizedMemoryBody(text, normType)
+	full := appendRepoFilePins(s.top, title, ensureNormalizedMemoryBody(text, normType))
 	sessions := mergeSourceSessions(curSessions, opts.SourceSessions)
 	evCount := resolveDraftEvidence(existsHere, curEv, opts, sessions)
 	rec := Record{

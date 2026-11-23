@@ -87,15 +87,20 @@ func countTokenMatches(text string, tokens []string) int {
 }
 
 // ComputeMemoryValidity computes the deterministic validity score [0.00, 1.00]
-// of a memory record at now, considering provenance, evidence count, file/hash
-// staleness in top, contradiction count, and part-specific age decay.
+// of a memory record at now, considering provenance, evidence count, content
+// hash staleness in top, contradiction count, and part-specific age decay.
 func ComputeMemoryValidity(top string, r Record, contraCount int, now time.Time) float64 {
+	stale := top != "" && MemoryStalenessTag(top, r) != ""
+	return computeMemoryValidityWithStale(r, stale, contraCount, now)
+}
+
+func computeMemoryValidityWithStale(r Record, stale bool, contraCount int, now time.Time) float64 {
 	score := memoryBaseValidity(r.Provenance, r.EvidenceCount)
-	if top != "" && MemoryStalenessTag(top, r) != "" {
+	if stale {
 		score -= 0.45
 	}
 	if contraCount > 0 {
-		score -= 0.25 * float64(min(contraCount, 2))
+		score -= 0.25 * float64(min(contraCount, 3))
 	}
 	score *= memoryAgeDecay(r, now)
 	if score < 0 {
@@ -108,15 +113,11 @@ func ComputeMemoryValidity(top string, r Record, contraCount int, now time.Time)
 }
 
 func memoryBaseValidity(prov string, evidence int) float64 {
-	bonus := 0.05 * float64(min(max(evidence, 0), 3))
-	switch prov {
-	case "operator":
+	if prov == "operator" {
 		return 1.00
-	case "derived":
-		return math.Min(0.55+bonus, 0.70)
-	default:
-		return math.Min(0.70+bonus, 0.85)
 	}
+	bonus := 0.05 * float64(min(max(evidence, 0), 2))
+	return math.Min(0.80+bonus, 0.90)
 }
 
 func memoryAgeDecay(r Record, now time.Time) float64 {
@@ -135,7 +136,7 @@ func memoryAgeDecay(r Record, now time.Time) float64 {
 	case "episodic":
 		halfLife = 30.0
 	}
-	return math.Max(0.40, math.Pow(0.5, ageDays/halfLife))
+	return math.Max(0.35, math.Pow(0.5, ageDays/halfLife))
 }
 
 func memoryRefTime(r Record) time.Time {

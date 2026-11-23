@@ -112,7 +112,7 @@ func TestIndexRecordLinks(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Derived memory whose referenced file pin mismatches -> validity drops to 0.10 (< 0.40) -> excluded.
+		// Derived memory whose referenced file pin mismatches -> validity drops to 0.35 (< 0.40) -> excluded.
 		if _, err := MemoryAdd(opts, MemoryEntry{
 			Type:        "semantic",
 			Name:        "stale-derived",

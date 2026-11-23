@@ -114,8 +114,8 @@ func validateMemoryEntry(e MemoryEntry) (string, string, error) {
 	return prov, normType, nil
 }
 
-// MemoryAdd stores the memory e.Name, replacing one of the same name, and
-// returns its ID.
+// MemoryAdd stores the memory e.Name, replacing one of the same name (while
+// refusing derived overwrites of existing operator cards), and returns its ID.
 func MemoryAdd(o Options, e MemoryEntry, body io.Reader) (string, error) {
 	if e.Global {
 		o.Global = true
@@ -139,7 +139,7 @@ func MemoryAdd(o Options, e MemoryEntry, body io.Reader) (string, error) {
 	defer s.close()
 	id := "MEMORY-" + e.Name
 	now := o.now()
-	full := "type: " + normType + "\n\n" + text
+	full := appendRepoFilePins(s.top, title, "type: "+normType+"\n\n"+text)
 	if err := s.st.tx(func(c *sql.Conn) error {
 		return upsertMemoryRow(c, s, id, title, full, prov, normType, e, now)
 	}); err != nil {
@@ -150,12 +150,15 @@ func MemoryAdd(o Options, e MemoryEntry, body io.Reader) (string, error) {
 
 func upsertMemoryRow(c *sql.Conn, s *session, id, title, full, prov, normType string, e MemoryEntry, now time.Time) error {
 	ctx := context.Background()
-	var curSessions string
+	var curProv, curSessions string
 	var curEv int
-	qerr := c.QueryRowContext(ctx, `SELECT source_sessions, evidence_count FROM records WHERE scope = ? AND id = ? AND kind = 'memory'`, s.scope, id).Scan(&curSessions, &curEv)
+	qerr := c.QueryRowContext(ctx, `SELECT provenance, source_sessions, evidence_count FROM records WHERE scope = ? AND id = ? AND kind = 'memory'`, s.scope, id).Scan(&curProv, &curSessions, &curEv)
 	taken := qerr == nil
 	if qerr != nil && !errors.Is(qerr, sql.ErrNoRows) {
 		return qerr
+	}
+	if taken && curProv == "operator" && prov != "operator" {
+		return refuse("memory %s has operator provenance and cannot be overwritten with %s provenance", id, prov)
 	}
 	sessions := mergeSourceSessions(curSessions, e.SourceSessions)
 	evCount := max(curEv, e.EvidenceCount)

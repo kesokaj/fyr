@@ -21,10 +21,25 @@ type priorEntry struct {
 
 func mergeMemoryBody(text, curBody, curProv, normType string) string {
 	incomingMain, incomingPriors := splitMemoryMainAndPriors(text)
-	head := ensureNormalizedMemoryBody(incomingMain, normType)
 	curMain, curPriors := splitMemoryMainAndPriors(curBody)
+	if curProv == "operator" {
+		return mergeOperatorMemoryBody(curMain, curPriors, incomingMain, incomingPriors, normType)
+	}
+	head := ensureNormalizedMemoryBody(incomingMain, normType)
 	priors := selectPriorEntries(curMain, incomingMain, curProv, append(incomingPriors, curPriors...))
 	return formatBoundedMemoryBody(head, priors)
+}
+
+func mergeOperatorMemoryBody(curMain string, curPriors []priorEntry, incomingMain string, incomingPriors []priorEntry, normType string) string {
+	head := ensureNormalizedMemoryBody(curMain, normType)
+	var candidates []priorEntry
+	if incomingMain != "" {
+		candidates = append(candidates, priorEntry{prov: "derived", text: incomingMain})
+	}
+	candidates = append(candidates, incomingPriors...)
+	candidates = append(candidates, curPriors...)
+	priors := dedupAndCapPriors(curMain, candidates)
+	return formatBoundedOperatorMemoryBody(head, priors)
 }
 
 func splitMemoryMainAndPriors(raw string) (string, []priorEntry) {
@@ -89,7 +104,11 @@ func selectPriorEntries(curMain, newMain, curProv string, existing []priorEntry)
 		candidates = append(candidates, priorEntry{prov: prevProv, text: curMain})
 	}
 	candidates = append(candidates, existing...)
-	seen := map[string]bool{strings.TrimSpace(newMain): true}
+	return dedupAndCapPriors(newMain, candidates)
+}
+
+func dedupAndCapPriors(primaryMain string, candidates []priorEntry) []priorEntry {
+	seen := map[string]bool{strings.TrimSpace(primaryMain): true}
 	var dedup []priorEntry
 	for _, p := range candidates {
 		t := truncateUTF8Bytes(strings.TrimSpace(p.text), maxSinglePriorBytes)
@@ -127,15 +146,34 @@ func capPriorsPreservingOperator(dedup []priorEntry) []priorEntry {
 	return kept
 }
 
-func formatBoundedMemoryBody(head string, priors []priorEntry) string {
-	if len(priors) == 0 {
-		return truncateUTF8Bytes(head, maxMergedBodyBytes)
-	}
+func formatPriorTail(priors []priorEntry) string {
 	var parts []string
 	for _, p := range priors {
 		parts = append(parts, "Prior ("+p.prov+"):\n"+p.text)
 	}
-	tail := "\n\n---\n" + strings.Join(parts, "\n\n")
+	return "\n\n---\n" + strings.Join(parts, "\n\n")
+}
+
+func formatBoundedOperatorMemoryBody(head string, priors []priorEntry) string {
+	if len(priors) == 0 {
+		return head
+	}
+	tail := formatPriorTail(priors)
+	if len(head)+len(tail) <= maxMergedBodyBytes {
+		return head + tail
+	}
+	rem := maxMergedBodyBytes - len(head)
+	if rem <= len("\n\n---\nPrior (x):\n") {
+		return head
+	}
+	return head + truncateUTF8Bytes(tail, rem)
+}
+
+func formatBoundedMemoryBody(head string, priors []priorEntry) string {
+	if len(priors) == 0 {
+		return truncateUTF8Bytes(head, maxMergedBodyBytes)
+	}
+	tail := formatPriorTail(priors)
 	if len(head)+len(tail) <= maxMergedBodyBytes {
 		return head + tail
 	}

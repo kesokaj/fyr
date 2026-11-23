@@ -53,7 +53,7 @@ func TestMergeMemoryBodyCompactionAndBounds(t *testing.T) {
 		t.Errorf("stale priors survived compaction:\n%s", bodyDer)
 	}
 
-	// 2. Operator memory merged 5 times: preserves Provenance=="operator", <= 2 priors, AND keeps original operator text!
+	// 2. Operator memory merged 5 times: preserves Provenance=="operator", <= 2 priors, AND keeps original operator primary body!
 	idOp, err := MemoryAdd(o, MemoryEntry{Type: "procedural", Name: "op-pinned", Description: "sacred rule"}, strings.NewReader("sacred operator text"))
 	if err != nil {
 		t.Fatal(err)
@@ -73,8 +73,9 @@ func TestMergeMemoryBodyCompactionAndBounds(t *testing.T) {
 	if n := strings.Count(opRecs[0].Body, "Prior ("); n != 2 {
 		t.Errorf("operator Prior count = %d, want 2:\n%s", n, opRecs[0].Body)
 	}
-	if !strings.Contains(opRecs[0].Body, "sacred operator text") || !strings.Contains(opRecs[0].Body, "Prior (operator):") {
-		t.Errorf("operator text lost across repeated merges:\n%s", opRecs[0].Body)
+	opMain, opPriors := splitMemoryMainAndPriors(opRecs[0].Body)
+	if opMain != "sacred operator text" || len(opPriors) != 2 || opPriors[0].prov != "derived" || opPriors[0].text != "auto refinement 5" || opPriors[1].text != "auto refinement 4" {
+		t.Errorf("operator primary body or priors drifted across repeated merges:\n%s", opRecs[0].Body)
 	}
 
 	// 3. Total length bound <= 2000 bytes and UTF-8 safe even with multi-byte runes.

@@ -111,6 +111,10 @@ func TestProvenanceMemoryAdd(t *testing.T) {
 	if got := FormatGet(recs[1]); !strings.Contains(got, "(provenance derived)") {
 		t.Errorf("FormatGet(derived memory) = %q, want (provenance derived)", got)
 	}
+	// Symmetric provenance guard: derived MemoryAdd cannot overwrite an operator card.
+	if _, err := MemoryAdd(o, MemoryEntry{Type: "project", Name: "op-pref", Description: "hijack", Provenance: "derived"}, strings.NewReader("overwritten")); !IsRefusal(err) {
+		t.Errorf("derived MemoryAdd overwriting operator memory: %v, want refusal", err)
+	}
 }
 
 // MemoryDraftWithOptions handles auto's add, retire and merge drafts: it marks
@@ -149,8 +153,9 @@ func TestProvenanceMemoryDraftActions(t *testing.T) {
 		}
 	}
 
-	// Merging an existing operator memory in the same project updates its body,
-	// archives the prior operator body for reversibility, and preserves operator provenance.
+	// Merging an existing operator memory in the same project preserves the
+	// operator primary body intact, appends the derived note under Prior (derived),
+	// and preserves operator provenance.
 	if _, err := MemoryDraftWithOptions(oA, "merge", idOpA, "merged body", MemoryDraftOptions{}); err != nil {
 		t.Fatalf("MemoryDraftWithOptions merge: %v", err)
 	}
@@ -158,7 +163,8 @@ func TestProvenanceMemoryDraftActions(t *testing.T) {
 	if err != nil || len(recs) != 1 {
 		t.Fatalf("Get merged: %v %v", recs, err)
 	}
-	if !strings.Contains(recs[0].Body, "merged body") || !strings.Contains(recs[0].Body, "Prior (operator):") || !strings.Contains(recs[0].Body, "operator body") || recs[0].Provenance != "operator" || recs[0].Status != "closed" {
+	mainBody, priors := splitMemoryMainAndPriors(recs[0].Body)
+	if mainBody != "operator body" || len(priors) != 1 || priors[0].prov != "derived" || priors[0].text != "merged body" || recs[0].Provenance != "operator" || recs[0].Status != "closed" {
 		t.Errorf("after merge: %+v", recs[0])
 	}
 

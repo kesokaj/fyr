@@ -27,9 +27,10 @@ func writeResumeMemory(b *strings.Builder, top string, recs []Record, now time.T
 		if r.Kind != "memory" || r.Status != "closed" || resolveMemoryKind(r) != "semantic" {
 			continue
 		}
-		val := ComputeMemoryValidity(top, r, CountMemoryContradictions(r, feedbacks), now)
+		staleTag := MemoryStalenessTag(top, r)
+		val := computeMemoryValidityWithStale(r, staleTag != "", CountMemoryContradictions(r, feedbacks), now)
 		if val >= MinActiveValidity {
-			mems = append(mems, scoredMemory{rec: r, val: val})
+			mems = append(mems, scoredMemory{rec: r, val: val, staleTag: staleTag})
 		}
 	}
 	if len(mems) == 0 {
@@ -39,7 +40,7 @@ func writeResumeMemory(b *strings.Builder, top string, recs []Record, now time.T
 	sortScoredMemories(mems)
 	base := b.Len()
 	for i, item := range mems {
-		l := formatMemoryIndexLine(top, item.rec, item.val)
+		l := formatMemoryIndexLineWithStale(item.rec, item.val, item.staleTag)
 		if i == memoryMaxLines || (b.Len()-base)+len(l)+1 > memoryMaxBytes {
 			fmt.Fprintf(b, "(… %d more: fyr record list --kind memory, then fyr record get MEMORY-<name>)\n", len(mems)-i)
 			return
@@ -48,8 +49,8 @@ func writeResumeMemory(b *strings.Builder, top string, recs []Record, now time.T
 	}
 }
 
-func formatMemoryIndexLine(top string, r Record, val float64) string {
-	stale := MemoryStalenessTag(top, r)
+func formatMemoryIndexLineWithStale(r Record, val float64, stale string) string {
+	stale = search.Printable(stale)
 	var scopeTag string
 	if r.Scope == "" {
 		scopeTag = " [global]"
@@ -78,34 +79,68 @@ type repoFileRef struct {
 }
 
 // MemoryStalenessTag returns "[STALE: <path> modified since <ID>]" when a memory
-// record references a repository file modified after the record's timestamp or
-// whose SHA-256 no longer matches a hash pin in the record.
+// record references a repository file whose content SHA-256 prefix no longer
+// matches a hash pin in the record (unchanged mtime touches incur 0 penalty).
 func MemoryStalenessTag(top string, r Record) string {
 	if top == "" || (r.Kind != "" && r.Kind != "memory") {
 		return ""
 	}
 	text := r.Title + "\n" + r.Body
-	recTime := parseRecordTimestamp(r)
 	for _, ref := range extractRepoFileRefs(top, text) {
+		if ref.pinHex == "" {
+			continue
+		}
 		abs := filepath.Join(top, filepath.FromSlash(ref.rel))
 		fi, err := os.Lstat(abs)
 		if err != nil || !fi.Mode().IsRegular() {
 			continue
 		}
-		if ref.pinHex != "" {
-			if data, err := readRegular(abs, maxBody); err == nil {
-				sum := sha256.Sum256(data)
-				if !strings.HasPrefix(hex.EncodeToString(sum[:]), ref.pinHex) {
-					return fmt.Sprintf("[STALE: %s modified since %s]", ref.rel, r.ID)
-				}
-				continue
-			}
+		data, err := readRegular(abs, maxBody)
+		if err != nil {
+			continue
 		}
-		if !recTime.IsZero() && fi.ModTime().After(recTime) {
+		sum := sha256.Sum256(data)
+		if !strings.HasPrefix(hex.EncodeToString(sum[:]), ref.pinHex) {
 			return fmt.Sprintf("[STALE: %s modified since %s]", ref.rel, r.ID)
 		}
 	}
 	return ""
+}
+
+func appendRepoFilePins(top, title, body string) string {
+	return appendRepoFilePinsBounded(top, title, body, maxBody)
+}
+
+func appendRepoFilePinsBounded(top, title, body string, limit int) string {
+	if top == "" {
+		return body
+	}
+	refs := extractRepoFileRefs(top, title+"\n"+body)
+	var lines []string
+	for _, ref := range refs {
+		if ref.pinHex != "" {
+			continue
+		}
+		abs := filepath.Join(top, filepath.FromSlash(ref.rel))
+		data, err := readRegular(abs, maxBody)
+		if err != nil {
+			continue
+		}
+		sum := sha256.Sum256(data)
+		lines = append(lines, fmt.Sprintf("<!-- pin: %s sha256:%s -->", ref.rel, hex.EncodeToString(sum[:6])))
+	}
+	if len(lines) == 0 {
+		return body
+	}
+	block := strings.Join(lines, "\n")
+	sep := "\n\n"
+	if body == "" {
+		sep = ""
+	}
+	if len(body)+len(sep)+len(block) > limit {
+		return body
+	}
+	return body + sep + block
 }
 
 func parseRecordTimestamp(r Record) time.Time {
@@ -145,7 +180,9 @@ func extractRepoFileRefs(top, text string) []repoFileRef {
 		}
 		if linePin != "" && len(linePaths) > 0 {
 			last := linePaths[len(linePaths)-1]
-			out[idxByPath[last]].pinHex = linePin
+			if out[idxByPath[last]].pinHex == "" {
+				out[idxByPath[last]].pinHex = linePin
+			}
 		}
 	}
 	if len(out) == 1 && out[0].pinHex == "" {

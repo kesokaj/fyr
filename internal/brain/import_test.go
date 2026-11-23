@@ -528,7 +528,7 @@ func TestImportSkipsAMemoryTheStoreRefuses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(show, "keep x in mind") || !strings.Contains(show, "no-desc (semantic, 0.70) — untitled") || strings.Contains(show, "huge") {
+	if !strings.Contains(show, "keep x in mind") || !strings.Contains(show, "no-desc (semantic, 0.80) — untitled") || strings.Contains(show, "huge") {
 		t.Errorf("want keep-x and no-desc stored, huge not: %q", show)
 	}
 }

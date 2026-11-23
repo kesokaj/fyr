@@ -63,6 +63,7 @@ type MemorySummary struct {
 	Description string  `json:"description"`
 	Provenance  string  `json:"provenance"`
 	Validity    float64 `json:"validity"`
+	Stale       bool    `json:"stale"`
 	Global      bool    `json:"global,omitempty"`
 	Updated     string  `json:"updated"`
 }

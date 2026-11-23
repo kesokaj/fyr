@@ -1,9 +1,12 @@
 package brain
 
 import (
+	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -67,22 +70,22 @@ func TestComputeMemoryValidity(t *testing.T) {
 				Updated:       tsFixed,
 			},
 			now:  fixed,
-			want: 0.55,
+			want: 0.80,
 		},
 		{
-			name: "derived_evidence_3",
+			name: "derived_evidence_2",
 			top:  dir,
 			rec: Record{
-				ID:            "MEMORY-der-3",
+				ID:            "MEMORY-der-2",
 				Kind:          "memory",
 				Provenance:    "derived",
 				MemoryKind:    "semantic",
-				EvidenceCount: 3,
+				EvidenceCount: 2,
 				VerifiedAt:    tsFixed,
 				Updated:       tsFixed,
 			},
 			now:  fixed,
-			want: 0.70,
+			want: 0.90,
 		},
 		{
 			name: "derived_evidence_10_capped",
@@ -97,7 +100,7 @@ func TestComputeMemoryValidity(t *testing.T) {
 				Updated:       tsFixed,
 			},
 			now:  fixed,
-			want: 0.70,
+			want: 0.90,
 		},
 		{
 			name: "unknown_evidence_3",
@@ -112,7 +115,22 @@ func TestComputeMemoryValidity(t *testing.T) {
 				Updated:       tsFixed,
 			},
 			now:  fixed,
-			want: 0.85,
+			want: 0.90,
+		},
+		{
+			name: "unchanged_mtime_touch_zero_penalty",
+			top:  dir,
+			rec: Record{
+				ID:         "MEMORY-touch",
+				Kind:       "memory",
+				Provenance: "operator",
+				MemoryKind: "semantic",
+				Body:       "type: semantic\n\nSee stale.go",
+				VerifiedAt: tsFixed,
+				Updated:    tsFixed,
+			},
+			now:  fixed,
+			want: 1.00,
 		},
 		{
 			name: "stale_operator_subtracts_0_45",
@@ -122,7 +140,7 @@ func TestComputeMemoryValidity(t *testing.T) {
 				Kind:       "memory",
 				Provenance: "operator",
 				MemoryKind: "semantic",
-				Body:       "type: semantic\n\nSee stale.go",
+				Body:       "type: semantic\n\nSee stale.go sha256:0000000",
 				VerifiedAt: tsFixed,
 				Updated:    tsFixed,
 			},
@@ -130,7 +148,7 @@ func TestComputeMemoryValidity(t *testing.T) {
 			want: 0.55,
 		},
 		{
-			name: "contradictions_capped_at_2",
+			name: "contradictions_capped_at_3",
 			top:  dir,
 			rec: Record{
 				ID:         "MEMORY-contra",
@@ -142,7 +160,7 @@ func TestComputeMemoryValidity(t *testing.T) {
 			},
 			contra: 5,
 			now:    fixed,
-			want:   0.50,
+			want:   0.25,
 		},
 		{
 			name: "age_decay_semantic_180d",
@@ -187,7 +205,7 @@ func TestComputeMemoryValidity(t *testing.T) {
 			want: 0.50,
 		},
 		{
-			name: "age_decay_floor_0_40",
+			name: "age_decay_floor_0_35",
 			top:  dir,
 			rec: Record{
 				ID:         "MEMORY-age-floor",
@@ -198,7 +216,7 @@ func TestComputeMemoryValidity(t *testing.T) {
 				Updated:    tsFixed,
 			},
 			now:  fixed.Add(365 * 24 * time.Hour),
-			want: 0.40,
+			want: 0.35,
 		},
 		{
 			name: "clamp_floor_zero",
@@ -208,7 +226,7 @@ func TestComputeMemoryValidity(t *testing.T) {
 				Kind:       "memory",
 				Provenance: "derived",
 				MemoryKind: "semantic",
-				Body:       "type: semantic\n\nSee stale.go",
+				Body:       "type: semantic\n\nSee stale.go sha256:0000000",
 				VerifiedAt: tsFixed,
 				Updated:    tsFixed,
 			},
@@ -269,4 +287,153 @@ func TestCountMemoryContradictions(t *testing.T) {
 	if got != 2 {
 		t.Errorf("CountMemoryContradictions = %d, want 2 (slug + >=2 non-stopword tokens)", got)
 	}
+}
+
+func writeTestDoc(t *testing.T, root, rel, body string) {
+	t.Helper()
+	p := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestV910BrainDocsGuard(t *testing.T) {
+	// Ordinary docs/ and empty .agents/docs/ must open cleanly without migration refusal.
+	for _, rel := range []string{"docs/ARCHITECTURE.md", "docs/plans/roadmap.md", ".agents/docs/README.md"} {
+		dir, home := repo(t), t.TempDir()
+		writeTestDoc(t, dir, rel, "# Docs\n")
+		if _, err := List(opts(dir, home), ListFilter{}); err != nil {
+			t.Errorf("%s caused false migration refusal: %v", rel, err)
+		}
+	}
+	// Legacy file-era trail records under docs/ or .agents/docs/ must refuse with fyr record import.
+	for _, rel := range []string{
+		"docs/ADR-001.md",
+		"docs/plans/PLAN-2026-01-01-x.md",
+		".agents/docs/bugs/BUG-001.md",
+		".agents/docs/changes/CHANGE-2026-01-01.md",
+		"docs/handoffs/HANDOFF-2026-01-01.md",
+	} {
+		dir, home := repo(t), t.TempDir()
+		writeTestDoc(t, dir, rel, "# Legacy\n")
+		if _, err := List(opts(dir, home), ListFilter{}); !IsRefusal(err) || !strings.Contains(err.Error(), "fyr record import") {
+			t.Errorf("%s: got %v, want refusal naming fyr record import", rel, err)
+		}
+		writeTestDoc(t, dir, ".agents/trail.jsonl", "")
+		if _, err := List(opts(dir, home), ListFilter{}); err != nil {
+			t.Errorf("%s with trail.jsonl: %v", rel, err)
+		}
+	}
+}
+
+func TestV910BrainProvenanceAndStale(t *testing.T) {
+	dir, home := repo(t), t.TempDir()
+	o := opts(dir, home)
+	writeTestDoc(t, dir, "core.go", "package core\n")
+
+	idOp, err := MemoryAdd(o, MemoryEntry{
+		Type: "procedural", Name: "op-guard", Description: "Core invariant in core.go",
+	}, strings.NewReader("sacred operator invariant for core.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Symmetric guard: derived MemoryAdd MUST NOT overwrite existing operator card.
+	if _, err := MemoryAdd(o, MemoryEntry{
+		Type: "semantic", Name: "op-guard", Description: "hijack", Provenance: "derived",
+	}, strings.NewReader("derived hijack")); !IsRefusal(err) {
+		t.Errorf("derived MemoryAdd over operator card: err=%v, want refusal", err)
+	}
+	// Symmetric guard: draft merge MUST keep operator primary body & kind intact.
+	for i := 1; i <= 3; i++ {
+		if _, err := MemoryDraftWithOptions(o, "merge", idOp, fmt.Sprintf("derived note %d", i), MemoryDraftOptions{Type: "episodic"}); err != nil {
+			t.Fatalf("merge %d: %v", i, err)
+		}
+	}
+	recs, _, err := Get(o, []string{idOp})
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("Get %s: %v", idOp, err)
+	}
+	mainBody, priors := splitMemoryMainAndPriors(recs[0].Body)
+	if !strings.Contains(mainBody, "sacred operator invariant for core.go") || strings.Contains(mainBody, "derived note") {
+		t.Errorf("operator primary body altered by merge: %q", mainBody)
+	}
+	if recs[0].Provenance != "operator" || recs[0].MemoryKind != "procedural" || len(priors) != 2 {
+		t.Errorf("operator metadata/priors broken: prov=%q kind=%q priors=%d", recs[0].Provenance, recs[0].MemoryKind, len(priors))
+	}
+	assertMemoryShowStaleFlags(t, o, dir)
+}
+
+func assertMemoryShowStaleFlags(t *testing.T, o Options, dir string) {
+	t.Helper()
+	assertStaleState := func(wantStale bool, label string) {
+		show, err := MemoryShow(o)
+		if err != nil {
+			t.Fatalf("%s MemoryShow: %v", label, err)
+		}
+		if has := strings.Contains(show, "[STALE:"); has != wantStale {
+			t.Errorf("%s MemoryShow [STALE:] = %v, want %v:\n%s", label, has, wantStale, show)
+		}
+		raw, err := MemoryShowJSONWithOptions(o, MemoryShowOptions{})
+		if err != nil {
+			t.Fatalf("%s MemoryShowJSON: %v", label, err)
+		}
+		var rows []struct {
+			Name  string `json:"name"`
+			Stale *bool  `json:"stale"`
+		}
+		if err := json.Unmarshal([]byte(raw), &rows); err != nil || len(rows) != 1 || rows[0].Stale == nil {
+			t.Fatalf("%s JSON missing boolean stale field: err=%v raw=%s", label, err, raw)
+		}
+		if *rows[0].Stale != wantStale {
+			t.Errorf("%s JSON stale = %v, want %v", label, *rows[0].Stale, wantStale)
+		}
+	}
+	// Touch mtime without changing content: NOT stale.
+	future := fixed.Add(2 * time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, "core.go"), future, future); err != nil {
+		t.Fatal(err)
+	}
+	assertStaleState(false, "unchanged_touch")
+	// Change content: STALE in both text and JSON.
+	writeTestDoc(t, dir, "core.go", "package core\n// edited\n")
+	assertStaleState(true, "content_changed")
+}
+
+func TestV910BrainDocsGuardProvenanceAndValidity(t *testing.T) {
+	t.Run("docs_guard", TestV910BrainDocsGuard)
+	t.Run("provenance_and_stale", TestV910BrainProvenanceAndStale)
+	t.Run("validity_calibration", func(t *testing.T) {
+		if MinActiveValidity != 0.40 {
+			t.Fatalf("MinActiveValidity = %.2f, want 0.40", MinActiveValidity)
+		}
+		dir := repo(t)
+		ts := fixed.UTC().Format(time.RFC3339)
+		der := Record{ID: "MEMORY-der", Kind: "memory", Provenance: "derived", MemoryKind: "semantic", VerifiedAt: ts, Updated: ts}
+		op := Record{ID: "MEMORY-op", Kind: "memory", Provenance: "operator", MemoryKind: "semantic", VerifiedAt: ts, Updated: ts}
+		unk := Record{ID: "MEMORY-unk", Kind: "memory", Provenance: "unknown", MemoryKind: "semantic", EvidenceCount: 2, VerifiedAt: ts, Updated: ts}
+
+		checks := []struct {
+			name   string
+			rec    Record
+			contra int
+			now    time.Time
+			want   float64
+		}{
+			{"derived_ev0_fresh", der, 0, fixed, 0.80},
+			{"derived_ev0_1x_halflife_active", der, 0, fixed.Add(180 * 24 * time.Hour), 0.40},
+			{"derived_ev0_1_1x_halflife_hidden", der, 0, fixed.Add(198 * 24 * time.Hour), 0.37},
+			{"unknown_ev2_cap", unk, 0, fixed, 0.90},
+			{"operator_1000d_floor_0_35", op, 0, fixed.Add(1000 * 24 * time.Hour), 0.35},
+			{"operator_3_contras_0_25", op, 3, fixed, 0.25},
+		}
+		for _, tc := range checks {
+			got := ComputeMemoryValidity(dir, tc.rec, tc.contra, tc.now)
+			if math.Abs(got-tc.want) > 0.001 {
+				t.Errorf("%s: got %.2f, want %.2f", tc.name, got, tc.want)
+			}
+		}
+	})
 }

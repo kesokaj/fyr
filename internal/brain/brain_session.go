@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -41,18 +42,62 @@ func resolveProject(dir string) (scope, top string, err error) {
 	return scope, top, nil
 }
 
-// unmigratedDocsDir returns the docs directory name if top holds a file-era
-// trail with no .agents/trail.jsonl yet.
+var legacyTrailPrefixes = []string{"PLAN-", "ADR-", "BUG-", "CHANGE-", "HANDOFF-"}
+
+// unmigratedDocsDir returns the docs directory name if top holds actual
+// file-era trail records (PLAN-*, ADR-*, BUG-*, CHANGE-*, HANDOFF-*) under
+// .agents/docs/ or docs/ with no .agents/trail.jsonl yet.
 func unmigratedDocsDir(top string) string {
 	if _, err := os.Lstat(trailPath(top)); err == nil {
 		return ""
 	}
 	for _, d := range []string{".agents/docs", "docs"} {
-		if fi, err := os.Stat(filepath.Join(top, d)); err == nil && fi.IsDir() {
+		if hasLegacyTrailFiles(filepath.Join(top, d)) {
 			return d
 		}
 	}
 	return ""
+}
+
+func hasLegacyTrailFiles(dir string) bool {
+	fi, err := os.Stat(dir)
+	if err != nil || !fi.IsDir() {
+		return false
+	}
+	const maxEntries = 5000
+	const maxDepth = 4
+	seen := 0
+	found := false
+	_ = filepath.WalkDir(dir, func(path string, de fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		seen++
+		if seen > maxEntries {
+			return fs.SkipAll
+		}
+		if de.IsDir() {
+			if rel, err := filepath.Rel(dir, path); err == nil && rel != "." && strings.Count(filepath.ToSlash(rel), "/") >= maxDepth {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if de.Type().IsRegular() && hasLegacyTrailPrefix(de.Name()) {
+			found = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return found
+}
+
+func hasLegacyTrailPrefix(name string) bool {
+	for _, p := range legacyTrailPrefixes {
+		if len(name) > len(p) && strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // openSession opens the store for o's scope. In a project it refuses a

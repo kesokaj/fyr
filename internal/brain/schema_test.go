@@ -89,6 +89,9 @@ func TestUnmigratedProjectRefused(t *testing.T) {
 		dir, home := repo(t), t.TempDir()
 		o := opts(dir, home)
 		os.MkdirAll(filepath.Join(dir, docs, "plans"), 0o755)
+		if err := os.WriteFile(filepath.Join(dir, docs, "plans", "PLAN-2026-01-01-open.md"), []byte("# Legacy plan\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		checks := map[string]error{}
 		_, checks["add"] = Add(o, AddInput{Kind: "learning", Title: "t", Body: strings.NewReader("b")})
 		_, _, checks["get"] = Get(o, []string{"BUG-001"})

@@ -82,7 +82,7 @@ func TestMemoryPartsAndGlobalScope(t *testing.T) {
 	if _, err := MemoryAdd(o, MemoryEntry{Type: "episodic", Name: "proj-ep", Description: "Recent episode"}, strings.NewReader("Ep body.")); err != nil {
 		t.Fatal(err)
 	}
-	// Aged derived episodic card (validity 0.55 * 0.40 = 0.22 < 0.40).
+	// Aged derived episodic card (validity 0.80 * 0.35 = 0.28 < 0.40).
 	oldOpts := Options{Home: home, Dir: dir, Now: func() time.Time { return fixed.Add(-200 * 24 * time.Hour) }}
 	if _, err := MemoryAdd(oldOpts, MemoryEntry{
 		Type:        "episodic",
@@ -108,7 +108,7 @@ func TestMemoryPartsAndGlobalScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(showAll, "old-derived (episodic, 0.22)") {
+	if !strings.Contains(showAll, "old-derived (episodic, 0.28)") {
 		t.Errorf("MemoryShowWithOptions(IncludeLow: true) missing low card:\n%s", showAll)
 	}
 
@@ -163,7 +163,7 @@ func TestMemoryPartsAndGlobalScope(t *testing.T) {
 	if len(gotSessions) != 20 || gotSessions[0] != "sess-01" || gotSessions[19] != "sess-20" {
 		t.Errorf("SourceSessions len=%d first=%q last=%q, want 20 sorted sess-01..sess-20", len(gotSessions), gotSessions[0], gotSessions[len(gotSessions)-1])
 	}
-	if recs[0].MemoryKind != "procedural" || recs[0].Validity != 0.70 {
-		t.Errorf("draft MemoryKind=%q Validity=%.2f, want procedural 0.70", recs[0].MemoryKind, recs[0].Validity)
+	if recs[0].MemoryKind != "procedural" || recs[0].Validity != 0.90 {
+		t.Errorf("draft MemoryKind=%q Validity=%.2f, want procedural 0.90", recs[0].MemoryKind, recs[0].Validity)
 	}
 }

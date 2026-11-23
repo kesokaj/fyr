@@ -92,15 +92,14 @@ func TestPreInvocationProgressiveMemory(t *testing.T) {
 	bo := brain.Options{Home: home, Dir: dir, Now: func() time.Time { return fixedNow }}
 	goGlobal := brain.Options{Home: home, Dir: dir, Global: true, Now: func() time.Time { return fixedNow }}
 
-	// Low validity (< 0.40): derived memory referencing service.go, then service.go modified later.
+	// Low validity (< 0.40): derived memory referencing service.go, then service.go content changes.
 	lowID, err := brain.MemoryAdd(bo, brain.MemoryEntry{
 		Type: "semantic", Name: "low-stale", Description: "Old fact about service.go", Provenance: "derived",
 	}, strings.NewReader("Touches service.go and should drop below 0.40."))
 	if err != nil {
 		t.Fatalf("MemoryAdd low-stale: %v", err)
 	}
-	future := fixedNow.Add(time.Hour)
-	if err := os.Chtimes(svcPath, future, future); err != nil {
+	if err := os.WriteFile(svcPath, []byte("package svc\n// content updated\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

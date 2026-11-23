@@ -247,12 +247,12 @@ func TestSD112AddPopulatesMemoryFields(t *testing.T) {
 	if err != nil || len(recs) != 2 {
 		t.Fatalf("Get: %v %v", recs, err)
 	}
-	if recs[0].MemoryKind != "procedural" || recs[0].Validity != 0.55 || recs[0].VerifiedAt != stamp {
-		t.Errorf("derived Add memory = (kind=%q val=%.2f verified=%q), want (procedural, 0.55, %q)",
+	if recs[0].MemoryKind != "procedural" || recs[0].Validity != 0.80 || recs[0].VerifiedAt != stamp {
+		t.Errorf("derived Add memory = (kind=%q val=%.2f verified=%q), want (procedural, 0.80, %q)",
 			recs[0].MemoryKind, recs[0].Validity, recs[0].VerifiedAt, stamp)
 	}
-	if recs[1].MemoryKind != "semantic" || recs[1].Validity != 0.70 || recs[1].VerifiedAt != stamp {
-		t.Errorf("unknown Add memory = (kind=%q val=%.2f verified=%q), want (semantic, 0.70, %q)",
+	if recs[1].MemoryKind != "semantic" || recs[1].Validity != 0.80 || recs[1].VerifiedAt != stamp {
+		t.Errorf("unknown Add memory = (kind=%q val=%.2f verified=%q), want (semantic, 0.80, %q)",
 			recs[1].MemoryKind, recs[1].Validity, recs[1].VerifiedAt, stamp)
 	}
 }
@@ -367,6 +367,9 @@ func TestSD36OpenSessionUnmigratedAndNoTrail(t *testing.T) {
 	if err := os.MkdirAll(docs, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(docs, "PLAN-2026-01-01-demo.md"), []byte("# Legacy plan\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	o := opts(dir, home)
 	if _, err := Add(o, AddInput{Kind: "bug", Title: "x", Body: strings.NewReader("b")}); !IsRefusal(err) {
 		t.Fatalf("unmigrated Add without DB err = %v, want refusal", err)
@@ -385,6 +388,9 @@ func TestSD36OpenSessionUnmigratedAndNoTrail(t *testing.T) {
 	mo := opts(migrated, home2)
 	add(t, mo, "bug", "already in db", "b")
 	if err := os.MkdirAll(filepath.Join(migrated, ".agents", "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(migrated, ".agents", "docs", "ADR-001.md"), []byte("# Legacy ADR\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Add(mo, AddInput{Kind: "bug", Title: "second in db", Body: strings.NewReader("b2")}); err != nil {

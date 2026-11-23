@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/search"
 )
@@ -22,8 +21,9 @@ func MemoryShow(o Options) (string, error) {
 	return MemoryShowWithOptions(o, MemoryShowOptions{})
 }
 
-// MemoryShowWithOptions returns the memory index formatted one line per card,
-// hiding cards with validity < 0.40 unless showOpts.IncludeLow is true.
+// MemoryShowWithOptions returns the memory index formatted one line per card
+// (with [STALE: ...] markers when stale), hiding cards with validity < 0.40
+// unless showOpts.IncludeLow is true.
 func MemoryShowWithOptions(o Options, showOpts MemoryShowOptions) (string, error) {
 	mems, err := loadActiveMemories(o, showOpts)
 	if err != nil {
@@ -32,13 +32,13 @@ func MemoryShowWithOptions(o Options, showOpts MemoryShowOptions) (string, error
 	sortScoredMemories(mems)
 	lines := make([]string, len(mems))
 	for i, m := range mems {
-		lines[i] = formatMemoryShowLine(m.rec, m.val)
+		lines[i] = formatMemoryIndexLineWithStale(m.rec, m.val, m.staleTag)
 	}
 	return capMemoryLines(lines), nil
 }
 
 // MemoryShowJSONWithOptions returns active memories (or all when IncludeLow is
-// true) as a JSON array.
+// true) as a JSON array including the boolean stale field.
 func MemoryShowJSONWithOptions(o Options, showOpts MemoryShowOptions) (string, error) {
 	mems, err := loadActiveMemories(o, showOpts)
 	if err != nil {
@@ -58,6 +58,7 @@ func MemoryShowJSONWithOptions(o Options, showOpts MemoryShowOptions) (string, e
 			Description: search.Printable(r.Title),
 			Provenance:  search.Printable(prov),
 			Validity:    m.val,
+			Stale:       m.staleTag != "",
 			Global:      r.Scope == "",
 			Updated:     search.Printable(r.Updated),
 		})
@@ -78,28 +79,14 @@ func loadActiveMemories(o Options, showOpts MemoryShowOptions) ([]scoredMemory, 
 	now := o.now()
 	var mems []scoredMemory
 	for _, r := range recs {
-		val := ComputeMemoryValidity(s.top, r, CountMemoryContradictions(r, feedbacks), now)
+		staleTag := MemoryStalenessTag(s.top, r)
+		val := computeMemoryValidityWithStale(r, staleTag != "", CountMemoryContradictions(r, feedbacks), now)
 		if !showOpts.IncludeLow && val < MinActiveValidity {
 			continue
 		}
-		mems = append(mems, scoredMemory{rec: r, val: val})
+		mems = append(mems, scoredMemory{rec: r, val: val, staleTag: staleTag})
 	}
 	return mems, nil
-}
-
-func formatMemoryShowLine(r Record, val float64) string {
-	typ := resolveMemoryKind(r)
-	var scopeTag string
-	if r.Scope == "" {
-		scopeTag = " [global]"
-	}
-	l := search.Printable(fmt.Sprintf("- %s (%s, %.2f)%s — %s",
-		strings.TrimPrefix(r.ID, "MEMORY-"), typ, val, scopeTag, r.Title))
-	for len(l) > memoryMaxLine {
-		_, size := utf8.DecodeLastRuneInString(l)
-		l = l[:len(l)-size]
-	}
-	return l
 }
 
 func capMemoryLines(lines []string) string {
@@ -115,8 +102,9 @@ func capMemoryLines(lines []string) string {
 }
 
 type scoredMemory struct {
-	rec Record
-	val float64
+	rec      Record
+	val      float64
+	staleTag string
 }
 
 func sortScoredMemories(mems []scoredMemory) {

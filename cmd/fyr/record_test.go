@@ -207,6 +207,9 @@ func TestRecordGetPrintsFoundBeforeMissing(t *testing.T) {
 func TestRecordUnmigratedRefusal(t *testing.T) {
 	root := recordRepo(t)
 	os.MkdirAll(filepath.Join(root, ".agents", "docs", "plans"), 0o755)
+	if err := os.WriteFile(filepath.Join(root, ".agents", "docs", "plans", "PLAN-2026-01-01-open.md"), []byte("# Legacy plan\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	out, err := recordCmd(t, "", "record", "list", "--home", t.TempDir())
 	if exitOf(err) != 1 || !strings.Contains(out, "fyr record import") {
 		t.Fatalf("list in an unmigrated project: %q exit %d", out, exitOf(err))
