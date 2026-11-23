@@ -116,11 +116,6 @@ func latestStepOutput(stepsDir string) string {
 	return cands[0].path
 }
 
-func inspectArtifacts(dir string, idleSec int, now time.Time) (int, []Finding) {
-	checked, findings, _ := inspectArtifactsChecked(dir, idleSec, now)
-	return checked, findings
-}
-
 func checkAgentsDirNoSymlink(agentsDir string) (bool, error) {
 	info, err := os.Lstat(agentsDir)
 	if errors.Is(err, os.ErrNotExist) {

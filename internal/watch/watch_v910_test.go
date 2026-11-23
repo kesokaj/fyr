@@ -672,8 +672,9 @@ func TestV910SecuritySymlinkScratchAndMetricsStateDir(t *testing.T) {
 		if err := os.Symlink(extAgents, filepath.Join(dir, ".agents", "scratch", "agents")); err != nil {
 			t.Fatal(err)
 		}
-		if checked, findings := inspectArtifacts(dir, 90, now); checked != 0 || len(findings) != 0 {
-			t.Errorf("inspectArtifacts followed symlinked agents dir: checked=%d findings=%+v", checked, findings)
+		checked, findings, artErr := inspectArtifactsChecked(dir, 90, now)
+		if checked != 0 || len(findings) != 0 || !errors.Is(artErr, trail.ErrStampSymlink) {
+			t.Errorf("inspectArtifactsChecked on symlinked agents dir = (checked=%d, findings=%+v, err=%v), want (0, nil, trail.ErrStampSymlink)", checked, findings, artErr)
 		}
 		_, err := Check(context.Background(), Options{
 			Home: home, Dir: dir, Now: func() time.Time { return now }, ProcLister: liveAgyProcs(),

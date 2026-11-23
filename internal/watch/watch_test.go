@@ -445,12 +445,15 @@ func TestWatchFilesClipAndArtifacts(t *testing.T) {
 		t.Fatalf("clipPrintableMode invalid UTF-8 clip: %q", clipped)
 	}
 
+	if checked, artFindings, err := inspectArtifactsChecked(dir, 90, now); err != nil || checked != 0 || len(artFindings) != 0 {
+		t.Fatalf("inspectArtifactsChecked(missing agents dir) = checked:%d findings:%+v err:%v, want checked=0 findings=nil err=nil", checked, artFindings, err)
+	}
 	writeArt(t, dir, "old-abandoned.md", "# Old\nStatus: IN PROGRESS\n", now.Add(-25*time.Hour))
 	writeArt(t, dir, "fenced-example.md", "# Guide\n```md\nStatus: IN PROGRESS\n```\n~~~~\n## Status: IN PROGRESS\n~~~~\n````md\n```\nStatus: IN PROGRESS\n```\n````\n", now.Add(-5*time.Minute))
 	writeArt(t, dir, "active-stuck.md", "# Audit\n## Status: IN PROGRESS\n", now.Add(-5*time.Minute))
-	checked, artFindings := inspectArtifacts(dir, 90, now)
-	if checked != 2 || len(artFindings) != 1 || !strings.Contains(artFindings[0].Target, "active-stuck.md") {
-		t.Fatalf("inspectArtifacts = checked:%d findings:%+v, want checked=2 and only active-stuck.md", checked, artFindings)
+	checked, artFindings, err := inspectArtifactsChecked(dir, 90, now)
+	if err != nil || checked != 2 || len(artFindings) != 1 || !strings.Contains(artFindings[0].Target, "active-stuck.md") {
+		t.Fatalf("inspectArtifactsChecked = checked:%d findings:%+v err:%v, want checked=2, only active-stuck.md, err=nil", checked, artFindings, err)
 	}
 }
 

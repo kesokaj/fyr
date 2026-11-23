@@ -212,7 +212,7 @@ func tryOpen(path string) (*store, error) {
 }
 
 // ensureTurnRecordsIndex idempotently creates the composite index used by
-// ListTurnRecords without bumping user_version, matching search.ensureRefsOIDIndex
+// ListTurnRecordsCtx without bumping user_version, matching search.ensureRefsOIDIndex
 // so existing v4 stores and read-only readers stay compatible (ADR-532).
 func (s *store) ensureTurnRecordsIndex() error {
 	var n int
