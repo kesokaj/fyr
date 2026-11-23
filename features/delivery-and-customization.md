@@ -55,21 +55,22 @@ The harness defaults to Go backends, TypeScript/Tailwind frontends, and Google C
 | **Global checkout edit** | `context/*.md`, `rules/*.md`, `skills/<name>/SKILL.md`, `agents/<name>/agent.md`, `workflows/<name>.py` | Deployed to `~/.gemini/config/` via `fyr install` | Personalizing workflows across every repository |
 | **Third-party skill import** | `skills/<name>/` via `npx skills add` or `fyr adopt <name>` | Copied into `skills/` and deployed via `fyr install` | Installing community Agent Skills (`SKILL.md` standard) |
 
-Every customization is a file drop with zero manifest registration code. When running in development inside the `fyr` checkout itself, always pass `--home .agents/scratch/<name>` so test installs never overwrite your real `$HOME` (`cmd/fyr/realhome_guard.go`).
+Every customization is a file drop with zero manifest registration code, and every `fyr` command accepts global flags (`--home`, `--repo`, `-C`/`--dir`) either before or after the verb (`cmd/fyr/run_dispatch.go`) as well as `--json` across all 31 CLI verbs (`cmd/fyr/verb_json_helpers.go`). When running in development inside the `fyr` checkout itself, always pass `--home .agents/scratch/<name>` so test installs never overwrite your real `$HOME` (`cmd/fyr/realhome_guard.go`).
 
 ## Context budget and installer lint
 
-Antigravity CLI builds a single `<user_rules>` block from `~/.gemini/config/rules/*.md` and truncates content silently past `24,000` bytes (`PRD.md` Known limits). To guarantee your instructions never truncate silently across `35` embedded skills (`<= 140`-char `description:` cap in `TestSkillFrontmatterDescriptionsUnder140Chars`), `fyr` enforces strict byte budgets in `internal/harness/size_test.go` (including `TestCombinedContextRulesAndRepoAgentsUnder15KB` at `15,000` bytes) and ends the rendered context with the canary word `GANNET`. Offline state and sanitized telemetry transfer across hosts via `fyr state export|import`.
+Antigravity CLI builds a single `<user_rules>` block from `~/.gemini/config/rules/*.md` and truncates content silently past `24,000` bytes (`PRD.md` Known limits). To guarantee your instructions never truncate silently across `35` embedded skills (`<= 140`-char `description:` cap enforced by `LintSkillFrontmatter` / `SkillDescriptionLimit = 140` in `internal/harness/frontmatter.go` alongside the `1,024`-char Agent Skills / agent limit, and pinned by `TestSkillFrontmatterDescriptionsUnder140Chars` in `skills_text_test.go` and `TestLintSkillFrontmatterAnd140CharCap` in `internal/harness/frontmatter_test.go`), `fyr` enforces strict byte budgets in `internal/harness/size_test.go` plus `TestCombinedContextRulesAndRepoAgentsUnder15KB` (`skills_text_test.go`, `15,000` bytes combined) and ends the rendered context with the canary word `GANNET`. Progressive `references/` diets keep the six largest core skills `<= 13 KB` each (`>= 25%` combined reduction) and `skills/golang/SKILL.md` `<= 12 KB` while frontmatter keyword deduplication holds shared-keyword skill pairs to `<= 5` (`TestV910SkillDietBudget` in `skills_text_test.go`), `docker`/`terraform` templates ship runnable distroless and two-stage bootstrap patterns, and R7 single-handoff close (`change` optional) is aligned across `context/AGENTS.md` and closing skills (`TestV910SkillTemplatesAndR7Alignment` in `skills_text_test.go`). Offline state and sanitized telemetry (schema v5 / v14, including `orchestration_runs`) transfer across hosts via `fyr state export|import`.
 
 | Pin Test | Target Ceiling | Measured Scope |
 |---|---|---|
 | `TestAlwaysOnContextBudget` | `9,000` bytes | Rendered `context/*.md` plus `always_on` rules |
 | `TestRenderedContextUnderTarget` | `13,000` bytes | Hand-written `context/*.md` (`PRD.md` G1 `15,000` ceiling) |
 | `TestRepoAgentsUnderTarget` | `4,500` bytes | Repository root `AGENTS.md` (`PRD.md` G2) |
+| `TestCombinedContextRulesAndRepoAgentsUnder15KB` | `15,000` bytes | Combined `context/*.md`, `rules/*.md`, and root `AGENTS.md` (`skills_text_test.go`) |
 | `TestRenderedContextFitsAntigravityBlock` | `19,500` bytes | Combined context plus all `rules/*.md` (inside Antigravity's `24,000` cap) |
 | `TestSkillListingBudget` | `19,500` bytes | Names and descriptions of model-invocable skills |
 
-Before deploying a single file, the installer lint (`internal/harness/inventory.go`) fails fast on structural errors or unapproved frontmatter permission keys that could hang subagents or bypass operator permissions.
+Before deploying a single file, the installer lint (`internal/harness/inventory.go`, `internal/harness/frontmatter.go`, and `fyr check`'s `budget`/`frontmatter` rules in `internal/check/harness_lint.go`) fails fast on structural errors, over-budget context/rules, `> 140`-char skill descriptions, or unapproved frontmatter permission keys that could hang subagents or bypass operator permissions.
 
 <details>
 <summary>Installer frontmatter allowlists, known tools, and CLI verb reference</summary>
@@ -91,15 +92,15 @@ An unrecognized tool name in `agents/<name>/agent.md` causes Antigravity CLI to 
 
 | Command | Flags | Purpose |
 |---|---|---|
-| `fyr install` | `--dry-run`, `--repo DIR`, `--home DIR` | Deploy harness files to `~/.gemini/config/` and `~/.local/bin/fyr` |
-| `fyr update` | `--check`, `--dry-run`, `--from-zip FILE` | Update a checkout, release binary, or zip place |
+| `fyr install` | `--dry-run`, `--json`, `--repo DIR`, `--home DIR` | Deploy harness files to `~/.gemini/config/` and `~/.local/bin/fyr` |
+| `fyr update` | `--check`, `--dry-run`, `--from-zip FILE`, `--json` | Update a checkout, release binary, or zip place |
 | `fyr status` | `--json` | Report installed commit/version, drift, auto/dream state, and PATH shadowing |
-| `fyr diff` | `--repo DIR`, `--home DIR` | Print a unified diff of drifted installed files |
-| `fyr uninstall` | `--dry-run` | Remove installed files and background timers while keeping stores |
-| `fyr list` | `--repo DIR` | Print every skill, subagent, rule, and workflow script |
-| `fyr render` | `--repo DIR` | Print the assembled `AGENTS.md` context block |
-| `fyr adopt` | `--force` | Copy an externally installed skill into `skills/` |
-| `fyr version` | (global flags only) | Print the binary build version |
+| `fyr diff` | `--json`, `--repo DIR`, `--home DIR` | Print a unified diff of drifted installed files |
+| `fyr uninstall` | `--dry-run`, `--json` | Remove installed files and background timers while keeping stores |
+| `fyr list` | `--json`, `--repo DIR` | Print every skill, subagent, rule, and workflow script |
+| `fyr render` | `--json`, `--repo DIR` | Print the assembled `AGENTS.md` context block |
+| `fyr adopt` | `--force`, `--json` | Copy an externally installed skill into `skills/` |
+| `fyr version` | `--json` | Print the binary build version |
 
 </details>
 

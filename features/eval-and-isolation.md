@@ -24,11 +24,11 @@ sequenceDiagram
     Eval->>Store: 6. Record trials row + metrics ingest + closed testing record
 ```
 
-Every trial executes 15 deterministic steps (`SPEC-fyr-eval` § One row), keeping the row's `check` script outside the sandbox until after `agy` exits so the agent cannot inspect or game its grading check. For long-running or interactive scenarios, `--acp` (or any row ID prefixed with `acp-`) drives turns through a warm `agy acp --stdio --process-per-session` pipe and exposes `EVENTS=<Dir>/events.jsonl` to the check script.
+Every trial executes 15 deterministic steps (`SPEC-fyr-eval` § One row), keeping the row's `check` script outside the sandbox until after `agy` exits so the agent cannot inspect or game its grading check (with `GUIDE-eval.md` check regex hygiene pinned in `internal/eval/suite_outcomes_test.go`, `internal/eval/suite_outcomes_reviewer_test.go`, and `internal/eval/suite_outcomes_sim_test.go`). Post-trial ingest passes the trial sandbox as `BrainHome` (`cmd/fyr/eval.go`, `internal/metrics/events_join.go`) so sandbox trail records join cleanly alongside `--home`. For long-running or interactive scenarios, `--acp` (or any row ID prefixed with `acp-`) drives turns through a warm `agy acp --stdio --process-per-session` pipe and exposes `EVENTS=<Dir>/events.jsonl` to the check script.
 
 ## OS-native process confinement (`internal/isolate`)
 
-`internal/isolate` (`M22`, `ADR-522`) enforces process-wide filesystem isolation directly through Go's stdlib `syscall` package without containers, Docker daemons, or host fallback (`--runner isolate`, failing closed when unavailable).
+`internal/isolate` (`M22`, `ADR-522`, `ADR-534`) enforces process-wide filesystem isolation directly through Go's stdlib `syscall` package without containers, Docker daemons, or host fallback (`--runner isolate`, failing closed when unavailable). For confined cross-family judges and workers running under a scratch `--home`, `JudgeExecOptions.RealHome` stages credentials and read-only `0400` `models.json` plus read-only `agy` binary bundle paths via `isolate.StageModelsCatalog` (`internal/isolate/models_stage.go`) and fails fast with `isolate.ErrNoAuthToken` (`internal/isolate/worker_judge.go`) before spawning `agy -p` if no regular-file OAuth token can be staged.
 
 ```mermaid
 flowchart TD
@@ -74,11 +74,12 @@ Why OS-native isolation matters: `agy --sandbox` restricts shell commands only a
 | `--fixture DIR` | Current checkout root | Git repository cloned read-only into each trial's sandbox |
 | `--suite-file PATH` | `""` | External `GUIDE-eval`-formatted file (`<= 1 MiB`) outside every checkout (labels trials `eval=holdout/<id>`) |
 | `--runs N` | `1` | Trials per row (`1`–`25`) |
-| `--model ID` | `""` (active `agy` default) | Pin an explicit non-interactive policy model ID for trials and record it on `metrics.db` v13 `trials.policy_model` (`SPEC-fyr-sim`) |
+| `--model ID` | `""` (active `agy` default) | Pin an explicit non-interactive policy model ID for trials and record it on `metrics.db` schema 14 `trials.policy_model` (`SPEC-fyr-sim`) |
 | `--parallel N` | `1` | Maximum concurrent trials (`1`–`25`; `kind: benchmark` forced to `1`) |
 | `--acp` | `false` | Drive sessions via warm `agy acp --stdio --process-per-session` |
 | `--runner R` | `isolate` | Isolation runner (`isolate` only; fails closed if OS isolation is unavailable) |
 | `--list` | `false` | List suite rows and exit `0` without running `agy` |
+| `--json` | `false` | Emit structured JSON output for trial results or `--list` |
 
 </details>
 

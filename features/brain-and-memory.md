@@ -21,12 +21,12 @@ Three core boundaries keep the store clean and reliable:
 
 1. **Global-only separation:** `feedback` and `proposal` records are allowed only with `--global` (`R8`) so local machine corrections and background asks never leak into project checkouts.
 2. **Unexported local kinds:** `memory`, `feedback`, and `proposal` rows never reach `.agents/trail.jsonl` when you run `fyr record export` (`R4`, `R7`).
-3. **One-call writes:** Both `fyr record add` and `fyr memory add` accept leading `Title:` / `Status:` / `ID:` / `Project:` (or `Type:` / `Name:` / `Description:` / `Provenance:`) headers on `stdin`, `--body-file FILE`, or `--json-in` (`internal/brain/stdin_doc.go`) so writes require a single command without temporary shell files.
-4. **Canonical `repo_id`, portable memory & isolated SIM ledger (`brain.db` v5):** Records carry normalized `repo_id` (`NormalizeRepoID`, v4) for project scoping, migration 5 (`ADR-533`, `SPEC-fyr-sim`) adds the global optimizer SIM ledger (`sim_problems`, `sim_aliases`, `sim_attempts`, `sim_fts`, strictly isolated from `fyr resume`, `fyr memory show`, hooks, and `.agents/trail.jsonl`), and `fyr state export|import --include-memory` (`ADR-531`, `ADR-533`) optionally bundles `memory` records and `sim_ledger.ndjson` across hosts.
+3. **One-call writes & file-era detection:** Both `fyr record add` and `fyr memory add` accept leading `Title:` / `Status:` / `ID:` / `Project:` (or `Type:` / `Name:` / `Description:` / `Provenance:`) headers on `stdin`, `--body-file FILE`, or `--json-in` (`internal/brain/stdin_doc.go`) so writes require a single command without temporary shell files, and `unmigratedDocsDir` (`internal/brain/brain_session.go`) flags a legacy project docs tree only when actual file-era trail records (`PLAN-*`, `ADR-*`, `BUG-*`, `CHANGE-*`, `HANDOFF-*`) exist without `.agents/trail.jsonl` (avoiding false refusals on ordinary `docs/` folders). Under PRD R7, single-handoff closes treat `change` records as optional.
+4. **Canonical `repo_id`, portable memory & isolated SIM ledger (`brain.db` v5):** Records carry normalized `repo_id` (`NormalizeRepoID`, v4) for project scoping, migration 5 (`ADR-533`, `SPEC-fyr-sim`) adds the global optimizer SIM ledger (`sim_problems`, `sim_aliases`, `sim_attempts`, `sim_fts`, strictly isolated from `fyr resume`, `fyr memory show`, hooks, and `.agents/trail.jsonl`), and `fyr state export|import --include-memory` (`ADR-531`, `ADR-533`, `ADR-534`) optionally bundles `memory` records and `sim_ledger.ndjson` across hosts.
 
 ## Seven-step session resume
 
-`fyr resume` (`internal/brain/resume.go`) prints a deterministic, read-only snapshot of a repository's current state in one command without creating or mutating `brain.db`. When `brain.db` has no records for a freshly cloned checkout, `fyr resume` falls back automatically to `.agents/trail.jsonl`.
+`fyr resume [--json]` (`internal/brain/resume.go`) prints a deterministic, read-only snapshot of a repository's current state in one command without creating or mutating `brain.db`. When `brain.db` has no records for a freshly cloned checkout, `fyr resume` falls back automatically to `.agents/trail.jsonl`.
 
 ```mermaid
 flowchart LR
@@ -42,24 +42,24 @@ For multi-phase plans using `Depends on:` headings (`internal/brain/resume.go`),
 
 ## Multi-part validity-scored memory
 
-`fyr` models project and cross-project (`--global`) memory across three typed parts—`semantic` (facts, architecture, constraints), `procedural` (rules, workflows, gotchas), and `episodic` (session incidents, experiments)—and scores each card deterministically between `0.00` and `1.00` in `internal/brain/validity.go`.
+`fyr` models project and cross-project (`--global`) memory across three typed parts—`semantic` (facts, architecture, constraints), `procedural` (rules, workflows, gotchas), and `episodic` (session incidents, experiments)—and scores each card deterministically between `0.00` and `1.00` using a calibrated validity curve in `internal/brain/validity.go`.
 
 ```mermaid
 flowchart LR
-    memAdd["fyr memory add\n(or fyr auto derived draft)"] --> baseScore["Base validity by provenance\n(operator 1.00 / derived 0.55..0.70 / unknown 0.70..0.85)"]
-    baseScore --> penalties["Apply staleness (-0.45) &\ncontradiction penalties (-0.25 each, max 2)"]
-    penalties --> ageDecay["Multiply by part-specific age decay"]
+    memAdd["fyr memory add\n(or fyr auto derived draft)"] --> baseScore["Base validity by provenance\n(operator 1.00 / derived or unknown 0.80..0.90)"]
+    baseScore --> penalties["Apply content-hash staleness (-0.45) &\ncontradiction penalties (-0.25 each, max 3)"]
+    penalties --> ageDecay["Multiply by part-specific age decay\n(floor 0.35)"]
     ageDecay --> thresholdCheck{"Score >= 0.40?\n(MinActiveValidity)"}
     thresholdCheck -- "Yes & semantic" --> loadResume["Shown in fyr resume & memory show"]
     thresholdCheck -- "Yes & procedural/episodic" --> injectPreInv["Injected on demand in PreInvocation"]
     thresholdCheck -- "No (< 0.40)" --> hiddenLow["Hidden by default\n(visible with --include-low)"]
 ```
 
-Every `memory` record tracks `provenance` (`operator`, `derived`, or `unknown`), `memory_kind` (`semantic`, `procedural`, or `episodic`), `verified_at`, `evidence_count` (corroborating sessions up to `+0.15` bonus), and `source_sessions` (`internal/brain/record.go`):
+Every `memory` record tracks `provenance` (`operator`, `derived`, or `unknown`), `memory_kind` (`semantic`, `procedural`, or `episodic`), `verified_at`, `evidence_count` (corroborating sessions adding `+0.05` each up to `2` for a `0.90` cap), and `source_sessions` (`internal/brain/record.go`):
 
-- **Operator vs derived trust & immutability:** Direct `fyr memory add` calls default to `provenance: operator` (`1.00` base validity), which cannot be retired, superseded, or downgraded automatically. Automated `fyr auto` drafts store `provenance: derived` (`0.55` base validity, rising to `0.70` with `3` corroborating sessions) and cap `Prior:` chains at `<= 2` compacted bullets (`memory_draft_prior.go`).
-- **Automatic staleness and contradiction checks:** `MemoryStalenessTag` flags memory cards referencing repository files or pinned SHA-256 digests whose underlying files changed on disk (`-0.45`), while `CountMemoryContradictions` detects newer `FEEDBACK-*` records matching the card's slug or keywords (`-0.25` per contradiction, capped at `2`).
-- **On-demand progressive loading:** `fyr resume` prints only active `semantic` cards (`>= 0.40`), while `PreInvocation` injects matching `procedural`, `episodic`, and `--global` cards only when the current prompt's query or files match them.
+- **Symmetric operator vs derived trust & immutability:** Direct `fyr memory add` calls default to `provenance: operator` (`1.00` base validity), which is symmetrically guarded against automatic overwrite, retirement, superseding, or downgrade across `fyr memory add` (`internal/brain/memory.go`), `MemoryDraftWithOptions` (`internal/brain/memory_draft.go`), `fyr state import`, and the SIM ledger. Automated `fyr auto` drafts store `provenance: derived` (`0.80` base validity, rising to `0.90` with `2` corroborating sessions) and cap `Prior:` chains at `<= 2` compacted bullets (`memory_draft_prior.go`).
+- **Content-hash staleness (`[STALE]`) and calibrated contradictions:** `MemoryStalenessTag` (`internal/brain/resume_memory.go`) emits `[STALE: <path> modified since <ID>]` and applies `-0.45` strictly when a file's SHA-256 content no longer matches its pinned digest (`appendRepoFilePins`; mtime-only touches incur zero penalty), while `CountMemoryContradictions` detects newer `FEEDBACK-*` records matching the card's slug or keywords (`-0.25` per contradiction, capped at `3`), before applying part-specific age decay (`180d` semantic / `90d` procedural / `30d` episodic) bounded by a `0.35` floor.
+- **On-demand progressive loading:** `fyr resume` prints only active `semantic` cards (`>= 0.40`), `fyr memory show --limit N` caps returned cards, and `PreInvocation` injects matching `procedural`, `episodic`, and `--global` cards only when the current prompt's query or files match them.
 
 <details>
 <summary>All 15 record kinds, valid statuses, and CLI flag reference</summary>
@@ -96,8 +96,8 @@ Every `memory` record tracks `provenance` (`operator`, `derived`, or `unknown`),
 | `fyr record sync` | (global flags only) | Load `.agents/trail.jsonl` back into `brain.db` and FTS5 |
 | `fyr record import` | `--dry-run`, `--global` | Migrate legacy `<project>/.agents/docs/` or global file trails into `brain.db` |
 | `fyr memory add` | `--type T`, `--name SLUG`, `--description TEXT`, `--provenance P`, `--body-file FILE`, `--json-in`, `--global` | Save or update a `semantic`, `procedural`, or `episodic` memory card |
-| `fyr memory show` | `--global`, `--include-low`, `--json` | Show active memory cards (`>= 0.40` validity unless `--include-low`) |
-| `fyr resume` | (global flags only) | Print the read-only seven-step session resume |
+| `fyr memory show` | `--global`, `--include-low`, `--limit N`, `--json` | Show active memory cards (`>= 0.40` validity unless `--include-low`) |
+| `fyr resume` | `--json` | Print the read-only seven-step session resume |
 
 </details>
 

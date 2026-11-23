@@ -4,7 +4,7 @@
 
 ## Global switch and hourly sweep (`fyr auto` and `fyr dream`)
 
-`fyr auto on` writes `~/.config/fyr/auto.json`, installs the single hourly OS user timer (`fyr-auto` / `com.fyr.auto`), and retires any legacy `fyr-dream` unit (`internal/auto/config.go`, `internal/auto/verbs.go`, `cmd/fyr/verb_auto.go`). It accepts an optional `--conversation-idle D` threshold (default `1h`, range `5m` to `7d`) and migrates legacy `level`, `project_idle`, and `user_idle` configs cleanly while treating `--level`, `--project-idle`, and `--user-idle` as deprecated no-op flags with a warning. Inspect run output anytime with `fyr auto log [--lines N | --all]` (`internal/auto/log_read.go`), which tails `~/.config/fyr/auto/auto.log` through `O_NOFOLLOW` (default `50` lines; prints `no auto log yet` and exits `0` when absent).
+`fyr auto on` writes `~/.config/fyr/auto.json`, installs the single hourly OS user timer (`fyr-auto` / `com.fyr.auto`), and retires any legacy `fyr-dream` unit (`internal/auto/config.go`, `internal/auto/verbs.go`, `cmd/fyr/verb_auto.go`). It accepts an optional `--conversation-idle D` threshold (default `1h`, range `5m` to `7d`) and migrates legacy `level`, `project_idle`, and `user_idle` configs cleanly while treating `--level`, `--project-idle`, and `--user-idle` as deprecated no-op flags with a warning. `fyr auto status [--json]` (`internal/auto/status.go`) prints the switch, idle cutoff, daily budget, open asks, and an `installPending` banner (`installPendingBanner`) whenever eval-gated `skills/` commits await `fyr install`; `fyr auto log [--lines N | --limit N | --all] [--json]` (`internal/auto/log_read.go`) tails `~/.config/fyr/auto/auto.log` through `O_NOFOLLOW` (default `50` lines; prints `no auto log yet` and exits `0` when absent). Headless timer invocations resolve `agy`/`fyr` across `PATH`, sibling binary directories, and `~/.local/bin` via `dream.ResolveBinary` (`internal/dream/agy_home.go`).
 
 ```mermaid
 flowchart TD
@@ -13,28 +13,28 @@ flowchart TD
     g1Switch -- "Yes" --> ingestStep["1. Run fyr metrics ingest"]
     ingestStep --> dreamStep["2. Run fyr dream --all\n(discover all workspaces; sliding window)"]
     dreamStep --> rateStep["3. Redact & rate stale conversations\n(plan mode, zero tools -> session_ratings)"]
-    rateStep --> machineGates{"4. G3 AC power & G9 quota\n(>= 50%/30%, < 4 runs/day)?"}
+    rateStep --> machineGates{"4. G3 AC power & per-pool G9 quota\n(>= 50%/30%, < 4 runs/day)?"}
     machineGates -- "No" --> freeChecks["Run free git checkout checks only"]
     machineGates -- "Yes" --> workerGate{"Clean git checkout\n(G8 clean)?"}
     workerGate -- "No (non-git / global / dirty)" --> keepProposals["Skip worker; keep ratings & proposals"]
     workerGate -- "Yes" --> runWorker["5. Spawn 1 OS-isolated dreaming worker\n(30m budget via internal/isolate)"]
-    freeChecks --> finishStep["6. Record background_runs (metrics.db v13)\n& write daily HTML report (YYYY-MM-DD-daily-metrics.html)"]
+    freeChecks --> finishStep["6. Record background_runs (metrics.db schema 14)\n& write daily HTML report (YYYY-MM-DD-daily-metrics.html)"]
     keepProposals --> finishStep
     runWorker --> finishStep
 ```
 
 During step 2, `fyr dream --all` (`internal/dream/targets.go`, `internal/search/dream.go`) discovers every Antigravity workspace and conversation without requiring `fyr index --register` (`G6` retired) or pre-existing trail records:
 
-- **Workspace sources & ephemeral 0d pruning:** Reads `~/.gemini/antigravity-cli/conversation_summaries.db` (`workspace_uris`, via `search.ListAgyWorkspaces`), `brain.db` scopes (`brain.Scopes`), `search.db` projects (`search.ListProjects`), and the resolved harness checkout (`HarnessRepo`), while excluding ephemeral worktree, smoke, eval/auto sandbox, and `.agents/scratch` paths (`auto.IsEphemeralPath` in `internal/auto/ephemeral.go`, pruned at `0d` in `runs.json` and skipped by `fyr index --register`; `isSandboxProjectRoot` in `internal/metrics/project_roots.go` also filters sandbox/probe roots from metrics and diagnostics).
-- **Non-git and global conversations:** Empty `workspace_uris` map to `search.GlobalWorkspace` (`"__global__"`), and non-git directories are retained as first-class workspaces alongside git checkouts (`internal/search/dream_workspace.go`).
+- **Workspace sources & shared ephemeral/refused-root 0d pruning:** Reads `~/.gemini/antigravity-cli/conversation_summaries.db` (`workspace_uris`, via `search.ListAgyWorkspaces`), `brain.db` scopes (`brain.Scopes`), `search.db` projects (`search.ListProjects`), and the resolved harness checkout (`HarnessRepo`), while excluding refused system roots (`/`, `/tmp`, `/private/tmp`, exact `$HOME`) and ephemeral worktree, smoke, eval/auto/dream sandbox, and `.agents/scratch` paths (`dream.IsEphemeralPath` / `dream.IsRefusedWorkspace` in `internal/dream/ephemeral.go`, delegated by `auto.IsEphemeralPath`, pruned at `0d` in `runs.json` and skipped by `fyr index --register`; `isSandboxProjectRoot` in `internal/metrics/project_roots.go` also filters sandbox/probe roots from metrics and diagnostics).
+- **Non-git, global & remote-control sessions:** Empty `workspace_uris` map to `search.GlobalWorkspace` (`"__global__"`), non-git directories are retained as first-class workspaces alongside git checkouts (`internal/search/dream_workspace.go`), and `internal/dream/agy_process.go` recognizes `agy remote-control serve` as an active interactive session.
 - **Sliding-window staleness `(since, cutoff]`:** Under `fyr auto`, `dream.Options` passes `ConversationIdle` (`1h` default) and `Session: true`. `search.AgyConversationTextInWindow` evaluates every conversation modified in `(since, now - conversation_idle]` even when another `agy` session is active (`G4`, `G5`, and `G7` retired for dreaming), advancing `st.Projects[root]` only to the latest evaluated timestamp capped at `cutoff` (`watermark`) so active conversations are re-checked once stale. Failed or incomplete runs keep a `24h` retry cooldown (`FailedAttempts`).
 
-## Stale-conversation rating, diagnostics, and `metrics.db` v13
+## Stale-conversation rating, diagnostics, and `metrics.db` schema 14
 
-`fyr dream` scrubs conversations, optional `PLAN-*`/`HANDOFF-*` context (`internal/dream/collect_sources.go`), memories, trail records, global `feedback`, numbers-only `DreamTrajectoryDigest` metrics, `DiagnosticReport` signals, and redacted project-local hidden-coupling hints through `internal/redact`, invokes `agy --input-format stream-json --output-format stream-json --mode plan -p ""` granting zero tools, and records structured conversation ratings alongside global `queued` `proposal` records.
+`fyr dream` scrubs conversations, optional `PLAN-*`/`HANDOFF-*` context (`internal/dream/collect_sources.go`), memories, trail records, global `feedback`, bounded `kindSIM` prompt slices (fitted alongside oversized transcripts via `trimSIMBlock` in `internal/dream/collect_fit.go`), numbers-only `DreamTrajectoryDigest` metrics, `DiagnosticReport` signals, and redacted project-local hidden-coupling hints through `internal/redact`, invokes `agy --input-format stream-json --output-format stream-json --mode plan -p ""` granting zero tools, and records structured conversation ratings alongside global `queued` `proposal` records.
 
-- **Trajectory knee & diagnostic signal feeds:** `DreamTrajectoryDigest.KneeExceeded` (`internal/metrics/dream_digest.go`) counts distinct label-free sessions reaching `>= 60%` of each model's effective context budget (`models.ContextKneeWithOverrides`, default `180000`) or recording a `knee_exceeded` event, while `unaddressedDiagnosticSignals` (`internal/auto/diagnostics.go`) triggers `ClassRetroLite` on unaddressed high/medium `DiagnosticReport` signals and injects a redacted `## Diagnostic signals` block into worker prompts.
-- **`session_ratings` & `background_runs` (`metrics.db` v13, `internal/metrics/store.go`, `internal/metrics/ratings.go`, `internal/metrics/background_runs.go`):** Migration 8 adds `session_ratings` (`session_id`, `project_root`, `evaluated_at`, `outcome_score` `1–5`, `token_efficiency` `1–5`, `plan_alignment` `matched|partial|missed|no-plan`, `skill_action` `none|rewrite-skill|new-skill`, `target_skill`, `summary`, plus `repo_id` in migration 11) written via `dream.Options.WriteRatings`, and migration 10 adds `background_runs` (`RecordBackgroundRun`) recording `dream` and `auto` run outcomes, duration, projects checked, proposals/ratings written, and worker/applied flags.
+- **Trajectory knee & diagnostic signal feeds:** `DreamTrajectoryDigest.KneeExceeded` (`internal/metrics/dream_digest.go`) counts distinct label-free sessions reaching their calibrated `[40%..60%]` effective context knee (`models.ContextKneeWithOverrides` / `models.CalibratedContextKnee`, capped at `180,000`/`300,000` degradation onset) or recording a `knee_exceeded` event, while `unaddressedDiagnosticSignals` (`internal/auto/diagnostics.go`) triggers `ClassRetroLite` on unaddressed high/medium `DiagnosticReport` signals and injects a redacted `## Diagnostic signals` block into worker prompts.
+- **`session_ratings` & `background_runs` (`metrics.db` schema 14, `internal/metrics/store.go`, `internal/metrics/ratings.go`, `internal/metrics/background_runs.go`):** Migration 8 adds `session_ratings` (`session_id`, `project_root`, `evaluated_at`, `outcome_score` `1–5`, `token_efficiency` `1–5`, `plan_alignment` `matched|partial|missed|no-plan`, `skill_action` `none|rewrite-skill|new-skill`, `target_skill`, `summary`, plus `repo_id` in migration 11) written via `dream.Options.WriteRatings`, and migration 10 + migration 14 add `background_runs` (with `halt_reason`, written via `RecordBackgroundRun`) recording `dream` and `auto` run outcomes, halt reasons, duration, projects checked, proposals/ratings written, and worker/applied flags.
 - **Reporting, daily HTML summary & proposal routing:** `fyr report` surfaces `session_ratings` in Section 3 (`Quality & Learning Loop`) and `background_runs` in `Background Autonomy`, while `autoWriteDailyReport` (`cmd/fyr/verb_auto.go`) calls `metrics.WriteDailyReport` after sweeps (`internal/auto/run.go`) to write `~/.config/fyr/reports/YYYY-MM-DD-daily-metrics.html` (`0600`, `O_EXCL`, quiet no-op if today's file exists). Whenever `skill_action` is `rewrite-skill` or `new-skill`, or either score is `<= 3`, `internal/dream/proposals_write.go` (`needsSkillProposal`) files a global `queued` `proposal` (`Target: harness   Kind: skill`, with `Sessions: <n>` set dynamically from the distinct rated session count) naming `target_skill` (or `skills/`) and the conversation rating evidence so `fyr auto` routes it directly into `harness-edit` or `distill` when a clean harness checkout exists.
 
 ## Dreaming worker classes and risk rubric
@@ -54,7 +54,7 @@ The risk rubric (`internal/auto/rubric.go`, mirrored in `skills/fyr-auto/SKILL.m
 
 ## The `k=3` behavioural eval gate
 
-When a `harness-edit` or harness-checkout `distill` worker commits a skill change on `work/auto-<name>` in a clean harness checkout (`isHarnessCheckout` in `internal/auto/eval_gate.go`), Go runs `evalGateBranch` before touching your local branch:
+When a `harness-edit` or harness-checkout `distill` worker commits a skill change on `work/auto-<name>` in a clean harness checkout (`isHarnessCheckout` in `internal/auto/eval_gate.go`), `internal/auto/eval_plan.go` verifies matching eval rows exist pre-dispatch (`hasMatchingEvalRows`, preventing 0-row skills from wasting worker slots) and builds a deterministic bounded row plan (`selectGateRows`, prioritizing target rows and rotating holdout/regression subsets within `maxGateRows = maxEvalGateSessions / (2 * gateRuns)` = `24` eval sessions) before `evalGateBranch` touches your local branch:
 
 ```mermaid
 sequenceDiagram
@@ -91,7 +91,7 @@ sequenceDiagram
 | **G6 Registered** | Retired | Retired for `dream` and `auto` (`ADR-524`; all workspaces discovered automatically) | — |
 | **G7 Project Idle** | Retired | Retired for `dream` and `auto` (`ADR-524`; replaced by per-conversation `conversation_idle`, default `1h`) | — |
 | **G8 Clean Tree** | Scoped | Clean git working tree on a branch with upstream and `0` commits ahead | Required only for git-mutating tasks and `applyBranch`; `DraftsOnly` skips `G8` |
-| **G9 Quota & Budget** | Active | `< 4` model runs today, `>= 4h` since last run (unless `--force`), and `agy /usage` pools `>= 50%` (5h) / `>= 30%` (week) | Before running a worker (`internal/auto/usage.go`) |
+| **G9 Quota & Budget** | Active | `< 4` model runs today, `>= 4h` since last run (unless `--force`), and target model's `agy /usage` pool `>= 50%` (5h) / `>= 30%` (week) via `gateBudgetForModel` (`internal/auto/usage.go`) | Before running a worker (`internal/auto/usage.go`) |
 
 ### The 6 dreaming task classes
 
@@ -108,12 +108,12 @@ sequenceDiagram
 
 | Command | Flags | Purpose |
 |---|---|---|
-| `fyr dream` | `--all`, `--project DIR`, `--dry-run` | Run plan-mode no-tool dreamer and stale-conversation rater across all discovered workspaces (`DIR` accepts checkouts, non-git dirs, or `__global__`) |
-| `fyr auto on` | `--conversation-idle D`, `--dry-run` (plus deprecated no-op `--level`, `--project-idle`, `--user-idle`) | Enable `auto.json` (`enabled: true`, `conversation_idle` default `1h`) and install the hourly OS timer |
-| `fyr auto off` | `--dry-run` | Disable `auto.json` and remove the hourly timer |
-| `fyr auto status` | (global flags only) | Show switch state, `stale after <conversation_idle>; scope all conversations, projects & harness`, last verdict, daily model runs, and open asks |
-| `fyr auto run` | `--dry-run`, `--force` | Execute one `fyr auto` pass immediately (`--force` bypasses the `4h` cooldown; `--dry-run` previews gates) |
-| `fyr auto log` | `--lines N`, `--all` | Tail `~/.config/fyr/auto/auto.log` through `O_NOFOLLOW` (default `50` lines; prints `no auto log yet` when absent) |
+| `fyr dream` | `--all`, `--project DIR`, `--dry-run`, `--json` | Run plan-mode no-tool dreamer and stale-conversation rater across all discovered workspaces (`DIR` accepts checkouts, non-git dirs, or `__global__`) |
+| `fyr auto on` | `--conversation-idle D`, `--dry-run`, `--json` (plus deprecated no-op `--level`, `--project-idle`, `--user-idle`) | Enable `auto.json` (`enabled: true`, `conversation_idle` default `1h`) and install the hourly OS timer |
+| `fyr auto off` | `--dry-run`, `--json` | Disable `auto.json` and remove the hourly timer |
+| `fyr auto status` | `--json` | Show switch state, `stale after <conversation_idle>; scope all conversations, projects & harness`, last verdict, daily model runs, open asks, and `installPending` banner |
+| `fyr auto run` | `--dry-run`, `--force`, `--json` | Execute one `fyr auto` pass immediately (`--force` bypasses the `4h` cooldown; `--dry-run` previews gates) |
+| `fyr auto log` | `--lines N`, `--limit N`, `--all`, `--json` | Tail `~/.config/fyr/auto/auto.log` through `O_NOFOLLOW` (default `50` lines; prints `no auto log yet` when absent) |
 | `fyr auto sim` | `list`, `show`, `record`, `merge` (`--json`, `--json-in`) | Inspect and maintain the isolated global Self-Improvement Memory (SIM) optimizer ledger in `brain.db` v5 (`SPEC-fyr-sim`, `ADR-533`) |
 
 </details>

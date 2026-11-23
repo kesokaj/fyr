@@ -4,7 +4,7 @@
 
 ## Hook lifecycle across a turn
 
-Antigravity invokes `fyr search --hook` across five active lifecycle events (`session-start`, `pre-invocation`, `pre-tool-use`, `post-tool-use`, and `stop`) under the `< 250 ms` fail-open contract (`PRD.md` R3, `internal/search/hook.go`, `internal/search/hook_deadline.go`). Every hook runs inside a hard `200 ms` internal deadline (`defaultHookDeadline`) and fails open with an `allow` decision or `{}` response if a store is locked, unavailable, or disabled via `~/.config/fyr/no-hooks` or `.agents/scratch/no-hooks`.
+Antigravity invokes `fyr search --hook` across five active lifecycle events (`session-start`, `pre-invocation`, `pre-tool-use`, `post-tool-use`, and `stop`) under the `< 250 ms` fail-open contract (`PRD.md` R3, `internal/search/hook.go`, `internal/search/hook_deadline.go`). Every hook runs inside a hard `200 ms` internal deadline (`defaultHookDeadline`) and fails open with an `allow` decision or `{}` response if a store is locked, unavailable, or disabled via a regular `~/.config/fyr/no-hooks` or `.agents/scratch/no-hooks` marker (`hooksDisabledForHome` verifies regular files with `os.Lstat` and ignores repo-local `.agents/scratch/no-hooks` under `FYR_RELAY=1`).
 
 ```mermaid
 sequenceDiagram
@@ -15,12 +15,12 @@ sequenceDiagram
     Agy->>Hook: session-start (<= 1,500 B capsule)
     Hook-->>Agy: date, active plan, TODO Now, dirty Go files
     Agy->>Hook: pre-invocation (prompt + conversationId)
-    Hook->>DB: AST slice, vet_history (v11), git_warm_sig, dedup
+    Hook->>DB: AST slice, vet_history (v12), git_warm_sig, applyDirtyPaths, CHECKPOINT
     Hook->>Brain: matching BUG, ADR, PLAN, and MEMORY (>= 0.40)
     Hook-->>Agy: PreInvocationBanner text card (or {} PASS_THROUGH)
     Agy->>Hook: pre-tool-use (toolCall name + args)
-    Hook->>DB: clamp/ledger, [COORDINATOR_GUARD], Watchdog, bash guard, capsule
-    Hook-->>Agy: allow / deny ([CLAMPED], [UNCHANGED], [POLL_LOOP], [INTERACTIVE_STDIN]) / overwrite
+    Hook->>DB: dual-gate clamp/ledger, [COORDINATOR_GUARD], Watchdog, bash guard, capsule
+    Hook-->>Agy: allow / deny ([CLAMPED], [UNCHANGED], [POLL_LOOP], [ERROR_LOOP], [INTERACTIVE_STDIN]) / overwrite
     Agy->>Hook: post-tool-use (toolCall result)
     Hook->>DB: mark watchdog_ring errors (markWatchdogPostError)
     Hook-->>Agy: {}
@@ -33,13 +33,13 @@ At `session-start`, `handleSessionStart` (`internal/search/hook_session_start.go
 
 ## Pure-Go AST and Markdown symbol graph
 
-`fyr index` builds a derived cache in `.agents/scratch/search.db` (`schemaVersion = "11"`, plus `< 80 ms` warm `PreInvocation` / `< 15 ms` mid-turn dedup via `git_warm_sig.go`, parallel `buildVetSliceCtx` `<= 120 ms` inner deadline in `hook_pre_invocation_fast.go`, lightweight subagent fast path in `hook_pre_invocation_subagent.go`, timeout fallback stamp in `hook_deadline.go`, and `records_fts` `brain.Search` precision) using Go's stdlib `go/ast` parser, a TypeScript/TSX scanner (`internal/search/symbols_ts.go`), and a Markdown ATX-heading extractor (`internal/search/symbols_go.go`, `internal/search/symbols_md.go`). Schema `v10` migrates `v9` in place (`migrateV9ToV10Tx` in `internal/search/store_migrate.go`) by adding `blobs.line_count INT DEFAULT 0` and clearing derived AST/chunk tables (`chunks_fts`, `chunks`, `refs`, `symbols`, `sym_refs`, `files`, `blobs`, `meta WHERE key LIKE 'touched:%'`) while preserving `projects`, `co_activity`, `read_ledger`, `read_ledger_stats`, `session_meta`, `vet_history`, and `watchdog_ring`; schemas older than `"9"` still return `staleSchemaError` and rebuild cleanly (`PRD.md` R4).
+`fyr index` builds a derived cache in `.agents/scratch/search.db` (`schemaVersion = "12"`, plus `< 80 ms` warm `PreInvocation` / `< 15 ms` mid-turn dedup via `git_warm_sig.go`, incremental `applyDirtyPaths` for `<= 3` dirty files in `internal/search/reconcile.go`, append-only `CHECKPOINT` compaction detection via `scanTranscriptCheckpoint` in `internal/search/hook_guard.go`, parallel `buildVetSliceCtx` `<= 120 ms` inner deadline in `hook_pre_invocation_fast.go`, lightweight subagent fast path in `hook_pre_invocation_subagent.go`, timeout fallback stamp in `hook_deadline.go`, and `records_fts` `brain.Search` precision) using Go's stdlib `go/ast` parser, a TypeScript/TSX scanner (`internal/search/symbols_ts.go`), and a Markdown ATX-heading extractor (`internal/search/symbols_go.go`, `internal/search/symbols_md.go`). In-place migrations (`migrateV9ToV10Tx`, `migrateV10ToV11Tx`, and `migrateV11ToV12Tx` in `internal/search/store_migrate.go`) upgrade `v9 -> v10 -> v11 -> v12` (adding `session_meta.{last_invocation_num, last_checkpoint_offset}` in v12 atop v11 `vet_history.{duration_ms, timed_out, injected_bytes}` and v10 `blobs.line_count`) while preserving `projects`, `co_activity`, `read_ledger`, `read_ledger_stats`, `session_meta`, `vet_history`, and `watchdog_ring`; schemas older than `"9"` still return `staleSchemaError` and rebuild cleanly (`PRD.md` R4).
 
 The indexer resolves Go `go.mod` and `*/go.mod` module aliases (`loadGoModulesFromDB`, `resolveGoImportTarget`, and `resolveCrossPkgGoMethods` without phantom fallthrough to local directories), parses relative TS/TSX imports while suppressing unexported `const` noise (`parseTSImports`, `resolveTSRelativeSpec`, `extractTSSymbols`), and normalizes repo-relative package paths (`canonicalPkgDir`, `topLevelLayer` in `internal/search/pkg_paths.go`) so multiple `package main` directories never collide. Default exclusions skip generated Go files and non-code paths (`isExcludedASTPath`, `isGeneratedGoText`), and `.md`/`.mdx` doc files stay out of graph queries unless `--include-docs` is set. Over production `import | call | type_ref` edges (excluding `iface_call` and `implements`), `fyr` computes Tarjan strongly connected components (`TarjanSCC`, `TarjanPackageSCCs` in `internal/search/graph_tarjan.go`), deterministic Louvain communities (`LouvainCommunities` with `1 + math.Log1p(rawW)` weights and `louvainGamma = 1.35` in `internal/search/graph_louvain.go`), and read-only structural/co-activity feeds (`ReadStructuralSignals`, `ReadHiddenCouplingHints` in `internal/search/structural_signals.go`, and `LoadGraphSnapshot` in `internal/search/graph_export.go`).
 
 ```mermaid
 flowchart LR
-    repoFiles["Tracked repo files\n(Go, TS/TSX, and optional Markdown)"] --> indexer["fyr index\n(reconcile against git, v11)"]
+    repoFiles["Tracked repo files\n(Go, TS/TSX, and optional Markdown)"] --> indexer["fyr index\n(reconcile against git, v12)"]
     indexer --> ftsIndex["FTS5 full-text index\n(heading, body, tokens)"]
     indexer --> astGraph["AST symbols and edges\n(Go/TS imports, Tarjan SCC, Louvain)"]
     ftsIndex --> queryEngine["fyr search / PreInvocation"]
@@ -66,7 +66,7 @@ flowchart TD
     promptIn["User prompt"] --> trivialCheck{"PASS_THROUGH?\n(empty, !, /cmd, APPROVAL, TRIVIAL)"}
     trivialCheck -- "Yes" --> emptyOut["Emit {} (0 model tokens)\nPersist ! in vet_history"]
     trivialCheck -- "No" --> scoreTurn["Score 6 anchors + ADR check\nMatchSkills + generation dedup"]
-    scoreTurn --> conflictGate{"Conflict or missing\ncritical anchors?"}
+    scoreTurn --> conflictGate{"PRD/ADR conflict or\nultra-vague 0-hit prompt?"}
     conflictGate -- "Yes" --> vetFirst["Directive: VET_FIRST"]
     conflictGate -- "No" --> splitSub["DecomposeSubtasks\n(<= 6 disjoint slices)"]
     splitSub --> multiCheck{"len(subtasks) >= 2?"}
@@ -76,15 +76,15 @@ flowchart TD
 
 Six deterministic mechanics keep enriched turns concise and Coordinator-aligned:
 
-1. **Nine intent modes & six anchors:** Classifies prompts into `APPROVAL`, `CORRECTION`, `QUESTION`, `TRIVIAL`, `TASK`, `BUG`, `FEATURE`, `REVIEW`, or `RELEASE` (`IntentQuestion` never forces `SecurityRequired`), and scores `target`, `goal`, `scope`, `inputs_outputs`, `constraints`, and `verification` (`0..100` `VetScore`), carrying forward prior anchors from `vet_history` across follow-up turns.
+1. **Nine intent modes & conflict-only `VET_FIRST`:** Classifies prompts into `APPROVAL`, `CORRECTION`, `QUESTION`, `TRIVIAL`, `TASK`, `BUG`, `FEATURE`, `REVIEW`, or `RELEASE` (`IntentQuestion` never forces `SecurityRequired`), and scores `target`, `goal`, `scope`, `inputs_outputs`, `constraints`, and `verification` (`0..100` `VetScore`), carrying forward prior anchors from `vet_history` across follow-up turns. `decideVetGate` (`internal/search/vet.go`) fires `VET_FIRST` only on detected `PRD.md`/`ADR-*` conflicts or ultra-vague zero-hit `<= 6`-word `FEATURE`/`BUG` prompts (`isUltraVagueZeroHit`).
 2. **Directive precedence (`preInvocationDirective`):** Emits `PASS_THROUGH` (`GatePassThrough`) > `VET_FIRST` (`GateVetFirst`) > `COORDINATE_SUBTASKS` (`len(res.Subtasks) >= 2`, setting `route` to `"/fyr-swarm (isolated subtasks; zero shared memory)"`) > `ANSWER_ONLY` (`IntentQuestion`) / `CORRECTION` (`IntentCorrection`) > `EXECUTE_IMPROVED_PROMPT` (non-empty `ImprovedPrompt`) > `ENRICH_AND_PROCEED`.
 3. **`ImprovedPrompt:` & progressive memory:** Populates `ImprovedPrompt:` (`[VET_IMPROVED_PROMPT]`) on `ENRICH_AND_PROCEED` turns (`45 <= score < 80`, `VET_FIRST` follow-ups, conflicts, or `len(subtasks) >= 2`; omitted for questions and corrections), and injects up to `4` matched memories (`validity >= 0.40`) inside the `6`-record cap.
-4. **Compaction-scoped `SkillDigests:` deduplication:** `vetPromptCoreWithHistory` (`internal/search/vet.go`) calls `filterSuggestedSkills` (`internal/search/vet_history.go`, dropping skills suggested in the last 3 turns unless a new file surface appears); `buildHookEnvelopeWithModelTimed` (`internal/search/process_artifact.go`) then runs `filterSessionDedupTurn` (`internal/search/hook_dedup.go`), stamping `__vet_skill__:<name>` in `read_ledger` (`start_line = -4`) per `generation_id`. Both `Skills:` (names) and `SkillDigests:` (`<= 600 B` actionable digests) emit on Turn 1, drop already-seen skills on Turn 2+, and re-prime automatically when compaction increments `generation_id`.
+4. **Dynamic BM25F skill prefetcher & compaction-scoped `SkillDigests:` dedup:** `MatchSkills` (`internal/search/vet_skills.go`, `vet_skills_catalog.go`, `cmd/fyr/verb_search_skills.go`) scores the live installed skill catalog via frontmatter BM25F (`minSkillBM25Score = 3.2`, negative-scope filtering) plus file-extension weights, returning at most `3` skills and zero phantom skills on an empty catalog. `vetPromptCoreWithHistory` (`internal/search/vet.go`) then runs `filterSuggestedSkills` (`internal/search/vet_history.go`, dropping skills suggested in the last 3 turns unless a new file surface appears), and `buildHookEnvelopeWithModelTimed` (`internal/search/process_artifact.go`) runs `filterSessionDedupTurn` (`internal/search/hook_dedup.go`), stamping `__vet_skill__:<name>` in `read_ledger` (`start_line = -4`) per `generation_id` so skills re-prime automatically when compaction increments `generation_id`.
 5. **Deterministic subtask decomposition (`DecomposeSubtasks`):** Splits multi-clause prompts (`1. ... 2. ...` or `;`-separated action clauses, ignoring backticked `;` and constraint clauses) or single-clause explicit-target multi-package edit prompts (`extractExplicitPromptTargets` resolving `>= 2` disjoint Go/top-level directories ordered by Hop-0 rank then lexicographically while skipping `isDiagnosticReadOnlyPrompt`) into up to `6` `SubtaskSlice` entries (`internal/search/vet_decompose.go`, `internal/search/vet_decompose_pkg.go`, `internal/search/vet_route.go`). When `len(order) > maxSubtaskSlices` (`6`), `partitionPackageGroups` calls `coalesceOverflowByCommunity` (`internal/search/vet_decompose_pkg.go`) using deterministic Louvain communities (`internal/search/graph_louvain.go`) before falling back to `partitionOverflowTail`. Greedy assignment keeps `Files` pairwise disjoint (fileless clauses stay `nil`), infers `Role` (`reviewer`, `security`, `documentation`, `explorer`, `builder`), picks up to `2` `Skills`, and suggests `Verify`; skips `PassThrough`, `!`-bypass, `APPROVAL`, `TRIVIAL`, `QUESTION`, `CORRECTION`, diagnostic read-only prompts, and `isWorkerBriefPrompt`.
 6. **Structured text card & model resolution:** Emits one fenced `text` `PreInvocationBanner` card (`Metadata == nil`, `internal/search/telemetry_render.go`) with exact `agy` `model` ID, unmodified `modelDisplay`, and `thinking` effort resolved via `internal/search/telemetry_model.go`.
 
 <details>
-<summary>Example PRE_INVOCATION text card (`COORDINATE_SUBTASKS`) and schema v11 `vet_history` fields</summary>
+<summary>Example PRE_INVOCATION text card (`COORDINATE_SUBTASKS`) and schema v12 `vet_history` / `session_meta` fields</summary>
 
 ```text
 [FYR_TURN_CONTRACT] PRE_INVOCATION · ENRICH_AND_PROCEED (85/100)
@@ -105,19 +105,19 @@ Subtasks:
   - subtask-1 [builder] Update Alpha in internal/alpha/a.go | files: internal/alpha/a.go | skills: golang | verify: go test -race ./internal/alpha/...
 ```
 
-- `vet_history` (`schemaVersion = "11"` in `internal/search/store.go`): persists `(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at)` plus `duration_ms`, `timed_out`, and `injected_bytes` on every non-empty `PreInvocation` turn (with `vet_history_store.go` / `process_artifact.go` short approval dedup and `[CONTEXT_KNEE_WARNING]` / `TokenKnee:` injection preserving the `/fyr-handoff` fresh-conversation cue)—including `PASS_THROUGH` and `!`-bypass turns—so `PreToolUse` reads `subtask_count`, `directive`, and `!` state across follow-up tool calls.
+- `vet_history` & `session_meta` (`schemaVersion = "12"` in `internal/search/store.go`): `vet_history` persists `(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at)` plus `duration_ms`, `timed_out`, and `injected_bytes` on every non-empty `PreInvocation` turn (with `vet_history_store.go` / `process_artifact.go` short approval dedup and `[CONTEXT_KNEE_WARNING]` / `TokenKnee:` injection preserving the `/fyr-handoff` fresh-conversation cue)—including `PASS_THROUGH` and `!`-bypass turns—while `session_meta` tracks `last_invocation_num` and `last_checkpoint_offset` for append-only `CHECKPOINT` compaction re-priming (`hook_guard.go`).
 
 </details>
 
 ## Read deduplication and file clamping
 
-On `pre-tool-use`, `fyr` prevents full-file bloat and duplicate reads using skeleton clamping and a persistent SHA-256 read ledger (`internal/search/hook_clamp.go`, `internal/search/read_ledger.go`, `internal/search/read_ledger_edit.go`, `internal/search/hook_guard.go`).
+On `pre-tool-use`, `fyr` prevents full-file bloat and duplicate reads using dual-gate skeleton clamping and a persistent SHA-256 read ledger (`internal/search/hook_clamp.go`, `internal/search/read_ledger.go`, `internal/search/read_ledger_edit.go`, `internal/search/hook_guard.go`).
 
 ```mermaid
 stateDiagram-v2
     [*] --> CheckTool: PreToolUse file read
     CheckTool --> UnrangedCheck: read_file call
-    UnrangedCheck --> ClampedDeny: 400+ lines and no line range (first attempt)
+    UnrangedCheck --> ClampedDeny: >= 400 lines OR >= 16 KiB and no range (first attempt)
     ClampedDeny --> [*]: Return [CLAMPED] skeleton and stamp -5 sentinel
     UnrangedCheck --> LedgerCheck: Ranged read or explicit retry
     LedgerCheck --> UnchangedDeny: Span already read and SHA-256 unchanged
@@ -128,9 +128,9 @@ stateDiagram-v2
     AllowedRead --> [*]: Record clamped 800-line / 46,080 B window
 ```
 
-- **Skeleton-first read clamping (`internal/search/hook_clamp.go`):** First-time unranged reads of files `>= 400` lines receive a `[CLAMPED]` denial containing the AST skeleton (up to `60` lines) and SHA-256 digest while stamping `start_line = -5` (`clampOnceSentinelLine` in `internal/search/read_ledger_edit.go`); an immediate ranged read or an explicit second unranged retry succeeds without deadlock.
+- **Dual-gate skeleton-first read clamping (`internal/search/hook_clamp.go`):** First-time unranged reads of files `>= 400` lines OR `>= 16,384` bytes (`clampSkeletonMinLines = 400`, `clampSkeletonMinBytes = 16384`) receive a `[CLAMPED]` denial containing the AST skeleton (up to `60` lines) and SHA-256 digest while stamping `start_line = -5` (`clampOnceSentinelLine` in `internal/search/read_ledger_edit.go`); an immediate ranged read or an explicit second unranged retry succeeds without deadlock.
 - **Out-of-root/unindexed `read_file` bypass (`hook_pretool.go`, `hook_clamp.go`):** `PreToolUse` `read_file` passes through immediately on paths outside the workspace root or unindexed repositories/directories without blocking.
-- **Persistent hash-keyed read ledger (`read_ledger`):** Tracks every line range read per conversation generation, modeling `read_file`'s `800`-line / `46,080`-byte window, and enforces `[CLAMPED]` / `[UNCHANGED]` across multi-line `&&`/`;`/newline Bash read chains, benign env prefixes, `cd` tracking, and strictly read-only pipes via `ParseBashFileReads` (`read_ledger_bash.go`, `read_ledger_bash_chain.go`, `read_ledger_bash_pipe.go`, `read_ledger_bash_sed.go`, rejecting mutating pipes/redirects/substitutions). The `start_line = -5` `[CLAMPED]` sentinel is preserved across same-generation edits (`recordResolvedReadTx` deletes only `start_line >= 0`; edit invalidation touches only `start_line > 0` or `start_line = -6`), while editing a file (`replace_file_content`, `write_to_file`, `edit_file`, `write_file`) invalidates overlapping spans and requires a prior read when modifying existing files (`internal/search/hook_guard.go`).
+- **Persistent hash-keyed read ledger (`read_ledger`):** Tracks every line range read per conversation generation, modeling `read_file`'s `800`-line / `46,080`-byte window, and enforces `[CLAMPED]` / `[UNCHANGED]` across 18 Bash file-read patterns, multi-line `&&`/`;`/newline chains, benign env prefixes, `cd` tracking, and strictly read-only pipes via `ParseBashFileReads` (`read_ledger_bash.go`, `read_ledger_bash_chain.go`, `read_ledger_bash_pipe.go`, `read_ledger_bash_filter.go`, `read_ledger_bash_sed.go`, rejecting mutating pipes/redirects/substitutions). The `start_line = -5` `[CLAMPED]` sentinel is preserved across same-generation edits (`recordResolvedReadTx` deletes only `start_line >= 0`; edit invalidation touches only `start_line > 0` or `start_line = -6`), while editing a file (`replace_file_content`, `write_to_file`, `edit_file`, `write_file`) invalidates overlapping spans and requires a prior read when modifying existing files (`internal/search/hook_guard.go`).
 
 ## Coordinator write guard and worker JIT capsules
 
@@ -161,31 +161,31 @@ flowchart LR
   - **Deny-first model routing + S4 inheritance (`hook_subagent_models.go`, `internal/models`):** Denies forbidden model overrides on guarded subagents (`reviewer`, `verifier`, `security`, `dreamer`) and weak models on `swarm` `judge` prefixes, inherits/resolves session models via `resolveHookSessionModelForHome` (`hook_subagent.go`, `hook_workflow.go`, recognizing `neon`), upgrades fast session models or routes `swarm` prefixes via `internal/models` using `~/.config/fyr/models.json` with `30%` 5h / `20%` weekly Anthropic quota fallback (emitting `[CROSS_FAMILY_NOTICE]` when `invoke_subagent` tier enums cannot pin concrete cross-family IDs), and then runs `enrichWorkerPromptArgs` across **all** allowed `invoke_subagent` (`Prompt`/`prompt`) and `swarm(action="add")` (`brief`/`Brief`) calls, merging model and prompt into one `Overwrite` map.
   - **`AND` gating & idempotency:** Skips prompts that already contain `[FYR_WORKER_CAPSULE]`. Otherwise activates only when **(1)** the prompt/brief names file/symbol tokens or `Files:` paths OR `workspacePaths`/`cwd`/`--dir` explicitly resolves a checkout (no `os.Getwd()` fallback), **AND (2)** context lookup produces non-empty context (`Hop-0` AST signatures, `>= 1` matched record or `validity >= 0.40` memory, or `>= 1` matched skill digest) — OR when `coordinator-only` mode is active (injecting at least the minimal `[FYR_WORKER_CAPSULE]` worker tag). Generic targetless prompts without an explicit checkout keep `Overwrite == nil` (or model-only `Overwrite`).
   - **Priority truncation (`<= 1,200 B`):** Keeps existing `Files:` headers verbatim at the top (never duplicated inside `[FYR_WORKER_CAPSULE]`; emits `inferred_files:` only when no `Files:` line existed) and packs cryptographic `New` (`=====<18-hex>=====`, `internal/search/fence.go`) blocks within `<= 1,200 B` in priority order: (1) `Files:` / `inferred_files:`, (2) `<= 3` matched records/memories (`140 B` note cap), (3) top `1` skill digest (`<= 400 B`), (4) `Hop-0` AST slice (`<= 600 B`, line-trimmed from bottom).
-- **`run_workflow` literal safety (`internal/search/hook_workflow.go`):** `handlePreToolWorkflow` inspects Python `agent(...)` calls to enforce `model="pro"` on guarded subagents (`[AUTO_SUBAGENT_PRO]`) while skipping Python string literals and comments (`skipPythonTrivia`), never mutating prompt strings inside scripts.
+- **`run_workflow` dual-root allowlist & literal safety (`internal/search/hook_workflow.go`):** `handlePreToolWorkflow` restricts `ScriptPath` via `resolveAllowedWorkflowRoot` to workspace-contained files or installed regular `.py` scripts (`<= 1 MiB`) under `~/.gemini/config/workflows/` (refusing `..`, symlinks, and external paths) and inspects Python `agent(...)` calls to enforce `model="pro"` on guarded subagents (`[AUTO_MODEL_UPGRADE]`) while skipping Python string literals and comments (`skipPythonTrivia`), never mutating prompt strings inside scripts.
 
 ## Watchdog breakers, bash stdin guard, and PostToolUse
 
-`PreToolUse` and `PostToolUse` share a two-layer Watchdog and interactive bash guard inside the same `200 ms` fail-open budget (`internal/search/hook.go`, `internal/search/hook_watchdog.go`, `internal/search/hook_bash_guard.go`). Recent tool outcomes persist in `.agents/scratch/search.db` (`schemaVersion = "11"`) via `watchdog_ring` and `session_meta` so loops and budget overruns break deterministically before burning context.
+`PreToolUse` and `PostToolUse` share a two-layer Watchdog and interactive bash guard inside the same `200 ms` fail-open budget (`internal/search/hook.go`, `internal/search/hook_watchdog.go`, `internal/search/hook_watchdog_ring.go`, `internal/search/hook_bash_guard.go`). Recent tool outcomes persist in `.agents/scratch/search.db` (`schemaVersion = "12"`) via `watchdog_ring` and `session_meta` so loops and budget overruns break deterministically before burning context.
 
 ```mermaid
 flowchart LR
     preCall["PreToolUse tool call"] --> bashGuard["hook_bash_guard.go\ncheckInteractiveBashGuard"]
     preCall --> watchPre["hook_watchdog.go\nevaluateWatchdogPre"]
     bashGuard -- "Interactive or net git" --> bashOut["Deny INTERACTIVE_STDIN or\nOverwrite GIT_TERMINAL_PROMPT=0"]
-    watchPre --> ringDB[("search.db v11\nwatchdog_ring and session_meta")]
-    ringDB -- "Breach" --> watchDeny["Deny POLL_LOOP, TOKEN_LOOP,\nor SUBAGENT_BUDGET"]
+    watchPre --> ringDB[("search.db v12\nwatchdog_ring and session_meta")]
+    ringDB -- "Breach" --> watchDeny["Deny POLL_LOOP, ERROR_LOOP,\nor SUBAGENT_BUDGET"]
     postCall["PostToolUse: handlePostToolUse"] --> postMark["markWatchdogPostError\nreturns {}"]
     postMark -.-> ringDB
 ```
 
 | Breaker / Hook | Implementation | Behavior |
 |---|---|---|
-| `[INTERACTIVE_STDIN]` | `internal/search/hook_bash_guard.go` (`checkInteractiveBashGuard`) | Blocks bash calls waiting on interactive stdin and prepends `export GIT_TERMINAL_PROMPT=0; ` via `Overwrite` on network `git` operations |
+| `[INTERACTIVE_STDIN]` | `internal/search/hook_bash_guard.go` (`checkInteractiveBashGuard`, `hasReadPromptFlag`, `checkInteractiveSSH`) | Blocks bash calls waiting on interactive stdin (including `read -p` and interactive `ssh` without `-o BatchMode=yes` + remote command) and prepends `export GIT_TERMINAL_PROMPT=0; ` via `Overwrite` on network `git` operations |
 | `[KICKOFF_GUARD]` | `internal/search/hook_pretool_ask.go` (`handlePreToolAskQuestionCtx`) | Denies mid-build `ask_question` calls during autonomous Kickoff/worker turns unless citing an explicit `PRD.md`/ADR conflict, Re-plan trigger, or quota exhaustion |
 | `[SEARCH_NUDGE]` | `internal/search/hook_pretool_nudge.go` (`handlePreToolGrepNudgeCtx` / `checkBashGrepNudgeCtx`) | Emits an allow-with-notice nudge once per turn steering indexed code-symbol greps toward `fyr search --refs` / `--slice` |
 | `[POLL_LOOP]` | `internal/search/hook_watchdog.go` (`evaluateWatchdogPre` / `finalizeWatchdogPre`) | Breaks repeated polling tool-call loops tracked in `watchdog_ring` |
-| `[TOKEN_LOOP]` | `internal/search/hook_watchdog.go` (`evaluateWatchdogPre` / `finalizeWatchdogPre`) | Breaks consecutive error-spinning tool loops flagged in `watchdog_ring` |
-| `[SUBAGENT_BUDGET]` / `[SUBAGENT_BUDGET_WARN]` | `internal/search/hook_watchdog.go` (`evaluateWatchdogPre` / `finalizeWatchdogPre`) | Tracks per-session `tool_calls` in `session_meta`, warning then denying tool calls when subagent budgets exhaust |
+| `[ERROR_LOOP]` | `internal/search/hook_watchdog.go`, `hook_watchdog_ring.go` (`checkWatchdogErrorLoop`) | Replaces `[TOKEN_LOOP]`; breaks `>= 3` consecutive identical failing tool calls or A-B-A-B repeating error loops flagged in `watchdog_ring` |
+| `[SUBAGENT_BUDGET]` / `[SUBAGENT_BUDGET_WARN]` | `internal/search/hook_watchdog.go` (`SubagentBudgetCap`, `IsBuilderSubagentRole`) | Tracks per-session `tool_calls` in `session_meta`, warning then denying tool calls under aligned caps (`(90, 120)` for `self`/`builder`/`builder-*`/`coder`/`coder-*`, `(25, 40)` for audit/other subagent roles) |
 | `post-tool-use` | `internal/search/hook.go`, `internal/search/hook_watchdog.go` (`handlePostToolUse` / `markWatchdogPostError`) | Marks `watchdog_ring` failures by `HookToolCall.ID` or tool fallback and returns `{}` |
 
 ## Stop verification nudge and co-activity
@@ -257,6 +257,7 @@ flowchart LR
 | `--global` | `false` | Reconcile `~/.config/fyr/search.db` instead of the local checkout's `.agents/scratch/search.db` |
 | `--rebuild` | `false` | Delete and rebuild the target `search.db` from scratch |
 | `--register` | `false` | Write `.git/fyr-registered` consent so `fyr search --global`, `fyr record import --global`, and the metrics join can read this project (skips ephemeral worktree/smoke/sandbox/scratch paths) |
+| `--json` | `false` | Emit structured JSON output |
 
 </details>
 
