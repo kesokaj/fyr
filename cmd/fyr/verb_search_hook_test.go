@@ -491,7 +491,8 @@ func TestVerbSearchHookWarm1143RecordsAndContextBudget(t *testing.T) {
 		start := time.Now()
 		if err := search.Search(search.Options{
 			Dir: dir, Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(raw),
-			BrainTurnContext: makeBrainTurnContext(cache),
+			BrainTurnContext:    makeBrainTurnContext(cache),
+			BrainTurnContextCtx: makeBrainTurnContextCtx(cache),
 		}, &out); err != nil {
 			t.Fatalf("PreInvocation(%s): %v", convID, err)
 		}
@@ -522,5 +523,42 @@ func TestVerbSearchHookWarm1143RecordsAndContextBudget(t *testing.T) {
 	var timedOut int
 	if err := sdb.QueryRow(`SELECT timed_out FROM vet_history WHERE conversation_id = 'conv-1143-warm' ORDER BY turn_num DESC LIMIT 1`).Scan(&timedOut); err != nil || timedOut != 0 {
 		t.Errorf("conv-1143-warm vet_history timed_out = %d (err=%v), want 0", timedOut, err)
+	}
+}
+
+func TestTurnBrainCacheDoesNotLeakPartialBodiesToBrainRefs(t *testing.T) {
+	dir := recordRepo(t)
+	home := t.TempDir()
+	bo := brain.Options{Home: home, Dir: dir}
+	oldestADR, err := brain.Add(bo, brain.AddInput{
+		Kind: "adr", Status: "accepted", Title: "Legacy Storage Decision",
+		Body: strings.NewReader("Controls legacy_storage_engine.go invariants.\n"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 14; i++ {
+		if _, err := brain.Add(bo, brain.AddInput{
+			Kind: "adr", Status: "accepted", Title: fmt.Sprintf("Newer ADR %02d", i),
+			Body: strings.NewReader(fmt.Sprintf("Unrelated newer decision %d.\n", i)),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cache := newTurnBrainCache(home, false)
+	// First run BrainTurnContext on an unrelated prompt (selective hydration omits oldestADR body).
+	_ = makeBrainTurnContextCtx(cache)(context.Background(), dir, home, "Refactor dashboard metrics rendering", nil)
+	// BrainRefsForDir must still find oldestADR via its full Body, not cached partial records.
+	refs := makeBrainRefsForDir(cache)(dir, "legacy_storage_engine.go")
+	found := false
+	for _, r := range refs {
+		if r.ID == oldestADR {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("BrainRefsForDir missed %s after partial BrainTurnContext load; got %+v", oldestADR, refs)
 	}
 }

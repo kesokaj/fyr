@@ -14,25 +14,32 @@ import (
 
 var brainTurnQueryBudget = search.DefaultHookBrainBudget()
 
+type cachedTurnData struct {
+	recs []brain.Record
+	fts  map[string]bool
+}
+
 // turnBrainCache memoizes brain.List(dir) once per CLI invocation so
 // BrainTurnContext, BrainRefs, and BrainRefsForDir never trigger N+1 SQLite
 // or subprocess lookups across candidate paths (ADR-521). Guarded by mu so
 // concurrent PreInvocation AST slicing and BrainTurnContext stay race-free (ADR-532).
 type turnBrainCache struct {
-	mu         sync.Mutex
-	home       string
-	global     bool
-	byDir      map[string][]brain.Record
-	ftsByQuery map[string]map[string]bool
-	loadCount  int
+	mu          sync.Mutex
+	home        string
+	global      bool
+	byDir       map[string][]brain.Record
+	turnByQuery map[string]cachedTurnData
+	ftsByQuery  map[string]map[string]bool
+	loadCount   int
 }
 
 func newTurnBrainCache(home string, global bool) *turnBrainCache {
 	return &turnBrainCache{
-		home:       home,
-		global:     global,
-		byDir:      map[string][]brain.Record{},
-		ftsByQuery: map[string]map[string]bool{},
+		home:        home,
+		global:      global,
+		byDir:       map[string][]brain.Record{},
+		turnByQuery: map[string]cachedTurnData{},
+		ftsByQuery:  map[string]map[string]bool{},
 	}
 }
 
@@ -165,6 +172,11 @@ func (tc *turnBrainCache) loadTurnDataCtx(ctx context.Context, dir, homeOverride
 	if hasRecs && hasFTS {
 		return recs, fts
 	}
+	if !hasRecs && fkey != "" {
+		if cd, ok := tc.turnByQuery[fkey]; ok {
+			return cd.recs, cd.fts
+		}
+	}
 	if recs2, fts2, ok := tc.loadCombinedTurnDataCtx(ctx, dir, home, recKey, fkey, terms, hasRecs, hasFTS); ok {
 		return recs2, fts2
 	}
@@ -188,17 +200,21 @@ func (tc *turnBrainCache) loadCombinedTurnDataCtx(ctx context.Context, dir, home
 	qctx, cancel := boundedBrainQueryCtx(ctx)
 	defer cancel()
 	tc.loadCount++
-	recs, hits, err := brain.LoadTurnRecordsAndFTSCtx(qctx, brain.Options{Home: home, Dir: dir, Global: tc.global}, terms, 16)
+	res, err := brain.LoadTurnDataCtx(qctx, brain.Options{Home: home, Dir: dir, Global: tc.global}, terms, 16)
 	if qctx.Err() != nil {
 		return nil, nil, true
 	}
-	if err != nil || len(recs) == 0 {
+	if err != nil || len(res.Records) == 0 {
 		return nil, nil, false
 	}
-	tc.byDir[recKey] = recs
-	fts := filterFTSHitsByPrecision(hits, terms)
+	fts := filterFTSHitsByPrecision(res.Hits, terms)
 	tc.ftsByQuery[fkey] = fts
-	return recs, fts, true
+	if res.Complete {
+		tc.byDir[recKey] = res.Records
+	} else {
+		tc.turnByQuery[fkey] = cachedTurnData{recs: res.Records, fts: fts}
+	}
+	return res.Records, fts, true
 }
 
 func ftsHitMeetsPrecision(h brain.Hit, terms []string) bool {

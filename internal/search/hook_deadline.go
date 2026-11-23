@@ -353,8 +353,12 @@ func isRelaySession() bool {
 	return os.Getenv("FYR_RELAY") == "1"
 }
 
+func isRelayProtectedEvent(event string) bool {
+	return (event == "pre-tool-use" || event == "post-tool-use") && isRelaySession()
+}
+
 func hookBypassedForEvent(home, dir, event string) bool {
-	if event == "pre-tool-use" && isRelaySession() {
+	if isRelayProtectedEvent(event) {
 		return false
 	}
 	if hooksDisabledGlobal(home) {

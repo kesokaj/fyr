@@ -153,11 +153,12 @@ func runSearch(c *ctx) error {
 		Slice: c.sliceQuery, Hops: c.sliceHops, Budget: c.sliceBudget, Session: c.sliceSession,
 		Skeleton: c.skeletonPath, Path: c.pathFrom, To: c.pathTo, Affected: c.affectedTarget, Map: c.repoMap,
 		IncludeDocs: c.searchIncludeDocs, Vet: c.vetPrompt, Hook: c.hookEvent, HookIn: stdin,
-		BrainRefs:        makeBrainRefs(cache, wd),
-		BrainRefsForDir:  makeBrainRefsForDir(cache),
-		BrainReprime:     makeBrainReprime(),
-		BrainTurnContext: makeBrainTurnContext(cache),
-		SkillCatalog:     makeSkillCatalog(),
+		BrainRefs:           makeBrainRefs(cache, wd),
+		BrainRefsForDir:     makeBrainRefsForDir(cache),
+		BrainReprime:        makeBrainReprime(),
+		BrainTurnContext:    makeBrainTurnContext(cache),
+		BrainTurnContextCtx: makeBrainTurnContextCtx(cache),
+		SkillCatalog:        makeSkillCatalog(),
 	}
 	if c.cmd == "index" && c.register {
 		return runRegister(c, o)

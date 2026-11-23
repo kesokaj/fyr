@@ -192,7 +192,7 @@ func detectDirtyPathsFast(ctx context.Context, root string, st *store) ([]entry,
 	if !hasIndex || err != nil || len(entries) == 0 {
 		return nil, nil, false
 	}
-	nonTracked, ok := loadNonTrackedFilesCtx(ctx, st, root)
+	indexedFiles, nonTracked, ok := loadIndexedFilesCtx(ctx, st, root)
 	if !ok {
 		return nil, nil, false
 	}
@@ -201,31 +201,35 @@ func detectDirtyPathsFast(ctx context.Context, root string, st *store) ([]entry,
 		return nil, nil, false
 	}
 	defer fsRoot.Close()
-	dirtyEntries, dirtyLabels, ok := scanDirtyTrackedEntries(ctx, root, fsRoot, entries, idxFi.ModTime().Unix(), nonTracked)
+	dirtyEntries, dirtyLabels, ok := scanDirtyTrackedEntries(ctx, root, fsRoot, entries, idxFi.ModTime().Unix(), indexedFiles, nonTracked)
 	if !ok {
 		return nil, nil, false
 	}
 	return scanDirtyUntrackedEntries(ctx, root, fsRoot, nonTracked, dirtyEntries, dirtyLabels)
 }
 
-func loadNonTrackedFilesCtx(ctx context.Context, st *store, root string) (map[string]entry, bool) {
-	rows, err := st.db.QueryContext(ctx, `SELECT path, oid, state FROM files WHERE project = ? AND state != 'tracked'`, root)
+func loadIndexedFilesCtx(ctx context.Context, st *store, root string) (map[string]bool, map[string]entry, bool) {
+	rows, err := st.db.QueryContext(ctx, `SELECT path, oid, state FROM files WHERE project = ?`, root)
 	if err != nil {
-		return nil, false
+		return nil, nil, false
 	}
 	defer rows.Close()
-	out := map[string]entry{}
+	indexedFiles := map[string]bool{}
+	nonTracked := map[string]entry{}
 	for rows.Next() {
 		var e entry
 		if err := rows.Scan(&e.path, &e.oid, &e.state); err != nil {
-			return nil, false
+			return nil, nil, false
 		}
-		out[e.path] = e
+		indexedFiles[e.path] = true
+		if e.state != "tracked" {
+			nonTracked[e.path] = e
+		}
 	}
-	return out, rows.Err() == nil
+	return indexedFiles, nonTracked, rows.Err() == nil
 }
 
-func scanDirtyTrackedEntries(ctx context.Context, root string, fsRoot *os.Root, entries []gitIndexEntry, idxSec int64, nonTracked map[string]entry) ([]entry, []string, bool) {
+func scanDirtyTrackedEntries(ctx context.Context, root string, fsRoot *os.Root, entries []gitIndexEntry, idxSec int64, indexedFiles map[string]bool, nonTracked map[string]entry) ([]entry, []string, bool) {
 	var dirty []entry
 	var labels []string
 	for _, e := range entries {
@@ -241,7 +245,7 @@ func scanDirtyTrackedEntries(ctx context.Context, root string, fsRoot *os.Root, 
 		if isNoIndexMarker(e.Path) || !filepath.IsLocal(filepath.FromSlash(e.Path)) {
 			return nil, nil, false
 		}
-		ch, lbl, changed := checkDirtyTrackedEntry(root, fsRoot, e, idxSec, nonTracked)
+		ch, lbl, changed := checkDirtyTrackedEntry(root, fsRoot, e, idxSec, indexedFiles, nonTracked)
 		if changed {
 			dirty = append(dirty, ch)
 			if lbl != "" {
@@ -252,14 +256,22 @@ func scanDirtyTrackedEntries(ctx context.Context, root string, fsRoot *os.Root, 
 	return dirty, labels, true
 }
 
-func checkDirtyTrackedEntry(root string, fsRoot *os.Root, e gitIndexEntry, idxSec int64, nonTracked map[string]entry) (entry, string, bool) {
+func checkDirtyTrackedEntry(root string, fsRoot *os.Root, e gitIndexEntry, idxSec int64, indexedFiles map[string]bool, nonTracked map[string]entry) (entry, string, bool) {
 	local := filepath.FromSlash(e.Path)
+	inIndex := indexedFiles[e.Path]
+	prev, wasDirty := nonTracked[e.Path]
+	delete(nonTracked, e.Path)
 	fi, err := os.Lstat(filepath.Join(root, local))
-	if err != nil {
-		delete(nonTracked, e.Path)
-		return entry{path: e.Path, state: "deleted"}, "D " + e.Path, true
+	if err != nil || !fi.Mode().IsRegular() {
+		if inIndex {
+			return entry{path: e.Path, state: "deleted"}, "D " + e.Path, true
+		}
+		return entry{}, "", false
 	}
-	if !fi.Mode().IsRegular() {
+	if fi.Size() > maxFileBytes {
+		if inIndex {
+			return entry{path: e.Path, state: "deleted"}, "", true
+		}
 		return entry{}, "", false
 	}
 	mt := fi.ModTime()
@@ -267,29 +279,27 @@ func checkDirtyTrackedEntry(root string, fsRoot *os.Root, e gitIndexEntry, idxSe
 		uint32(mt.Nanosecond()) == e.MTimeNsec && e.MTimeSec != 0 &&
 		(e.MTimeNsec != 0 || int64(e.MTimeSec) < idxSec)
 	idxOID := fmt.Sprintf("%x", e.SHA1)
-	prev, wasDirty := nonTracked[e.Path]
-	delete(nonTracked, e.Path)
 	if statClean {
-		if wasDirty && prev.oid != idxOID {
+		if !inIndex || (wasDirty && prev.oid != idxOID) {
 			return entry{path: e.Path, oid: idxOID, state: "tracked"}, "", true
 		}
 		return entry{}, "", false
-	}
-	if fi.Size() > maxFileBytes {
-		return entry{path: e.Path, state: "deleted"}, "", true
 	}
 	data, err := readAll(fsRoot, local)
 	if err != nil {
-		return entry{path: e.Path, state: "deleted"}, "", true
+		if inIndex {
+			return entry{path: e.Path, state: "deleted"}, "", true
+		}
+		return entry{}, "", false
 	}
 	oid := blobID(data)
 	if oid == idxOID {
-		if wasDirty && prev.oid != idxOID {
+		if !inIndex || (wasDirty && prev.oid != idxOID) {
 			return entry{path: e.Path, oid: idxOID, state: "tracked"}, "", true
 		}
 		return entry{}, "", false
 	}
-	if !wasDirty || prev.oid != oid {
+	if !inIndex || !wasDirty || prev.oid != oid {
 		return entry{path: e.Path, oid: oid, state: "modified"}, "M " + e.Path, true
 	}
 	return entry{}, "", false
@@ -299,7 +309,7 @@ func scanDirtyUntrackedEntries(ctx context.Context, root string, fsRoot *os.Root
 	if ctx.Err() != nil {
 		return nil, nil, false
 	}
-	out, err := git(root, nil, "ls-files", "-z", "--others", "--exclude-standard")
+	out, err := gitCtx(ctx, root, nil, "ls-files", "-z", "--others", "--exclude-standard")
 	if err != nil {
 		return nil, nil, false
 	}

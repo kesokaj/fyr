@@ -54,11 +54,11 @@ func watchdogArgHash(args map[string]any) string {
 }
 
 func watchdogShouldSkip(home, dir string, in HookInput) bool {
-	if hooksDisabledForHome(home, dir) || strings.TrimSpace(in.ConversationID) == "" || !ensureExistingCheckoutIgnored(dir) {
+	if (!isRelaySession() && hooksDisabledForHome(home, dir)) || strings.TrimSpace(in.ConversationID) == "" || !ensureExistingCheckoutIgnored(dir) {
 		return true
 	}
 	target := extractToolTargetPath(in.ToolCall.Args)
-	return target != "" && hooksDisabledForHome(home, resolveToolProjectDir(dir, in, target))
+	return target != "" && !isRelaySession() && hooksDisabledForHome(home, resolveToolProjectDir(dir, in, target))
 }
 
 func evaluateWatchdogPreCtx(ctx context.Context, o Options, dir string, in HookInput) (watchdogPreState, *store, string) {

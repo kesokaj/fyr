@@ -234,22 +234,27 @@ func (b *Box) buildAgentCmd(bin string, args []string) (*exec.Cmd, func(), error
 		}
 		bin = abs
 	}
-	b.ensureAgyWrapper(bin)
+	if err := b.ensureAgyWrapper(bin); err != nil {
+		return nil, nil, err
+	}
 	return prepareIsolatedCmd(b.policyFor(bin, args))
 }
 
-func (b *Box) ensureAgyWrapper(bin string) {
+func (b *Box) ensureAgyWrapper(bin string) error {
 	if !isAgyExecutableName(bin) {
-		return
+		return nil
 	}
 	binDir := filepath.Join(b.sb, "bin")
 	if st, err := os.Lstat(binDir); err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
-		return
+		return nil
 	}
 	dst := filepath.Join(binDir, "agy")
 	if _, err := os.Lstat(dst); err == nil {
-		return
+		return nil
 	}
 	script := "#!/usr/bin/env bash\nexec " + ShellQuote(bin) + " \"$@\"\n"
-	_ = os.WriteFile(dst, []byte(script), 0o755)
+	if err := os.WriteFile(dst, []byte(script), 0o755); err != nil {
+		return fmt.Errorf("isolate write agy wrapper %s: %w", dst, err)
+	}
+	return nil
 }

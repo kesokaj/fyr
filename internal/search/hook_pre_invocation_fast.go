@@ -161,7 +161,7 @@ func handleParallelHookTurn(ctx context.Context, o Options, sc *scope, dir strin
 		meta.PivotCount = slice.Pivots
 		preseedHookSlicePivots(sc, o, dir, in.ConversationID, state.TurnCount, pivots)
 	}
-	if !skipHeavy && !brainTimedOut && o.BrainTurnContext != nil && hasNewSliceFiles(promptFiles, slice.Files) && hasRemainingBudget(ctx, 15*time.Millisecond) {
+	if !skipHeavy && !brainTimedOut && hasBrainTurnContext(o) && hasNewSliceFiles(promptFiles, slice.Files) && hasRemainingBudget(ctx, 15*time.Millisecond) {
 		brainCtx = callBrainTurnContextBounded(ctx, o, dir, cleanPrompt, slice.Files, brainCtx)
 	}
 	if rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" && !meta.hasSignals() {
@@ -173,11 +173,22 @@ func handleParallelHookTurn(ctx context.Context, o Options, sc *scope, dir strin
 	return finalizeHookEnvelope(ctx, o.Home, cat, hasCat, sc, dir, in.ConversationID, state.TurnCount, rawPrompt, cleanPrompt, in, state, vetRes, slice, brainCtx, meta, sections, start)
 }
 
+func hasBrainTurnContext(o Options) bool {
+	return o.BrainTurnContextCtx != nil || o.BrainTurnContext != nil
+}
+
+func invokeBrainTurnContext(ctx context.Context, o Options, dir, prompt string, files []string) TurnBrainContext {
+	if o.BrainTurnContextCtx != nil {
+		return o.BrainTurnContextCtx(ctx, dir, o.Home, prompt, files)
+	}
+	return o.BrainTurnContext(dir, o.Home, prompt, files)
+}
+
 func callBrainTurnContextBounded(ctx context.Context, o Options, dir, cleanPrompt string, files []string, fallback TurnBrainContext) TurnBrainContext {
 	bctx, cancel := context.WithTimeout(ctx, min(hookBrainDeadline(ctx, o), 35*time.Millisecond))
 	defer cancel()
 	ch := make(chan TurnBrainContext, 1)
-	go func() { ch <- o.BrainTurnContext(dir, o.Home, cleanPrompt, files) }()
+	go func() { ch <- invokeBrainTurnContext(bctx, o, dir, cleanPrompt, files) }()
 	select {
 	case res := <-ch:
 		return res
@@ -229,12 +240,12 @@ func startParallelTurnWork(ctx context.Context, o Options, sc *scope, dir, convI
 		sliceCtx:    sliceCtx,
 		sliceCancel: sliceCancel,
 	}
-	if o.BrainTurnContext != nil {
+	if hasBrainTurnContext(o) {
 		brainCtx, brainCancel := context.WithTimeout(ctx, hookBrainDeadline(ctx, o))
 		h.brainCtx, h.brainCancel = brainCtx, brainCancel
 		h.brainCh = make(chan TurnBrainContext, 1)
 		go func() {
-			h.brainCh <- o.BrainTurnContext(dir, o.Home, cleanPrompt, promptFiles)
+			h.brainCh <- invokeBrainTurnContext(brainCtx, o, dir, cleanPrompt, promptFiles)
 		}()
 	}
 	if o.SkillCatalog != nil {

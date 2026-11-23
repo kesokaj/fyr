@@ -307,18 +307,31 @@ func isSafeAwkReadProgram(prog string) bool {
 	return true
 }
 
+var awkVerbatimPrintBodyRe = regexp.MustCompile(`^print(?:\s+\$0|\s+NR(?:\s*,\s*|\s+|\s*"[^"]*"\s*|\s*,\s*"[^"]*"\s*,\s*)\$0)?$`)
+
+func isVerbatimAwkPrintBody(body string) bool {
+	if !strings.HasPrefix(body, "{") || !strings.HasSuffix(body, "}") {
+		return false
+	}
+	inner := strings.TrimSpace(body[1 : len(body)-1])
+	inner = strings.TrimSpace(strings.TrimSuffix(inner, ";"))
+	if inner == "" || strings.ContainsAny(inner, "{};") {
+		return false
+	}
+	return awkVerbatimPrintBodyRe.MatchString(inner)
+}
+
 func parseAwkLineRange(prog string) (int, int, bool) {
 	cond, body := strings.TrimSpace(prog), ""
 	if brace := strings.IndexByte(cond, '{'); brace >= 0 {
 		body = strings.TrimSpace(cond[brace:])
 		cond = strings.TrimSpace(cond[:brace])
-		if !strings.HasSuffix(body, "}") || !strings.Contains(body, "print") {
+		if !isVerbatimAwkPrintBody(body) {
 			return 0, 0, false
 		}
 	}
 	if cond == "" {
-		low := strings.ToLower(body)
-		if body == "" || strings.Contains(low, "if") || strings.Contains(low, "begin") || strings.Contains(low, "end") {
+		if body == "" {
 			return 0, 0, false
 		}
 		return 1, 0, true

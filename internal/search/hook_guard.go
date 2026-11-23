@@ -118,6 +118,10 @@ func isMidTurnContinuation(in HookInput) bool {
 	return in.ContinuationActive || in.ExecutionNum > 0 || (in.StepIdx > 0 && in.StepIdx > in.InitialNumSteps)
 }
 
+func hasNewTurnCue(in HookInput) bool {
+	return !in.ContinuationActive && in.ExecutionNum == 0 && in.InitialNumSteps > 0 && in.StepIdx == in.InitialNumSteps
+}
+
 func calcEstTokens(curBytes, checkpointOffset int) int {
 	delta := curBytes - checkpointOffset
 	if delta < 0 {
@@ -142,7 +146,7 @@ func advanceOrSkipTurn(ctx context.Context, st *store, conversationID string, ge
 	if err := ctx.Err(); err != nil {
 		return SessionState{}, false, err
 	}
-	midTurn := isMidTurnContinuation(in) || (in.InvocationNum > 1 && in.InvocationNum > lastInvNum)
+	midTurn := isMidTurnContinuation(in) || (!hasNewTurnCue(in) && in.InvocationNum > 1 && in.InvocationNum > lastInvNum)
 	if !compacted && promptSum != "" && prevSum == promptSum && midTurn {
 		if hasSize {
 			lastBytes, est = curBytes, calcEstTokens(curBytes, cpOffset)
@@ -215,21 +219,36 @@ func scanTranscriptCheckpoint(path string, fromOffset int64) (curBytes, newOffse
 	if curBytes-fromOffset > maxCheckpointScanBytes {
 		scanStart = curBytes - maxCheckpointScanBytes
 	}
-	if _, err := f.Seek(scanStart, io.SeekStart); err != nil {
-		return curBytes, fromOffset, 0, 0, true
+	skipFirst := false
+	if scanStart > 0 {
+		if _, err := f.Seek(scanStart-1, io.SeekStart); err != nil {
+			return curBytes, fromOffset, 0, 0, true
+		}
+		var prev [1]byte
+		if _, err := io.ReadFull(f, prev[:]); err != nil {
+			return curBytes, fromOffset, 0, 0, true
+		}
+		skipFirst = prev[0] != '\n'
 	}
 	buf, err := io.ReadAll(io.LimitReader(f, maxCheckpointScanBytes))
 	if err != nil {
 		return curBytes, fromOffset, 0, 0, true
 	}
-	lastCheckpointOffset, checkpoints = scanCheckpointLines(buf, scanStart)
+	lastCheckpointOffset, checkpoints = scanCheckpointLines(buf, scanStart, skipFirst)
 	return curBytes, scanStart + int64(len(buf)), lastCheckpointOffset, checkpoints, true
 }
 
-func scanCheckpointLines(buf []byte, baseOffset int64) (int64, int) {
+func scanCheckpointLines(buf []byte, baseOffset int64, skipFirst bool) (int64, int) {
 	var lastCP int64
 	checkpoints := 0
 	pos := 0
+	if skipFirst {
+		nl := bytes.IndexByte(buf, '\n')
+		if nl < 0 {
+			return 0, 0
+		}
+		pos = nl + 1
+	}
 	for pos < len(buf) {
 		nl := bytes.IndexByte(buf[pos:], '\n')
 		var line []byte
@@ -254,14 +273,10 @@ func isCheckpointJSONLLine(line []byte) bool {
 	if !bytes.Contains(line, []byte("CHECKPOINT")) {
 		return false
 	}
-	trimmed := bytes.TrimSpace(line)
 	var rec struct {
 		Type string `json:"type"`
 	}
-	if err := json.Unmarshal(trimmed, &rec); err == nil {
-		return rec.Type == "CHECKPOINT"
-	}
-	return bytes.Contains(trimmed, []byte(`"type":"CHECKPOINT"`)) || bytes.Contains(trimmed, []byte(`"type": "CHECKPOINT"`))
+	return json.Unmarshal(bytes.TrimSpace(line), &rec) == nil && rec.Type == "CHECKPOINT"
 }
 
 func statTranscriptBytes(transcriptPath string) (int, bool) {

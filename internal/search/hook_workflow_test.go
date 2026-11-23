@@ -510,3 +510,30 @@ func TestV910WorkflowClampBashAndWatchdog(t *testing.T) {
 	t.Run("bash", TestV910Bash)
 	t.Run("watchdog", TestV910Watchdog)
 }
+
+func TestHookWorkflowWorkspaceDotDotSymlinkEscape(t *testing.T) {
+	home := t.TempDir()
+	wsDir := t.TempDir()
+	outsideBase := t.TempDir()
+	outsideNested := filepath.Join(outsideBase, "nested")
+	if err := os.MkdirAll(outsideNested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Harmless file inside workspace vs malicious file outside workspace reached via symlink/..
+	if err := os.WriteFile(filepath.Join(wsDir, "outside.py"), []byte("print('benign')\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outsideBase, "outside.py"), []byte(`await agent(prompt="x", schema={"type":"string"}, type_name="reviewer", model="flash")`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideNested, filepath.Join(wsDir, "symlink")); err != nil {
+		t.Fatal(err)
+	}
+	d := runPreToolHookInDir(t, home, wsDir, "gemini-4-carbon-high", "run_workflow", map[string]any{
+		"ScriptPath":  "symlink/../outside.py",
+		"Description": "dotdot through workspace symlink",
+	})
+	if d.Decision != "deny" || !strings.Contains(d.Reason, "[MODEL_OVERRIDE]") {
+		t.Fatalf("symlink/../outside.py: got %+v, want deny [MODEL_OVERRIDE]", d)
+	}
+}

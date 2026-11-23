@@ -9,11 +9,14 @@ import (
 )
 
 var (
-	awkSystemCallRe = regexp.MustCompile(`(?i)\bsystem\s*\(`)
-	pyOpenCallRe    = regexp.MustCompile(`\bopen\s*\(\s*(?:'([^'\n\r]+)'|"([^"\n\r]+)")\s*(?:,\s*([^)]*))?\)`)
-	pyPathReadRe    = regexp.MustCompile(`\bPath\s*\(\s*(?:'([^'\n\r]+)'|"([^"\n\r]+)")\s*\)\s*\.\s*(?:read_text|read_bytes|open)\s*\(([^)]*)\)`)
-	pyModeLitRe     = regexp.MustCompile(`(?:^\s*|\bmode\s*=\s*)(?:'([^']+)'|"([^"]+)")`)
-	pyLineSliceRe   = regexp.MustCompile(`(?:readlines|splitlines)\s*\(\s*\)\s*\[\s*(\d*)\s*:\s*(\d*)\s*\]`)
+	awkSystemCallRe   = regexp.MustCompile(`(?i)\bsystem\s*\(`)
+	pyOpenCallRe      = regexp.MustCompile(`\bopen\s*\(\s*(?:'([^'\n\r]+)'|"([^"\n\r]+)")\s*(?:,\s*([^)]*))?\)`)
+	pyPathReadRe      = regexp.MustCompile(`\bPath\s*\(\s*(?:'([^'\n\r]+)'|"([^"\n\r]+)")\s*\)\s*\.\s*(?:read_text|read_bytes|open)\s*\(([^)]*)\)`)
+	pyModeLitRe       = regexp.MustCompile(`(?:^\s*|\bmode\s*=\s*)(?:'([^']+)'|"([^"]+)")`)
+	pyLineSliceRe     = regexp.MustCompile(`(?:readlines|splitlines)\s*\(\s*\)\s*\[\s*(\d*)\s*:\s*(\d*)\s*\]`)
+	pyOutputSinkRe    = regexp.MustCompile(`\b(?:print|sys\.stdout\.write)\s*\(`)
+	pyVerbatimReadRe  = regexp.MustCompile(`\.(?:read_text\s*\([^)]*\)|(?:read|read_bytes|readlines|splitlines)\s*\(\s*\))`)
+	pyReadCharSliceRe = regexp.MustCompile(`\.(?:read|read_text|read_bytes)\s*\([^)]*\)\s*\[`)
 )
 
 func parseBashReadPipelineMulti(stages [][]string) ([]BashFileRead, bool) {
@@ -266,7 +269,7 @@ func isPythonToolName(tool string) bool {
 
 func parseBashPythonRead(args []string) ([]BashFileRead, bool) {
 	code, ok := extractPythonCodeArg(args)
-	if !ok || isUnsafePythonReadCode(code) {
+	if !ok || isUnsafePythonReadCode(code) || !isVerbatimPythonDump(code) {
 		return nil, false
 	}
 	paths, ok := extractPythonReadPaths(code)
@@ -306,6 +309,7 @@ func extractPythonCodeArg(args []string) (string, bool) {
 }
 
 func isUnsafePythonReadCode(code string) bool {
+	scrubbed := strings.ReplaceAll(code, "sys.stdout.write(", "")
 	blocked := []string{
 		"subprocess", "os.system", "os.popen", "os.remove", "os.unlink",
 		"os.rename", "os.replace", "shutil", "write_text", "write_bytes",
@@ -313,11 +317,31 @@ func isUnsafePythonReadCode(code string) bool {
 		"chmod(", "rmdir(", "makedirs(", "mkdir(",
 	}
 	for _, b := range blocked {
-		if strings.Contains(code, b) {
+		if strings.Contains(scrubbed, b) {
 			return true
 		}
 	}
 	return false
+}
+
+func isVerbatimPythonDump(code string) bool {
+	if !pyOutputSinkRe.MatchString(code) || !pyVerbatimReadRe.MatchString(code) || pyReadCharSliceRe.MatchString(code) {
+		return false
+	}
+	summaryTokens := []string{
+		"len(", "sum(", "min(", "max(", "sorted(", "set(", "dict(", "any(", "all(",
+		"json.", "yaml.", "toml", "csv.", "xml.", "ast.", "re.", "regex",
+		"hashlib", "base64", "pickle", "sqlite3",
+		".count(", ".find(", ".index(", ".startswith(", ".endswith(", ".replace(",
+		".split(", ".strip(", ".lower(", ".upper(", ".keys(", ".values(", ".items(", ".get(",
+		" if ", "\nif ", ";if ", " for ", "\nfor ", ";for ", "def ", "class ", "lambda ",
+	}
+	for _, tok := range summaryTokens {
+		if strings.Contains(code, tok) {
+			return false
+		}
+	}
+	return true
 }
 
 func extractPythonReadPaths(code string) ([]string, bool) {

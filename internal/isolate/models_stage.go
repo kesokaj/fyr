@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/harness"
@@ -218,25 +219,43 @@ func isSafeAgyBundleDir(dir, realHome string) bool {
 	if !filepath.IsAbs(clean) || clean == "/" || filepath.Dir(clean) == clean {
 		return false
 	}
-	if isBroadOrTempDir(clean) {
+	if strings.TrimSpace(realHome) == "" {
 		return false
 	}
-	if realHome == "" {
-		return true
+	if isBroadOrTempDir(clean) {
+		return false
 	}
 	return !violatesHomeConfinement(clean, realHome)
 }
 
+func pathEqualOS(a, b string, caseInsensitive bool) bool {
+	if caseInsensitive {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+func withinOS(p, root string, caseInsensitive bool) bool {
+	if caseInsensitive {
+		return within(strings.ToLower(p), strings.ToLower(root))
+	}
+	return within(p, root)
+}
+
 func isBroadOrTempDir(clean string) bool {
+	return isBroadOrTempDirForOS(clean, runtime.GOOS == "darwin")
+}
+
+func isBroadOrTempDirForOS(clean string, caseInsensitive bool) bool {
 	tmp := filepath.Clean(os.TempDir())
-	if clean == tmp {
+	if pathEqualOS(clean, tmp, caseInsensitive) {
 		return true
 	}
-	if resTmp, err := filepath.EvalSymlinks(tmp); err == nil && clean == filepath.Clean(resTmp) {
+	if resTmp, err := filepath.EvalSymlinks(tmp); err == nil && pathEqualOS(clean, filepath.Clean(resTmp), caseInsensitive) {
 		return true
 	}
 	for _, b := range forbiddenBundleRoots {
-		if clean == b {
+		if pathEqualOS(clean, b, caseInsensitive) {
 			return true
 		}
 	}
@@ -244,19 +263,23 @@ func isBroadOrTempDir(clean string) bool {
 }
 
 func violatesHomeConfinement(clean, realHome string) bool {
-	if within(realHome, clean) {
+	return violatesHomeConfinementForOS(clean, realHome, runtime.GOOS == "darwin")
+}
+
+func violatesHomeConfinementForOS(clean, realHome string, caseInsensitive bool) bool {
+	if withinOS(realHome, clean, caseInsensitive) {
 		return true
 	}
 	protectedContainers := []string{".local", filepath.Join(".local", "bin"), filepath.Join(".local", "share"), "Applications", "Library"}
 	for _, rel := range protectedContainers {
-		if within(filepath.Join(realHome, rel), clean) {
+		if withinOS(filepath.Join(realHome, rel), clean, caseInsensitive) {
 			return true
 		}
 	}
 	forbiddenTrees := []string{".config", harness.StateDir, ".ssh", ".gnupg", ".gemini", ".aws", ".kube"}
 	for _, rel := range forbiddenTrees {
 		target := filepath.Join(realHome, rel)
-		if within(clean, target) || within(target, clean) {
+		if withinOS(clean, target, caseInsensitive) || withinOS(target, clean, caseInsensitive) {
 			return true
 		}
 	}

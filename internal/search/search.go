@@ -19,37 +19,38 @@ type LinkedRecord struct {
 
 // Options are the flags of `fyr search` and `fyr index`.
 type Options struct {
-	Dir              string                                                          // working directory the command runs in
-	Home             string                                                          // home directory (--home), for the global search index
-	Words            []string                                                        // search words
-	Refs             string                                                          // --refs target
-	Open             bool                                                            // --open
-	Kind             string                                                          // --kind filter
-	Limit            int                                                             // --limit
-	Global           bool                                                            // --global
-	Rebuild          bool                                                            // index --rebuild
-	Slice            string                                                          // --slice query or symbol
-	Hops             int                                                             // --hops (default 2)
-	Budget           int                                                             // --budget token limit (default 2000, chars/4)
-	Session          string                                                          // --session conversation ID
-	Skeleton         string                                                          // --skeleton file path
-	Path             string                                                          // --path source symbol
-	To               string                                                          // --to target symbol for --path
-	Affected         string                                                          // --affected file path or symbol
-	Map              bool                                                            // --map repo summary
-	IncludeDocs      bool                                                            // --include-docs opt-in for AST maps, slices and graphs
-	Vet              string                                                          // --vet prompt
-	Hook             string                                                          // --hook event: session-start, pre-invocation, pre-tool-use or stop
-	HookIn           io.Reader                                                       // optional stdin reader for --hook
-	ActiveFiles      map[string]bool                                                 // optional in-memory active file set
-	BrainRefs        func(target string) []LinkedRecord                              // optional callback to internal/brain.Refs
-	BrainRefsForDir  func(dir, target string) []LinkedRecord                         // dir-bound BrainRefs for --hook workspacePaths[0]
-	BrainReprime     func(dir, home string) string                                   // optional callback for compaction re-prime
-	BrainTurnContext func(dir, home, prompt string, files []string) TurnBrainContext // optional callback for --vet and --hook
-	SkillCatalog     func(home string) []SkillMeta                                   // optional callback for --vet and --hook
-	hookDeadline     time.Duration
-	hookDispatch     func(context.Context, Options, string, string, HookInput, io.Writer) error
-	nowFunc          func() time.Time
+	Dir                 string                                                                               // working directory the command runs in
+	Home                string                                                                               // home directory (--home), for the global search index
+	Words               []string                                                                             // search words
+	Refs                string                                                                               // --refs target
+	Open                bool                                                                                 // --open
+	Kind                string                                                                               // --kind filter
+	Limit               int                                                                                  // --limit
+	Global              bool                                                                                 // --global
+	Rebuild             bool                                                                                 // index --rebuild
+	Slice               string                                                                               // --slice query or symbol
+	Hops                int                                                                                  // --hops (default 2)
+	Budget              int                                                                                  // --budget token limit (default 2000, chars/4)
+	Session             string                                                                               // --session conversation ID
+	Skeleton            string                                                                               // --skeleton file path
+	Path                string                                                                               // --path source symbol
+	To                  string                                                                               // --to target symbol for --path
+	Affected            string                                                                               // --affected file path or symbol
+	Map                 bool                                                                                 // --map repo summary
+	IncludeDocs         bool                                                                                 // --include-docs opt-in for AST maps, slices and graphs
+	Vet                 string                                                                               // --vet prompt
+	Hook                string                                                                               // --hook event: session-start, pre-invocation, pre-tool-use or stop
+	HookIn              io.Reader                                                                            // optional stdin reader for --hook
+	ActiveFiles         map[string]bool                                                                      // optional in-memory active file set
+	BrainRefs           func(target string) []LinkedRecord                                                   // optional callback to internal/brain.Refs
+	BrainRefsForDir     func(dir, target string) []LinkedRecord                                              // dir-bound BrainRefs for --hook workspacePaths[0]
+	BrainReprime        func(dir, home string) string                                                        // optional callback for compaction re-prime
+	BrainTurnContext    func(dir, home, prompt string, files []string) TurnBrainContext                      // optional callback for --vet and --hook
+	BrainTurnContextCtx func(ctx context.Context, dir, home, prompt string, files []string) TurnBrainContext // optional context-aware callback for --hook
+	SkillCatalog        func(home string) []SkillMeta                                                        // optional callback for --vet and --hook
+	hookDeadline        time.Duration
+	hookDispatch        func(context.Context, Options, string, string, HookInput, io.Writer) error
+	nowFunc             func() time.Time
 }
 
 const (

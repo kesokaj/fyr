@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 type metaCheckInput struct {
@@ -30,6 +31,9 @@ type metaTimeSources struct {
 }
 
 func inspectSessionMeta(in metaCheckInput) (int, []Finding, error) {
+	if err := trail.CheckScratchNoSymlinks(in.dir); err != nil {
+		return 0, nil, fmt.Errorf("watch: scratch path: %w", err)
+	}
 	scratch := filepath.Join(in.dir, ".agents", "scratch")
 	fi, err := os.Lstat(filepath.Join(scratch, "search.db"))
 	if errors.Is(err, os.ErrNotExist) {
@@ -42,7 +46,7 @@ func inspectSessionMeta(in metaCheckInput) (int, []Finding, error) {
 	if err == nil {
 		searchDBMod = fi.ModTime()
 	}
-	db, directRO, err := openSearchMetaDB(scratch, in.tmp)
+	db, directRO, err := openSearchMetaDB(in.dir, scratch, in.tmp)
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, nil, nil
 	}
@@ -58,6 +62,9 @@ func inspectSessionMeta(in metaCheckInput) (int, []Finding, error) {
 }
 
 func inspectSessionMetaCopyFallback(scratch string, in metaCheckInput, searchDBMod time.Time) (int, []Finding, error) {
+	if err := trail.CheckScratchNoSymlinks(in.dir); err != nil {
+		return 0, nil, fmt.Errorf("watch: scratch path: %w", err)
+	}
 	db, err := openMetaCopy(scratch, "search.db", in.tmp)
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, nil, nil
@@ -192,16 +199,17 @@ func isActiveMetaRow(
 	in metaCheckInput, id string, rowUpdated any, searchDBMod time.Time,
 ) bool {
 	if in.convID != "" {
-		return in.targetSet[id] && !ended.isEnded(id)
+		return in.targetSet[id] && !ended.hasTerminalOutcome(id)
 	}
 	if _, known := in.summaries[id]; known && !in.targetSet[id] {
 		return false
 	}
-	if ended.isEnded(id) {
+	cutoff := in.now.Add(-activeMetaWindow(in.idleSec))
+	lastAct, hasLastAct := metaRowLastActivity(db, sources, in.home, id, rowUpdated, in.summaries)
+	if ended.isEnded(id, cutoff, lastAct, hasLastAct) {
 		return false
 	}
-	cutoff := in.now.Add(-activeMetaWindow(in.idleSec))
-	if lastAct, ok := metaRowLastActivity(db, sources, in.home, id, rowUpdated, in.summaries); ok {
+	if hasLastAct {
 		return !lastAct.Before(cutoff)
 	}
 	if in.hasSum {

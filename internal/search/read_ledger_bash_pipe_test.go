@@ -262,3 +262,47 @@ func TestPreToolUseBashMultiLinePipeTracksClampsAndDedupes(t *testing.T) {
 		t.Fatalf("2nd tee pipe should not be falsely tracked/denied: got %+v", d)
 	}
 }
+
+func TestParseBashPythonAndAwkVerbatimOnly(t *testing.T) {
+	mustIgnore := []string{
+		`python3 -c 'print(len(open("a.go").readlines()))'`,
+		`python3 -c 'import json; print(json.load(open("cfg.json"))["k"])'`,
+		`python3 -c 'import json; print(json.loads(open("cfg.json").read())["k"])'`,
+		`python3 -c 'import yaml; print(yaml.safe_load(open("cfg.yaml")))'`,
+		`python3 -c 'import re; print(re.findall("func", open("a.go").read()))'`,
+		`python3 -c 'print(sum(1 for _ in open("a.go")))'`,
+		`python3 -c 'print(open("a.go").read().count("foo"))'`,
+		`python3 -c 'open("a.go").read()'`,
+		`awk '{print $1}' a.go`,
+		`awk 'NR>=1&&NR<=50 {print $1}' a.go`,
+		`awk '{print NR}' a.go`,
+		`awk '{print $1, $2}' a.go`,
+	}
+	for _, cmd := range mustIgnore {
+		if got := ParseBashFileReads(cmd); len(got) != 0 {
+			t.Errorf("ParseBashFileReads(%q) = %+v, want empty (summary/projection must not populate read_ledger)", cmd, got)
+		}
+	}
+
+	mustCatch := []struct {
+		cmd  string
+		want BashFileRead
+	}{
+		{`python3 -c 'print(open("a.go").read())'`, BashFileRead{Tool: "python", Path: "a.go", StartLine: 1}},
+		{`python3 -c 'from pathlib import Path; print(Path("a.go").read_text())'`, BashFileRead{Tool: "python", Path: "a.go", StartLine: 1}},
+		{`python3 -c 'print(open("a.go").readlines()[0:50])'`, BashFileRead{Tool: "python", Path: "a.go", StartLine: 1, EndLine: 50}},
+		{`python3 -c 'import sys; sys.stdout.write(open("a.go").read())'`, BashFileRead{Tool: "python", Path: "a.go", StartLine: 1}},
+		{`awk '1' a.go`, BashFileRead{Tool: "awk", Path: "a.go", StartLine: 1}},
+		{`awk 'NR>=1&&NR<=50' a.go`, BashFileRead{Tool: "awk", Path: "a.go", StartLine: 1, EndLine: 50}},
+		{`awk '{print}' a.go`, BashFileRead{Tool: "awk", Path: "a.go", StartLine: 1}},
+		{`awk '{print $0}' a.go`, BashFileRead{Tool: "awk", Path: "a.go", StartLine: 1}},
+		{`awk '{print NR, $0}' a.go`, BashFileRead{Tool: "awk", Path: "a.go", StartLine: 1}},
+		{`awk '{print NR ":" $0}' a.go`, BashFileRead{Tool: "awk", Path: "a.go", StartLine: 1}},
+	}
+	for _, tc := range mustCatch {
+		got := ParseBashFileReads(tc.cmd)
+		if len(got) != 1 || got[0] != tc.want {
+			t.Errorf("ParseBashFileReads(%q) = %+v, want [%+v]", tc.cmd, got, tc.want)
+		}
+	}
+}

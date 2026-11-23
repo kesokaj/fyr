@@ -344,3 +344,45 @@ func TestV910IsolateJudgeFailFastErrNoAuthToken(t *testing.T) {
 		t.Fatalf("regular WorkTokenRel failed: err=%v out=%+v", err, out)
 	}
 }
+
+func TestV910IsolateFailClosedEmptyRealHome(t *testing.T) {
+	if isSafeAgyBundleDir("/Users/op/Applications/Antigravity.app", "") {
+		t.Fatal("isSafeAgyBundleDir returned true when realHome is empty; want fail-closed false")
+	}
+	if isSafeAgyBundleDir("/opt/antigravity", "") {
+		t.Fatal("isSafeAgyBundleDir(/opt/antigravity, \"\") returned true; want fail-closed false")
+	}
+	// Darwin case-insensitive checks must reject mixed-case broad roots and protected home subtrees.
+	for _, broad := range []string{"/applications", "/SYSTEM", "/Library", "/users"} {
+		if !isBroadOrTempDirForOS(broad, true) {
+			t.Errorf("isBroadOrTempDirForOS(%q, darwin=true) = false, want true", broad)
+		}
+	}
+	for _, bad := range []string{
+		"/users/op",
+		"/Users/OP/applications",
+		"/Users/op/.Config/fyr",
+		"/Users/OP/.SSH",
+	} {
+		if !violatesHomeConfinementForOS(bad, "/Users/op", true) {
+			t.Errorf("violatesHomeConfinementForOS(%q, /Users/op, darwin=true) = false, want true", bad)
+		}
+	}
+	if violatesHomeConfinementForOS("/Users/op/Applications/Antigravity.app", "/Users/op", true) {
+		t.Errorf("valid user .app bundle falsely rejected on darwin")
+	}
+
+	// ensureAgyWrapper must return write error instead of silently discarding it.
+	if os.Geteuid() != 0 {
+		sb := t.TempDir()
+		binDir := filepath.Join(sb, "bin")
+		if err := os.MkdirAll(binDir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(binDir, 0o700) })
+		b := &Box{sb: sb}
+		if err := b.ensureAgyWrapper("/opt/antigravity/bin/agy"); err == nil {
+			t.Fatal("ensureAgyWrapper on read-only bin dir returned nil error; want write error")
+		}
+	}
+}

@@ -2,11 +2,13 @@ package search
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
@@ -25,10 +27,23 @@ type entry struct {
 // own config is untrusted (no lock, no fsmonitor, no signature program, no
 // lazy fetch; BUG-164, BUG-165).
 func git(dir string, stdin []byte, args ...string) ([]byte, error) {
-	cmd := trail.Command(dir, args...)
+	return gitCtx(context.Background(), dir, stdin, args...)
+}
+
+// gitCtx runs git with ctx cancellation while preserving trail.Command hardening.
+func gitCtx(ctx context.Context, dir string, stdin []byte, args ...string) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	base := trail.Command(dir, args...)
+	cmd := exec.CommandContext(ctx, base.Args[0], base.Args[1:]...)
+	cmd.Dir = base.Dir
 	// Git's messages in its C locale: dropReason matches "not a git
 	// repository", which a translated catalogue would reword.
-	cmd.Env = append(cmd.Env, "LC_ALL=C", "LANGUAGE=")
+	cmd.Env = append(base.Env, "LC_ALL=C", "LANGUAGE=")
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}

@@ -265,7 +265,7 @@ func TestTurnRecordsIndexAndFilterWords(t *testing.T) {
 	}
 	defer st2.close()
 
-	// 2. EXPLAIN QUERY PLAN for project and global listTurnQuery must use records_scope_kind_status_date.
+	// 2. EXPLAIN QUERY PLAN for project and global listTurnMetaQueryForScope must use records_scope_kind_status_date.
 	for _, tc := range []struct {
 		name string
 		opts Options
@@ -273,10 +273,11 @@ func TestTurnRecordsIndexAndFilterWords(t *testing.T) {
 		{"project", Options{Home: home, Dir: dir}},
 		{"global", Options{Home: home, Dir: dir, Global: true}},
 	} {
-		q, args, ok := listTurnQuery(tc.opts, len(migrations))
+		sc, ok := resolveTurnScope(tc.opts)
 		if !ok {
-			t.Fatalf("%s: listTurnQuery ok=false", tc.name)
+			t.Fatalf("%s: resolveTurnScope ok=false", tc.name)
 		}
+		q, args := listTurnMetaQueryForScope(tc.opts, len(migrations), sc)
 		rows, err := st2.db.Query(`EXPLAIN QUERY PLAN `+q, args...)
 		if err != nil {
 			t.Fatalf("%s: EXPLAIN QUERY PLAN: %v", tc.name, err)
@@ -439,5 +440,79 @@ func TestTurnRecordsSeeded1143LatencyAndSelectiveBody(t *testing.T) {
 	cancel()
 	if _, _, err := LoadTurnRecordsAndFTSCtx(cctx, bo, []string{"quorumsnapshot"}, 16); err == nil {
 		t.Errorf("expected error for canceled context, got nil")
+	}
+}
+
+func TestTurnRecordsMetaColsProvenanceFullListAndROFirst(t *testing.T) {
+	dir := repo(t)
+	home := t.TempDir()
+	bo := Options{Home: home, Dir: dir}
+	_, _, _, oldADRID := seed1143TurnRecordsT(t, bo)
+	for i := 1; i <= 6; i++ {
+		if _, err := Add(bo, AddInput{
+			Kind: "bug", Status: "open", Title: fmt.Sprintf("Open bug %d", i),
+			Body: strings.NewReader(fmt.Sprintf("Bug body detail %d touching target_%d.go.\n", i, i)),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 1. ListTurnRecordsCtx hydrates ALL active ADRs and open bugs (not capped at 8/4).
+	fullRecs, err := ListTurnRecordsCtx(context.Background(), bo)
+	if err != nil {
+		t.Fatalf("ListTurnRecordsCtx: %v", err)
+	}
+	fullByID := map[string]Record{}
+	for _, r := range fullRecs {
+		fullByID[r.ID] = r
+	}
+	if strings.TrimSpace(fullByID[oldADRID].Body) == "" {
+		t.Errorf("ListTurnRecordsCtx left %s Body empty; want full hydration", oldADRID)
+	}
+
+	// 2. LoadTurnRecordsAndFTSCtx preserves real metadata provenance/kind on unhydrated memories
+	//    and hydrates all open bugs (even > 4).
+	partRecs, _, err := LoadTurnRecordsAndFTSCtx(context.Background(), bo, []string{"quorumsnapshot"}, 16)
+	if err != nil {
+		t.Fatalf("LoadTurnRecordsAndFTSCtx: %v", err)
+	}
+	var oldMem Record
+	openBugsHydrated := 0
+	for _, r := range partRecs {
+		if r.ID == "MEMORY-old-001" {
+			oldMem = r
+		}
+		if r.Kind == "bug" && strings.TrimSpace(r.Body) != "" {
+			openBugsHydrated++
+		}
+	}
+	if oldMem.Provenance != "operator" || oldMem.MemoryKind != "semantic" || oldMem.VerifiedAt == "" || oldMem.Updated == "" {
+		t.Errorf("unhydrated MEMORY-old-001 metadata lost: prov=%q kind=%q verified=%q updated=%q",
+			oldMem.Provenance, oldMem.MemoryKind, oldMem.VerifiedAt, oldMem.Updated)
+	}
+	if openBugsHydrated < 6 {
+		t.Errorf("LoadTurnRecordsAndFTSCtx hydrated %d open bugs, want all 6", openBugsHydrated)
+	}
+
+	// 3. openExistingTurnStoreCtx uses normal mode=ro first on writable DB (sees later external writes;
+	//    immutable=1 caches stale file snapshot and misses external writes).
+	stRO, _, err := openExistingTurnStoreCtx(context.Background(), home, Path(home))
+	if err != nil {
+		t.Fatalf("openExistingTurnStoreCtx: %v", err)
+	}
+	defer stRO.close()
+	var before int
+	if err := stRO.db.QueryRow(`SELECT count(*) FROM records`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Add(bo, AddInput{Kind: "bug", Status: "open", Title: "After RO open", Body: strings.NewReader("fresh\n")}); err != nil {
+		t.Fatal(err)
+	}
+	var after int
+	if err := stRO.db.QueryRow(`SELECT count(*) FROM records`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after <= before {
+		t.Errorf("openExistingTurnStoreCtx did not see concurrent write (before=%d after=%d); likely opened immutable=1 first", before, after)
 	}
 }

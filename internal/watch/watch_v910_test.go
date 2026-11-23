@@ -306,14 +306,14 @@ func testV910LivenessFilters(t *testing.T) {
 		seedWatchDBs(t, home, dir, []convSpec{
 			{id: "lead", ws: dir, mod: now.Add(-1 * time.Minute)},
 			{id: "sub-ended-int", ws: dir, agent: "reviewer", parent: "lead", mod: now.Add(-1 * time.Minute)},
-			{id: "sub-ended-str", ws: dir, agent: "security", parent: "lead", mod: now.Add(-1 * time.Minute)},
+			{id: "sub-ended-str", ws: dir, agent: "security", parent: "lead", mod: now.Add(-10 * time.Minute)},
 		}, map[string]int{
 			"sub-ended-int": 36,
 			"sub-ended-str": 36,
 		})
-		seedMetricsSessions(t, home, [][2]any{
-			{"sub-ended-int", now.Add(-30 * time.Second).UnixMilli()},
-			{"sub-ended-str", "2026-11-23T07:59:30Z"},
+		seedMetricsSessionsWithOutcome(t, home, [][3]any{
+			{"sub-ended-int", "pass", now.Add(-30 * time.Second).UnixMilli()},
+			{"sub-ended-str", "", "2026-11-23T07:50:00Z"},
 		})
 		rep, err := Check(context.Background(), Options{
 			Home:       home,
@@ -335,7 +335,7 @@ func testV910LivenessFilters(t *testing.T) {
 			ProcLister: liveAgyProcs(),
 		})
 		if err != nil || !repConv.OK {
-			t.Fatalf("explicit --conv on ended session should return ok=true, got rep=%+v err=%v", repConv, err)
+			t.Fatalf("explicit --conv on session with terminal outcome should return ok=true, got rep=%+v err=%v", repConv, err)
 		}
 	})
 
@@ -595,5 +595,137 @@ func TestV910WatchNoDeadlockWithAuxTables(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("watch.Check deadlocked on SetMaxOpenConns(1) with aux tables open during rows.Next")
+	}
+}
+
+func seedMetricsSessionsWithOutcome(t *testing.T, home string, rows [][3]any) {
+	t.Helper()
+	dbPath := filepath.Join(home, harness.StateDir, "metrics.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", search.DSN(dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE sessions(id TEXT PRIMARY KEY, vendor TEXT, outcome TEXT, started_at INTEGER, ended_at INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if _, err := db.Exec(`INSERT INTO sessions(id, vendor, outcome, started_at, ended_at) VALUES (?, 'agy', ?, 1000, ?)`, r[0], r[1], r[2]); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestV910SecuritySymlinkScratchAndMetricsStateDir(t *testing.T) {
+	now := time.Date(2026, 11, 23, 8, 0, 0, 0, time.UTC)
+
+	t.Run("symlinked_scratch_dir_refused", func(t *testing.T) {
+		home, dir, extDir := t.TempDir(), t.TempDir(), t.TempDir()
+		seedRichSearchMeta(t, extDir, 0, []richMetaRow{
+			{id: "sub-ext", role: "reviewer", agent: "reviewer", turns: 35, tools: 35, updatedAt: now.Add(-10 * time.Second).Unix()},
+		})
+		if err := os.MkdirAll(filepath.Join(dir, ".agents"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(extDir, ".agents", "scratch"), filepath.Join(dir, ".agents", "scratch")); err != nil {
+			t.Fatal(err)
+		}
+		copies := hookMetaCopyCounter(t)
+		if _, err := Check(context.Background(), Options{
+			Home: home, Dir: dir, Now: func() time.Time { return now }, ProcLister: liveAgyProcs(),
+		}); err == nil {
+			t.Fatal("expected symlinked .agents/scratch to be refused")
+		}
+		if *copies != 0 {
+			t.Errorf("symlinked .agents/scratch invoked OpenCopy %d times, want 0", *copies)
+		}
+	})
+
+	t.Run("symlinked_metrics_state_dir_ignored", func(t *testing.T) {
+		home, dir, extHome := t.TempDir(), t.TempDir(), t.TempDir()
+		seedWatchDBs(t, home, dir, []convSpec{
+			{id: "lead", ws: dir, mod: now.Add(-1 * time.Minute)},
+			{id: "sub-sym-metrics", ws: dir, agent: "reviewer", parent: "lead", mod: now.Add(-1 * time.Minute)},
+		}, map[string]int{"sub-sym-metrics": 36})
+		seedMetricsSessionsWithOutcome(t, extHome, [][3]any{
+			{"sub-sym-metrics", "pass", now.Add(-10 * time.Minute).UnixMilli()},
+		})
+		if err := os.MkdirAll(filepath.Join(home, ".config"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(extHome, harness.StateDir), filepath.Join(home, harness.StateDir)); err != nil {
+			t.Fatal(err)
+		}
+		if lk := openMetricsEndedLookup(home); lk != nil {
+			lk.close()
+			t.Fatal("openMetricsEndedLookup followed symlinked .config/fyr")
+		}
+		rep, err := Check(context.Background(), Options{
+			Home: home, Dir: dir, Now: func() time.Time { return now }, ProcLister: liveAgyProcs(),
+		})
+		if err != nil {
+			t.Fatalf("Check: %v", err)
+		}
+		if !hasWatchFinding(rep, kindBudgetNearLimit, "sub-sym-metrics") {
+			t.Fatalf("symlinked metrics.db suppressed BUDGET_NEAR_LIMIT: %+v", rep.Findings)
+		}
+	})
+}
+
+func TestV910MetricsEndedAtLiveSessionStillFires(t *testing.T) {
+	now := time.Date(2026, 11, 23, 8, 0, 0, 0, time.UTC)
+	home, dir := t.TempDir(), t.TempDir()
+	seedWatchDBs(t, home, dir, []convSpec{
+		{id: "lead", ws: dir, mod: now.Add(-1 * time.Minute)},
+		{id: "sub-live-recent-ended", ws: dir, agent: "reviewer", parent: "lead", mod: now.Add(-1 * time.Minute)},
+		{id: "sub-live-newer-act", ws: dir, agent: "security", parent: "lead", mod: now.Add(-30 * time.Second)},
+		{id: "sub-old-no-outcome", ws: dir, agent: "reviewer", parent: "lead", mod: now.Add(-15 * time.Minute)},
+		{id: "sub-terminal-outcome", ws: dir, agent: "reviewer", parent: "lead", mod: now.Add(-1 * time.Minute)},
+	}, nil)
+	seedRichSearchMeta(t, dir, 0, []richMetaRow{
+		{id: "sub-live-recent-ended", role: "reviewer", agent: "reviewer", turns: 36, tools: 36, updatedAt: now.Add(-30 * time.Second).Unix()},
+		{id: "sub-live-newer-act", role: "security", agent: "security", turns: 36, tools: 36, updatedAt: now.Add(-20 * time.Second).Unix()},
+		{id: "sub-old-no-outcome", role: "reviewer", agent: "reviewer", turns: 36, tools: 36, updatedAt: now.Add(-15 * time.Minute).Unix()},
+		{id: "sub-terminal-outcome", role: "reviewer", agent: "reviewer", turns: 36, tools: 36, updatedAt: now.Add(-30 * time.Second).Unix()},
+	})
+	seedMetricsSessionsWithOutcome(t, home, [][3]any{
+		{"sub-live-recent-ended", "", now.Add(-30 * time.Second).UnixMilli()},
+		{"sub-live-newer-act", "", now.Add(-10 * time.Minute).UnixMilli()},
+		{"sub-old-no-outcome", "", now.Add(-12 * time.Minute).UnixMilli()},
+		{"sub-terminal-outcome", "pass", now.Add(-30 * time.Second).UnixMilli()},
+	})
+
+	rep, err := Check(context.Background(), Options{
+		Home: home, Dir: dir, Now: func() time.Time { return now }, ProcLister: liveAgyProcs(),
+	})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	for _, want := range []string{"sub-live-recent-ended", "sub-live-newer-act"} {
+		if !hasWatchFinding(rep, kindBudgetNearLimit, want) {
+			t.Errorf("live session %s missing BUDGET_NEAR_LIMIT: %+v", want, rep.Findings)
+		}
+	}
+	for _, skip := range []string{"sub-old-no-outcome", "sub-terminal-outcome"} {
+		if hasWatchFinding(rep, kindBudgetNearLimit, skip) {
+			t.Errorf("ended session %s unexpectedly flagged: %+v", skip, rep.Findings)
+		}
+	}
+
+	// Explicit --conv must NOT suppress on ended_at alone, only on terminal outcome.
+	repConvLive, err := Check(context.Background(), Options{
+		Home: home, Dir: dir, ConvID: "sub-old-no-outcome", Now: func() time.Time { return now }, ProcLister: liveAgyProcs(),
+	})
+	if err != nil || !hasWatchFinding(repConvLive, kindBudgetNearLimit, "sub-old-no-outcome") {
+		t.Errorf("explicit --conv without terminal outcome should still flag: rep=%+v err=%v", repConvLive, err)
+	}
+	repConvDone, err := Check(context.Background(), Options{
+		Home: home, Dir: dir, ConvID: "sub-terminal-outcome", Now: func() time.Time { return now }, ProcLister: liveAgyProcs(),
+	})
+	if err != nil || !repConvDone.OK {
+		t.Errorf("explicit --conv with terminal outcome should be ok=true: rep=%+v err=%v", repConvDone, err)
 	}
 }

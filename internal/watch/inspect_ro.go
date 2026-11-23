@@ -7,12 +7,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
@@ -113,7 +113,10 @@ func isSQLiteROFallbackErr(err error) bool {
 	return false
 }
 
-func openSearchMetaDB(scratch, tmp string) (*sql.DB, bool, error) {
+func openSearchMetaDB(dir, scratch, tmp string) (*sql.DB, bool, error) {
+	if err := trail.CheckScratchNoSymlinks(dir); err != nil {
+		return nil, false, fmt.Errorf("watch: scratch path: %w", err)
+	}
 	path := filepath.Join(scratch, "search.db")
 	db, err := openReadOnlySQLite(path)
 	if err == nil {
@@ -125,6 +128,9 @@ func openSearchMetaDB(scratch, tmp string) (*sql.DB, bool, error) {
 	if !isSQLiteROFallbackErr(err) || tmp == "" {
 		return nil, false, fmt.Errorf("watch: open search.db: %w", err)
 	}
+	if err := trail.CheckScratchNoSymlinks(dir); err != nil {
+		return nil, false, fmt.Errorf("watch: scratch path: %w", err)
+	}
 	db, err = openMetaCopy(scratch, "search.db", tmp)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, false, err
@@ -135,21 +141,52 @@ func openSearchMetaDB(scratch, tmp string) (*sql.DB, bool, error) {
 	return db, false, nil
 }
 
+func checkStateDirNoSymlinks(home string) (string, error) {
+	cur := filepath.Clean(home)
+	fi, err := os.Lstat(cur)
+	if err != nil {
+		return "", err
+	}
+	if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+		return "", fmt.Errorf("%s: %w", cur, search.ErrNotRegular)
+	}
+	for _, seg := range strings.Split(filepath.ToSlash(harness.StateDir), "/") {
+		if seg == "" || seg == "." {
+			continue
+		}
+		cur = filepath.Join(cur, seg)
+		sfi, serr := os.Lstat(cur)
+		if serr != nil {
+			return "", serr
+		}
+		if sfi.Mode()&os.ModeSymlink != 0 || !sfi.IsDir() {
+			return "", fmt.Errorf("%s: %w", cur, search.ErrNotRegular)
+		}
+	}
+	return cur, nil
+}
+
 type metricsEndedLookup struct {
-	db    *sql.DB
-	idCol string
+	db         *sql.DB
+	idCol      string
+	hasEndedAt bool
+	hasOutcome bool
 }
 
 func openMetricsEndedLookup(home string) *metricsEndedLookup {
 	if strings.TrimSpace(home) == "" {
 		return nil
 	}
-	db, err := openReadOnlySQLite(filepath.Join(home, harness.StateDir, "metrics.db"))
+	stateDir, err := checkStateDirNoSymlinks(home)
+	if err != nil {
+		return nil
+	}
+	db, err := openReadOnlySQLite(filepath.Join(stateDir, "metrics.db"))
 	if err != nil {
 		return nil
 	}
 	cols, err := tableColumns(db, "sessions")
-	if err != nil || !cols["ended_at"] {
+	if err != nil || (!cols["ended_at"] && !cols["outcome"]) {
 		_ = db.Close()
 		return nil
 	}
@@ -158,7 +195,12 @@ func openMetricsEndedLookup(home string) *metricsEndedLookup {
 		_ = db.Close()
 		return nil
 	}
-	return &metricsEndedLookup{db: db, idCol: idCol}
+	return &metricsEndedLookup{
+		db:         db,
+		idCol:      idCol,
+		hasEndedAt: cols["ended_at"],
+		hasOutcome: cols["outcome"],
+	}
 }
 
 func pickMetricsIDCol(cols map[string]bool) string {
@@ -176,44 +218,43 @@ func (m *metricsEndedLookup) close() {
 	}
 }
 
-func (m *metricsEndedLookup) isEnded(convID string) bool {
+func (m *metricsEndedLookup) lookup(convID string) (endedAt time.Time, hasEnded bool, outcome string, ok bool) {
 	if m == nil || m.db == nil || convID == "" {
-		return false
+		return time.Time{}, false, "", false
 	}
-	var ended any
-	err := m.db.QueryRow("SELECT ended_at FROM sessions WHERE "+m.idCol+" = ? LIMIT 1", convID).Scan(&ended)
-	if err != nil {
-		return false
+	endedExpr := "NULL"
+	if m.hasEndedAt {
+		endedExpr = "ended_at"
 	}
-	return isEndedTimestampSet(ended)
+	outcomeExpr := "''"
+	if m.hasOutcome {
+		outcomeExpr = "COALESCE(outcome, '')"
+	}
+	var rawEnded any
+	var rawOutcome string
+	q := "SELECT " + endedExpr + ", " + outcomeExpr + " FROM sessions WHERE " + m.idCol + " = ? LIMIT 1"
+	if err := m.db.QueryRow(q, convID).Scan(&rawEnded, &rawOutcome); err != nil {
+		return time.Time{}, false, "", false
+	}
+	endedAt, hasEnded = parseMetaTimestamp(rawEnded)
+	return endedAt, hasEnded, strings.TrimSpace(rawOutcome), true
 }
 
-func isEndedTimestampSet(v any) bool {
-	switch x := v.(type) {
-	case nil:
-		return false
-	case int64:
-		return x > 0
-	case float64:
-		return x > 0
-	case time.Time:
-		return !x.IsZero() && x.Unix() > 0
-	case string:
-		return isNonEmptyEndedText(x)
-	case []byte:
-		return isNonEmptyEndedText(string(x))
-	default:
-		return false
-	}
+func (m *metricsEndedLookup) hasTerminalOutcome(convID string) bool {
+	_, _, outcome, ok := m.lookup(convID)
+	return ok && outcome != ""
 }
 
-func isNonEmptyEndedText(raw string) bool {
-	s := strings.TrimSpace(raw)
-	if s == "" || s == "0" {
+func (m *metricsEndedLookup) isEnded(convID string, cutoff, lastAct time.Time, hasLastAct bool) bool {
+	endedAt, hasEnded, outcome, ok := m.lookup(convID)
+	if !ok {
 		return false
 	}
-	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return n > 0
+	if outcome != "" {
+		return true
 	}
-	return true
+	if !hasEnded || !endedAt.Before(cutoff) {
+		return false
+	}
+	return !hasLastAct || !lastAct.After(endedAt)
 }

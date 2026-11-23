@@ -95,6 +95,9 @@ func resolveAllowedWorkflowRoot(home, dir, path string) (string, string, bool, s
 }
 
 func matchContainedWorkspaceScript(cleanDir, path string) (string, bool, string) {
+	if hasDotDotSegment(path) {
+		return "", true, "[MODEL_OVERRIDE] run_workflow refuses ScriptPath with '..' segment."
+	}
 	absPath := path
 	if !filepath.IsAbs(absPath) {
 		absPath = filepath.Join(cleanDir, absPath)
