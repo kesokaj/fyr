@@ -7,8 +7,7 @@
 
 ## Now
 
-**Phase 7 — Post-v9 7-day telemetry retro** (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`; earliest `2026-11-23` vs `RETRO-2026-11-15-0102-graph-a-b-baseline`):
-- [ ] After the tag: a 7-day `fyr report --md` comparison stored as a `retro` record — targets: repeat reads under 10%, search:grep at 1.5 or higher, under 20% of steps at 150k+, tokens per turn down 45%
+None.
 
 ## Next
 
@@ -16,4 +15,4 @@ None.
 
 ## Backlog
 
-None.
+- 2026-11-23 — Re-run 7-day post-v9.11.0 telemetry check (`PreInvocation` timeout %, `n=0` `Search:Grep`, steps `>= 150k`, tokens/turn) 7 days after `v9.11.0` reaches real `$HOME` (source: `RETRO-2026-11-23-1840-post-v9-7-day-telemetry-retro-v9-0-0-2026-11-23`).
