@@ -87,7 +87,7 @@ func mergePages(groups ...map[string]verbPage) map[string]verbPage {
 
 var coreVerbPages = map[string]verbPage{
 	"install": {
-		synopsis: []string{"usage: fyr install [--dry-run]"},
+		synopsis: []string{"usage: fyr install [--dry-run] [--json]"},
 		about: []string{
 			"Deploys the harness (the global context, skills, agents, commands and",
 			"rules) into ~/.gemini/config and the binary into ~/.local/bin, from the",
@@ -101,8 +101,8 @@ var coreVerbPages = map[string]verbPage{
 	},
 	"update": {
 		synopsis: []string{
-			"usage: fyr update [--check | --dry-run]",
-			"       fyr update --from-zip FILE [--dry-run]",
+			"usage: fyr update [--check | --dry-run] [--json]",
+			"       fyr update --from-zip FILE [--dry-run] [--json]",
 		},
 		about: []string{
 			"At a checkout: fetch, refuse a dirty tree, fast-forward, rebuild and",
@@ -126,11 +126,11 @@ var coreVerbPages = map[string]verbPage{
 		},
 	},
 	"diff": {
-		synopsis: []string{"usage: fyr diff"},
+		synopsis: []string{"usage: fyr diff [--json]"},
 		about:    []string{"Prints a unified diff of every installed file that drifted."},
 	},
 	"uninstall": {
-		synopsis: []string{"usage: fyr uninstall [--dry-run]"},
+		synopsis: []string{"usage: fyr uninstall [--dry-run] [--json]"},
 		about: []string{
 			"Removes exactly the files install wrote, and the auto timer or any",
 			"legacy dream timer when installed; nothing else. The metrics store,",
@@ -139,15 +139,15 @@ var coreVerbPages = map[string]verbPage{
 		},
 	},
 	"list": {
-		synopsis: []string{"usage: fyr list"},
+		synopsis: []string{"usage: fyr list [--json]"},
 		about:    []string{"Prints the harness's skill and agent inventory."},
 	},
 	"render": {
-		synopsis: []string{"usage: fyr render"},
+		synopsis: []string{"usage: fyr render [--json]"},
 		about:    []string{"Prints the assembled context file, as install deploys it."},
 	},
 	"adopt": {
-		synopsis: []string{"usage: fyr adopt <name|path> [--force]"},
+		synopsis: []string{"usage: fyr adopt <name|path> [--force] [--json]"},
 		about: []string{
 			"Copies a skill installed elsewhere (for example by npx skills add -g) into",
 			"the harness checkout's skills/; commit and push it there. A release binary",
@@ -247,8 +247,8 @@ var coreVerbPages = map[string]verbPage{
 	},
 	"index": {
 		synopsis: []string{
-			"usage: fyr index [--global] [--rebuild]",
-			"       fyr index --register [--rebuild]",
+			"usage: fyr index [--global] [--rebuild] [--json]",
+			"       fyr index --register [--rebuild] [--json]",
 		},
 		about: []string{
 			"Reconciles the search index against git, or deletes and rebuilds it, and",

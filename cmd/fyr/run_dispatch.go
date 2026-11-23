@@ -179,7 +179,7 @@ func (c *ctx) updateFromZipFlag() (zip bool, err error) {
 	if err := refuseDevelZipOverPath(c.home); err != nil {
 		return true, err
 	}
-	return true, updateFromZip(c.fromZip, c.home, c.dryRun, c.out)
+	return true, c.runUpdateFromZip()
 }
 
 // splitLeadingVerb accepts leading global flags (-C, --dir, --home, --repo in

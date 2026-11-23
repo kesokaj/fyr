@@ -16,7 +16,7 @@ import (
 // to build the vocabulary, and the literal would then refer to itself (an
 // initialization cycle).
 func init() {
-	verbs["check"] = verb{run: runCheck}
+	verbs["check"] = verb{flags: (*ctx).jsonFlag, run: runCheck}
 }
 
 // runResume serves `fyr resume` (ADR-508): read-only seven-step session
@@ -33,6 +33,9 @@ func runResume(c *ctx) error {
 	}
 	if err != nil {
 		return err
+	}
+	if c.jsonOut {
+		return writeVerbJSON(c.out, dirOutputJSON{OK: true, Dir: wd, Output: out})
 	}
 	fmt.Fprint(c.out, out)
 	return nil
@@ -53,6 +56,9 @@ func runGitCheck(c *ctx) error {
 	}
 	if err != nil {
 		return err
+	}
+	if c.jsonOut {
+		return writeVerbJSON(c.out, dirOutputJSON{OK: true, Dir: wd, Output: out})
 	}
 	fmt.Fprint(c.out, out)
 	return nil
@@ -75,7 +81,13 @@ func runCheck(c *ctx) error {
 	if err != nil {
 		return err
 	}
-	printCheck(c.out, rep)
+	if c.jsonOut {
+		if err := writeCheckJSON(c.out, rep); err != nil {
+			return err
+		}
+	} else {
+		printCheck(c.out, rep)
+	}
 	if len(rep.Findings) > 0 {
 		return exitCode(1)
 	}

@@ -356,8 +356,9 @@ func TestHelpEvalGolden(t *testing.T) {
 		t.Errorf("fyr eval -h does not name %q:\n%s", eval.SuitePath, got)
 	}
 	const want = `usage: fyr eval --home DIR [--fixture DIR] [--suite-file PATH] [--runs N]
-                [--parallel N] [--model ID] [--acp] [--runner R] <row>...
-       fyr eval [--suite-file PATH] --list
+                [--parallel N] [--model ID] [--acp] [--runner R]
+                [--json] <row>...
+       fyr eval [--suite-file PATH] --list [--json]
 
 Runs the named rows of HEAD's .agents/eval/GUIDE-eval.md (else the GUIDE-eval
 record; or --suite-file PATH outside every checkout) against the Antigravity
@@ -375,6 +376,8 @@ Flags:
       drive trials via agy acp --stdio --process-per-session
   --fixture DIR
       the git repository DIR each row clones (default: this checkout)
+  --json
+      print the result as JSON
   --list
       print the suite's rows (id, agent or -, named or wide, version, kind) and
       run nothing

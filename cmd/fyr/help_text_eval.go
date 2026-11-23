@@ -3,13 +3,13 @@ package main
 var opsVerbPages = map[string]verbPage{
 	"auto": {
 		synopsis: []string{
-			"usage: fyr auto on [--conversation-idle D] [--dry-run]",
-			"       fyr auto off [--dry-run]",
-			"       fyr auto status",
-			"       fyr auto run [--force] [--dry-run]",
-			"       fyr auto log [--lines N | --limit N | --all]",
+			"usage: fyr auto on [--conversation-idle D] [--dry-run] [--json]",
+			"       fyr auto off [--dry-run] [--json]",
+			"       fyr auto status [--json]",
+			"       fyr auto run [--force] [--dry-run] [--json]",
+			"       fyr auto log [--lines N | --limit N | --all] [--json]",
 			"       fyr auto sim <list|show|record|merge> [flags]",
-			"       fyr auto --dry-run",
+			"       fyr auto --dry-run [--json]",
 		},
 		about: []string{
 			"An hourly run the operator switches: it does nothing unless on writes",
@@ -26,8 +26,8 @@ var opsVerbPages = map[string]verbPage{
 	},
 	"dream": {
 		synopsis: []string{
-			"usage: fyr dream --all [--dry-run]",
-			"       fyr dream --project DIR [--dry-run]",
+			"usage: fyr dream --all [--dry-run] [--json]",
+			"       fyr dream --project DIR [--dry-run] [--json]",
 		},
 		about: []string{
 			"The background dreamer. It ingests every session into the metrics store,",
@@ -98,8 +98,9 @@ var opsVerbPages = map[string]verbPage{
 	"eval": {
 		synopsis: []string{
 			"usage: fyr eval --home DIR [--fixture DIR] [--suite-file PATH] [--runs N]",
-			"                [--parallel N] [--model ID] [--acp] [--runner R] <row>...",
-			"       fyr eval [--suite-file PATH] --list",
+			"                [--parallel N] [--model ID] [--acp] [--runner R]",
+			"                [--json] <row>...",
+			"       fyr eval [--suite-file PATH] --list [--json]",
 		},
 		about: []string{
 			"Runs the named rows of HEAD's .agents/eval/GUIDE-eval.md (else the GUIDE-eval",
@@ -115,7 +116,7 @@ var opsVerbPages = map[string]verbPage{
 		},
 	},
 	"check": {
-		synopsis: []string{"usage: fyr check"},
+		synopsis: []string{"usage: fyr check [--json]"},
 		about: []string{
 			"A read-only drift check of the working directory's git checkout; it",
 			"writes nothing. It checks every fyr verb, subverb and flag the tracked",
@@ -129,7 +130,7 @@ var opsVerbPages = map[string]verbPage{
 		},
 	},
 	"resume": {
-		synopsis: []string{"usage: fyr resume"},
+		synopsis: []string{"usage: fyr resume [--json]"},
 		about: []string{
 			"Prints the working directory's checkout session resume in the seven-step",
 			"order AGENTS.md § Resume names: AGENTS.md (with missing PRD.md or file-era",
@@ -140,7 +141,7 @@ var opsVerbPages = map[string]verbPage{
 		},
 	},
 	"git-check": {
-		synopsis: []string{"usage: fyr git-check"},
+		synopsis: []string{"usage: fyr git-check [--json]"},
 		about: []string{
 			"Runs the three post-dispatch git checks on the working directory's",
 			"checkout in one read-only call and prints each under its heading:",
@@ -151,7 +152,7 @@ var opsVerbPages = map[string]verbPage{
 		},
 	},
 	"version": {
-		synopsis: []string{"usage: fyr version"},
+		synopsis: []string{"usage: fyr version [--json]"},
 		about:    []string{"Prints the build version."},
 	},
 	"models": {

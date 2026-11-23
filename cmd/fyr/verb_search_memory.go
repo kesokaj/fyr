@@ -162,7 +162,7 @@ func runSearch(c *ctx) error {
 	if c.cmd == "index" && c.register {
 		return runRegister(c, o)
 	} else if c.cmd == "index" {
-		err = search.Index(o, c.out)
+		err = c.runIndex(o)
 	} else if err = search.Validate(o); err == nil {
 		err = c.execSearch(o)
 	}

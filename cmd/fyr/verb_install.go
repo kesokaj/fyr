@@ -1,16 +1,29 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func runInstall(c *ctx) error {
+	if !c.jsonOut {
+		return runInstallBody(c)
+	}
+	out, err := captureVerbOutput(c, func() error { return runInstallBody(c) })
+	if err != nil {
+		return err
+	}
+	return writeVerbJSON(c.out, installJSON{Verb: c.cmd, OK: true, DryRun: c.dryRun, Home: c.home, Output: out})
+}
+
+func runInstallBody(c *ctx) error {
 	repo := c.repo()
 	if repo == "" {
 		// A release binary installs the harness built into it and itself:
@@ -58,14 +71,32 @@ func runDiff(c *ctx) error {
 	// binary resolves (its embedded files, a checkout) is not what was
 	// installed (ADR-038).
 	if st, found, err := harness.LoadState(c.home); err == nil && found && st.Origin().Kind == harness.OriginZip {
-		fmt.Fprintln(c.out, "diff       not compared — this home was installed from a zip that is not kept; "+zipAdvice())
+		msg := "diff       not compared — this home was installed from a zip that is not kept; " + zipAdvice() + "\n"
+		if c.jsonOut {
+			return writeVerbJSON(c.out, diffJSON{OK: true, Drift: false, Output: msg})
+		}
+		fmt.Fprint(c.out, msg)
 		return nil
 	}
 	files, err := harness.Plan(c.src, nil)
 	if err != nil {
 		return err
 	}
-	return harness.Diff(c.home, files, c.out)
+	if !c.jsonOut {
+		return harness.Diff(c.home, files, c.out)
+	}
+	var buf bytes.Buffer
+	err = harness.Diff(c.home, files, &buf)
+	var code exitCode
+	if err != nil && !errors.As(err, &code) {
+		return err
+	}
+	out := buf.String()
+	drift := err != nil || strings.TrimSpace(out) != ""
+	if jerr := writeVerbJSON(c.out, diffJSON{OK: err == nil, Drift: drift, Output: out}); jerr != nil {
+		return jerr
+	}
+	return err
 }
 
 func runList(c *ctx) error {
@@ -73,7 +104,11 @@ func runList(c *ctx) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprint(c.out, harness.RenderInventory(inv))
+	out := harness.RenderInventory(inv)
+	if c.jsonOut {
+		return writeVerbJSON(c.out, listJSON{Source: verbSourceLabel(c.src), Output: out})
+	}
+	fmt.Fprint(c.out, out)
 	return nil
 }
 
@@ -81,6 +116,9 @@ func runRender(c *ctx) error {
 	data, err := harness.RenderContext(c.src)
 	if err != nil {
 		return err
+	}
+	if c.jsonOut {
+		return writeVerbJSON(c.out, renderJSON{Source: verbSourceLabel(c.src), Bytes: len(data), Content: string(data)})
 	}
 	_, err = c.out.Write(data)
 	return err
@@ -104,7 +142,11 @@ func runAdopt(c *ctx) error {
 		// until it is copied into a checkout.
 		next = "copy it into your harness checkout and commit there — this tree is a plain copy with no repository"
 	}
-	fmt.Fprintf(c.out, "adopted into %s\nnext: review it, run `fyr install`, then %s\n", dest, next)
+	out := fmt.Sprintf("adopted into %s\nnext: review it, run `fyr install`, then %s\n", dest, next)
+	if c.jsonOut {
+		return writeVerbJSON(c.out, adoptJSON{OK: true, Force: c.force, Args: c.fs.Args(), Output: out})
+	}
+	fmt.Fprint(c.out, out)
 	return nil
 }
 

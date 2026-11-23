@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,23 @@ import (
 )
 
 func runUpdate(c *ctx) error {
+	if !c.jsonOut {
+		_, err := execUpdate(c, c.out)
+		return err
+	}
+	var buf bytes.Buffer
+	behind, err := execUpdate(c, &buf)
+	var code exitCode
+	if err != nil && (!errors.As(err, &code) || code != 2) {
+		return err
+	}
+	if jerr := writeUpdateJSON(c, behind, err == nil, buf.String()); jerr != nil {
+		return jerr
+	}
+	return err
+}
+
+func execUpdate(c *ctx, out io.Writer) (bool, error) {
 	// A dry run of update is its --check: it reports, and changes nothing —
 	// no download, no binary replaced, no pull. It says
 	// what a real update would do instead.
@@ -25,29 +43,32 @@ func runUpdate(c *ctx) error {
 		args := installPassArgs(c.homeFlag, c.home)
 		// The BUG-079 note, when this run wrote the installed binary, is
 		// printed by UpdateFromRelease itself: only there is "replaced" known.
-		err := harness.UpdateFromRelease(c.home, c.src.Version, check, args, c.out)
+		err := harness.UpdateFromRelease(c.home, c.src.Version, check, args, out)
 		if errors.Is(err, harness.ErrNewerRelease) {
 			if dry {
-				fmt.Fprintln(c.out, "[dry-run] update would download that release, check it against its SHA256SUMS, replace the binary and reinstall")
-				return nil
+				fmt.Fprintln(out, "[dry-run] update would download that release, check it against its SHA256SUMS, replace the binary and reinstall")
+				return true, nil
 			}
-			return exitCode(2)
+			return true, exitCode(2)
 		}
 		if err != nil {
-			return fmt.Errorf("update: %w", err)
+			return false, fmt.Errorf("update: %w", err)
 		}
-		return nil
+		return false, nil
 	}
 	if err := knownCheckout(c.repoFlag, c.home, repo); err != nil {
-		return err
+		return false, err
 	}
-	err := update(repo, c.home, check, c.homeFlag, c.out)
+	err := update(repo, c.home, check, c.homeFlag, out)
 	var code exitCode
-	if dry && errors.As(err, &code) && code == 2 {
-		fmt.Fprintln(c.out, "[dry-run] update would pull those commits, rebuild and reinstall")
-		return nil
+	if errors.As(err, &code) && code == 2 {
+		if dry {
+			fmt.Fprintln(out, "[dry-run] update would pull those commits, rebuild and reinstall")
+			return true, nil
+		}
+		return true, err
 	}
-	return err
+	return false, err
 }
 
 func update(repo, home string, checkOnly bool, homeFlag string, out io.Writer) error {

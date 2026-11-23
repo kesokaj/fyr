@@ -59,14 +59,24 @@ func runEval(c *ctx) error {
 	if c.evalList {
 		return listEval(c, root)
 	}
+	return execEvalTrials(c, root, names)
+}
+
+func execEvalTrials(c *ctx, root string, names []string) error {
 	o, src, rows, err := evalSetup(c, root, names)
 	if err != nil {
 		return err
 	}
 	// Before the first trial: every trial installs from the source as it is
 	// now, so its key names the harness the trials ran.
-	key := harnessKey(src)
-
+	harnessRef := harnessKey(src)
+	var buf bytes.Buffer
+	origOut := c.out
+	if c.jsonOut {
+		o.Out = &buf
+		c.out = &buf
+		defer func() { c.out = origOut }()
+	}
 	// A hangup too: its default would kill fyr before the token link is
 	// removed, and agy, in its own process group, would run on unattended.
 	sig, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
@@ -74,17 +84,30 @@ func runEval(c *ctx) error {
 	refreshModelsBestEffort(sig, c.home)
 	results, err := evalRun(sig, o, rows)
 	if err != nil {
+		c.out = origOut
 		return c.evalRefuse("%v", err)
 	}
 	stop()
 	if len(results) == 0 {
 		// Interrupted before the first row: nothing ran, so nothing is
 		// recorded, and the export stays as the operator left it.
+		if c.jsonOut {
+			if jerr := writeEvalRunJSON(origOut, harnessRef, nil, buf.String(), false, true); jerr != nil {
+				return jerr
+			}
+			return exitCode(1)
+		}
 		fmt.Fprintln(c.out, "eval: interrupted before the first row; no record written")
 		return exitCode(1)
 	}
 	labelHoldout(c, rows, results)
-	return recordEval(c, root, o, src, key, rows, results)
+	err = recordEval(c, root, o, src, harnessRef, rows, results)
+	if c.jsonOut {
+		if jerr := writeEvalRunJSON(origOut, harnessRef, results, buf.String(), err == nil, false); jerr != nil {
+			return jerr
+		}
+	}
+	return err
 }
 
 // listEval serves `fyr eval --list`: the working export's rows, each with
@@ -93,6 +116,9 @@ func listEval(c *ctx, root string) error {
 	suite, err := loadEvalSuite(c, root, false)
 	if err != nil {
 		return c.evalRefuse("%v", err)
+	}
+	if c.jsonOut {
+		return writeEvalListJSON(c, root, suite)
 	}
 	for _, r := range suite {
 		agent, grants := r.Agent, "named"

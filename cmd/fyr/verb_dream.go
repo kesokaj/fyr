@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
@@ -13,8 +14,7 @@ func runDream(c *ctx) error {
 	var err error
 	project := c.dreamProject
 	if project == "" && !c.dreamAll && c.dirFlag != "" {
-		project, err = c.projectDir()
-		if err != nil {
+		if project, err = c.projectDir(); err != nil {
 			return err
 		}
 	}
@@ -27,27 +27,27 @@ func runDream(c *ctx) error {
 		return usageErr(c.out, "dream", "fyr dream: --all or --project <dir>, not both")
 	case !c.dreamAll && project == "":
 		return usageErr(c.out, "dream", "")
-	default:
-		var recordBg func(metrics.BackgroundRunRow) error
-		if !c.dryRun {
-			home := c.home
-			recordBg = func(row metrics.BackgroundRunRow) error {
-				return metrics.RecordBackgroundRun(home, row)
-			}
-		}
-		err = dream.Run(dream.Options{
-			Home:                c.home,
-			All:                 c.dreamAll,
-			Project:             project,
-			DryRun:              c.dryRun,
-			Out:                 c.out,
-			RecordBackgroundRun: recordBg,
-		})
 	}
+	var recordBg func(metrics.BackgroundRunRow) error
+	if !c.dryRun {
+		home := c.home
+		recordBg = func(row metrics.BackgroundRunRow) error { return metrics.RecordBackgroundRun(home, row) }
+	}
+	var buf bytes.Buffer
+	out := c.out
+	if c.jsonOut {
+		out = &buf
+	}
+	err = dream.Run(dream.Options{
+		Home: c.home, All: c.dreamAll, Project: project, DryRun: c.dryRun, Out: out, RecordBackgroundRun: recordBg,
+	})
 	var ee *dream.ExitError
 	if errors.As(err, &ee) {
 		fmt.Fprintln(c.out, ee.Msg)
 		return exitCode(ee.Code)
+	}
+	if err == nil && c.jsonOut {
+		return writeDreamJSON(c, project, buf.String())
 	}
 	return err
 }

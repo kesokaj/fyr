@@ -27,6 +27,9 @@ func (c *ctx) zipPlaceWithoutSource() (handled bool, err error) {
 		return false, nil
 	}
 	if c.cmd == "status" {
+		if c.jsonOut {
+			return true, statusWithoutSourceJSON(st, c.home, c.out)
+		}
 		return true, statusWithoutSource(st, c.home, c.out)
 	}
 	return true, fmt.Errorf("this home was installed from a zip (sha256 %s) and %s is a development build, which no zip replaces, so update has nothing to move: "+

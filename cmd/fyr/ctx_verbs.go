@@ -88,6 +88,15 @@ func (c *ctx) dryRunFlag() {
 	c.fs.BoolVar(&c.dryRun, "dry-run", false, "print what would change, change nothing")
 }
 
+func (c *ctx) jsonFlag() {
+	c.fs.BoolVar(&c.jsonOut, "json", false, "print the result as JSON")
+}
+
+func (c *ctx) dryRunAndJSONFlags() {
+	c.dryRunFlag()
+	c.jsonFlag()
+}
+
 // verb is one command: the flags it declares, whether it reads the harness
 // tree, and what it does.
 type verb struct {
@@ -103,10 +112,10 @@ type verb struct {
 // instead of a flag parsed and silently ignored (IN5). Adding a verb here is
 // a map change under the project's README map rule (D9: verbs unchanged).
 var verbs = map[string]verb{
-	"version":   {run: runVersion},
-	"uninstall": {flags: (*ctx).dryRunFlag, run: runUninstall},
-	"resume":    {run: runResume},
-	"git-check": {run: runGitCheck},
+	"version":   {flags: (*ctx).jsonFlag, run: runVersion},
+	"uninstall": {flags: (*ctx).dryRunAndJSONFlags, run: runUninstall},
+	"resume":    {flags: (*ctx).jsonFlag, run: runResume},
+	"git-check": {flags: (*ctx).jsonFlag, run: runGitCheck},
 	"memory": {flags: func(c *ctx) {
 		c.fs.StringVar(&c.memType, "type", "", "add: the memory's type `T`: semantic, procedural or episodic")
 		c.fs.StringVar(&c.memName, "name", "", "add: the memory's slug, `SLUG`")
@@ -121,7 +130,7 @@ var verbs = map[string]verb{
 	"dream": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.dreamAll, "all", false, "every workspace discovered from conversations, brain.db and search.db")
 		c.fs.StringVar(&c.dreamProject, "project", "", "one workspace, `DIR`, or __global__")
-		c.dryRunFlag()
+		c.dryRunAndJSONFlags()
 	}, run: runDream},
 	"auto": {flags: func(c *ctx) {
 		c.fs.StringVar(&c.autoConvIdle, "conversation-idle", "", "on: how long a conversation sits untouched before rating, `D`, 5m to 7d (default 1h)")
@@ -132,7 +141,7 @@ var verbs = map[string]verb{
 		c.fs.IntVar(&c.autoLines, "lines", 0, "log: print the last `N` lines of auto.log (default 50)")
 		c.fs.BoolVar(&c.autoAll, "all", false, "log: print every line of auto.log")
 		c.fs.BoolVar(&c.force, "force", false, "run: bypass the 4h model-run cooldown")
-		c.dryRunFlag()
+		c.dryRunAndJSONFlags()
 	}, positional: true, readsRepo: true},
 	"metrics": {flags: func(c *ctx) {
 		c.fs.StringVar(&c.metricsSource, "source", "", "ingest: the sandbox home `DIR` to read instead of this one")
@@ -198,9 +207,10 @@ var verbs = map[string]verb{
 		c.fs.BoolVar(&c.global, "global", false, "the global search index, ~/.config/fyr/search.db, instead of this checkout's")
 		c.fs.BoolVar(&c.rebuild, "rebuild", false, "delete the index and build it again")
 		c.fs.BoolVar(&c.register, "register", false, "register this checkout (the operator's consent, ADR-068) so cross-project readers take it (fyr search --global, fyr record import --global, and the metrics attribution join) once it has records in brain.db or .agents/trail.jsonl, then index it")
+		c.jsonFlag()
 	}, run: runSearch},
-	"install": {flags: (*ctx).dryRunFlag, source: true, run: runInstall},
-	"sync":    {flags: (*ctx).dryRunFlag, source: true, run: runInstall},
+	"install": {flags: (*ctx).dryRunAndJSONFlags, source: true, run: runInstall},
+	"sync":    {flags: (*ctx).dryRunAndJSONFlags, source: true, run: runInstall},
 	"status": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.jsonOut, "json", false, "print the status as JSON")
 	}, source: true, run: func(c *ctx) error {
@@ -209,16 +219,17 @@ var verbs = map[string]verb{
 		}
 		return status(c.src, c.home, c.out)
 	}},
-	"diff": {source: true, run: runDiff},
+	"diff": {flags: (*ctx).jsonFlag, source: true, run: runDiff},
 	"update": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.check, "check", false, "only report whether this place is behind; exit 2 when it is")
 		c.fs.StringVar(&c.fromZip, "from-zip", "", "install the harness in the repository zip `FILE` with the running binary")
-		c.dryRunFlag()
+		c.dryRunAndJSONFlags()
 	}, source: true, run: runUpdate},
-	"list":   {source: true, run: runList},
-	"render": {source: true, run: runRender},
+	"list":   {flags: (*ctx).jsonFlag, source: true, run: runList},
+	"render": {flags: (*ctx).jsonFlag, source: true, run: runRender},
 	"adopt": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.force, "force", false, "replace a skill of the same name already in skills/")
+		c.jsonFlag()
 	}, source: true, positional: true, run: runAdopt},
 }
 

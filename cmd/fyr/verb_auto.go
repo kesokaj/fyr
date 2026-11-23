@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -33,11 +34,11 @@ var autoEnv auto.Env
 var autoSubverbs = []string{"on", "off", "status", "run", "log", "sim"}
 
 var autoFlags = map[string]map[string]bool{
-	"on":     {"conversation-idle": true, "level": true, "project-idle": true, "user-idle": true, "dry-run": true},
-	"off":    {"dry-run": true},
-	"status": {},
-	"run":    {"dry-run": true, "force": true},
-	"log":    {"lines": true, "limit": true, "all": true},
+	"on":     {"conversation-idle": true, "level": true, "project-idle": true, "user-idle": true, "dry-run": true, "json": true},
+	"off":    {"dry-run": true, "json": true},
+	"status": {"json": true},
+	"run":    {"dry-run": true, "force": true, "json": true},
+	"log":    {"lines": true, "limit": true, "all": true, "json": true},
 	"sim": {
 		"signal": true, "path": true, "status": true, "limit": true, "json": true, "json-in": true,
 		"problem": true, "root-cause": true, "mechanism": true, "what": true, "files": true,
@@ -75,13 +76,21 @@ func runAuto(c *ctx) error {
 	if stray != "" {
 		return usageErr(c.out, "auto", fmt.Sprintf("fyr auto %s takes no --%s", sub, stray))
 	}
-	err := c.dispatchAutoSub(sub, auto.Options{Home: c.home, Out: c.out, DryRun: c.dryRun, Force: c.force})
+	var buf bytes.Buffer
+	out := c.out
+	if c.jsonOut {
+		out = &buf
+	}
+	err := c.dispatchAutoSub(sub, auto.Options{Home: c.home, Out: out, DryRun: c.dryRun, Force: c.force})
 	var ee *auto.ExitError
 	if errors.As(err, &ee) {
 		if ee.Msg != "" {
 			fmt.Fprintln(c.out, ee.Msg)
 		}
 		return exitCode(ee.Code)
+	}
+	if err == nil && c.jsonOut {
+		return writeAutoJSON(c, sub, buf.String())
 	}
 	return err
 }
@@ -92,7 +101,7 @@ func (c *ctx) dispatchAutoSub(sub string, o auto.Options) error {
 		if reason := c.autoRequestError(); reason != "" {
 			return usageErr(c.out, "auto", reason)
 		}
-		c.warnDeprecatedAutoFlags()
+		c.warnDeprecatedAutoFlags(o.Out)
 		return auto.On(o, auto.Request{ConversationIdle: c.autoConvIdle})
 	case "off":
 		return auto.Off(o)
@@ -264,11 +273,11 @@ func (c *ctx) autoRequestError() string {
 	return ""
 }
 
-func (c *ctx) warnDeprecatedAutoFlags() {
+func (c *ctx) warnDeprecatedAutoFlags(out io.Writer) {
 	c.fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "level", "project-idle", "user-idle":
-			fmt.Fprintf(c.out, "auto on: warning: --%s is deprecated and ignored (fyr auto is now binary on/off; use --conversation-idle)\n", f.Name)
+			fmt.Fprintf(out, "auto on: warning: --%s is deprecated and ignored (fyr auto is now binary on/off; use --conversation-idle)\n", f.Name)
 		}
 	})
 }

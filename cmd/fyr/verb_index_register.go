@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -35,21 +36,32 @@ func runRegister(c *ctx, o search.Options) error {
 	if err != nil {
 		return fmt.Errorf("index --register: %w", err)
 	}
+	var buf bytes.Buffer
+	out := c.out
+	if c.jsonOut {
+		out = &buf
+	}
 	if eph := ephemeralRegisterTarget(o.Dir, top, main); eph != "" {
-		fmt.Fprintln(c.out, search.Printable("note: skipping registration for ephemeral path "+eph))
+		fmt.Fprintln(out, search.Printable("note: skipping registration for ephemeral path "+eph))
+		if c.jsonOut {
+			return writeIndexJSON(c, o.Dir, buf.String())
+		}
 		return nil
 	}
 	if _, err = trail.Register(filepath.Join(c.home, harness.StateDir), o.Dir, now()); err != nil {
 		return fmt.Errorf("index --register: %w", err)
 	}
-	if err := search.Index(o, c.out); err != nil {
+	if err := search.Index(o, out); err != nil {
 		return fmt.Errorf("registered %s, but the index failed: %w", main, err)
 	}
-	fmt.Fprintf(c.out, "registered %s\n", main)
+	fmt.Fprintf(out, "registered %s\n", main)
 	// The marker is consent, not yet a reader: say so when nothing takes it.
 	root := search.RegistryRoot(o.Dir)
 	if ok, err := search.HasScopeRecords(c.home, root); err == nil && !ok {
-		fmt.Fprintln(c.out, search.Printable("note: "+root+" has no .agents/trail.jsonl, so no cross-project read takes it until it has records (fyr record import, or the first fyr record add)"))
+		fmt.Fprintln(out, search.Printable("note: "+root+" has no .agents/trail.jsonl, so no cross-project read takes it until it has records (fyr record import, or the first fyr record add)"))
+	}
+	if c.jsonOut {
+		return writeIndexJSON(c, o.Dir, buf.String())
 	}
 	return nil
 }

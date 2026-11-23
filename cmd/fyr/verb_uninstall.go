@@ -12,11 +12,25 @@ import (
 )
 
 func runVersion(c *ctx) error {
+	if c.jsonOut {
+		return writeVerbJSON(c.out, versionJSON{Version: buildVersion()})
+	}
 	fmt.Fprintln(c.out, "fyr", buildVersion())
 	return nil
 }
 
 func runUninstall(c *ctx) error {
+	if !c.jsonOut {
+		return runUninstallBody(c)
+	}
+	out, err := captureVerbOutput(c, func() error { return runUninstallBody(c) })
+	if err != nil {
+		return err
+	}
+	return writeVerbJSON(c.out, uninstallJSON{OK: true, DryRun: c.dryRun, Home: c.home, Output: out})
+}
+
+func runUninstallBody(c *ctx) error {
 	// Any legacy dream timer is not in the manifest; uninstall removes it,
 	// also when no manifest is left, and a dry run only says so.
 	var timerErr error

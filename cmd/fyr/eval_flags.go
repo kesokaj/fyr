@@ -20,6 +20,7 @@ func init() {
 		c.fs.String("suite-file", "", "read the suite from `PATH` outside every checkout; labels rows eval=holdout/<id>")
 		c.fs.BoolVar(&c.evalACP, "acp", false, "drive trials via agy acp --stdio --process-per-session")
 		c.fs.StringVar(&c.evalRunner, "runner", fyrisolate.DefaultRunner, "where each trial's session runs: `R` is isolate (default "+fyrisolate.DefaultRunner+")")
+		c.jsonFlag()
 	}, positional: true, readsRepo: true, run: runEval}
 }
 
