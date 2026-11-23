@@ -7,12 +7,11 @@
 
 ## Now
 
-**Wave 7 (Phase 13) -> Waves 8–10 (Phases 18, 19, 20)** (`PLAN-2026-11-22-2007-plan-fyr-v9-10-0-full-surface-mitigation-dynamic` — Phases 1–12, 14–17 landed; `16/20` complete):
-- [ ] **Phase 13 (WS7b — `F-009`, `F-016`, `F-017` check/lint, `F-037`, `F-049`):** `fyr check` 8/8 drift coverage (`drift-M4`/`M5b`/`M7`/`M8`), `TDD.md` adjacent file-path attribution, fresh-clone R10 record-ID skip, `metrics record-run` flags, and `GUIDE-eval.md` regex hygiene
+**Wave 8 (Phase 18) -> Waves 9–10 (Phases 19, 20)** (`PLAN-2026-11-22-2007-plan-fyr-v9-10-0-full-surface-mitigation-dynamic` — Phases 1–17 landed; `17/20` complete):
+- [ ] **Phase 18 (Living docs & `SPEC-*` alignment — `F-017`):** Fix `SDD.md:40`, `TDD.md:38,119,361,398`, `features/delivery-and-customization.md:62`, `<details>` table folding (`TDD.md:361`, `SPEC-fyr-graph:30`), and align `SDD.md`, `TDD.md`, `features/**`, and `SPEC-fyr-{pre-hook-coordinator,metrics,sim,record,eval,graph}` with Phases 1–17 (`0` findings on scratch & installed `fyr check`)
 
 ## Next
 
-- Wave 8 (Phase 18, after Phase 13): Living docs (`SDD.md`, `TDD.md`, `features/`) & `SPEC-fyr-*` alignment (`F-017`) (`PLAN-2026-11-22-2007-plan-fyr-v9-10-0-full-surface-mitigation-dynamic`)
 - Wave 9 (Phase 19, after Phase 18): Full `fyr verify` & 57-repro scratch-binary sweep + `T5.2` 75-prompt benchmark (`PLAN-2026-11-22-2007-plan-fyr-v9-10-0-full-surface-mitigation-dynamic`)
 - Wave 10 (Phase 20, after Phase 19): Isolated 11-row `fyr eval` & independent `reviewer`/`security` close (`PLAN-2026-11-22-2007-plan-fyr-v9-10-0-full-surface-mitigation-dynamic`)
 - Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest `2026-11-23`)
