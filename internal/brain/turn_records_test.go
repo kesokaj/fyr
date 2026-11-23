@@ -412,8 +412,8 @@ func TestTurnRecordsSeeded1143LatencyAndSelectiveBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTurnRecordsAndFTSCtx: %v", err)
 	}
-	if elapsed >= 120*time.Millisecond {
-		t.Errorf("warm LoadTurnRecordsAndFTSCtx on 1143 records took %v, want < 120ms", elapsed)
+	if elapsed >= turnRecordsWarmBudget {
+		t.Errorf("warm LoadTurnRecordsAndFTSCtx on 1143 records took %v, want < %v", elapsed, turnRecordsWarmBudget)
 	}
 	if len(hits) < 2 {
 		t.Fatalf("expected >= 2 FTS hits for quorumsnapshot, got %+v", hits)
