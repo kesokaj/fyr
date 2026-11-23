@@ -8,16 +8,35 @@ import (
 type bashReadStmt struct {
 	text       string
 	hasHeredoc bool
+	isSubshell bool
+	hasOrTrue  bool
+}
+
+type readSplitStep struct {
+	nextIdx  int
+	nextQ    byte
+	heredocs []string
+	addedHD  bool
+	orTrue   bool
+	didFlush bool
+	ok       bool
 }
 
 func parseBashFileReadsExtended(cmd string) []BashFileRead {
-	stmts, ok := splitBashReadStatements(cmd)
+	return parseBashFileReadsInDir(cmd, "", false, true)
+}
+
+func parseBashFileReadsInDir(cmd, cwd string, unknown, allowSubshell bool) []BashFileRead {
+	stmts, ok := splitBashReadStatements(cmd, allowSubshell)
 	if !ok {
 		return nil
 	}
 	var out []BashFileRead
-	cwd, unknown := "", false
 	for _, stmt := range stmts {
+		if stmt.isSubshell {
+			out = append(out, parseBashFileReadsInDir(stmt.text, cwd, unknown, false)...)
+			continue
+		}
 		if stmt.hasHeredoc {
 			if statementHasWriteRedirect(stmt.text) {
 				break
@@ -30,11 +49,11 @@ func parseBashFileReadsExtended(cmd string) []BashFileRead {
 		if isBenignBashPrefixStmt(stmt.text) {
 			continue
 		}
-		stages, sawWrite, ok := splitReadOnlyPipeStages(stmt.text)
+		stages, hadStderrRedir, sawWrite, ok := splitReadOnlyPipeStages(stmt.text)
 		if sawWrite {
 			break
 		}
-		if !ok || len(stages) != 1 {
+		if !ok || len(stages) != 1 || hadStderrRedir || stmt.hasOrTrue {
 			if statementStartsWithDirChange(stmt.text) {
 				cwd, unknown = "", true
 				continue
@@ -46,12 +65,22 @@ func parseBashFileReadsExtended(cmd string) []BashFileRead {
 			cwd, unknown = nextDir, nextUnknown
 			continue
 		}
-		if r, ok := parseBashReadPipeline(stages); ok && r.Path != "" && (filepath.IsAbs(r.Path) || !unknown) {
-			if !filepath.IsAbs(r.Path) {
-				r.Path = filepath.ToSlash(filepath.Clean(filepath.Join(cwd, r.Path)))
-			}
-			out = append(out, r)
+		if reads, ok := parseBashReadPipelineMulti(stages); ok {
+			out = appendResolvedBashReads(out, reads, cwd, unknown)
 		}
+	}
+	return out
+}
+
+func appendResolvedBashReads(out, reads []BashFileRead, cwd string, unknown bool) []BashFileRead {
+	for _, r := range reads {
+		if r.Path == "" || (!filepath.IsAbs(r.Path) && unknown) {
+			continue
+		}
+		if !filepath.IsAbs(r.Path) {
+			r.Path = filepath.ToSlash(filepath.Clean(filepath.Join(cwd, r.Path)))
+		}
+		out = append(out, r)
 	}
 	return out
 }
@@ -115,17 +144,17 @@ func trimRedirectSuffix(tok string) string {
 	return tok
 }
 
-func splitBashReadStatements(cmd string) ([]bashReadStmt, bool) {
+func splitBashReadStatements(cmd string, allowSubshell bool) ([]bashReadStmt, bool) {
 	var out []bashReadStmt
 	var heredocs []string
 	var cur strings.Builder
-	stmtHeredoc, q := false, byte(0)
+	stmtHeredoc, stmtOrTrue, q := false, false, byte(0)
 	flush := func() {
 		if s := strings.TrimSpace(cur.String()); s != "" {
-			out = append(out, bashReadStmt{text: s, hasHeredoc: stmtHeredoc})
+			out = append(out, bashReadStmt{text: s, hasHeredoc: stmtHeredoc, hasOrTrue: stmtOrTrue})
 		}
 		cur.Reset()
-		stmtHeredoc = false
+		stmtHeredoc, stmtOrTrue = false, false
 	}
 	for i := 0; i < len(cmd); i++ {
 		if q != 0 {
@@ -135,12 +164,24 @@ func splitBashReadStatements(cmd string) ([]bashReadStmt, bool) {
 			}
 			continue
 		}
-		var addedHD, didFlush, ok bool
-		if i, q, heredocs, addedHD, didFlush, ok = stepReadSplitUnquoted(cmd, i, heredocs, &cur); !ok {
+		if cmd[i] == '(' && allowSubshell && !stmtHeredoc && strings.TrimSpace(cur.String()) == "" {
+			inner, closeIdx, ok := extractSimpleSubshell(cmd, i)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, bashReadStmt{text: inner, isSubshell: true})
+			cur.Reset()
+			i = closeIdx
+			continue
+		}
+		st := stepReadSplitUnquoted(cmd, i, heredocs, &cur)
+		if !st.ok {
 			return nil, false
 		}
-		stmtHeredoc = stmtHeredoc || addedHD
-		if didFlush {
+		i, q, heredocs = st.nextIdx, st.nextQ, st.heredocs
+		stmtHeredoc = stmtHeredoc || st.addedHD
+		stmtOrTrue = stmtOrTrue || st.orTrue
+		if st.didFlush {
 			flush()
 		}
 	}
@@ -149,6 +190,88 @@ func splitBashReadStatements(cmd string) ([]bashReadStmt, bool) {
 	}
 	flush()
 	return out, len(out) > 0
+}
+
+func extractSimpleSubshell(cmd string, openIdx int) (string, int, bool) {
+	closeIdx, q := -1, byte(0)
+	for i := openIdx + 1; i < len(cmd); i++ {
+		ch := cmd[i]
+		if q != 0 {
+			if q == '"' && (ch == '`' || (ch == '$' && i+1 < len(cmd) && cmd[i+1] == '(')) {
+				return "", 0, false
+			}
+			i, q = advanceShellQuote(cmd, i, q)
+			continue
+		}
+		switch ch {
+		case '\\':
+			if i+1 >= len(cmd) {
+				return "", 0, false
+			}
+			i++
+		case '$':
+			if i+1 < len(cmd) && cmd[i+1] == '\'' {
+				q, i = '$', i+1
+			} else if i+1 < len(cmd) && cmd[i+1] == '(' {
+				return "", 0, false
+			}
+		case '\'', '"':
+			q = ch
+		case '`', '(', '|', '<', '>':
+			return "", 0, false
+		case ')':
+			closeIdx = i
+		}
+		if closeIdx >= 0 {
+			break
+		}
+	}
+	if q != 0 || closeIdx < 0 {
+		return "", 0, false
+	}
+	inner := strings.TrimSpace(cmd[openIdx+1 : closeIdx])
+	if inner == "" || !isValidSimpleSubshellFollow(cmd, closeIdx+1) || subshellHasControlKeyword(inner) {
+		return "", 0, false
+	}
+	return inner, closeIdx, true
+}
+
+func isValidSimpleSubshellFollow(cmd string, pos int) bool {
+	for pos < len(cmd) && (cmd[pos] == ' ' || cmd[pos] == '\t') {
+		pos++
+	}
+	if pos >= len(cmd) {
+		return true
+	}
+	switch cmd[pos] {
+	case ';', '\n', '\r', '#':
+		return true
+	case '&':
+		return pos+1 < len(cmd) && cmd[pos+1] == '&' && (pos+2 >= len(cmd) || cmd[pos+2] != '&')
+	default:
+		return false
+	}
+}
+
+func subshellHasControlKeyword(inner string) bool {
+	stmts, ok := splitBashReadStatements(inner, false)
+	if !ok {
+		return true
+	}
+	for _, st := range stmts {
+		if st.hasHeredoc || st.hasOrTrue {
+			return true
+		}
+		toks := tokenizeShellSegment(st.text)
+		if len(toks) == 0 {
+			continue
+		}
+		switch toks[0] {
+		case "for", "while", "until", "if", "elif", "else", "then", "fi", "do", "done", "case", "esac", "select", "function", "{", "}":
+			return true
+		}
+	}
+	return false
 }
 
 func stepReadSplitQuoted(cmd string, i int, q byte, cur *strings.Builder) (int, byte, bool) {
@@ -167,49 +290,49 @@ func stepReadSplitQuoted(cmd string, i int, q byte, cur *strings.Builder) (int, 
 	return i, q, true
 }
 
-func stepReadSplitUnquoted(cmd string, i int, heredocs []string, cur *strings.Builder) (int, byte, []string, bool, bool, bool) {
+func stepReadSplitUnquoted(cmd string, i int, heredocs []string, cur *strings.Builder) readSplitStep {
 	switch ch := cmd[i]; {
 	case ch == '\\':
 		return stepReadSplitBackslash(cmd, i, heredocs, cur)
 	case ch == '#' && (i == 0 || strings.ContainsRune(" \t\n\r;&|", rune(cmd[i-1]))):
-		return skipLineComment(cmd, i), 0, heredocs, false, false, true
+		return readSplitStep{nextIdx: skipLineComment(cmd, i), heredocs: heredocs, ok: true}
 	case ch == '`' || ((ch == '$' || ch == '<' || ch == '>') && i+1 < len(cmd) && cmd[i+1] == '(') || ch == '(' || ch == ')':
-		return i, 0, heredocs, false, false, false
+		return readSplitStep{nextIdx: i, heredocs: heredocs}
 	case ch == '$' && i+1 < len(cmd) && cmd[i+1] == '\'':
 		cur.WriteString("$'")
-		return i + 1, '$', heredocs, false, false, true
+		return readSplitStep{nextIdx: i + 1, nextQ: '$', heredocs: heredocs, ok: true}
 	case ch == '\'' || ch == '"':
 		cur.WriteByte(ch)
-		return i, ch, heredocs, false, false, true
+		return readSplitStep{nextIdx: i, nextQ: ch, heredocs: heredocs, ok: true}
 	case ch == '<' && i+1 < len(cmd) && cmd[i+1] == '<' && (i+2 >= len(cmd) || cmd[i+2] != '<'):
 		delim, next := parseHeredocDelim(cmd, i+2)
 		if delim != "" {
 			heredocs = append(heredocs, delim)
 		}
 		cur.WriteString(cmd[i:next])
-		return next - 1, 0, heredocs, true, false, true
+		return readSplitStep{nextIdx: next - 1, heredocs: heredocs, addedHD: true, ok: true}
 	default:
 		return stepReadSplitControl(cmd, i, heredocs, cur)
 	}
 }
 
-func stepReadSplitBackslash(cmd string, i int, heredocs []string, cur *strings.Builder) (int, byte, []string, bool, bool, bool) {
+func stepReadSplitBackslash(cmd string, i int, heredocs []string, cur *strings.Builder) readSplitStep {
 	if i+1 >= len(cmd) {
-		return i, 0, heredocs, false, false, false
+		return readSplitStep{nextIdx: i, heredocs: heredocs}
 	}
 	if cmd[i+1] == '\n' {
 		cur.WriteByte(' ')
-		return i + 1, 0, heredocs, false, false, true
+		return readSplitStep{nextIdx: i + 1, heredocs: heredocs, ok: true}
 	}
 	if cmd[i+1] == '\r' && i+2 < len(cmd) && cmd[i+2] == '\n' {
 		cur.WriteByte(' ')
-		return i + 2, 0, heredocs, false, false, true
+		return readSplitStep{nextIdx: i + 2, heredocs: heredocs, ok: true}
 	}
 	cur.WriteString(cmd[i : i+2])
-	return i + 1, 0, heredocs, false, false, true
+	return readSplitStep{nextIdx: i + 1, heredocs: heredocs, ok: true}
 }
 
-func stepReadSplitControl(cmd string, i int, heredocs []string, cur *strings.Builder) (int, byte, []string, bool, bool, bool) {
+func stepReadSplitControl(cmd string, i int, heredocs []string, cur *strings.Builder) readSplitStep {
 	switch ch := cmd[i]; ch {
 	case '\r', '\n':
 		next := i + 1
@@ -219,28 +342,71 @@ func stepReadSplitControl(cmd string, i int, heredocs []string, cur *strings.Bui
 		if len(heredocs) > 0 {
 			next, heredocs = skipHeredocBodies(cmd, next, heredocs), nil
 		}
-		return next - 1, 0, heredocs, false, true, true
+		return readSplitStep{nextIdx: next - 1, heredocs: heredocs, didFlush: true, ok: true}
 	case ';':
-		return i, 0, heredocs, false, true, true
+		return readSplitStep{nextIdx: i, heredocs: heredocs, didFlush: true, ok: true}
 	case '&':
 		if i > 0 && (cmd[i-1] == '>' || cmd[i-1] == '<') {
 			cur.WriteByte(ch)
-			return i, 0, heredocs, false, false, true
+			return readSplitStep{nextIdx: i, heredocs: heredocs, ok: true}
 		}
 		if i+1 < len(cmd) && cmd[i+1] == '&' && (i+2 >= len(cmd) || cmd[i+2] != '&') {
-			return i + 1, 0, heredocs, false, true, true
+			return readSplitStep{nextIdx: i + 1, heredocs: heredocs, didFlush: true, ok: true}
 		}
-		return i, 0, heredocs, false, false, false
+		return readSplitStep{nextIdx: i, heredocs: heredocs}
 	case '|':
-		if i+1 < len(cmd) && (cmd[i+1] == '|' || cmd[i+1] == '&') {
-			return i, 0, heredocs, false, false, false
+		if i+1 < len(cmd) && cmd[i+1] == '|' {
+			if next, ok := matchTrailingOrTrue(cmd, i+2); ok {
+				return readSplitStep{nextIdx: next, heredocs: heredocs, orTrue: true, didFlush: true, ok: true}
+			}
+			return readSplitStep{nextIdx: i, heredocs: heredocs}
+		}
+		if i+1 < len(cmd) && cmd[i+1] == '&' {
+			return readSplitStep{nextIdx: i, heredocs: heredocs}
 		}
 		cur.WriteByte(ch)
-		return i, 0, heredocs, false, false, true
+		return readSplitStep{nextIdx: i, heredocs: heredocs, ok: true}
 	default:
 		cur.WriteByte(ch)
-		return i, 0, heredocs, false, false, true
+		return readSplitStep{nextIdx: i, heredocs: heredocs, ok: true}
 	}
+}
+
+func matchTrailingOrTrue(cmd string, pos int) (int, bool) {
+	j := pos
+	for j < len(cmd) && (cmd[j] == ' ' || cmd[j] == '\t') {
+		j++
+	}
+	var end int
+	switch {
+	case strings.HasPrefix(cmd[j:], "true"):
+		end = j + 4
+	case j < len(cmd) && cmd[j] == ':':
+		end = j + 1
+	default:
+		return 0, false
+	}
+	if end < len(cmd) && strings.IndexByte(" \t;&\n\r#", cmd[end]) < 0 {
+		return 0, false
+	}
+	k := end
+	for k < len(cmd) && (cmd[k] == ' ' || cmd[k] == '\t') {
+		k++
+	}
+	if k == len(cmd) {
+		return k - 1, true
+	}
+	switch cmd[k] {
+	case ';', '\n', '\r':
+		return k - 1, true
+	case '#':
+		return skipLineComment(cmd, k), true
+	case '&':
+		if k+1 < len(cmd) && cmd[k+1] == '&' && (k+2 >= len(cmd) || cmd[k+2] != '&') {
+			return k + 1, true
+		}
+	}
+	return 0, false
 }
 
 func isBenignBashPrefixStmt(stmt string) bool {
@@ -296,12 +462,17 @@ func statementHasWriteRedirect(stmt string) bool {
 	})
 }
 
-func splitReadOnlyPipeStages(stmt string) ([][]string, bool, bool) {
+func splitReadOnlyPipeStages(stmt string) ([][]string, bool, bool, bool) {
+	hadStderrRedir := false
 	if hasUnquotedChar(stmt, "<>") {
-		return nil, statementHasWriteRedirect(stmt), false
+		cleaned, ok := stripBenignStderrRedirects(stmt)
+		if !ok {
+			return nil, false, statementHasWriteRedirect(stmt), false
+		}
+		stmt, hadStderrRedir = cleaned, true
 	}
 	if hasUnsafeReadExpansionOrGlob(stmt) {
-		return nil, false, false
+		return nil, hadStderrRedir, false, false
 	}
 	var stages [][]string
 	start := 0
@@ -318,9 +489,69 @@ func splitReadOnlyPipeStages(stmt string) ([][]string, bool, bool) {
 	})
 	tail := tokenizeShellSegment(strings.TrimSpace(stmt[start:]))
 	if badPipe || len(tail) == 0 {
-		return nil, false, false
+		return nil, hadStderrRedir, false, false
 	}
-	return append(stages, tail), false, true
+	return append(stages, tail), hadStderrRedir, false, true
+}
+
+func stripBenignStderrRedirects(stmt string) (string, bool) {
+	var b strings.Builder
+	last := 0
+	for i, q := 0, byte(0); i < len(stmt); i++ {
+		if q != 0 {
+			i, q = advanceShellQuote(stmt, i, q)
+			continue
+		}
+		switch ch := stmt[i]; {
+		case ch == '\\' && i+1 < len(stmt):
+			i++
+		case ch == '$' && i+1 < len(stmt) && stmt[i+1] == '\'':
+			q, i = '$', i+1
+		case ch == '\'' || ch == '"':
+			q = ch
+		case ch == '<':
+			return "", false
+		case ch == '>':
+			nextEnd, ok := matchBenignStderrRedirect(stmt, i)
+			if !ok {
+				return "", false
+			}
+			b.WriteString(stmt[last : i-1])
+			b.WriteByte(' ')
+			last, i = nextEnd, nextEnd-1
+		}
+	}
+	b.WriteString(stmt[last:])
+	return b.String(), true
+}
+
+func matchBenignStderrRedirect(stmt string, gtIdx int) (int, bool) {
+	if gtIdx < 1 || stmt[gtIdx-1] != '2' {
+		return 0, false
+	}
+	if gtIdx >= 2 && stmt[gtIdx-2] != ' ' && stmt[gtIdx-2] != '\t' && stmt[gtIdx-2] != '|' {
+		return 0, false
+	}
+	j, appendMode := gtIdx+1, false
+	if j < len(stmt) && stmt[j] == '>' {
+		j, appendMode = j+1, true
+	}
+	for j < len(stmt) && (stmt[j] == ' ' || stmt[j] == '\t') {
+		j++
+	}
+	targets := []string{"/dev/null", "'/dev/null'", `"/dev/null"`}
+	if !appendMode {
+		targets = append(targets, "&1", "&-")
+	}
+	for _, tgt := range targets {
+		if strings.HasPrefix(stmt[j:], tgt) {
+			end := j + len(tgt)
+			if end == len(stmt) || stmt[end] == ' ' || stmt[end] == '\t' || stmt[end] == '|' {
+				return end, true
+			}
+		}
+	}
+	return 0, false
 }
 
 func hasUnsafeReadExpansionOrGlob(stmt string) bool {

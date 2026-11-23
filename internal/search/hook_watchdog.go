@@ -13,6 +13,7 @@ import (
 
 type watchdogPreState struct {
 	active                             bool
+	exempt                             bool
 	ringTool, argHash, role, agentName string
 	denyReason, budgetWarn             string
 }
@@ -76,25 +77,50 @@ func evaluateWatchdogPreCtx(ctx context.Context, o Options, dir string, in HookI
 	if role == "" && ctx.Err() == nil {
 		role, name = resolveWatchdogRoleCtx(ctx, o.Home, convID, in.LastUserInput)
 	}
+	exempt := isWatchdogExempt(dir, in, normTool)
 	deny, warn := "", ""
 	if ctx.Err() == nil {
-		if deny = checkWatchdogPollLoop(ctx, st, convID, normTool, ringTool); deny == "" && !isWatchdogExempt(dir, in, normTool) {
+		if deny = checkWatchdogPollLoop(ctx, st, convID, normTool, ringTool); deny == "" && !exempt {
 			if deny = checkWatchdogErrorLoop(ctx, st, convID, ringTool, argHash); deny == "" {
 				deny, warn = checkWatchdogBudget(role, toolCalls)
 			}
 		}
 	}
-	return watchdogPreState{active: true, ringTool: ringTool, argHash: argHash, role: role, agentName: name, denyReason: deny, budgetWarn: warn}, st, root
+	return watchdogPreState{active: true, exempt: exempt, ringTool: ringTool, argHash: argHash, role: role, agentName: name, denyReason: deny, budgetWarn: warn}, st, root
+}
+
+// IsBuilderSubagentRole reports whether role is a general builder/worker role
+// (self, builder, builder-*, builder_*, coder, coder-*, coder_*) that gets the
+// higher 120-call watchdog budget.
+func IsBuilderSubagentRole(role string) bool {
+	r := strings.ToLower(strings.TrimSpace(role))
+	if r == "self" {
+		return true
+	}
+	for _, p := range []string{"builder", "coder"} {
+		if r == p || strings.HasPrefix(r, p+"-") || strings.HasPrefix(r, p+"_") {
+			return true
+		}
+	}
+	return false
+}
+
+// SubagentBudgetCap returns (warnAt, capAt) tool-call thresholds for a subagent
+// role. Builder/self roles get (90, 120); all audit, specialized, and unknown
+// subagent roles default to (25, 40).
+func SubagentBudgetCap(role string) (warnAt, capAt int) {
+	if IsBuilderSubagentRole(role) {
+		return 90, 120
+	}
+	return 25, 40
 }
 
 func checkWatchdogBudget(role string, toolCalls int) (string, string) {
-	if role == "" || strings.EqualFold(role, "main") {
+	r := strings.TrimSpace(role)
+	if r == "" || strings.EqualFold(r, "main") {
 		return "", ""
 	}
-	warnAt, capAt := 90, 120
-	if isAuditSubagentRole(role) {
-		warnAt, capAt = 25, 40
-	}
+	warnAt, capAt := SubagentBudgetCap(r)
 	if toolCalls >= capAt {
 		return fmt.Sprintf("[SUBAGENT_BUDGET] %s reached %d/%d tool calls; write final artifact or finish now", role, toolCalls, capAt), ""
 	}
@@ -106,12 +132,7 @@ func checkWatchdogBudget(role string, toolCalls int) (string, string) {
 
 func isAuditSubagentRole(role string) bool {
 	r := strings.ToLower(strings.TrimSpace(role))
-	for _, p := range []string{"reviewer", "security", "verifier", "explorer", "dreamer", "documentation", "research", "subagent"} {
-		if r == p || strings.HasPrefix(r, p+"-") || strings.HasPrefix(r, p+"_") {
-			return true
-		}
-	}
-	return strings.HasPrefix(r, "sub-")
+	return r != "" && r != "main" && !IsBuilderSubagentRole(r)
 }
 
 func isWatchdogExempt(dir string, in HookInput, normTool string) bool {

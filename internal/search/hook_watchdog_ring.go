@@ -41,14 +41,14 @@ func checkWatchdogErrorLoop(ctx context.Context, st *store, convID, ringTool, ar
 	if len(ring) >= 3 && ring[0].isError == 1 && ring[1].isError == 1 && ring[2].isError == 1 &&
 		ring[0].tool == ringTool && ring[1].tool == ringTool && ring[2].tool == ringTool &&
 		ring[0].argHash == argHash && ring[1].argHash == argHash && ring[2].argHash == argHash {
-		return "[TOKEN_LOOP] >= 3 consecutive identical failing tool calls"
+		return "[ERROR_LOOP] >= 3 consecutive identical failing tool calls"
 	}
 	key := func(r watchdogRingRow) string { return r.tool + ":" + r.argHash }
 	incoming := ringTool + ":" + argHash
 	if len(ring) >= 4 && ring[0].isError == 1 && ring[1].isError == 1 && ring[2].isError == 1 && ring[3].isError == 1 &&
 		key(ring[0]) == key(ring[2]) && key(ring[1]) == key(ring[3]) && key(ring[0]) != key(ring[1]) &&
 		incoming == key(ring[1]) {
-		return "[TOKEN_LOOP] repeating A-B-A-B error loop"
+		return "[ERROR_LOOP] repeating A-B-A-B error loop"
 	}
 	return ""
 }
@@ -85,13 +85,17 @@ func recordWatchdogAllowWithStore(ctx context.Context, st *store, dir string, in
 	convID := strings.TrimSpace(in.ConversationID)
 	callID := strings.TrimSpace(in.ToolCall.ID)
 	ts := nowFunc().Unix()
+	inc := 1
+	if wd.exempt {
+		inc = 0
+	}
 	_ = st.withImmediateTx(func() error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if _, err := st.db.ExecContext(ctx,
-			`INSERT INTO session_meta(conversation_id, generation_id, last_transcript_bytes, turn_count, est_tokens, agent_role, agent_name, tool_calls) VALUES (?, 0, 0, 0, 0, ?, ?, 1) ON CONFLICT(conversation_id) DO UPDATE SET agent_role = CASE WHEN session_meta.agent_role = '' THEN excluded.agent_role ELSE session_meta.agent_role END, agent_name = CASE WHEN session_meta.agent_role = '' THEN excluded.agent_name ELSE session_meta.agent_name END, tool_calls = session_meta.tool_calls + 1`,
-			convID, wd.role, wd.agentName,
+			`INSERT INTO session_meta(conversation_id, generation_id, last_transcript_bytes, turn_count, est_tokens, agent_role, agent_name, tool_calls) VALUES (?, 0, 0, 0, 0, ?, ?, ?) ON CONFLICT(conversation_id) DO UPDATE SET agent_role = CASE WHEN session_meta.agent_role = '' THEN excluded.agent_role ELSE session_meta.agent_role END, agent_name = CASE WHEN session_meta.agent_role = '' THEN excluded.agent_name ELSE session_meta.agent_name END, tool_calls = session_meta.tool_calls + ?`,
+			convID, wd.role, wd.agentName, inc, inc,
 		); err != nil {
 			return err
 		}

@@ -137,8 +137,8 @@ func TestWatchdogCircuitBreaker(t *testing.T) {
 			runWatchdogPost(t, home, dir, "conv-id", "run_command", failCmd, "exit 1", "", "")
 		}
 	}
-	if dec := runWatchdogPre(t, home, dir, "conv-id", "run_command", failCmd); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[TOKEN_LOOP]") {
-		t.Fatalf("4th identical error expected [TOKEN_LOOP], got %+v", dec)
+	if dec := runWatchdogPre(t, home, dir, "conv-id", "run_command", failCmd); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[ERROR_LOOP]") {
+		t.Fatalf("4th identical error expected [ERROR_LOOP], got %+v", dec)
 	}
 
 	// 3. TDD-safe green/red alternation NEVER triggers A-B-A-B, whereas all-error A-B-A-B DOES.
@@ -165,8 +165,8 @@ func TestWatchdogCircuitBreaker(t *testing.T) {
 		}
 		runWatchdogPost(t, home, dir, "conv-ab", "run_command", c, "boom", "", "")
 	}
-	if dec := runWatchdogPre(t, home, dir, "conv-ab", "run_command", cmdA); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[TOKEN_LOOP]") {
-		t.Fatalf("A-B-A-B all-error expected [TOKEN_LOOP], got %+v", dec)
+	if dec := runWatchdogPre(t, home, dir, "conv-ab", "run_command", cmdA); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[ERROR_LOOP]") {
+		t.Fatalf("A-B-A-B all-error expected [ERROR_LOOP], got %+v", dec)
 	}
 	if dec := runWatchdogPre(t, home, dir, "conv-ab", "read_file", map[string]any{"AbsolutePath": filepath.Join(dir, "a.go")}); dec.Decision != "allow" {
 		t.Fatalf("distinct recovery read_file after A-B-A-B should allow, got %+v", dec)
@@ -203,6 +203,10 @@ func TestWatchdogCircuitBreaker(t *testing.T) {
 		if dec := runWatchdogPre(t, home, dir, "conv-rev", tc.tool, tc.args); dec.Decision != "allow" {
 			t.Fatalf("exempt %s denied at cap: %+v", tc.tool, dec)
 		}
+	}
+	var revAfterExempt int
+	if err := db.QueryRow(`SELECT tool_calls FROM session_meta WHERE conversation_id = 'conv-rev'`).Scan(&revAfterExempt); err != nil || revAfterExempt != 40 {
+		t.Fatalf("exempt calls incremented conv-rev tool_calls=%d (err=%v), want 40", revAfterExempt, err)
 	}
 
 	if dec := runWatchdogPre(t, home, dir, "conv-self", "run_command", map[string]any{"CommandLine": "true"}); dec.Decision != "allow" {

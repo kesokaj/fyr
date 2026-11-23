@@ -42,6 +42,29 @@ func parseBashReadTokens(tokens []string) (BashFileRead, bool) {
 	return BashFileRead{}, false
 }
 
+func parseBashReadTokensMulti(tokens []string) ([]BashFileRead, bool) {
+	if len(tokens) < 2 {
+		return nil, false
+	}
+	switch tool := filepath.Base(tokens[0]); tool {
+	case "cat", "nl", "bat", "batcat":
+		return parseBashSimpleOrBatMulti(tool, tokens[1:])
+	case "head", "tail":
+		return parseBashHeadOrTailMulti(tool, tokens[1:])
+	case "sed":
+		return parseBashSedMulti(tokens[1:])
+	case "awk", "gawk", "mawk", "nawk":
+		return parseBashAwkRead(tokens[1:])
+	case "grep", "egrep", "fgrep", "rg":
+		return parseBashMatchAllGrepRead(tool, tokens[1:])
+	default:
+		if isPythonToolName(tool) {
+			return parseBashPythonRead(tokens[1:])
+		}
+	}
+	return nil, false
+}
+
 func stepTrackedBashDir(cwd string, unknown bool, toks []string) (bool, string, bool) {
 	hasEnv := false
 	for len(toks) > 0 && isEnvAssignToken(toks[0]) {
@@ -167,6 +190,14 @@ func stepQuotedShellByte(cmd string, i int, quote byte, cur *strings.Builder) (i
 }
 
 func parseBashSimpleOrBat(tool string, args []string) (BashFileRead, bool) {
+	reads, ok := parseBashSimpleOrBatMulti(tool, args)
+	if !ok || len(reads) != 1 {
+		return BashFileRead{}, false
+	}
+	return reads[0], true
+}
+
+func parseBashSimpleOrBatMulti(tool string, args []string) ([]BashFileRead, bool) {
 	if tool == "batcat" {
 		tool = "bat"
 	}
@@ -179,16 +210,23 @@ func parseBashSimpleOrBat(tool string, args []string) (BashFileRead, bool) {
 		case strings.HasPrefix(a, "-") && a != "-":
 			var ok bool
 			if i, start, end, ok = stepSimpleOrBatFlag(tool, args, i, start, end); !ok {
-				return BashFileRead{}, false
+				return nil, false
 			}
 		default:
 			files = append(files, a)
 		}
 	}
-	if len(files) != 1 || files[0] == "-" {
-		return BashFileRead{}, false
+	if len(files) == 0 {
+		return nil, false
 	}
-	return BashFileRead{Tool: tool, Path: files[0], StartLine: start, EndLine: end}, true
+	out := make([]BashFileRead, 0, len(files))
+	for _, f := range files {
+		if f == "" || f == "-" {
+			return nil, false
+		}
+		out = append(out, BashFileRead{Tool: tool, Path: f, StartLine: start, EndLine: end})
+	}
+	return out, true
 }
 
 func stepSimpleOrBatFlag(tool string, args []string, i, start, end int) (int, int, int, bool) {
@@ -234,6 +272,14 @@ func parseOptBatBound(raw string, minVal, def int) (int, bool) {
 }
 
 func parseBashHeadOrTail(tool string, args []string) (BashFileRead, bool) {
+	reads, ok := parseBashHeadOrTailMulti(tool, args)
+	if !ok || len(reads) != 1 {
+		return BashFileRead{}, false
+	}
+	return reads[0], true
+}
+
+func parseBashHeadOrTailMulti(tool string, args []string) ([]BashFileRead, bool) {
 	rawCount := "10"
 	var files []string
 	for i := 0; i < len(args); i++ {
@@ -243,7 +289,7 @@ func parseBashHeadOrTail(tool string, args []string) (BashFileRead, bool) {
 			i = len(args)
 		case a == "-n" || a == "--lines":
 			if i+1 >= len(args) {
-				return BashFileRead{}, false
+				return nil, false
 			}
 			i, rawCount = i+1, args[i+1]
 		case strings.HasPrefix(a, "-n") || strings.HasPrefix(a, "--lines="):
@@ -252,16 +298,27 @@ func parseBashHeadOrTail(tool string, args []string) (BashFileRead, bool) {
 			if _, err := strconv.Atoi(a[1:]); err == nil {
 				rawCount = a[1:]
 			} else if !strings.Contains("|-q|-v|--quiet|--silent|--verbose|", "|"+a+"|") {
-				return BashFileRead{}, false
+				return nil, false
 			}
 		default:
 			files = append(files, a)
 		}
 	}
-	if len(files) != 1 || files[0] == "-" {
-		return BashFileRead{}, false
+	if len(files) == 0 {
+		return nil, false
 	}
-	return buildHeadOrTailRead(tool, files[0], rawCount)
+	out := make([]BashFileRead, 0, len(files))
+	for _, f := range files {
+		if f == "" || f == "-" {
+			return nil, false
+		}
+		r, ok := buildHeadOrTailRead(tool, f, rawCount)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, r)
+	}
+	return out, true
 }
 
 func buildHeadOrTailRead(tool, filePath, rawCount string) (BashFileRead, bool) {

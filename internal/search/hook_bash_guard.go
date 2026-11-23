@@ -149,6 +149,14 @@ func checkInteractiveSegment(cmd string, args []string) string {
 		if !hasNonInteractiveSudoFlag(args) {
 			return "[INTERACTIVE_STDIN] sudo without -n/--non-interactive may prompt for input"
 		}
+	case "read":
+		if hasReadPromptFlag(args) {
+			return "[INTERACTIVE_STDIN] interactive read -p prompts on stdin; pass values non-interactively"
+		}
+	case "ssh":
+		if reason := checkInteractiveSSH(args); reason != "" {
+			return reason
+		}
 	case "git":
 		switch sub, subArgs := skipGitGlobalFlags(args); sub {
 		case "commit":
@@ -309,4 +317,100 @@ func isMutatingGitTagFlag(a string) bool {
 		}
 	}
 	return len(a) > 1 && a[0] == '-' && a[1] != '-' && strings.ContainsAny(a[1:], "asufdmFe")
+}
+
+func hasReadPromptFlag(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" || !strings.HasPrefix(a, "-") || a == "-" {
+			return false
+		}
+		if strings.HasPrefix(a, "--") {
+			continue
+		}
+		hit, skipNext := scanGitShortCluster(a[1:], "p", "dinNtua", "")
+		if hit {
+			return true
+		}
+		if skipNext {
+			i++
+		}
+	}
+	return false
+}
+
+func checkInteractiveSSH(args []string) string {
+	const sshValFlags = "BbcDEeFIiJLlmOoPpQRSWw"
+	batchMode, batchDisabled, forceTTY, nonConn := false, false, false, false
+	posIdx := len(args)
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			posIdx = i + 1
+			break
+		}
+		if !strings.HasPrefix(a, "-") || a == "-" {
+			posIdx = i
+			break
+		}
+		if strings.HasPrefix(a, "--") {
+			continue
+		}
+		i, batchMode, batchDisabled, forceTTY, nonConn = stepSSHShortFlags(args, i, sshValFlags, batchMode, batchDisabled, forceTTY, nonConn)
+	}
+	if nonConn {
+		return ""
+	}
+	if forceTTY || len(args)-posIdx < 2 || !batchMode || batchDisabled {
+		return "[INTERACTIVE_STDIN] interactive ssh may block on stdin/tty; pass -o BatchMode=yes with a remote command (without -t)"
+	}
+	return ""
+}
+
+func stepSSHShortFlags(args []string, i int, valFlags string, batchMode, batchDisabled, forceTTY, nonConn bool) (int, bool, bool, bool, bool) {
+	cl := args[i][1:]
+	for j := 0; j < len(cl); j++ {
+		c := cl[j]
+		switch c {
+		case 't':
+			forceTTY = true
+		case 'V', 'G', 'Q', 'O':
+			nonConn = true
+		}
+		if strings.IndexByte(valFlags, c) >= 0 {
+			val := cl[j+1:]
+			if val == "" && i+1 < len(args) {
+				i++
+				val = args[i]
+			}
+			if c == 'o' {
+				if isSSHBatchModeValue(val, true) {
+					batchMode = true
+				} else if isSSHBatchModeValue(val, false) {
+					batchDisabled = true
+				}
+			}
+			return i, batchMode, batchDisabled, forceTTY, nonConn
+		}
+	}
+	return i, batchMode, batchDisabled, forceTTY, nonConn
+}
+
+func isSSHBatchModeValue(raw string, wantYes bool) bool {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	var key, val string
+	if k, v, ok := strings.Cut(s, "="); ok {
+		key, val = strings.TrimSpace(k), strings.TrimSpace(v)
+	} else if f := strings.Fields(s); len(f) == 2 {
+		key, val = f[0], f[1]
+	} else {
+		return false
+	}
+	if key != "batchmode" {
+		return false
+	}
+	if wantYes {
+		return val == "yes" || val == "true"
+	}
+	return val == "no" || val == "false"
 }

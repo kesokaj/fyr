@@ -30,7 +30,7 @@ type workflowCallSpan struct {
 }
 
 func handlePreToolWorkflow(home, dir string, in HookInput, out io.Writer) error {
-	script, inlineKey, isInline, loadDeny := loadWorkflowScriptSource(dir, in.ToolCall.Args)
+	script, inlineKey, isInline, loadDeny := loadWorkflowScriptSource(home, dir, in.ToolCall.Args)
 	if loadDeny != "" {
 		return writeDecision(out, "deny", loadDeny)
 	}
@@ -56,7 +56,7 @@ func handlePreToolWorkflow(home, dir string, in HookInput, out io.Writer) error 
 	return writeDecision(out, "allow", "")
 }
 
-func loadWorkflowScriptSource(dir string, args map[string]any) (string, string, bool, string) {
+func loadWorkflowScriptSource(home, dir string, args map[string]any) (string, string, bool, string) {
 	for _, key := range []string{"Script", "script"} {
 		if s, ok := args[key].(string); ok && strings.TrimSpace(s) != "" {
 			return s, key, true, ""
@@ -66,34 +66,92 @@ func loadWorkflowScriptSource(dir string, args map[string]any) (string, string, 
 	if path == "" {
 		return "", "", false, ""
 	}
-	if strings.TrimSpace(dir) == "" {
-		return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses ScriptPath outside workspace directory."
-	}
-	cleanDir, err := filepath.Abs(dir)
-	if err != nil {
-		return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses unreadable ScriptPath."
-	}
-	rel, deny := resolveContainedRelScriptPath(cleanDir, path)
+	rootDir, rel, isInstalled, deny := resolveAllowedWorkflowRoot(home, dir, path)
 	if deny != "" {
 		return "", "", false, deny
 	}
-	return readContainedWorkflowScript(cleanDir, rel)
+	return readContainedWorkflowScript(rootDir, rel, isInstalled)
 }
 
-func resolveContainedRelScriptPath(cleanDir, path string) (string, string) {
+func resolveAllowedWorkflowRoot(home, dir, path string) (string, string, bool, string) {
+	if strings.TrimSpace(dir) != "" {
+		cleanDir, err := filepath.Abs(dir)
+		if err != nil {
+			return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses unreadable ScriptPath."
+		}
+		if rel, contained, deny := matchContainedWorkspaceScript(cleanDir, path); contained || deny != "" {
+			return cleanDir, rel, false, deny
+		}
+	}
+	if !filepath.IsAbs(path) {
+		return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses ScriptPath outside workspace directory."
+	}
+	if strings.TrimSpace(home) != "" {
+		if wfDir, rel, matched, deny := matchInstalledWorkflowScript(home, path); matched || deny != "" {
+			return wfDir, rel, true, deny
+		}
+	}
+	return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses ScriptPath outside workspace or installed workflows directory."
+}
+
+func matchContainedWorkspaceScript(cleanDir, path string) (string, bool, string) {
 	absPath := path
 	if !filepath.IsAbs(absPath) {
 		absPath = filepath.Join(cleanDir, absPath)
 	}
-	absPath = filepath.Clean(absPath)
-	rel, err := filepath.Rel(cleanDir, absPath)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return "", "[MODEL_OVERRIDE] run_workflow refuses ScriptPath outside workspace directory."
+	rel, err := filepath.Rel(cleanDir, filepath.Clean(absPath))
+	if err != nil || !isContainedRelPath(rel) {
+		return "", false, ""
 	}
 	if hasSymlinkRelSegment(cleanDir, rel) {
-		return "", "[MODEL_OVERRIDE] run_workflow refuses symlink ScriptPath; pass a regular workspace file."
+		return "", true, "[MODEL_OVERRIDE] run_workflow refuses symlink ScriptPath; pass a regular workspace file."
 	}
-	return rel, ""
+	return rel, true, ""
+}
+
+func matchInstalledWorkflowScript(home, path string) (string, string, bool, string) {
+	if hasDotDotSegment(path) {
+		return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses ScriptPath with '..' segment."
+	}
+	cleanHome, err := filepath.Abs(home)
+	if err != nil {
+		return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses unreadable ScriptPath."
+	}
+	wfRelFromHome := filepath.Join(".gemini", "config", "workflows")
+	wfDir := filepath.Join(cleanHome, wfRelFromHome)
+	rel, err := filepath.Rel(wfDir, filepath.Clean(path))
+	if err != nil || !isContainedRelPath(rel) {
+		return "", "", false, ""
+	}
+	if hasSymlinkRelSegment(cleanHome, wfRelFromHome) || !isRegularDirNoSymlink(wfDir) {
+		return "", "", true, "[MODEL_OVERRIDE] run_workflow refuses symlink or invalid installed workflows directory."
+	}
+	if hasSymlinkRelSegment(wfDir, rel) {
+		return "", "", true, "[MODEL_OVERRIDE] run_workflow refuses symlink ScriptPath; pass a regular .py workflow file."
+	}
+	if filepath.Ext(rel) != ".py" {
+		return "", "", true, "[MODEL_OVERRIDE] run_workflow refuses non-.py ScriptPath in installed workflows directory."
+	}
+	fi, err := os.Lstat(filepath.Join(wfDir, rel))
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() > 1<<20 {
+		return "", "", true, "[MODEL_OVERRIDE] run_workflow refuses missing, non-regular, or > 1 MiB installed workflow ScriptPath."
+	}
+	return wfDir, rel, true, ""
+}
+
+func isContainedRelPath(rel string) bool {
+	return rel != "" && rel != "." && rel != ".." &&
+		!strings.HasPrefix(rel, ".."+string(filepath.Separator)) &&
+		!filepath.IsAbs(rel)
+}
+
+func hasDotDotSegment(p string) bool {
+	for _, seg := range strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if seg == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func hasSymlinkRelSegment(baseDir, rel string) bool {
@@ -110,10 +168,10 @@ func hasSymlinkRelSegment(baseDir, rel string) bool {
 	return false
 }
 
-func readContainedWorkflowScript(cleanDir, rel string) (string, string, bool, string) {
+func readContainedWorkflowScript(cleanDir, rel string, requireRegular bool) (string, string, bool, string) {
 	root, err := os.OpenRoot(cleanDir)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if !requireRegular && errors.Is(err, os.ErrNotExist) {
 			return "", "", false, ""
 		}
 		return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses unreadable ScriptPath."
@@ -121,7 +179,7 @@ func readContainedWorkflowScript(cleanDir, rel string) (string, string, bool, st
 	defer root.Close()
 	f, err := root.Open(rel)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if !requireRegular && errors.Is(err, os.ErrNotExist) {
 			return "", "", false, ""
 		}
 		return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses symlink or unreadable ScriptPath."

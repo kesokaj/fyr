@@ -1,6 +1,58 @@
 package search
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
+
+func parseBashSedMulti(args []string) ([]BashFileRead, bool) {
+	quiet, scripts, pos, ok := parseSedArgs(args, -1)
+	if !ok || !quiet || len(scripts) == 0 || len(pos) == 0 {
+		return nil, false
+	}
+	ranges, ok := parseSedMultiRanges(scripts)
+	if !ok {
+		return nil, false
+	}
+	out := make([]BashFileRead, 0, len(pos)*len(ranges))
+	for _, f := range pos {
+		if f == "" || f == "-" {
+			return nil, false
+		}
+		for _, rg := range ranges {
+			out = append(out, BashFileRead{Tool: "sed", Path: f, StartLine: rg[0], EndLine: rg[1]})
+		}
+	}
+	return out, true
+}
+
+func parseSedMultiRanges(scripts []string) ([][2]int, bool) {
+	var ranges [][2]int
+	for _, sc := range scripts {
+		parts := strings.FieldsFunc(sc, func(r rune) bool { return r == ';' || r == '\n' })
+		for _, raw := range parts {
+			clause := strings.TrimSpace(raw)
+			if clause == "" {
+				continue
+			}
+			if strings.HasSuffix(clause, "q") {
+				pref := strings.TrimSpace(strings.TrimSuffix(clause, "q"))
+				if pref != "" {
+					if n, err := strconv.Atoi(pref); err != nil || n <= 0 {
+						return nil, false
+					}
+				}
+				continue
+			}
+			s, e, ok := parseSedRangeScript(clause)
+			if !ok {
+				return nil, false
+			}
+			ranges = append(ranges, [2]int{s, e})
+		}
+	}
+	return ranges, len(ranges) > 0
+}
 
 func applyStdinSedStage(cur BashFileRead, lineMapped bool, args []string) (BashFileRead, bool, bool) {
 	quiet, scripts, ok := parseStdinSedArgs(args)
@@ -56,8 +108,13 @@ func parseSedArgs(args []string, maxFiles int) (bool, []string, []string, bool) 
 			pos = append(pos, a)
 		}
 	}
-	if len(scripts) == 0 && len(pos) == maxFiles+1 && pos[0] != "-" {
-		scripts, pos = []string{pos[0]}, pos[1:]
+	if len(scripts) == 0 && len(pos) > 0 && pos[0] != "-" {
+		if (maxFiles < 0 && len(pos) >= 2) || (maxFiles >= 0 && len(pos) == maxFiles+1) {
+			scripts, pos = []string{pos[0]}, pos[1:]
+		}
+	}
+	if maxFiles < 0 {
+		return quiet, scripts, pos, len(pos) >= 1
 	}
 	return quiet, scripts, pos, len(pos) <= maxFiles
 }

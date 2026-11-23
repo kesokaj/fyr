@@ -1,8 +1,16 @@
 package search
 
 import (
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+)
+
+var (
+	awkNRRangeCommaRe = regexp.MustCompile(`^\s*F?NR\s*==\s*(\d+)\s*,\s*F?NR\s*==\s*(\d+)\s*$`)
+	awkNREqRe         = regexp.MustCompile(`^\s*F?NR\s*==\s*(\d+)\s*$`)
+	awkNRCmpRe        = regexp.MustCompile(`^\s*(?:(F?NR)\s*(>=|>|<=|<)\s*(\d+)|(\d+)\s*(>=|>|<=|<)\s*(F?NR))\s*$`)
 )
 
 func isUnsafeAwkArg(a string) bool {
@@ -234,4 +242,162 @@ func isStdinNoFlagVal(args, blockedLongs []string) bool {
 		}
 	}
 	return true
+}
+
+func parseBashAwkRead(args []string) ([]BashFileRead, bool) {
+	var prog string
+	var files []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			rest := args[i+1:]
+			if prog == "" && len(rest) > 0 {
+				prog, rest = rest[0], rest[1:]
+			}
+			files = append(files, rest...)
+			break
+		}
+		if prog == "" && strings.HasPrefix(a, "-") && len(a) > 1 {
+			nextIdx, ok := stepSafeAwkFlag(args, i)
+			if !ok {
+				return nil, false
+			}
+			i = nextIdx
+			continue
+		}
+		if prog == "" {
+			prog = a
+		} else {
+			files = append(files, a)
+		}
+	}
+	if prog == "" || len(files) == 0 || !isSafeAwkReadProgram(prog) {
+		return nil, false
+	}
+	start, end, ok := parseAwkLineRange(prog)
+	if !ok {
+		return nil, false
+	}
+	out := make([]BashFileRead, 0, len(files))
+	for _, f := range files {
+		if f == "" || f == "-" {
+			return nil, false
+		}
+		out = append(out, BashFileRead{Tool: "awk", Path: f, StartLine: start, EndLine: end})
+	}
+	return out, true
+}
+
+func isSafeAwkReadProgram(prog string) bool {
+	low := strings.ToLower(prog)
+	if strings.Contains(prog, "|") || strings.Contains(prog, ">>") ||
+		awkSystemCallRe.MatchString(prog) || strings.Contains(low, "getline") ||
+		strings.Contains(low, "close(") || strings.Contains(low, "fflush(") {
+		return false
+	}
+	brace := strings.IndexByte(prog, '{')
+	for i := 0; i < len(prog); i++ {
+		if prog[i] != '>' || (i+1 < len(prog) && prog[i+1] == '=') {
+			continue
+		}
+		if brace >= 0 && i >= brace {
+			return false
+		}
+	}
+	return true
+}
+
+func parseAwkLineRange(prog string) (int, int, bool) {
+	cond, body := strings.TrimSpace(prog), ""
+	if brace := strings.IndexByte(cond, '{'); brace >= 0 {
+		body = strings.TrimSpace(cond[brace:])
+		cond = strings.TrimSpace(cond[:brace])
+		if !strings.HasSuffix(body, "}") || !strings.Contains(body, "print") {
+			return 0, 0, false
+		}
+	}
+	if cond == "" {
+		low := strings.ToLower(body)
+		if body == "" || strings.Contains(low, "if") || strings.Contains(low, "begin") || strings.Contains(low, "end") {
+			return 0, 0, false
+		}
+		return 1, 0, true
+	}
+	for strings.HasPrefix(cond, "(") && strings.HasSuffix(cond, ")") {
+		cond = strings.TrimSpace(cond[1 : len(cond)-1])
+	}
+	if cond == "1" {
+		return 1, 0, true
+	}
+	if m := awkNRRangeCommaRe.FindStringSubmatch(cond); len(m) == 3 {
+		s, err1 := strconv.Atoi(m[1])
+		e, err2 := strconv.Atoi(m[2])
+		return s, e, err1 == nil && err2 == nil && s >= 1 && e >= s
+	}
+	if m := awkNREqRe.FindStringSubmatch(cond); len(m) == 2 {
+		n, err := strconv.Atoi(m[1])
+		return n, n, err == nil && n >= 1
+	}
+	return parseAwkNRCompound(cond)
+}
+
+func parseAwkNRCompound(cond string) (int, int, bool) {
+	clauses := strings.Split(cond, "&&")
+	if len(clauses) == 0 || len(clauses) > 2 {
+		return 0, 0, false
+	}
+	lower, upper, hasBound := 1, 0, false
+	for _, cl := range clauses {
+		isLower, val, ok := parseAwkNRBound(cl)
+		if !ok {
+			return 0, 0, false
+		}
+		hasBound = true
+		if isLower {
+			lower = max(lower, val)
+		} else if upper == 0 || val < upper {
+			upper = val
+		}
+	}
+	return lower, upper, hasBound && lower >= 1 && (upper == 0 || upper >= lower)
+}
+
+func parseAwkNRBound(clause string) (bool, int, bool) {
+	m := awkNRCmpRe.FindStringSubmatch(strings.TrimSpace(clause))
+	if len(m) != 7 {
+		return false, 0, false
+	}
+	var op string
+	var n int
+	var err error
+	if m[1] != "" {
+		op, n, err = m[2], 0, nil
+		n, err = strconv.Atoi(m[3])
+	} else {
+		n, err = strconv.Atoi(m[4])
+		switch m[5] {
+		case "<=":
+			op = ">="
+		case "<":
+			op = ">"
+		case ">=":
+			op = "<="
+		case ">":
+			op = "<"
+		}
+	}
+	if err != nil {
+		return false, 0, false
+	}
+	switch op {
+	case ">=":
+		return true, max(1, n), n >= 0
+	case ">":
+		return true, max(1, n+1), n >= 0
+	case "<=":
+		return false, n, n >= 1
+	case "<":
+		return false, n - 1, n >= 2
+	}
+	return false, 0, false
 }

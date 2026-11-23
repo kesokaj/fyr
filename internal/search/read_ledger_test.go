@@ -543,6 +543,7 @@ func TestParseBashFileReadsChainsAndCd(t *testing.T) {
 		{"make test && cat a.go", []BashFileRead{{Tool: "cat", Path: "a.go", StartLine: 1}}},
 		{"cd ~ && cat a.go; cd - && cat b.go; cd -P sub && cat c.go", nil},
 		{"cd sub && cat /abs/path.go", []BashFileRead{{Tool: "cat", Path: "/abs/path.go", StartLine: 1}}},
+		{"(cd sub && cat a.go)", []BashFileRead{{Tool: "cat", Path: "sub/a.go", StartLine: 1}}},
 	}
 	for _, tc := range cases {
 		got := ParseBashFileReads(tc.cmd)
@@ -572,7 +573,10 @@ func TestParseBashFileReadsIgnoresComplexShell(t *testing.T) {
 		"cat [ab].go",
 		"cat a.go &",
 		"cat a.go &&& cat b.go",
-		"(cd sub && cat a.go)",
+		"(cd sub && cat $(echo a.go))",
+		"(for f in a.go; do cat a.go; done)",
+		"(cd sub && cat a.go | head -n 5)",
+		"(cd sub && cat a.go) | head -n 5",
 		"cat a.go || cat b.go",
 		"cat 'unterminated.go",
 	}

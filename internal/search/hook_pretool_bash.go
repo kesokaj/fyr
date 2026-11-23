@@ -67,7 +67,7 @@ type resolvedBashRead struct {
 
 func isUnrangedBashRead(r BashFileRead) bool {
 	switch r.Tool {
-	case "cat", "nl", "bat":
+	case "cat", "nl", "bat", "awk", "python", "grep", "rg":
 		return r.StartLine <= 1 && r.EndLine == 0 && r.TailLines == 0
 	default:
 		return false

@@ -142,7 +142,8 @@ func buildLightweightSubagentSections(o Options, sc *scope, dir string, state Se
 		sections = append(sections, warn)
 		meta.Notices = append(meta.Notices, warn)
 	}
-	meta.Notices = append(meta.Notices, fmt.Sprintf("subagent fast-path: %s (budget %d/%d)", sub.role, sub.toolCalls, subagentBudgetCap(sub.role)))
+	_, capAt := SubagentBudgetCap(sub.role)
+	meta.Notices = append(meta.Notices, fmt.Sprintf("subagent fast-path: %s (budget %d/%d)", sub.role, sub.toolCalls, capAt))
 	meta.ExtraSections = sections
 	return sections, meta
 }
@@ -155,11 +156,4 @@ func lightweightSubagentGate(compacted, bypassed bool, intent IntentMode, confli
 		return GatePassThrough
 	}
 	return GateEnrichAndProceed
-}
-
-func subagentBudgetCap(role string) int {
-	if isAuditSubagentRole(role) {
-		return 40
-	}
-	return 120
 }

@@ -13,6 +13,7 @@ const (
 	maxReadFileLines      = 800
 	maxReadFileBytes      = 46080
 	clampSkeletonMinLines = 400
+	clampSkeletonMinBytes = 16384
 	clampOnceSentinelLine = -5
 	clampMaxSkeletonLines = 60
 )
@@ -96,7 +97,8 @@ func hasExplicitReadRange(args map[string]any) bool {
 }
 
 func checkUnrangedClampWithStore(ctx context.Context, st *store, root, conversationID string, snap readFileSnapshot, args map[string]any) (ReadDecision, bool) {
-	if st == nil || !shouldGuardReadInRoot(root, snap.resolved) || ctx.Err() != nil || hasExplicitReadRange(args) || !snap.ok || snap.totalLines < clampSkeletonMinLines {
+	if st == nil || !shouldGuardReadInRoot(root, snap.resolved) || ctx.Err() != nil || hasExplicitReadRange(args) || !snap.ok ||
+		(snap.totalLines < clampSkeletonMinLines && len(snap.data) < clampSkeletonMinBytes) {
 		return ReadDecision{}, false
 	}
 	convID := normalizeLedgerConvID(conversationID)

@@ -181,11 +181,13 @@ func TestPreInvocationLightweightSubagentFastPath(t *testing.T) {
 		extra    map[string]any
 		wantRole string
 	}{
-		{"reviewer", "conv-sub-reviewer", map[string]any{"agentName": "reviewer"}, "reviewer"},
-		{"security", "conv-sub-security", map[string]any{"agentName": "security"}, "security"},
-		{"verifier", "conv-sub-verifier", map[string]any{"agentName": "verifier"}, "verifier"},
-		{"explorer", "conv-sub-explorer", map[string]any{"agentName": "explorer"}, "explorer"},
-		{"parent_conv_child", "conv-sub-child", map[string]any{"parentConversationId": "parent-conv-1"}, "self"},
+		{"reviewer", "conv-sub-reviewer", map[string]any{"agentName": "reviewer"}, "reviewer (budget 0/40)"},
+		{"security", "conv-sub-security", map[string]any{"agentName": "security"}, "security (budget 0/40)"},
+		{"verifier", "conv-sub-verifier", map[string]any{"agentName": "verifier"}, "verifier (budget 0/40)"},
+		{"explorer", "conv-sub-explorer", map[string]any{"agentName": "explorer"}, "explorer (budget 0/40)"},
+		{"unknown_audit_role", "conv-sub-custom", map[string]any{"agentName": "custom-audit"}, "custom-audit (budget 0/40)"},
+		{"builder_child", "conv-sub-builder", map[string]any{"agentName": "builder-p7", "parentConversationId": "parent-conv-1"}, "builder-p7 (budget 0/120)"},
+		{"parent_conv_child", "conv-sub-child", map[string]any{"parentConversationId": "parent-conv-1"}, "self (budget 0/120)"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
