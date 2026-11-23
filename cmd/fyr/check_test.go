@@ -309,3 +309,25 @@ func TestVocabularyCoversStateAndAutoForce(t *testing.T) {
 		t.Errorf("auto run missing --force in vocabulary: %+v", v["auto"].Subverbs["run"])
 	}
 }
+
+func TestVocabularyMetricsRecordRunFlags(t *testing.T) {
+	v := vocabulary()
+	recRun := v["metrics"].Subverbs["record-run"]
+	if !recRun["json-in"] || !recRun["json"] || !recRun["home"] || !recRun["repo"] {
+		t.Errorf("metrics record-run missing expected flags: %+v", recRun)
+	}
+	if recRun["since"] || recRun["source"] {
+		t.Errorf("metrics record-run unexpectedly accepts unrelated flags: %+v", recRun)
+	}
+	covered := map[string]bool{}
+	for _, sub := range metricsSubverbs {
+		for f := range v["metrics"].Subverbs[sub] {
+			covered[f] = true
+		}
+	}
+	for f := range v["metrics"].Flags {
+		if !covered[f] {
+			t.Errorf("metrics flag --%s is not mapped to any metrics subverb", f)
+		}
+	}
+}

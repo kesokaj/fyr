@@ -46,7 +46,7 @@ func TestTrackedTestSymlinkIsSkippedWithNote(t *testing.T) {
 func TestUnreadableVendoredIsNoted(t *testing.T) {
 	files := map[string]string{
 		"skills/table.txt":         "| Skill | Source |\n|-------|--------|\n| grilling | x |\n",
-		"skills/grilling/SKILL.md": "`fyr frobnicate`\n",
+		"skills/grilling/SKILL.md": "---\nname: grilling\ndescription: grilling skill\n---\n`fyr frobnicate`\n",
 		"internal/a.go":            "package a\n",
 	}
 	dir := repo(t, files)
@@ -56,7 +56,7 @@ func TestUnreadableVendoredIsNoted(t *testing.T) {
 	git(t, dir, "add", "skills/VENDORED.md")
 	git(t, dir, "commit", "-q", "-m", "link")
 	rep := run(t, dir)
-	same(t, rep.Findings, "skills/grilling/SKILL.md:1 verb")
+	same(t, rep.Findings, "skills/grilling/SKILL.md:5 verb")
 	if !noted(rep, "skills/VENDORED.md") {
 		t.Errorf("notes %q do not name the skipped skills/VENDORED.md", rep.Notes)
 	}

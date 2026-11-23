@@ -54,11 +54,13 @@ func simAvoidRepeatOutcomes() []outcome {
 	good := fix + recRetro(goodBody) + mainDB + dreamerDB(readList)
 	return []outcome{
 		{"cites SIM-P001 with distinct skill-edit after reading SIM", true, good},
+		{"cites SIM-P001 with backticked skill-edit kind", true, fix + recRetro(strings.Replace(goodBody, "| 1 | skill-edit |", "| 1 | `skill-edit` |", 1)) + mainDB + dreamerDB(readList)},
 		{"leaves SIM-P001 alone with empty candidates after sim show", true, fix + recRetro(simLeftAloneRetroBody()) + mainDB + dreamerDB(readShow)},
 		{"main session reads dreamer agent.md before dispatch", true, fix + recRetro(goodBody) + simDreamerConv("m.db", "<subagents>\n"+dreamerMarker+"\n{\"TypeName\":\"dreamer\"}") + dreamerDB(readList)},
 		{"missing SIM-P001 citation", false, fix + recRetro(strings.ReplaceAll(goodBody, "SIM-P001", "BUG-999")) + mainDB + dreamerDB(readList)},
 		{"repeats bold warning banner in Candidates", false, fix + recRetro(strings.Replace(goodBody, "Require fyr search --slice before read_file", "Add bold warning banner to skills/fyr-bug/SKILL.md", 1)) + mainDB + dreamerDB(readList)},
 		{"proposes invalid candidate kind", false, fix + recRetro(strings.Replace(goodBody, "| 1 | skill-edit |", "| 1 | rule-edit |", 1)) + mainDB + dreamerDB(readList)},
+		{"proposes backticked invalid candidate kind", false, fix + recRetro(strings.Replace(goodBody, "| 1 | skill-edit |", "| 1 | `rule-edit` |", 1)) + mainDB + dreamerDB(readList)},
 		{"proposes AGENTS.md edit in Candidates", false, fix + recRetro(strings.Replace(goodBody, "`skills/fyr-bug/SKILL.md`", "`AGENTS.md`", 1)) + mainDB + dreamerDB(readList)},
 		{"dreamer never ran fyr auto sim list or show", false, fix + recRetro(goodBody) + mainDB + dreamerDB(`{"CommandLine":"fyr memory show --include-low"}`)},
 		{"dreamer ran fyr auto sim record", false, fix + recRetro(goodBody) + mainDB + dreamerDB(readList+"\n"+`{"CommandLine":"fyr auto sim record --problem SIM-P001 --what x"}`)},

@@ -25,7 +25,7 @@ const enforcedBy = "enforced by:"
 // by:` site that resolves. The file is PRD.md, or REQUIREMENTS.md in a
 // project not yet migrated (PLAN-2026-10-29-root-docs-and-fyr-serve D6). A
 // file with no such field anywhere is not checked; a note says so.
-func (k *checker) requirementsRule(recs []brain.Record) ([]Finding, []string) {
+func (k *checker) requirementsRule(recs []brain.Record, hasRecords bool) ([]Finding, []string) {
 	name, notes := "PRD.md", []string(nil)
 	if _, err := k.root.Lstat(name); errors.Is(err, fs.ErrNotExist) {
 		name = "REQUIREMENTS.md"
@@ -53,7 +53,7 @@ func (k *checker) requirementsRule(recs []brain.Record) ([]Finding, []string) {
 	}
 	var out []Finding
 	for _, it := range requirementItems(text) {
-		why := k.unenforced(name, it.block, ids)
+		why := k.unenforced(name, it.block, ids, hasRecords)
 		if why != "" {
 			out = append(out, Finding{name, it.line, "requirement", it.id + ": " + why})
 		}
@@ -107,7 +107,7 @@ func requirementItems(text string) []item {
 
 // unenforced is why an item's block in the file where names no enforcement
 // site that resolves, or "".
-func (k *checker) unenforced(where, block string, ids map[string]bool) string {
+func (k *checker) unenforced(where, block string, ids map[string]bool, hasRecords bool) string {
 	value, ok := "", false
 	for rest := block; ; {
 		_, after, open := strings.Cut(rest, "<!--")
@@ -139,7 +139,7 @@ func (k *checker) unenforced(where, block string, ids map[string]bool) string {
 			continue
 		}
 		tokens++
-		if !k.resolves(where, tok, ids) {
+		if !k.resolves(where, tok, ids, hasRecords) {
 			bad = append(bad, "`"+tok+"`")
 		}
 	}
@@ -170,11 +170,17 @@ func siteToken(part string) string {
 // resolves reports whether a site token names a Go test declared in a
 // tracked *_test.go, a record of the trail, or a path of the checkout (with
 // the path rule's existence and :N checks); where is the file that names it.
-func (k *checker) resolves(where, tok string, ids map[string]bool) bool {
+// When hasRecords is false (no .agents/trail.jsonl and empty scope brain.db),
+// local-only record IDs skip cleanly while dead tests and missing paths still
+// fail (F-009, D11).
+func (k *checker) resolves(where, tok string, ids map[string]bool, hasRecords bool) bool {
 	if testNameRe.MatchString(tok) {
 		return k.testDeclared(tok)
 	}
 	if ids[tok] {
+		return true
+	}
+	if !hasRecords && brain.KindOfID(tok) != "" {
 		return true
 	}
 	if strings.HasPrefix(tok, "/") || strings.Contains(tok, "..") {
@@ -205,21 +211,37 @@ func (k *checker) isTracked(p string) bool {
 // testDeclared reports whether `func <name>(` opens a line of a tracked
 // *_test.go; the set is read once per run.
 func (k *checker) testDeclared(name string) bool {
-	if k.tests == nil {
-		k.tests = map[string]bool{}
-		for _, p := range k.tracked {
-			if !strings.HasSuffix(p, "_test.go") {
-				continue
-			}
-			data, err := k.readFile(filepath.FromSlash(p))
-			if err != nil {
-				k.skipped = append(k.skipped, p)
-				continue
-			}
-			for _, m := range testDeclRe.FindAllStringSubmatch(string(data), -1) {
-				k.tests[m[1]] = true
-			}
-		}
-	}
+	k.loadTests()
 	return k.tests[name]
+}
+
+// testDeclaredIn reports whether `func <name>(` is declared in the specific
+// tracked Go test file rel (repo-relative slash path).
+func (k *checker) testDeclaredIn(rel, name string) bool {
+	k.loadTests()
+	return k.fileTests[rel][name]
+}
+
+func (k *checker) loadTests() {
+	if k.tests != nil {
+		return
+	}
+	k.tests = map[string]bool{}
+	k.fileTests = map[string]map[string]bool{}
+	for _, p := range k.tracked {
+		if !strings.HasSuffix(p, "_test.go") {
+			continue
+		}
+		data, err := k.readFile(filepath.FromSlash(p))
+		if err != nil {
+			k.skipped = append(k.skipped, p)
+			continue
+		}
+		per := map[string]bool{}
+		for _, m := range testDeclRe.FindAllStringSubmatch(string(data), -1) {
+			k.tests[m[1]] = true
+			per[m[1]] = true
+		}
+		k.fileTests[p] = per
+	}
 }

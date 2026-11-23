@@ -177,7 +177,7 @@ func TestDocsRulePaths(t *testing.T) {
 	dir := repo(t, map[string]string{
 		".gitignore":         ".agents/scratch/\n",
 		"internal/here.go":   "package x\n\nfunc A() {}\n",
-		"skills/x/SKILL.md":  "deployed: `internal/gone2.go` and `internal/here.go:2`\n",
+		"skills/x/SKILL.md":  "---\nname: x\ndescription: x skill\n---\ndeployed: `internal/gone2.go` and `internal/here.go:2`\n",
 		"cmd/fyr/main.go":    "package main\n",
 		".agents/kit/run.sh": "#!/bin/sh\n",
 		"README.md": strings.Join([]string{
@@ -190,7 +190,7 @@ func TestDocsRulePaths(t *testing.T) {
 	same(t, rep.Findings,
 		"README.md:1 path", "README.md:1 line", "README.md:1 line", "README.md:1 line",
 		"README.md:3 path",
-		"skills/x/SKILL.md:1 path",
+		"skills/x/SKILL.md:5 path",
 	)
 }
 
@@ -221,14 +221,14 @@ func TestDocsRuleSkipsVendoredAndNoIndex(t *testing.T) {
 	dir := repo(t, map[string]string{
 		"skills/VENDORED.md":         "| Skill | Source |\n|-------|--------|\n| grilling | x |\n",
 		"skills/grilling/SKILL.md":   "`fyr frobnicate` `internal/gone.go`\n",
-		"skills/own/SKILL.md":        "`fyr frobnicate`\n",
+		"skills/own/SKILL.md":        "---\nname: own\ndescription: own skill\n---\n`fyr frobnicate`\n",
 		"data/new/.fyr-noindex":      "",
 		"data/new/sub/a.md":          "`fyr frobnicate`\n",
 		"data/old/.sh-agent-noindex": "",
 		"data/old/a.md":              "`fyr frobnicate`\n",
 		"internal/a.go":              "package a\n",
 	})
-	same(t, run(t, dir).Findings, "skills/own/SKILL.md:1 verb")
+	same(t, run(t, dir).Findings, "skills/own/SKILL.md:5 verb")
 	// An untracked marker counts too.
 	os.WriteFile(filepath.Join(dir, "skills", "own", ".fyr-noindex"), nil, 0o644)
 	same(t, run(t, dir).Findings)
@@ -284,7 +284,7 @@ func TestDocsRuleIgnoreSurvivesASymlinkedParent(t *testing.T) {
 	dir := repo(t, map[string]string{
 		".gitignore":        ".agents/scratch/*\n",
 		".agents/kit/a.sh":  "#!/bin/sh\n",
-		"skills/x/SKILL.md": "x\n",
+		"skills/x/SKILL.md": "---\nname: x\ndescription: x skill\n---\nx\n",
 		"README.md":         "`.agents/skills/x/SKILL.md` `.agents/scratch/gone.md` `.agents/skills/gone.md`\n",
 	})
 	if err := os.Symlink("../skills", filepath.Join(dir, ".agents", "skills")); err != nil {
@@ -333,4 +333,196 @@ func TestDocsRuleInvalidLineRanges(t *testing.T) {
 	same(t, rep.Findings,
 		"README.md:2 line", "README.md:2 line", "README.md:2 line", "README.md:2 line",
 	)
+}
+
+func TestV910CheckFreshClone(t *testing.T) {
+	emptyHome := t.TempDir()
+	base := map[string]string{
+		"internal/a.go":      "package a\n",
+		"internal/a_test.go": "package a\n\nimport \"testing\"\n\nfunc TestLive(t *testing.T) {}\n",
+		"PRD.md": strings.Join([]string{
+			"# PRD — x",
+			"",
+			"## Must",
+			"",
+			"- **R1** — fresh clone skips local-only record IDs.",
+			"  <!-- enforced by: TestLive, internal/a.go, TEST-2026-09-03-verify-real-home, ADR-063 -->",
+		}, "\n") + "\n",
+	}
+	rep, err := Run(repo(t, base), vocab, emptyHome)
+	if err != nil {
+		t.Fatalf("Run fresh clone: %v", err)
+	}
+	same(t, rep.Findings)
+
+	withDeadTest := copyFiles(base, "PRD.md", base["PRD.md"]+"- **R2** — dead test.\n  <!-- enforced by: TestDead -->\n")
+	repDead, err := Run(repo(t, withDeadTest), vocab, emptyHome)
+	if err != nil {
+		t.Fatalf("Run dead test: %v", err)
+	}
+	same(t, repDead.Findings, "PRD.md:7 requirement")
+
+	withMissingFile := copyFiles(base, "PRD.md", base["PRD.md"]+"- **R2** — missing path.\n  <!-- enforced by: internal/missing.go -->\n")
+	repPath, err := Run(repo(t, withMissingFile), vocab, emptyHome)
+	if err != nil {
+		t.Fatalf("Run missing file: %v", err)
+	}
+	same(t, repPath.Findings, "PRD.md:7 requirement")
+
+	withTrail := copyFiles(base, ".agents/trail.jsonl", trailLine(t, "ADR-063", "adr", "accepted", "x"))
+	repTrail, err := Run(repo(t, withTrail), vocab, emptyHome)
+	if err != nil {
+		t.Fatalf("Run with trail: %v", err)
+	}
+	same(t, repTrail.Findings, "PRD.md:5 requirement")
+}
+
+func copyFiles(src map[string]string, k, v string) map[string]string {
+	out := make(map[string]string, len(src)+1)
+	for fk, fv := range src {
+		out[fk] = fv
+	}
+	out[k] = v
+	return out
+}
+
+func TestV910CheckEightMutationsAndEvalRegexes(t *testing.T) {
+	t.Run("M1_M2_M3_M6_core_mutations", testV910CoreMutations)
+	t.Run("M4_undocumented_cli_flags", testV910DriftM4)
+	t.Run("M5b_deleted_flag_stale_binary", testV910DriftM5b)
+	t.Run("M7_context_and_rules_budget", testV910DriftM7)
+	t.Run("M8_skill_frontmatter", testV910DriftM8)
+	t.Run("F017_adjacent_test_attribution", testV910TestAttribution)
+	t.Run("F037_F049_guide_eval_regexes", testV910GuideEvalRegexes)
+}
+
+func testV910CoreMutations(t *testing.T) {
+	dir := repo(t, map[string]string{
+		"internal/a.go":      "package a\n",
+		"internal/a_test.go": "package a\n\nimport \"testing\"\n\nfunc TestLive(t *testing.T) {}\n",
+		"README.md":          "# R\n`internal/gone.go` `internal/a.go:9` `README.md § Missing` `fyr nope` `fyr record nope`\n",
+		"PRD.md":             "# PRD\n\n## Must\n\n- **R1** — x.\n  <!-- enforced by: TestGone -->\n",
+		"SDD.md":             "# SDD\n\n## Components\n\n| M1 | a | x | R1 |\n\n## Trace\n\n| R1 | M1 |\n",
+		"TDD.md":             "# TDD\n\n## Trace\n\n| M1 | T1 | TestGone |\n",
+	})
+	same(t, run(t, dir).Findings,
+		"README.md:2 path", "README.md:2 line", "README.md:2 anchor", "README.md:2 verb", "README.md:2 subverb",
+		"PRD.md:5 requirement", "TDD.md:5 trace",
+	)
+}
+
+func testV910DriftM4(t *testing.T) {
+	v := Vocabulary{
+		"help":   {Flags: map[string]bool{"home": true, "repo": true, "help": true}},
+		"search": {Flags: map[string]bool{"home": true, "repo": true, "help": true, "keep": true}},
+	}
+	cmdSrc := "package main\nimport \"flag\"\nfunc reg(fs *flag.FlagSet) {\n\tfs.Bool(\"keep\", false, \"k\")\n\tfs.Bool(\"stealth-mode\", false, \"s\")\n}\n"
+	dir := repo(t, map[string]string{
+		"cmd/fyr/main.go": cmdSrc,
+		"README.md":       "Use `fyr search --keep`.\n",
+	})
+	rep, err := Run(dir, v)
+	if err != nil {
+		t.Fatalf("Run M4: %v", err)
+	}
+	same(t, rep.Findings, "cmd/fyr/main.go:5 flag-undoc")
+
+	clean := repo(t, map[string]string{
+		"cmd/fyr/main.go":      cmdSrc,
+		"cmd/fyr/help_text.go": "package main\nconst help = \"fyr search --keep --stealth-mode\"\n",
+		"README.md":            "Use `fyr search --keep`.\n",
+	})
+	repClean, err := Run(clean, v)
+	if err != nil {
+		t.Fatalf("Run M4 clean: %v", err)
+	}
+	same(t, repClean.Findings)
+}
+
+func testV910DriftM5b(t *testing.T) {
+	staleVocab := Vocabulary{
+		"help":   {Flags: map[string]bool{"home": true, "repo": true, "help": true}},
+		"search": {Flags: map[string]bool{"home": true, "repo": true, "help": true, "keep": true, "deleted": true}},
+	}
+	dir := repo(t, map[string]string{
+		"cmd/fyr/main.go": "package main\nimport \"flag\"\nfunc reg(fs *flag.FlagSet) { fs.Bool(\"keep\", false, \"k\") }\n",
+		"README.md":       "Run `fyr search --keep` and `fyr search --deleted`.\n",
+	})
+	rep, err := Run(dir, staleVocab)
+	if err != nil {
+		t.Fatalf("Run M5b: %v", err)
+	}
+	same(t, rep.Findings, "README.md:1 flag")
+}
+
+func testV910DriftM7(t *testing.T) {
+	okCtx := repo(t, map[string]string{"context/AGENTS.md": strings.Repeat("a", 15000)})
+	same(t, run(t, okCtx).Findings)
+
+	overCtx := repo(t, map[string]string{"context/AGENTS.md": strings.Repeat("a", 15001)})
+	same(t, run(t, overCtx).Findings, "context:0 budget")
+
+	overAlways := repo(t, map[string]string{
+		"context/AGENTS.md": strings.Repeat("a", 10000),
+		"rules/always.md":   "---\ntrigger: always_on\n---\n" + strings.Repeat("b", 14001),
+	})
+	same(t, run(t, overAlways).Findings, "rules:0 budget")
+
+	okModelDecision := repo(t, map[string]string{
+		"context/AGENTS.md": strings.Repeat("a", 10000),
+		"rules/cond.md":     "---\ntrigger: model_decision\ndescription: x\n---\n" + strings.Repeat("b", 15000),
+	})
+	same(t, run(t, okModelDecision).Findings)
+}
+
+func testV910DriftM8(t *testing.T) {
+	valid140 := "---\nname: ok\ndescription: " + strings.Repeat("a", 140) + "\n---\nbody\n"
+	same(t, run(t, repo(t, map[string]string{"skills/ok/SKILL.md": valid140})).Findings)
+
+	badCases := map[string]string{
+		"allowed-tools": "---\nname: bad\ndescription: ok\nallowed-tools: Bash\n---\nbody\n",
+		"over-140":      "---\nname: bad\ndescription: " + strings.Repeat("a", 141) + "\n---\nbody\n",
+		"yaml-comment":  "---\nname: bad\ndescription: fixes #1\n---\nbody\n",
+		"unclosed-q":    "---\nname: bad\ndescription: \"unclosed\n---\nbody\n",
+		"no-front":      "# no frontmatter\n",
+	}
+	for name, body := range badCases {
+		t.Run(name, func(t *testing.T) {
+			same(t, run(t, repo(t, map[string]string{"skills/bad/SKILL.md": body})).Findings, "skills/bad/SKILL.md:0 frontmatter")
+		})
+	}
+}
+
+func testV910TestAttribution(t *testing.T) {
+	dir := repo(t, map[string]string{
+		"internal/a_test.go": "package a\n\nimport \"testing\"\n\nfunc TestLive(t *testing.T) {}\n",
+		"internal/b_test.go": "package a\n\nimport \"testing\"\n\nfunc TestOther(t *testing.T) {}\n",
+		"TDD.md": strings.Join([]string{
+			"# TDD",
+			"- Good: `TestLive` (`internal/a_test.go`), `TestLive` in `internal/a_test.go`, (`internal/a_test.go`): `TestLive`.",
+			"- Non-adjacent prose ok: `TestOther` runs each check against outcomes in `internal/a_test.go`.",
+			"- Bad: `TestOther` (`internal/a_test.go`) caps descriptions.",
+		}, "\n") + "\n",
+		"features/guide.md": "Checks in `internal/a_test.go` (including `TestOther` at `100` bytes).\n",
+	})
+	same(t, run(t, dir).Findings, "TDD.md:4 test-ref", "features/guide.md:1 test-ref")
+}
+
+func testV910GuideEvalRegexes(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", ".agents", "eval", "GUIDE-eval.md"))
+	if err != nil {
+		t.Fatalf("read GUIDE-eval.md: %v", err)
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		switch {
+		case strings.HasPrefix(line, "| `reviewer-cold` |"):
+			if strings.Contains(line, `who\|owner\|unowned`) {
+				t.Errorf("reviewer-cold still requires stale who|owner|unowned: %s", line)
+			}
+		case strings.HasPrefix(line, "| `dreamer` |"), strings.HasPrefix(line, "| `sim-avoid-repeat` |"):
+			if !strings.Contains(line, `\140`) {
+				t.Errorf("dreamer/sim-avoid-repeat does not allow optional backticks around Kind: %s", line)
+			}
+		}
+	}
 }

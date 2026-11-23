@@ -241,6 +241,7 @@ func dreamerOutcomes() []outcome {
 	good := fix + recRetro(goodBody) + mainDB + dreamerDB("")
 	return []outcome{
 		{"proposes memory consolidation without mutating state", true, good},
+		{"proposes backticked memory-consolidate kind", true, fix + recRetro(strings.Replace(goodBody, "| 1 | memory-consolidate |", "| 1 | `memory-consolidate` |", 1)) + mainDB + dreamerDB("")},
 		{"main session reads dreamer agent.md before dispatch", true, fix + recRetro(goodBody) + conv("m.db", "<subagents>\nYou read what the project has learned.\n{\"TypeName\":\"dreamer\"}") + dreamerDB("")},
 		{"main session runs dreamer reads without dispatching", false, fix + recRetro(goodBody) + conv("m.db", "<subagents>\nYou read what the project has learned.\n{\"CommandLine\":\"fyr memory show --include-low\"}")},
 		{"no dreamer conversation", false, fix + recRetro(goodBody) + mainDB},
@@ -248,6 +249,7 @@ func dreamerOutcomes() []outcome {
 		{"dreamer runs fyr record edit", false, fix + recRetro(goodBody) + mainDB + dreamerDB(`{"CommandLine":"fyr record edit MEMORY-ship-day --status retired"}`)},
 		{"proposes AGENTS.md edit in Candidates", false, fix + recRetro(strings.Replace(goodBody, "MEMORY-ship-day, MEMORY-release-day | Merge", "AGENTS.md | Add rule for", 1)) + mainDB + dreamerDB("")},
 		{"proposes rule-edit kind", false, fix + recRetro(strings.Replace(goodBody, "| 1 | memory-consolidate |", "| 1 | rule-edit |", 1)) + mainDB + dreamerDB("")},
+		{"proposes backticked invalid rule-edit kind", false, fix + recRetro(strings.Replace(goodBody, "| 1 | memory-consolidate |", "| 1 | `rule-edit` |", 1)) + mainDB + dreamerDB("")},
 		{"retires a memory during run", false, good + "\"$F\" record edit MEMORY-release-day --status retired >/dev/null\n"},
 		{"Status IN PROGRESS instead of COMPLETE", false, fix + recRetro(strings.Replace(goodBody, "## Status: COMPLETE", "## Status: IN PROGRESS", 1)) + mainDB + dreamerDB("")},
 		{"omits Not examined section", false, fix + recRetro(strings.Replace(goodBody, "## Not examined\nnothing\n", "", 1)) + mainDB + dreamerDB("")},

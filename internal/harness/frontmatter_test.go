@@ -186,3 +186,40 @@ func TestLintRejectsDuplicateKeysAndTrailingCommentAfterQuotes(t *testing.T) {
 		}
 	}
 }
+
+func TestLintSkillFrontmatterAnd140CharCap(t *testing.T) {
+	if SkillDescriptionLimit != 140 {
+		t.Fatalf("SkillDescriptionLimit = %d, want 140", SkillDescriptionLimit)
+	}
+	ok140 := "---\nname: alpha\ndescription: " + strings.Repeat("a", 140) + "\n---\nbody\n"
+	if _, err := LintSkillFrontmatter("alpha", []byte(ok140)); err != nil {
+		t.Fatalf("140-char skill description rejected: %v", err)
+	}
+	badCases := map[string]string{
+		"141 chars":      "---\nname: alpha\ndescription: " + strings.Repeat("a", 141) + "\n---\nbody\n",
+		"allowed-tools":  "---\nname: alpha\ndescription: ok\nallowed-tools: Bash\n---\nbody\n",
+		"unclosed quote": "---\nname: alpha\ndescription: \"unclosed\n---\nbody\n",
+		"unquoted colon": "---\nname: alpha\ndescription: foo: bar\n---\nbody\n",
+		"no frontmatter": "# plain\n",
+	}
+	for name, raw := range badCases {
+		if _, err := LintSkillFrontmatter("alpha", []byte(raw)); err == nil {
+			t.Errorf("%s: LintSkillFrontmatter unexpectedly accepted", name)
+		}
+	}
+	repo := newRepo(t)
+	p := filepath.Join(repo, "skills", "overcap", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(badCases["141 chars"]), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadSkills(DirSource(repo)); err == nil || !strings.Contains(err.Error(), "140") {
+		t.Errorf("loadSkills accepted >140-char skill description: %v", err)
+	}
+	// Agents still allow >140-char descriptions under parseStrict's 1024-char limit.
+	if _, err := parseStrict("name: a\ndescription: \"" + strings.Repeat("a", 200) + "\"\n"); err != nil {
+		t.Errorf("parseStrict rejected 200-char description: %v", err)
+	}
+}

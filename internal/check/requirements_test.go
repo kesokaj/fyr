@@ -57,7 +57,7 @@ func TestRequirementsRule(t *testing.T) {
 		"cmd/fyr/main.go":     "package main\n\nfunc main() {}\n",
 		"internal/a_test.go":  "package a\n\nfunc TestX(t *testing.T) {}\n\n// func TestNoSuch( is a comment\n",
 		"internal/b.go":       "package a\n\nfunc TestNoSuch() {}\n",
-		"skills/x/SKILL.md":   "x\n",
+		"skills/x/SKILL.md":   "---\nname: x\ndescription: x skill\n---\nx\n",
 		".agents/trail.jsonl": trailLine(t, "ADR-063", "adr", "accepted", "x") + trailLine(t, "GUIDE-testing", "guide", "current", "x"),
 	})
 	rep := run(t, dir)

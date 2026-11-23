@@ -40,26 +40,13 @@ func readSkill(src Source, entry string) (s Skill, ok bool, err error) {
 
 // parseSkill checks a SKILL.md's frontmatter and returns its Skill.
 func parseSkill(entry, dir string, data []byte) (Skill, error) {
-	front, _, err := Split(string(data))
+	fm, err := LintSkillFrontmatter(entry, data)
 	if err != nil {
-		return Skill{}, fmt.Errorf("skill %s: %w", entry, err)
-	}
-	fm, err := parseStrict(front)
-	if err != nil {
-		return Skill{}, fmt.Errorf("skill %s: %w", entry, err)
+		return Skill{}, err
 	}
 	name := fm["name"]
 	if name == "" {
 		name = entry
-	}
-	if err := validName("skill", entry+"/SKILL.md", name); err != nil {
-		return Skill{}, err
-	}
-	if fm["description"] == "" {
-		return Skill{}, fmt.Errorf("skill %s: SKILL.md has no description", entry)
-	}
-	if k := unlistedKey(front, skillKeys); k != "" {
-		return Skill{}, fmt.Errorf("skill %s: %s is not a key a harness skill sets (%s); a new one is added to skillKeys by a D-row, and a key that grants a permission never is — the operator's permission mode decides what runs unprompted (IN23, BUG-143)", name, k, strings.Join(skillKeys, ", "))
 	}
 	return Skill{
 		Name:        name,

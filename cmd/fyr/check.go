@@ -109,11 +109,32 @@ func printCheck(w io.Writer, rep check.Report) {
 	fmt.Fprintln(w, search.Printable(fmt.Sprintf("check: %d findings (docs %d, specs %d, requirements %d, traces %d); fyr %s", len(rep.Findings), d, s, r, t, buildVersion())))
 }
 
+// metricsFlags lists the non-global flags accepted by each metrics subverb,
+// matching the metricsFlagsOutside guards in verb_metrics*.go.
+var metricsFlags = map[string]map[string]bool{
+	"ingest": {"source": true, "label": true, "outcome": true},
+	"show": {
+		"since": true, "since-tag": true, "until": true, "project": true,
+		"label": true, "all-labels": true, "context-target": true,
+		"include-sandboxes": true, "json": true,
+	},
+	"report": {
+		"since": true, "since-tag": true, "until": true, "project": true,
+		"global": true, "md": true, "json": true, "daily-digest": true,
+		"web": true, "listen": true, "include-sandboxes": true, "label": true,
+		"all-labels": true, "context-target": true, "out": true, "no-ingest": true,
+	},
+	"evals":      {"since": true, "until": true, "harness": true, "json": true},
+	"trajectory": {"project": true, "limit": true, "json": true},
+	"export":     {},
+	"record-run": {"json-in": true, "json": true},
+}
+
 // vocabulary is the running binary's verbs, subverbs and flags, read from
-// the same FlagSets run parses (plan fyr-check D14): record's subverbs take
-// recordFlags' flags; metrics' and memory's take the verb's. Every verb and
-// subverb also takes the four global flags (--home, --repo, --dir, -C) and
-// --help, which the flag package answers.
+// the same FlagSets run parses (plan fyr-check D14): record, state, auto and
+// metrics subverbs take their per-subverb flag maps; memory's take the verb's.
+// Every verb and subverb also takes the four global flags (--home, --repo,
+// --dir, -C) and --help, which the flag package answers.
 func vocabulary() check.Vocabulary {
 	v := check.Vocabulary{"help": {Flags: map[string]bool{"home": true, "repo": true, "dir": true, "C": true, "help": true}}}
 	for name, vb := range verbs {
@@ -136,7 +157,7 @@ func vocabulary() check.Vocabulary {
 				spec.Subverbs[sub] = own
 			}
 		case "metrics":
-			spec.Subverbs = subverbsTaking(metricsSubverbs, flags)
+			spec.Subverbs = subverbFlagMap(metricsFlags)
 		case "memory":
 			spec.Subverbs = subverbsTaking(memorySubverbs, flags)
 		}
@@ -160,7 +181,11 @@ func subverbFlagMap(src map[string]map[string]bool) map[string]map[string]bool {
 func subverbsTaking(subs []string, flags map[string]bool) map[string]map[string]bool {
 	out := map[string]map[string]bool{}
 	for _, s := range subs {
-		out[s] = flags
+		cp := make(map[string]bool, len(flags))
+		for k, v := range flags {
+			cp[k] = v
+		}
+		out[s] = cp
 	}
 	return out
 }

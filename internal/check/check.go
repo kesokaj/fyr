@@ -69,16 +69,17 @@ var vendoredRow = regexp.MustCompile(`^\| ([a-z0-9/-]+) \|`)
 
 // checker is one run's view of the checkout.
 type checker struct {
-	top      string
-	root     *os.Root
-	tracked  []string
-	topDirs  map[string]bool
-	topFiles map[string]bool
-	lines    map[string]int
-	links    map[string]bool
-	headings map[string][]string // ATX headings per .md path, read once
-	tests    map[string]bool     // Go tests declared in tracked *_test.go, read once
-	skipped  []string            // tracked docs and tests readFile refused, for one note (IN53)
+	top       string
+	root      *os.Root
+	tracked   []string
+	topDirs   map[string]bool
+	topFiles  map[string]bool
+	lines     map[string]int
+	links     map[string]bool
+	headings  map[string][]string        // ATX headings per .md path, read once
+	tests     map[string]bool            // Go tests declared in tracked *_test.go, read once
+	fileTests map[string]map[string]bool // Go tests per tracked *_test.go path, read once
+	skipped   []string                   // tracked docs and tests readFile refused, for one note (IN53)
 }
 
 // Run checks the checkout that holds dir against v. It writes nothing.
@@ -104,7 +105,14 @@ func Run(dir string, v Vocabulary, home ...string) (Report, error) {
 		rep.Notes = append(rep.Notes, "no .agents/trail.jsonl: records, specs not checked")
 	}
 	living, specs := livingAndSpecs(recs)
-	rep.Findings = k.docsRule(k.docsFiles(), living, v)
+	docsFiles := k.docsFiles()
+	sc := k.scanCMDFyrFlags()
+	effVocab := k.effectiveVocabulary(v, sc)
+	rep.Findings = k.docsRule(docsFiles, living, effVocab)
+	rep.Findings = append(rep.Findings, k.undocumentedFlagsRule(docsFiles, living, effVocab, v, sc)...)
+	rep.Findings = append(rep.Findings, k.contextRulesBudgetRule()...)
+	rep.Findings = append(rep.Findings, k.skillFrontmatterRule()...)
+	rep.Findings = append(rep.Findings, k.testAttributionRule(docsFiles)...)
 	rep.Findings = append(rep.Findings, k.verificationFindings(specs)...)
 	if note := k.historyNote(); note != "" {
 		rep.Notes = append(rep.Notes, note)
@@ -144,7 +152,7 @@ func livingAndSpecs(recs []brain.Record) (living, specs []brain.Record) {
 
 // rootDocsRules adds rules (c) and (d), which read the root documents, to rep.
 func (k *checker) rootDocsRules(rep *Report, recs []brain.Record, ok bool) {
-	reqs, notes := k.requirementsRule(recs)
+	reqs, notes := k.requirementsRule(recs, ok)
 	rep.Findings = append(rep.Findings, reqs...)
 	rep.Notes = append(rep.Notes, notes...)
 	traces, notes := k.tracesRule()
@@ -242,7 +250,11 @@ func (k *checker) docsRule(files []string, living []brain.Record, v Vocabulary) 
 }
 
 // ruleOrder puts rule (a)'s findings first, then (b)'s, (c)'s and (d)'s.
-var ruleOrder = map[string]int{"verb": 0, "subverb": 0, "flag": 0, "path": 0, "line": 0, "anchor": 0, "spec-stale": 1, "spec-unlinked": 1, "requirement": 2, "trace": 3}
+var ruleOrder = map[string]int{
+	"verb": 0, "subverb": 0, "flag": 0, "flag-undoc": 0,
+	"path": 0, "line": 0, "anchor": 0, "budget": 0, "frontmatter": 0, "test-ref": 0,
+	"spec-stale": 1, "spec-unlinked": 1, "requirement": 2, "trace": 3,
+}
 
 func sortFindings(fs []Finding) {
 	sort.SliceStable(fs, func(i, j int) bool {

@@ -90,6 +90,10 @@ func TestSectionRefsC50AndMatching(t *testing.T) {
 		"Context AGENTS section not in root AGENTS fails on root doc: `AGENTS.md` § Git & hard rules.",
 	}, "\n")
 	skill := strings.Join([]string{
+		"---",
+		"name: demo",
+		"description: demo skill",
+		"---",
 		"# Skill",
 		"",
 		"Consumer setup: `AGENTS.md` § Setup Commands.",
@@ -98,7 +102,7 @@ func TestSectionRefsC50AndMatching(t *testing.T) {
 		"Prose named skill ref: the other skill's `ref.md` §4.",
 		"Own skill ref missing fails: `missing.md` § Nope.",
 	}, "\n")
-	otherSkill := "# Other\n\n## Dockerfile: Go multi-stage\n\n### 4. Smoke test\n"
+	otherSkill := "---\nname: other\ndescription: other skill\n---\n# Other\n\n## Dockerfile: Go multi-stage\n\n### 4. Smoke test\n"
 	otherRef := "# Ref\n\n## Database: Postgres\n\n### 4. Pooling\n"
 	dockerSetup := "# Setup\n\nSee `SKILL.md` § Dockerfile rule 4 points here, and `SKILL.md` §4.\n"
 	trail := trailLine(t, "SPEC-live", "spec", "current", "Code `internal/a.go`, `TDD.md` § T6, [bad](#missing-in-spec), [ok](#spec-head).\n\n## Spec head\n")
@@ -123,7 +127,7 @@ func TestSectionRefsC50AndMatching(t *testing.T) {
 		"README.md:12 anchor",
 		"README.md:13 anchor",
 		"README.md:14 anchor",
-		"skills/demo/SKILL.md:7 anchor",
+		"skills/demo/SKILL.md:11 anchor",
 		"SPEC-live:1 anchor",
 	)
 }

@@ -141,9 +141,9 @@ func coldOutcomes(review func(string) string) []outcome {
 	tooLong := "rec review --title t <<'EOF'\n" + strings.Repeat("finding auth verify who\n", 85) + "EOF\n"
 	return []outcome{
 		{"finds all three flaws within 80 lines", true, coldFixture + allThree},
+		{"finds auth and verification flaws without who/owner", true, coldFixture + review("Auth header contradicts PRD.md Non-goals and Phase 1 has no verify clause.")},
 		{"misses auth contradiction", false, coldFixture + review("Phase 1 has no verify clause and Phase 2 has no who: owner.")},
 		{"misses missing verification", false, coldFixture + review("Bearer auth violates PRD.md Non-goals and Phase 2 has no who: owner.")},
-		{"misses unowned step", false, coldFixture + review("Bearer auth violates PRD.md Non-goals and Phase 1 has no verify clause.")},
 		{"exceeds 80 lines", false, coldFixture + tooLong},
 		{"no review record", false, coldFixture},
 		{"edits source code", false, coldFixture + allThree + "echo '// edit' >>cmd/server/main.go\n"},

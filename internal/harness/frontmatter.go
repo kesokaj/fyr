@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // Frontmatter is the YAML header of a SKILL.md or agent file, flattened to
@@ -209,15 +210,53 @@ func parseEntries(es []entry) Frontmatter {
 
 // descriptionLimit is the Agent Skills specification's limit on a
 // description, measured after a block's continuation lines are joined with
-// single spaces (plan audit-fix D19).
+// single spaces (plan audit-fix D19). Agents keep this 1024-char cap;
+// harness skills enforce SkillDescriptionLimit (140) in LintSkillFrontmatter.
 const descriptionLimit = 1024
+
+// SkillDescriptionLimit caps harness SKILL.md frontmatter descriptions
+// (PRD R1, TDD T2, F-017) so skill listings stay compact.
+const SkillDescriptionLimit = 140
+
+// LintSkillFrontmatter validates a skills/<entry>/SKILL.md file's YAML
+// frontmatter: strict YAML syntax, valid skill name, non-empty description
+// within SkillDescriptionLimit runes/bytes, and the skillKeys allowlist
+// (rejecting permission keys such as allowed-tools).
+func LintSkillFrontmatter(entry string, data []byte) (Frontmatter, error) {
+	front, _, err := Split(string(data))
+	if err != nil {
+		return nil, fmt.Errorf("skill %s: %w", entry, err)
+	}
+	fm, err := parseStrict(front)
+	if err != nil {
+		return nil, fmt.Errorf("skill %s: %w", entry, err)
+	}
+	name := fm["name"]
+	if name == "" {
+		name = entry
+	}
+	if err := validName("skill", entry+"/SKILL.md", name); err != nil {
+		return nil, err
+	}
+	desc := strings.TrimSpace(fm["description"])
+	if desc == "" {
+		return nil, fmt.Errorf("skill %s: SKILL.md has no description", entry)
+	}
+	if n := utf8.RuneCountInString(desc); n > SkillDescriptionLimit || len(desc) > SkillDescriptionLimit {
+		return nil, fmt.Errorf("skill %s: description is %d chars (%d bytes), limit is %d", name, n, len(desc), SkillDescriptionLimit)
+	}
+	if k := unlistedKey(front, skillKeys); k != "" {
+		return nil, fmt.Errorf("skill %s: %s is not a key a harness skill sets (%s); a new one is added to skillKeys by a D-row, and a key that grants a permission never is — the operator's permission mode decides what runs unprompted (IN23, BUG-143)", name, k, strings.Join(skillKeys, ", "))
+	}
+	return fm, nil
+}
 
 // lintEntries rejects what this lenient parser would read differently from
 // a strict YAML parser: a plain (unquoted, non-block) scalar starting with
 // "#" or containing "#" after a space or tab, which YAML reads as a comment
-// (the Antigravity CLI then drops the skill, BUG-004), and a description
-// over the Agent Skills limit. Quoting the value fixes the first for every
-// reader. parseStrict is its one caller: it lints and parses in one pass.
+// (the Antigravity CLI then drops the skill, BUG-004), unterminated quotes,
+// unquoted ": " mapping indicators in plain scalars, and a description over
+// the Agent Skills limit. parseStrict is its one caller.
 func lintEntries(es []entry) error {
 	seen := make(map[string]bool, len(es))
 	for _, e := range es {
@@ -237,20 +276,38 @@ func lintEntries(es []entry) error {
 				return fmt.Errorf("frontmatter key %q: %d characters, the Agent Skills limit is %d", e.key, n, descriptionLimit)
 			}
 		}
-		val := e.val
-		if isBlockIndicator(val) {
-			continue
+		if err := lintEntryScalar(e); err != nil {
+			return err
 		}
-		if val == "" && len(e.cont) > 0 && strings.Contains(e.cont[0], ": ") {
-			continue // nested map; its own keys are the vendor's business
+	}
+	return nil
+}
+
+func lintEntryScalar(e entry) error {
+	val := e.val
+	if isBlockIndicator(val) {
+		return nil
+	}
+	if val == "" && len(e.cont) > 0 && strings.Contains(e.cont[0], ": ") {
+		return nil // nested map; its own keys are the vendor's business
+	}
+	quoted := isQuoted(val)
+	lines := e.cont
+	if !quoted {
+		lines = append([]string{val}, lines...)
+	}
+	for _, l := range lines {
+		if strings.HasPrefix(l, "#") || strings.Contains(l, " #") || strings.Contains(l, "\t#") {
+			return fmt.Errorf("frontmatter key %q: unquoted value contains \"#\", which YAML reads as a comment; quote the value", e.key)
 		}
-		lines := e.cont
-		if !isQuoted(val) {
-			lines = append([]string{val}, lines...)
-		}
+	}
+	if !quoted && (strings.HasPrefix(val, "\"") || strings.HasPrefix(val, "'")) {
+		return fmt.Errorf("frontmatter key %q: unterminated quoted value", e.key)
+	}
+	if !quoted && !strings.HasPrefix(val, "[") && !strings.HasPrefix(val, "{") {
 		for _, l := range lines {
-			if strings.HasPrefix(l, "#") || strings.Contains(l, " #") || strings.Contains(l, "\t#") {
-				return fmt.Errorf("frontmatter key %q: unquoted value contains \"#\", which YAML reads as a comment; quote the value", e.key)
+			if strings.Contains(l, ": ") || strings.HasSuffix(l, ":") {
+				return fmt.Errorf("frontmatter key %q: unquoted value contains \":\", which YAML reads as a mapping; quote the value", e.key)
 			}
 		}
 	}
