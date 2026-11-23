@@ -42,6 +42,7 @@ type Summary struct {
 	readCalls      map[string]int
 	rangedReads    map[string]int
 	redundantReads map[string]int
+	evalRows       []EvalRow
 }
 
 type Outcome struct {

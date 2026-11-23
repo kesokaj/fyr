@@ -16,6 +16,7 @@ var hookGuardMarkers = []string{
 	"[COORDINATOR_GUARD]",
 	"[POLL_LOOP]",
 	"[TOKEN_LOOP]",
+	"[ERROR_LOOP]",
 	"[SUBAGENT_BUDGET]",
 	"[MODEL_OVERRIDE]",
 	"[AUTO_SUBAGENT_PRO]",

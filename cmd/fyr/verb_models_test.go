@@ -470,8 +470,9 @@ func TestVerbModelsBenchAndScoreBreakdownCLI(t *testing.T) {
 		return validResp, nil
 	}
 	seed := models.Catalog{
-		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
-		Pools:     []models.Pool{{Name: "Gemini Models", Five: 35, Week: 80}},
+		UpdatedAt:      time.Now().UTC().Format(time.RFC3339),
+		QuotaUpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		Pools:          []models.Pool{{Name: "Gemini Models", Five: 35, Week: 80}},
 		Entries: []models.CatalogEntry{
 			{ID: "gemini-pro-orchestrator", Family: "gemini", Tier: "pro", Status: "active", InteractiveOnly: true},
 			{ID: "gemini-4-neon-high", DisplayName: "Gemini 4 Neon (High)", Status: "new"},
@@ -640,5 +641,35 @@ func TestV910ModelsCallerFamilyRolesExhaustedAndDevEval(t *testing.T) {
 	ev := loadMetricsModelEvidence(home)
 	if got := ev["gemini-4-carbon-high"]; got.TrialRuns != 1 || got.TrialPass != 1 {
 		t.Fatalf("loadMetricsModelEvidence missed dev/fyr-eval trial: %+v", got)
+	}
+}
+
+func TestMergeMetricsEvidenceWeightedMeans(t *testing.T) {
+	out := map[string]models.ModelEvidence{}
+	mergeMetricsEvidenceInto(out, map[string]metrics.ModelEvidence{
+		"gemini-4-carbon-high": {
+			WorkRuns: 2, WorkPass: 2, WorkMeanSeconds: 10.0,
+			EvalRuns: 2, EvalPass: 2, TrialRuns: 2, TrialPass: 2,
+			MeanLatencySeconds: 10.0,
+		},
+	})
+	mergeMetricsEvidenceInto(out, map[string]metrics.ModelEvidence{
+		"gemini-4-carbon-high": {
+			WorkRuns: 6, WorkPass: 6, WorkMeanSeconds: 50.0,
+			EvalRuns: 0, EvalPass: 0,
+			MeanLatencySeconds: 50.0,
+		},
+	})
+	got := out["gemini-4-carbon-high"]
+	// WorkMeanSeconds: (10*2 + 50*6) / (2+6) = 320 / 8 = 40.0
+	if got.WorkMeanSeconds != 40.0 {
+		t.Errorf("WorkMeanSeconds = %.4f, want 40.0", got.WorkMeanSeconds)
+	}
+	// MeanLatencySeconds: (10*(2+2) + 50*(6+0)) / (4+6) = (40 + 300) / 10 = 34.0
+	if got.MeanLatencySeconds != 34.0 {
+		t.Errorf("MeanLatencySeconds = %.4f, want 34.0", got.MeanLatencySeconds)
+	}
+	if got.WorkRuns != 8 || got.EvalRuns != 2 {
+		t.Errorf("counts mismatch: WorkRuns=%d EvalRuns=%d", got.WorkRuns, got.EvalRuns)
 	}
 }

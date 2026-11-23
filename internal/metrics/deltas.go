@@ -99,6 +99,7 @@ func buildWindowDeltas(cur, prev *Summary, prevSince, prevUntil time.Time) *Wind
 	if cur.E.TimeoutRatePct != nil && prev.E.TimeoutRatePct != nil {
 		metricsMap["E.timeout_rate_pct"] = newMetricDelta(*cur.E.TimeoutRatePct, *prev.E.TimeoutRatePct)
 	}
+	populateEvalPassRateDelta(metricsMap, cur, prev)
 	d := &WindowDeltas{
 		PreviousWindow: map[string]string{
 			"since": prevSince.UTC().Format("2006-01-02"),
@@ -163,4 +164,46 @@ func ptrMetricDelta(cur, prev float64) *MetricDelta {
 func newMetricDelta(cur, prev float64) MetricDelta {
 	c, p := round4(cur), round4(prev)
 	return MetricDelta{Current: c, Previous: p, Delta: round4(c - p)}
+}
+
+func populateEvalPassRateDelta(metricsMap map[string]MetricDelta, cur, prev *Summary) {
+	curRate, curRuns := evalPassRateFromSummary(cur)
+	prevRate, prevRuns := evalPassRateFromSummary(prev)
+	if curRuns > 0 || prevRuns > 0 {
+		metricsMap["eval.graded_runs"] = newMetricDelta(float64(curRuns), float64(prevRuns))
+	}
+	if curRuns > 0 && prevRuns > 0 {
+		metricsMap["eval.pass_rate"] = newMetricDelta(curRate, prevRate)
+	}
+}
+
+func evalPassRateFromSummary(sum *Summary) (float64, int) {
+	if sum == nil {
+		return 0, 0
+	}
+	if len(sum.evalRows) > 0 {
+		totalRuns, totalPassed := 0, 0
+		for _, r := range sum.evalRows {
+			if strings.EqualFold(r.Kind, "indicator") || r.N <= 0 {
+				continue
+			}
+			totalRuns += r.N
+			totalPassed += r.C
+		}
+		if totalRuns > 0 {
+			return round4(float64(totalPassed) / float64(totalRuns)), totalRuns
+		}
+		return 0, 0
+	}
+	totalRuns, totalPassed := 0, 0
+	for k, pk := range sum.A.PassK {
+		if strings.HasPrefix(k, evalPrefix) && pk.N > 0 {
+			totalRuns += pk.N
+			totalPassed += pk.C
+		}
+	}
+	if totalRuns == 0 {
+		return 0, 0
+	}
+	return round4(float64(totalPassed) / float64(totalRuns)), totalRuns
 }

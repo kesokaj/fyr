@@ -381,6 +381,35 @@ func TestV910All31VerbsJSON(t *testing.T) {
 			t.Fatalf("auto status text exit %d:\n%s", code, txt)
 		}
 		assertNotJSON(t, "auto status text", txt)
+
+		// Error exits with --json must still emit valid JSON with ok=false, verb, error, output.
+		corruptHome := t.TempDir()
+		cfgPath := filepath.Join(corruptHome, harness.StateDir, "auto.json")
+		if err := os.MkdirAll(filepath.Dir(cfgPath), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(cfgPath, []byte("{corrupt"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		errOut, errCode := runCLI(t, "auto", "run", "--dry-run", "--json", "--home", corruptHome)
+		if errCode != 1 {
+			t.Fatalf("auto corrupt --json exit=%d, want 1:\n%s", errCode, errOut)
+		}
+		errObj := mustJSONObject(t, "auto error --json", errOut)
+		if errObj["ok"] != false || errObj["verb"] != "auto" || errObj["output"] == "" {
+			t.Errorf("auto error --json unexpected: %v", errObj)
+		}
+
+		noAgyHome := t.TempDir()
+		t.Setenv("PATH", t.TempDir())
+		dErrOut, dErrCode := runCLI(t, "dream", "--project", filepath.Join(noAgyHome, "missing-proj"), "--json", "--home", noAgyHome)
+		if dErrCode == 0 {
+			t.Fatalf("dream missing project --json unexpectedly succeeded:\n%s", dErrOut)
+		}
+		dErrObj := mustJSONObject(t, "dream error --json", dErrOut)
+		if dErrObj["ok"] != false || dErrObj["verb"] != "dream" || dErrObj["error"] == "" {
+			t.Errorf("dream error --json unexpected: %v", dErrObj)
+		}
 	})
 
 	t.Run("eval_list_and_trial_json", func(t *testing.T) {

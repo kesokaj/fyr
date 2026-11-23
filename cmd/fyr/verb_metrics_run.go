@@ -30,7 +30,7 @@ func (c *ctx) metricsRecordRun(args []string) error {
 		return usageErr(c.out, "metrics", "fyr metrics record-run: "+err.Error())
 	}
 	if err := metrics.RecordOrchestrationRun(c.home, row); err != nil {
-		if strings.HasPrefix(err.Error(), "metrics: orchestration_runs:") {
+		if errors.Is(err, metrics.ErrInvalidOrchestrationRun) {
 			return usageErr(c.out, "metrics", "fyr metrics record-run: "+err.Error())
 		}
 		return err

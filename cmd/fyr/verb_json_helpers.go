@@ -230,6 +230,28 @@ type autoJSON struct {
 	Output     string `json:"output"`
 }
 
+type verbErrorJSON struct {
+	OK     bool   `json:"ok"`
+	Verb   string `json:"verb"`
+	Error  string `json:"error,omitempty"`
+	Output string `json:"output"`
+}
+
+func writeVerbExitErrorJSON(w io.Writer, verb, errMsg, output string) error {
+	if errMsg == "" {
+		errMsg = strings.TrimSpace(output)
+	}
+	if output == "" {
+		output = errMsg
+	}
+	return writeVerbJSON(w, verbErrorJSON{
+		OK:     false,
+		Verb:   verb,
+		Error:  errMsg,
+		Output: output,
+	})
+}
+
 func writeAutoJSON(c *ctx, sub, out string) error {
 	return writeVerbJSON(c.out, autoJSON{
 		OK:         true,

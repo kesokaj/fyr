@@ -107,11 +107,31 @@ func PickRoleFromCatalogForHome(ctx context.Context, cat Catalog, opts PickRoleO
 	}
 	crossFamily := IsCrossFamilyRole(normRole)
 	freshCache := !opts.ForceRefresh && HasFreshPoolQuotas(cat, usageNowFunc(), ttl)
-	if !crossFamily || (opts.AgyPath == "" && !freshCache) {
-		pick, err := PickFromEntriesWithPoolsAndCaller(cat.Entries, cat.Picks, cat.Pools, normRole, normTier, normCaller)
+	if !crossFamily {
+		return pickSameFamilyWithQuota(ctx, cat, opts, normRole, normTier, normCaller, freshCache)
+	}
+	if opts.AgyPath == "" && !freshCache {
+		pick, err := PickFromEntriesWithPoolsAndCaller(cat.Entries, cat.Picks, nil, normRole, normTier, normCaller)
 		return pick, nil, err
 	}
 	return pickCrossFamilyWithQuota(ctx, cat, opts, normRole, normTier, normCaller, freshCache)
+}
+
+func pickSameFamilyWithQuota(ctx context.Context, cat Catalog, opts PickRoleOptions, normRole, normTier, normCaller string, freshCache bool) (RolePick, []Pool, error) {
+	activePools := cat.Pools
+	var livePools []Pool
+	if !freshCache {
+		activePools = nil
+		if opts.AgyPath != "" {
+			if uText, err := probeUsageForHome(ctx, opts.Home, opts.AgyPath); err == nil {
+				if parsed, perr := ParseUsage(uText); perr == nil {
+					livePools, activePools = parsed, parsed
+				}
+			}
+		}
+	}
+	pick, err := PickFromEntriesWithPoolsAndCaller(cat.Entries, cat.Picks, activePools, normRole, normTier, normCaller)
+	return pick, livePools, err
 }
 
 func pickCrossFamilyWithQuota(ctx context.Context, cat Catalog, opts PickRoleOptions, normRole, normTier, normCaller string, freshCache bool) (RolePick, []Pool, error) {
@@ -124,7 +144,8 @@ func pickCrossFamilyWithQuota(ctx context.Context, cat Catalog, opts PickRoleOpt
 	}
 	active := activeAutoPickEntries(cat.Entries)
 	gem, gemScore, _, _ := pickGeminiOrAny(active, nil, nil, "", "builder", normTier)
-	model, reason, fb, livePools, activePools := resolveAnthropicQuota(ctx, cat, opts, normRole, pick.Model, gem.ID, freshCache)
+	initialGemID := gem.ID
+	model, reason, fb, livePools, activePools := resolveAnthropicQuota(ctx, cat, opts, normRole, pick.Model, initialGemID, freshCache)
 	if allActivePoolsExhausted(active, activePools) {
 		return RolePick{}, livePools, ErrAllPoolsExhausted
 	}
@@ -134,6 +155,16 @@ func pickCrossFamilyWithQuota(ctx context.Context, cat Catalog, opts PickRoleOpt
 			if isAnthropicFamily(gem.Family) {
 				picked, perr := PickFromEntriesWithPoolsAndCaller(cat.Entries, cat.Picks, activePools, normRole, normTier, normCaller)
 				return picked, livePools, perr
+			}
+			if gem.ID != "" && gem.ID != initialGemID {
+				famLabel := "Gemini"
+				if !isGeminiFamily(gem.Family, gem.ID) {
+					famLabel = nonEmpty(gem.Family, "other")
+				}
+				reason = strings.ReplaceAll(reason, "Gemini ("+initialGemID+")", famLabel+" ("+gem.ID+")")
+				fb = strings.ReplaceAll(fb, "Gemini ("+initialGemID+")", famLabel+" ("+gem.ID+")")
+				reason = strings.ReplaceAll(reason, "("+initialGemID+")", "("+gem.ID+")")
+				fb = strings.ReplaceAll(fb, "("+initialGemID+")", "("+gem.ID+")")
 			}
 			model = gem.ID
 		}

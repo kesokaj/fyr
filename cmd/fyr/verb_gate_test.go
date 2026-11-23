@@ -401,7 +401,7 @@ func TestV910CloseStdinFailFast(t *testing.T) {
 		t.Errorf("close --help first 6 lines lack stdin note:\n%s", strings.Join(headLines, "\n"))
 	}
 
-	// 2. Idle open pipe (like `sleep 4 | fyr close`) fails fast (< 50ms) with exit 2.
+	// 2. Idle open pipe (like `sleep 4 | fyr close`) fails fast (< 250ms) with exit 2.
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -417,8 +417,30 @@ func TestV910CloseStdinFailFast(t *testing.T) {
 	if code != 2 || !strings.Contains(errStr, "no body on stdin") || !strings.Contains(errStr, "--body-file") {
 		t.Fatalf("idle pipe close: code=%d err=%q elapsed=%s", code, errStr, elapsed)
 	}
-	if elapsed >= 50*time.Millisecond {
-		t.Errorf("idle pipe close took %s, want < 50ms", elapsed)
+	if elapsed >= 250*time.Millisecond {
+		t.Errorf("idle pipe close took %s, want < 250ms", elapsed)
+	}
+
+	// 2b. Delayed pipe producer (50ms, e.g. `fyr record get | fyr close`) succeeds within the 150ms readiness window.
+	prDelay, pwDelay, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prDelay.Close()
+	const delayedBody = "Delayed-producer handoff body.\n"
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		_, _ = pwDelay.WriteString(delayedBody)
+		_ = pwDelay.Close()
+	}()
+	stdin = prDelay
+	dOut, dErr, dCode := runCLIWithErr("close", "--home", home, "--dir", repo, "--title", "delayed-pipe")
+	if dCode != 0 || !strings.HasPrefix(strings.TrimSpace(dOut), "HANDOFF-") {
+		t.Fatalf("50ms delayed pipe close failed: code=%d out=%q err=%q", dCode, dOut, dErr)
+	}
+	dRecs, _, dGerr := brain.Get(brain.Options{Home: home, Dir: repo}, []string{strings.TrimSpace(dOut)})
+	if dGerr != nil || len(dRecs) != 1 || !strings.HasPrefix(dRecs[0].Body, delayedBody) {
+		t.Fatalf("delayed pipe handoff body corrupted: err=%v recs=%+v", dGerr, dRecs)
 	}
 
 	// 3. /dev/null (char device) and empty reader fail fast with exit 2.

@@ -278,7 +278,13 @@ func priorWindowRunRuleConfirmed(rule string, d *WindowDeltas, pv func(string) f
 		return pv("H.background_runs.auto.runs") >= minDiagnosticRuns && pv("H.background_runs.auto.failed")/pv("H.background_runs.auto.runs") >= 0.33
 	case "eval_pass_rate_low":
 		md, ok := d.Metrics["eval.pass_rate"]
-		return ok && md.Previous < 0.85
+		if !ok || md.Previous >= 0.85 {
+			return false
+		}
+		if runs, hasRuns := d.Metrics["eval.graded_runs"]; hasRuns && runs.Previous < minDiagnosticRuns {
+			return false
+		}
+		return true
 	}
 	return false
 }

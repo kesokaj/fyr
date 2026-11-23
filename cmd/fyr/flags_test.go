@@ -10,9 +10,11 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/relay"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -609,5 +611,48 @@ func testV910LocalBinAgyLookup(t *testing.T) {
 	outStr, errStr, code = runCLIWithErr("models", "--home", home)
 	if code != 0 || !strings.Contains(outStr, "gemini-4-carbon-high") {
 		t.Fatalf("bare-PATH models with ~/.local/bin/agy: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+}
+
+func TestReportNoIngestWritesStateAndRelayRecordWarn(t *testing.T) {
+	// 1. report --no-ingest writesState: true for --daily-digest and default HTML; false for --md/--json/--web/--out.
+	for _, tc := range []struct {
+		name string
+		cmd  string
+		args []string
+		want bool
+	}{
+		{"report_default_no_ingest", "report", []string{"--no-ingest"}, false},
+		{"report_daily_digest_no_ingest", "report", []string{"--daily-digest", "--no-ingest"}, true},
+		{"report_md_no_ingest", "report", []string{"--md", "--no-ingest"}, false},
+		{"report_json_no_ingest", "report", []string{"--json", "--no-ingest"}, false},
+		{"report_web_no_ingest", "report", []string{"--web", "--no-ingest"}, false},
+		{"report_out_no_ingest", "report", []string{"--out", "/tmp/r.html", "--no-ingest"}, false},
+		{"metrics_report_default_no_ingest", "metrics", []string{"report", "--no-ingest"}, false},
+		{"metrics_report_daily_digest_no_ingest", "metrics", []string{"report", "--daily-digest", "--no-ingest"}, true},
+		{"metrics_report_md_no_ingest", "metrics", []string{"report", "--md", "--no-ingest"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newCtx(tc.cmd, verbs[tc.cmd], &bytes.Buffer{})
+			if stop, err := c.parse(verbs[tc.cmd], tc.args); stop || err != nil {
+				t.Fatalf("parse %v: stop=%v err=%v", tc.args, stop, err)
+			}
+			if got := c.writesState(); got != tc.want {
+				t.Errorf("%s writesState() = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+
+	// 2. recordRelayOrchestrationRun warns to stderr when RecordOrchestrationRun errors.
+	var errBuf bytes.Buffer
+	prevErr := stderr
+	stderr = &errBuf
+	defer func() { stderr = prevErr }()
+	recordRelayOrchestrationRun(t.TempDir(), t.TempDir(), relay.Report{
+		PlanID: "PLAN-bad",
+		Status: "INVALID STATUS WITH SPACES",
+	}, time.Now(), time.Second)
+	if !strings.Contains(errBuf.String(), "warning:") {
+		t.Errorf("recordRelayOrchestrationRun failed silently, stderr=%q", errBuf.String())
 	}
 }

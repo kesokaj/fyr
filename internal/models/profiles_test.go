@@ -131,6 +131,30 @@ func TestChangelogEnrichment(t *testing.T) {
 	}
 }
 
+func TestChangelogContextWindowPrecedence(t *testing.T) {
+	entries := []CatalogEntry{
+		{ID: "gemini-4-carbon-high", DisplayName: "Gemini 4 Carbon (High)", Family: "gemini", Tier: "pro", Status: "active"},
+		{ID: "claude-opus-5-5-high", DisplayName: "Claude Opus 5.5 (High, 500K context)", Family: "anthropic", Tier: "pro", Status: "active"},
+	}
+	for i := range entries {
+		ApplyModelProfile(&entries[i])
+	}
+	// Newest changelog entries appear first; older lines below must NOT overwrite newer ContextWindow,
+	// and DisplayName context hints must never be overwritten by changelog lines.
+	applyChangelogText(
+		"2026-11-20: Gemini 4 Carbon upgraded to 2M context window.\n"+
+			"2026-10-01: Gemini 4 Carbon launched with 500K context window.\n"+
+			"2026-11-15: Claude Opus 5.5 supports 200K context window.\n",
+		entries,
+	)
+	if entries[0].ContextWindow != 2_000_000 {
+		t.Errorf("older changelog line overwrote newer ContextWindow: got %d, want 2000000", entries[0].ContextWindow)
+	}
+	if entries[1].ContextWindow != 500_000 {
+		t.Errorf("changelog line overwrote DisplayName ContextWindow hint: got %d, want 500000", entries[1].ContextWindow)
+	}
+}
+
 func TestResolveScopeRoleAndTier(t *testing.T) {
 	docsRole, docsTier, _ := ResolveScopeRoleAndTier([]string{"README.md", "SDD.md"}, "clarify section")
 	if docsRole != "mechanical" || docsTier != "flash" {

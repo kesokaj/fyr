@@ -84,6 +84,12 @@ func runAuto(c *ctx) error {
 	err := c.dispatchAutoSub(sub, auto.Options{Home: c.home, Out: out, DryRun: c.dryRun, Force: c.force})
 	var ee *auto.ExitError
 	if errors.As(err, &ee) {
+		if c.jsonOut {
+			if jerr := writeVerbExitErrorJSON(c.out, "auto", ee.Msg, buf.String()); jerr != nil {
+				return jerr
+			}
+			return exitCode(ee.Code)
+		}
 		if ee.Msg != "" {
 			fmt.Fprintln(c.out, ee.Msg)
 		}

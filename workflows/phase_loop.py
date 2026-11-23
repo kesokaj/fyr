@@ -367,12 +367,15 @@ def _lease_cli_flags(s):
         out.extend(["--lease", pat])
     return out
 
+def _worker_cli_flags(s, cfg):
+    wm, ws = s.get("worker_model") or cfg.get("worker_model") or "", s.get("worker_session") or cfg.get("worker_session") or ""
+    return (["--worker-model", wm] if wm and _MODEL_ID_RE.match(wm) else []) + (["--worker-session", ws] if ws and _SESSION_ID_RE.match(ws) else [])
+
 def _judge_and_worker_cli_flags(s, cfg):
     out = []
     if s["judge_criterion"] and cfg["cross_family"]:
         out += ["--judge", s["judge_criterion"]] + (["--judge-model", cfg["judge_model"]] if cfg["judge_model"] and _MODEL_ID_RE.match(cfg["judge_model"]) else [])
-    wm, ws = s.get("worker_model") or cfg.get("worker_model") or "", s.get("worker_session") or cfg.get("worker_session") or ""
-    return out + (["--worker-model", wm] if wm and _MODEL_ID_RE.match(wm) else []) + (["--worker-session", ws] if ws and _SESSION_ID_RE.match(ws) else [])
+    return out + _worker_cli_flags(s, cfg)
 
 async def _run_fyr_gate(s, branch, round_num, cfg):
     mocked = _mock_entry(cfg["mocks"], "gate", s["id"], round_num)
@@ -382,7 +385,7 @@ async def _run_fyr_gate(s, branch, round_num, cfg):
         if not cfg["mocks"]:
             return {"ok": False, "findings": [{"check": "gate", "detail": "exec_cli disabled without mocks (missing CONVERSATION_ID)"}]}
         return {"ok": True, "findings": [], "judgeVerdict": "PASS" if s["judge_criterion"] else ""}
-    cli_args = ["gate", branch] + _lease_cli_flags(s) + (["--base", s["base_ref"]] if s["base_ref"] else []) + _judge_and_worker_cli_flags(s, cfg)
+    cli_args = ["gate", branch] + _lease_cli_flags(s) + (["--base", s["base_ref"]] if s["base_ref"] else []) + _worker_cli_flags(s, cfg)
     parsed, rc, err_tail = await _exec_fyr_json(cli_args, cfg)
     return {**parsed, "ok": parsed.get("ok", rc == 0)} if isinstance(parsed, dict) else {"ok": rc == 0, "findings": [] if rc == 0 else [{"check": "gate", "detail": err_tail}]}
 

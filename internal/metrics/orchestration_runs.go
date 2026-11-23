@@ -18,6 +18,10 @@ const (
 	maxOrchestrationRunLimit     = 5000
 )
 
+// ErrInvalidOrchestrationRun is wrapped by validation errors returned when
+// normalizing or inserting an OrchestrationRunRow.
+var ErrInvalidOrchestrationRun = errors.New("metrics: orchestration_runs")
+
 // OrchestrationRunRow records one shape-only relay, swarm, or workflow
 // orchestration run in metrics.db (schema 14).
 type OrchestrationRunRow struct {
@@ -76,7 +80,7 @@ func normalizeOrchestrationRunRow(r OrchestrationRunRow) (OrchestrationRunRow, e
 		return OrchestrationRunRow{}, err
 	}
 	if r.Units < 0 || r.DefectRounds < 0 || r.Passed < 0 || r.Failed < 0 || r.DurationMS < 0 {
-		return OrchestrationRunRow{}, errors.New("metrics: orchestration_runs: negative count or duration_ms")
+		return OrchestrationRunRow{}, fmt.Errorf("%w: negative count or duration_ms", ErrInvalidOrchestrationRun)
 	}
 	if pr := strings.TrimSpace(r.ProjectRoot); pr != "" {
 		if pr == search.GlobalWorkspace {
@@ -101,7 +105,7 @@ func validateOrchestrationIDAndMeta(r *OrchestrationRunRow) error {
 	r.ID = strings.TrimSpace(r.ID)
 	if r.ID == "" || len(r.ID) > 128 || printable(r.ID) != r.ID ||
 		strings.IndexFunc(r.ID, unicode.IsSpace) >= 0 || redact.Redact(r.ID) != r.ID {
-		return errors.New("metrics: orchestration_runs: invalid id")
+		return fmt.Errorf("%w: invalid id", ErrInvalidOrchestrationRun)
 	}
 	ts, err := normalizeOrchestrationTS(r.TS)
 	if err != nil {
@@ -110,15 +114,15 @@ func validateOrchestrationIDAndMeta(r *OrchestrationRunRow) error {
 	r.TS = ts
 	r.Kind = strings.ToLower(strings.TrimSpace(r.Kind))
 	if !isValidShapeOutcome(r.Kind) {
-		return fmt.Errorf("metrics: orchestration_runs: invalid kind %q", printable(r.Kind))
+		return fmt.Errorf("%w: invalid kind %q", ErrInvalidOrchestrationRun, printable(r.Kind))
 	}
 	r.Status = strings.TrimSpace(r.Status)
 	if !isValidShapeCode(r.Status, 32, false) {
-		return fmt.Errorf("metrics: orchestration_runs: invalid status %q", printable(r.Status))
+		return fmt.Errorf("%w: invalid status %q", ErrInvalidOrchestrationRun, printable(r.Status))
 	}
 	r.HaltCode = strings.TrimSpace(r.HaltCode)
 	if r.HaltCode != "" && (!isValidShapeCode(r.HaltCode, 64, true) || redact.Redact(r.HaltCode) != r.HaltCode) {
-		return fmt.Errorf("metrics: orchestration_runs: invalid halt_code %q", printable(r.HaltCode))
+		return fmt.Errorf("%w: invalid halt_code %q", ErrInvalidOrchestrationRun, printable(r.HaltCode))
 	}
 	return nil
 }
@@ -133,7 +137,7 @@ func normalizeOrchestrationTS(raw string) (string, error) {
 			return t.UTC().Format(time.RFC3339), nil
 		}
 	}
-	return "", fmt.Errorf("metrics: orchestration_runs: invalid ts %q", printable(s))
+	return "", fmt.Errorf("%w: invalid ts %q", ErrInvalidOrchestrationRun, printable(s))
 }
 
 func isValidShapeCode(s string, maxLen int, allowColonDot bool) bool {

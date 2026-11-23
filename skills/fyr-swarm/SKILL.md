@@ -55,8 +55,8 @@ Give every editing worker its own `workspace="share"` copy and disjoint `Files:`
 Files: <comma-separated repo-relative files or dirs>
 Project: this clone, the current directory; never another checkout. Read AGENTS.md, then <fyr record get PLAN-ID; do phase of PLAN-ID only, as a worker | do this task only, as a worker, with no plan: exact task>.
 Model: <trimmed model ID; omit line when unset>
-Standing approvals (closed set): <phase who: AI boxes or task> and named tests (<base-check or targeted test>); the change record (or scratch draft if run_workflow lacks trail access); commit on branch work/<name>[-r2] with zero trailers; git checkout --detach HEAD (share worktrees); closing handoff.
-Never: push; tick PLAN-* or TODO.md; store records other than change and closing handoff (draft other artifacts under .agents/scratch/agents/ early); merge; touch main; a who: user box or Open: row; a release; a deploy; a real-home install; fyr metrics ingest; edit outside Files:.
+Standing approvals (closed set): <phase who: AI boxes or task> and named tests (<base-check or targeted test>); optional change record (or scratch draft if run_workflow lacks trail access); commit on branch work/<name>[-r2] with zero trailers; git checkout --detach HEAD (share worktrees); closing handoff.
+Never: push; tick PLAN-* or TODO.md; store records other than closing handoff (and optional change; draft other artifacts under .agents/scratch/agents/ early); merge; touch main; a who: user box or Open: row; a release; a deploy; a real-home install; fyr metrics ingest; edit outside Files:.
 Budget & artifact: <= 40 tool calls for specialized subagents (<= 120 for self); write any draft/artifact early under .agents/scratch/agents/, then update it.
 Done when: <Checkpoint expect or targeted base-check/test passes> (where Done when names an item under Never, Never wins: name it in the handoff for the coordinator), git checkout --detach HEAD (share worktrees), closing handoff stored, and [done] branch=work/<name> commit=<short-sha> (or finish JSON in run_workflow).
 ```
@@ -88,7 +88,7 @@ On active `COORDINATE_SUBTASKS` turns (`subtask_count >= 2` in `vet_history`) or
 - **In-band `PreToolUse`/`PostToolUse` Watchdog:**
   - `[INTERACTIVE_STDIN]` blocks interactive editors, pagers, and prompts waiting on stdin, and injects `export GIT_TERMINAL_PROMPT=0; ` via `Overwrite` for network `git` commands.
   - `[POLL_LOOP]` denies `>= 3` consecutive `manage_task` / `manage_subagents` `list`/`status` polls; end the turn to await wakeup or run `fyr watch --check`.
-  - `[TOKEN_LOOP]` denies `>= 3` consecutive identical failing tool calls or `A-B-A-B` failing error loops recorded across `PreToolUse` and `PostToolUse` in `watchdog_ring` (exempting `finish`, `send_message`, `.agents/scratch/agents/` writes, and `git` commit steps).
+  - `[ERROR_LOOP]` denies `>= 3` consecutive identical failing tool calls or `A-B-A-B` failing error loops recorded across `PreToolUse` and `PostToolUse` in `watchdog_ring` (exempting `finish`, `send_message`, `.agents/scratch/agents/` writes, and `git` commit steps).
   - `[SUBAGENT_BUDGET]` warns at `25`/`90` and blocks at `40` tool calls for specialized subagents (`120` for `self`), nudging completion via artifact write or `finish`.
 - **Silent-hang recovery:** Pair child dispatches with `schedule(TimerCondition: "<id>", DurationSeconds: 90)` instead of polling. If a timer fires or a worker appears stalled, inspect read-only with `fyr watch --check --conv <id> --json` (exits `1` with `[INTERACTIVE_WAIT]`, `[STUCK_NO_PROGRESS]`, or `[BUDGET_NEAR_LIMIT]`).
 
@@ -104,4 +104,4 @@ On active `COORDINATE_SUBTASKS` turns (`subtask_count >= 2` in `vet_history`) or
    fyr land --lease "<comma-separated Files lease>" [--judge "<acceptance criterion>" [--judge-model <id>]] work/<name>
    ```
    A `share` worker detaches HEAD (`git checkout --detach HEAD`) after committing its branch and before `fyr land` runs so `work/<name>` is not held checked out in its worktree. Never run two `fyr land` commands concurrently; resolve any merge conflict cleanly on a single branch before continuing.
-3. **Post-wave verify & cleanup:** Run `fyr verify` once on `main` after the wave lands. Only AFTER `fyr land` succeeds, kill finished `share` workers via `swarm(action="kill", name="<worker>")` (`kill` deletes the worker's `share` workspace permanently), ensure one `change` record covers the landed wave (linking or consolidating worker `change` records), and close/update the plan or handoff per `fyr-feature` / `fyr-handoff`.
+3. **Post-wave verify & cleanup:** Run `fyr verify` once on `main` after the wave lands. Only AFTER `fyr land` succeeds, kill finished `share` workers via `swarm(action="kill", name="<worker>")` (`kill` deletes the worker's `share` workspace permanently), and close/update the plan or handoff per `fyr-feature` / `fyr-handoff` (`change` records are optional).

@@ -714,10 +714,13 @@ esac`
 		var landSeq []string
 		var sawVerify, sawJudgeModel bool
 		for _, ln := range lines {
-			if strings.HasPrefix(ln, "gate ") && strings.Contains(ln, "--judge-model claude-opus-5-5-high") {
-				sawJudgeModel = true
+			if strings.HasPrefix(ln, "gate ") && (strings.Contains(ln, "--judge") || strings.Contains(ln, "--judge-model")) {
+				t.Errorf("gate CLI line unexpectedly invoked --judge (must run once in land):\n%s", ln)
 			}
 			if strings.HasPrefix(ln, "land ") {
+				if strings.Contains(ln, "--judge-model claude-opus-5-5-high") {
+					sawJudgeModel = true
+				}
 				landSeq = append(landSeq, strings.Fields(ln)[1])
 			}
 			if strings.HasPrefix(ln, "verify --json") {
@@ -1123,10 +1126,12 @@ esac`
 				landLine = ln
 			}
 		}
-		for _, want := range []string{"--judge check s1", "--judge-model claude-opus-5-5-high", "--worker-model gemini-4-carbon-high", "--worker-session conv-w1"} {
-			if !strings.Contains(gateLine, want) {
-				t.Errorf("gate CLI line missing %q:\n%s", want, gateLine)
+		for _, forbidden := range []string{"--judge", "--judge-model"} {
+			if strings.Contains(gateLine, forbidden) {
+				t.Errorf("gate CLI line unexpectedly contains %q (judge must run once in land):\n%s", forbidden, gateLine)
 			}
+		}
+		for _, want := range []string{"--judge check s1", "--judge-model claude-opus-5-5-high", "--worker-model gemini-4-carbon-high", "--worker-session conv-w1"} {
 			if !strings.Contains(landLine, want) {
 				t.Errorf("land CLI line missing %q:\n%s", want, landLine)
 			}

@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"encoding/json"
+	"errors"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -43,8 +45,8 @@ func TestOrchestrationRunsCRUD(t *testing.T) {
 func assertOrchestrationRunValidation(t *testing.T, s *Store) {
 	t.Helper()
 	secretTok := strings.Join([]string{"gh", "p_", "ORCHSECRET1234567890ABCDEFGH"}, "")
-	if err := RecordOrchestrationRun("", OrchestrationRunRow{ID: "x", Kind: "relay", Status: "OK"}); err == nil {
-		t.Fatal("RecordOrchestrationRun with empty home succeeded, want error")
+	if err := RecordOrchestrationRun("", OrchestrationRunRow{ID: "x", Kind: "relay", Status: "OK"}); err == nil || errors.Is(err, ErrInvalidOrchestrationRun) {
+		t.Fatalf("RecordOrchestrationRun with empty home = %v, want non-validation error", err)
 	}
 	badRows := []OrchestrationRunRow{
 		{ID: "", Kind: "relay", Status: "OK"},
@@ -65,8 +67,8 @@ func assertOrchestrationRunValidation(t *testing.T, s *Store) {
 		{ID: "ok-12", Kind: "relay", Status: "OK", DurationMS: -1},
 	}
 	for _, bad := range badRows {
-		if err := s.InsertOrchestrationRun(bad); err == nil {
-			t.Errorf("InsertOrchestrationRun(%+v) succeeded, want error", bad)
+		if err := s.InsertOrchestrationRun(bad); !errors.Is(err, ErrInvalidOrchestrationRun) {
+			t.Errorf("InsertOrchestrationRun(%+v) = %v, want ErrInvalidOrchestrationRun", bad, err)
 		}
 	}
 }
@@ -122,5 +124,75 @@ func assertOrchestrationRunQueriesAndUpsert(t *testing.T, s *Store, base time.Ti
 	}
 	if strings.Contains(string(blob), `"halt_code"`) {
 		t.Errorf("empty halt_code not omitted: %s", blob)
+	}
+}
+
+func TestShowWavesFiltersAndOrchestrationRepoIDMatch(t *testing.T) {
+	home := t.TempDir()
+	s := openT(t, Path(home))
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	since, ts := now.Add(-24*time.Hour), now.Add(-2*time.Hour).UnixMilli()
+
+	// 1. collectSuggestedSkills must exclude labeled eval sessions and ephemeral sandbox roots.
+	if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, project_root, label, started_at, ended_at) VALUES
+		('c-real', 'agy', '/work/real-app', NULL, ?, ?),
+		('c-eval', 'agy', '/work/real-app', 'eval=smoke', ?, ?)`,
+		ts, ts+500, ts+1000, ts+1500); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO turn_vets(project_root, conversation_id, turn_num, intent, gate, score, suggested_skills, created_at) VALUES
+		('/work/real-app', 'c-real', 1, 'TASK', 'PROCEED', 80, '["golang"]', ?),
+		('/work/real-app', 'c-eval', 1, 'TASK', 'PROCEED', 80, '["eval-only-skill"]', ?),
+		('/tmp/fyr-smoke-99', 'c-sb', 1, 'TASK', 'PROCEED', 80, '["sandbox-only-skill"]', ?)`,
+		ts+10, ts+1010, ts+2010); err != nil {
+		t.Fatal(err)
+	}
+	defSum, err := s.Show(ShowOptions{Home: home, Since: since, Now: now})
+	if err != nil {
+		t.Fatalf("Show default: %v", err)
+	}
+	seenDef := map[string]int{}
+	for _, st := range defSum.SkillTelemetry {
+		seenDef[st.Skill] = st.Suggested
+	}
+	if seenDef["golang"] != 1 || seenDef["eval-only-skill"] != 0 || seenDef["sandbox-only-skill"] != 0 {
+		t.Fatalf("default SkillTelemetry leaked labeled/sandbox suggestions: %+v", defSum.SkillTelemetry)
+	}
+	allSum, err := s.Show(ShowOptions{Home: home, Since: since, Now: now, AllLabels: true, IncludeSandboxes: true})
+	if err != nil {
+		t.Fatalf("Show all: %v", err)
+	}
+	seenAll := map[string]int{}
+	for _, st := range allSum.SkillTelemetry {
+		seenAll[st.Skill] = st.Suggested
+	}
+	if seenAll["eval-only-skill"] != 1 || seenAll["sandbox-only-skill"] != 1 {
+		t.Fatalf("AllLabels+IncludeSandboxes missed expected suggestions: %+v", allSum.SkillTelemetry)
+	}
+
+	// 2. queryOrchestrationRunsForShow must match repo_id even when project_root differs (e.g. imported state).
+	repoDir := t.TempDir()
+	for _, args := range [][]string{{"init", "-q"}, {"remote", "add", "origin", "https://github.com/org/imported-repo.git"}} {
+		cmd := exec.Command("git", append([]string{"-C", repoDir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	rid := ResolveRepoID(repoDir)
+	if rid == "" {
+		t.Fatal("ResolveRepoID returned empty for git repo with origin")
+	}
+	if err := s.InsertOrchestrationRun(OrchestrationRunRow{
+		ID: "imported-run-1", TS: now.Add(-time.Hour).Format(time.RFC3339),
+		Kind: "relay", ProjectRoot: "", RepoID: rid, Status: "COMPLETE", Units: 2, Passed: 2, DurationMS: 1200,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	projSum, err := s.Show(ShowOptions{Home: home, Project: repoDir, Since: since, Now: now})
+	if err != nil {
+		t.Fatalf("Show project: %v", err)
+	}
+	if projSum.Orchestration == nil || projSum.Orchestration.Runs != 1 {
+		t.Fatalf("Show(Project=%s) missed orchestration run matched by repo_id %q: %+v", repoDir, rid, projSum.Orchestration)
 	}
 }

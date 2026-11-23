@@ -201,3 +201,72 @@ func TestPickRoleFromCatalogQuotaCacheBehavior(t *testing.T) {
 		t.Fatalf("corrupt cache + offline probe: pick=%+v livePools=%+v calls=%d err=%v", pickCorr, liveCorr, calls, err)
 	}
 }
+
+func TestPickRoleExpiredSameFamilyAndCrossFamilyRepickReason(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 21, 15, 0, 0, 0, time.UTC)
+	oldNow, oldUsage := usageNowFunc, UsageProbeFunc
+	usageNowFunc = func() time.Time { return now }
+	t.Cleanup(func() {
+		usageNowFunc = oldNow
+		UsageProbeFunc = oldUsage
+	})
+
+	entries := []CatalogEntry{
+		{ID: "gemini-4-carbon-high", DisplayName: "Gemini 4 Carbon (High)", Family: "gemini", Tier: "pro", Effort: "high", Status: "active"},
+		{ID: "claude-opus-5-5-high", DisplayName: "Claude Opus 5.5 (High)", Family: "anthropic", Tier: "pro", Effort: "high", Status: "active"},
+		{ID: "custom-other-pro-high", DisplayName: "Custom Other Pro (High)", Family: "other", Tier: "pro", Effort: "high", Status: "active"},
+	}
+
+	// 1. Expired exhausted cat.Pools on !crossFamily role ("builder"):
+	//    - With AgyPath == "", expired pools are dropped (nil) -> succeeds without ErrAllPoolsExhausted.
+	expiredExhausted := Catalog{
+		UpdatedAt:      now.Format(time.RFC3339),
+		QuotaUpdatedAt: now.Add(-30 * time.Minute).Format(time.RFC3339),
+		Entries:        entries,
+		Pools: []Pool{
+			{Name: "Gemini Models", Five: 0, Week: 0},
+			{Name: "Claude and GPT models", Five: 0, Week: 0},
+		},
+	}
+	pickNoAgy, liveNoAgy, err := PickRoleFromCatalogForHome(ctx, expiredExhausted, PickRoleOptions{AgyPath: ""}, "builder", "pro")
+	if err != nil || pickNoAgy.Model != "gemini-4-carbon-high" || len(liveNoAgy) != 0 {
+		t.Fatalf("expired !crossFamily without agy applied stale pools: pick=%+v live=%+v err=%v", pickNoAgy, liveNoAgy, err)
+	}
+	//    - With AgyPath != "", expired pools trigger live usage probe and return livePools.
+	probeCalls := 0
+	UsageProbeFunc = func(context.Context, string) (string, error) {
+		probeCalls++
+		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
+			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
+			"Claude and GPT models\tWeekly Limit Remaining\t60%\tx\n" +
+			"Claude and GPT models\tFive Hour Limit Remaining\t70%\tx\n", nil
+	}
+	pickWithAgy, liveWithAgy, err := PickRoleFromCatalogForHome(ctx, expiredExhausted, PickRoleOptions{AgyPath: "agy"}, "builder", "pro")
+	if err != nil || pickWithAgy.Model != "gemini-4-carbon-high" || probeCalls != 1 || len(liveWithAgy) != 2 {
+		t.Fatalf("expired !crossFamily with agy did not probe live pools: pick=%+v live=%+v calls=%d err=%v", pickWithAgy, liveWithAgy, probeCalls, err)
+	}
+
+	// 2. Cross-family fallback re-pick: initial gem is gemini-4-carbon-high, activePools exhausts Gemini
+	//    (and Claude is low) while Other Models is healthy -> re-picks custom-other-pro-high and updates reason & fb.
+	repickCat := Catalog{
+		UpdatedAt:      now.Format(time.RFC3339),
+		QuotaUpdatedAt: now.Add(-time.Minute).Format(time.RFC3339),
+		Entries:        entries,
+		Pools: []Pool{
+			{Name: "Gemini Models", Five: 0, Week: 0},
+			{Name: "Claude Models", Five: 10, Week: 10},
+			{Name: "OpenAI Models", Five: 90, Week: 90},
+		},
+	}
+	pickRepick, _, err := PickRoleFromCatalogForHome(ctx, repickCat, PickRoleOptions{AgyPath: "agy"}, "judge", "pro")
+	if err != nil || pickRepick.Model != "custom-other-pro-high" {
+		t.Fatalf("cross-family repick: pick=%+v err=%v, want custom-other-pro-high", pickRepick, err)
+	}
+	if !strings.Contains(pickRepick.Reason, "custom-other-pro-high") || strings.Contains(pickRepick.Reason, "gemini-4-carbon-high") {
+		t.Errorf("cross-family repick Reason named stale model: %q", pickRepick.Reason)
+	}
+	if !strings.Contains(pickRepick.FallbackReason, "custom-other-pro-high") || strings.Contains(pickRepick.FallbackReason, "gemini-4-carbon-high") {
+		t.Errorf("cross-family repick FallbackReason named stale model: %q", pickRepick.FallbackReason)
+	}
+}

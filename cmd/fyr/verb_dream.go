@@ -43,6 +43,12 @@ func runDream(c *ctx) error {
 	})
 	var ee *dream.ExitError
 	if errors.As(err, &ee) {
+		if c.jsonOut {
+			if jerr := writeVerbExitErrorJSON(c.out, "dream", ee.Msg, buf.String()); jerr != nil {
+				return jerr
+			}
+			return exitCode(ee.Code)
+		}
 		fmt.Fprintln(c.out, ee.Msg)
 		return exitCode(ee.Code)
 	}

@@ -74,8 +74,32 @@ func recordRelayOrchestrationRun(home, wd string, rep relay.Report, start time.T
 	if strings.TrimSpace(home) == "" {
 		return
 	}
-	var okN, failN int
-	var workerModel, judgeModel, verdict string
+	okN, failN, workerModel, judgeModel, verdict := summarizeRelayPhases(rep)
+	root := strings.TrimSpace(rep.RepoRoot)
+	if root == "" {
+		root = wd
+	}
+	row := metrics.OrchestrationRunRow{
+		ID:          relayRunID(rep.PlanID, start),
+		TS:          time.Now().UTC().Format(time.RFC3339),
+		Kind:        "relay",
+		ProjectRoot: root,
+		Status:      rep.Status,
+		HaltCode:    rep.HaltReason,
+		Units:       len(rep.Phases),
+		Passed:      okN,
+		Failed:      failN,
+		DurationMS:  max(int64(0), elapsed.Milliseconds()),
+		WorkerModel: workerModel,
+		JudgeModel:  judgeModel,
+		Verdict:     verdict,
+	}
+	if err := metrics.RecordOrchestrationRun(home, row); err != nil {
+		fmt.Fprintf(stderr, "fyr relay: warning: record orchestration run: %v\n", err)
+	}
+}
+
+func summarizeRelayPhases(rep relay.Report) (okN, failN int, workerModel, judgeModel, verdict string) {
 	for _, ph := range rep.Phases {
 		if ph.Status == "PASS" {
 			okN++
@@ -99,26 +123,7 @@ func recordRelayOrchestrationRun(home, wd string, rep relay.Report, start time.T
 			verdict = "FAIL"
 		}
 	}
-	root := strings.TrimSpace(rep.RepoRoot)
-	if root == "" {
-		root = wd
-	}
-	row := metrics.OrchestrationRunRow{
-		ID:          relayRunID(rep.PlanID, start),
-		TS:          time.Now().UTC().Format(time.RFC3339),
-		Kind:        "relay",
-		ProjectRoot: root,
-		Status:      rep.Status,
-		HaltCode:    rep.HaltReason,
-		Units:       len(rep.Phases),
-		Failed:      failN,
-		DurationMS:  max(int64(0), elapsed.Milliseconds()),
-		WorkerModel: workerModel,
-		JudgeModel:  judgeModel,
-		Verdict:     verdict,
-	}
-	row.Passed = okN
-	_ = metrics.RecordOrchestrationRun(home, row)
+	return okN, failN, workerModel, judgeModel, verdict
 }
 
 func relayRunID(planID string, start time.Time) string {

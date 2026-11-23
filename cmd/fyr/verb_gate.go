@@ -279,29 +279,44 @@ func peekOneByte(r io.Reader) (io.Reader, bool) {
 	return io.MultiReader(bytes.NewReader(b[:n]), r), true
 }
 
+const closePipeReadyWindow = 150 * time.Millisecond
+
 func peekNonBlockPipe(f *os.File) (io.Reader, bool) {
-	fd := int(f.Fd())
-	if err := syscall.SetNonblock(fd, true); err != nil {
+	if err := f.SetReadDeadline(time.Now().Add(closePipeReadyWindow)); err == nil {
+		defer f.SetReadDeadline(time.Time{})
+		return peekOneByte(f)
+	}
+	return peekPipeSyscallConn(f)
+}
+
+func peekPipeSyscallConn(f *os.File) (io.Reader, bool) {
+	raw, err := f.SyscallConn()
+	if err != nil {
 		return nil, false
 	}
-	defer syscall.SetNonblock(fd, false)
 	var b [1]byte
-	deadline := time.Now().Add(15 * time.Millisecond)
+	var got int
+	deadline := time.Now().Add(closePipeReadyWindow)
 	for {
-		n, err := syscall.Read(fd, b[:])
-		if n > 0 {
-			return io.MultiReader(bytes.NewReader(b[:n]), f), true
+		var rerr error
+		cerr := raw.Read(func(fd uintptr) bool {
+			n, err := syscall.Read(int(fd), b[:])
+			got, rerr = n, err
+			return true
+		})
+		if cerr == nil && got > 0 {
+			return io.MultiReader(bytes.NewReader(b[:got]), f), true
 		}
-		if err == nil {
+		if cerr != nil || rerr == nil {
 			return nil, false
 		}
-		if !errors.Is(err, syscall.EAGAIN) && !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
+		if !errors.Is(rerr, syscall.EAGAIN) && !errors.Is(rerr, syscall.EWOULDBLOCK) && !errors.Is(rerr, syscall.EINTR) {
 			return nil, false
 		}
 		if !time.Now().Before(deadline) {
 			return nil, false
 		}
-		time.Sleep(2 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

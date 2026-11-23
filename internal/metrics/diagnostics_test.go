@@ -587,3 +587,58 @@ func testV910SubagentCapsAndExemptSteps(t *testing.T) {
 		t.Fatalf("SubagentsOverBudget after non-exempt step = %d (err=%v), want 1", sum2.Health.SubagentsOverBudget, err)
 	}
 }
+
+func TestEvalPassRateWindowDeltaAndHysteresis(t *testing.T) {
+	home := t.TempDir()
+	s := openT(t, Path(home))
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	since := now.Add(-24 * time.Hour)
+
+	// Current window: 1/4 pass (0.25 < 0.60 -> candidate high).
+	// Prior window:   2/4 pass (0.50 < 0.85 -> confirms 2-window persistence -> HIGH).
+	for i, st := range []string{"pass", "fail", "fail", "fail"} {
+		cause := ""
+		if st == "fail" {
+			cause = "check"
+		}
+		if err := s.RecordTrial(Trial{
+			Run: fmt.Sprintf("eval/cur/%d", i), Label: "eval=smoke", Kind: "capability",
+			Harness: "v9.10.0", Status: st, Cause: cause, StartedAt: now.Add(-time.Duration(i+1) * time.Hour), Seconds: 5,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// First verify single-window eval_pass_rate_low downgrades to medium.
+	sumSingle, err := s.Show(ShowOptions{Home: home, Since: since, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sig, ok := findDiagSignal(sumSingle.Diagnostics.Signals, "eval_pass_rate_low"); !ok || sig.Severity != "medium" {
+		t.Fatalf("single-window eval signal got (%+v, %v), want medium", sig, ok)
+	}
+
+	// Seed prior window with 2/4 pass (0.50 < 0.85) -> WindowDeltas["eval.pass_rate"] populated and promotes to HIGH.
+	for i, st := range []string{"pass", "pass", "fail", "fail"} {
+		cause := ""
+		if st == "fail" {
+			cause = "check"
+		}
+		if err := s.RecordTrial(Trial{
+			Run: fmt.Sprintf("eval/prev/%d", i), Label: "eval=smoke", Kind: "capability",
+			Harness: "v9.10.0", Status: st, Cause: cause, StartedAt: since.Add(-time.Duration(i+1) * time.Hour), Seconds: 5,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sumSustained, err := s.Show(ShowOptions{Home: home, Since: since, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	md, ok := sumSustained.Deltas.Metrics["eval.pass_rate"]
+	if !ok || md.Current != 0.25 || md.Previous != 0.5 || md.Delta != -0.25 {
+		t.Fatalf("WindowDeltas.Metrics[eval.pass_rate] = (%+v, %v), want cur=0.25 prev=0.5 delta=-0.25", md, ok)
+	}
+	if sig, ok := findDiagSignal(sumSustained.Diagnostics.Signals, "eval_pass_rate_low"); !ok || sig.Severity != "high" {
+		t.Fatalf("sustained 2-window eval signal got (%+v, %v), want high", sig, ok)
+	}
+}

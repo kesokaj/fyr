@@ -436,9 +436,10 @@ func runV910HaltReasonPersistence(t *testing.T) {
 	// 2. G9 budget floor halt persists HaltReason into metrics.db.
 	homeBudget := t.TempDir()
 	writeConfig(t, homeBudget, validConfig)
-	root := idleProject(t)
+	root := idleDreamProject(t, homeBudget)
 	out.Reset()
-	oBudget := runOpts(homeBudget, &out)
+	oBudget := driftOpts(homeBudget, root, &out)
+	oBudget.RecordBackgroundRun = runOpts(homeBudget, &out).RecordBackgroundRun
 	oBudget.Env = &fakeEnv{targets: targetsOf(root), usage: usageText("10%", "90%")}
 	if err := Run(oBudget, false); err != nil {
 		t.Fatalf("G9 budget run: %v", err)
@@ -451,5 +452,69 @@ func runV910HaltReasonPersistence(t *testing.T) {
 	sBudget.Close()
 	if err != nil || len(rowsBudget) != 1 || rowsBudget[0].HaltReason == "" || !strings.Contains(rowsBudget[0].HaltReason, "G9_BUDGET") {
 		t.Fatalf("G9 budget background_runs = %+v (err=%v), want HaltReason containing G9_BUDGET", rowsBudget, err)
+	}
+}
+
+func TestAutoReportBodyAttributionEndToEndAndHealthShortCircuit(t *testing.T) {
+	// 1. reportBodyWithAttribution emits unfenced auto-applied: <sha> readable by metrics.BuildDailyDigest.
+	home := t.TempDir()
+	root := "/work/e2e-app"
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	body := reportBodyWithAttribution("e2e-app", "abcdef1234", "sig:global:search_grep_low", "2026-11-22", true, true, []Finding{
+		{"eval", "skills/golang", "skills/golang/SKILL.md", "updated"},
+	})
+	if !strings.Contains(body, "\nauto-applied: abcdef1234\n") || !strings.Contains(body, "Applied commit `abcdef1234`") {
+		t.Fatalf("reportBodyWithAttribution missing expected auto-applied or Applied commit line:\n%s", body)
+	}
+	if _, err := brain.Add(brain.Options{Home: home, Global: true, Now: func() time.Time { return now }}, brain.AddInput{
+		Kind:    "review",
+		Title:   "auto report: e2e-app, 1 findings",
+		Project: root,
+		Body:    strings.NewReader(body),
+	}); err != nil {
+		t.Fatalf("brain.Add: %v", err)
+	}
+	ms, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ms.Close()
+	dig, err := metrics.BuildDailyDigest(ms, home, root, now)
+	if err != nil {
+		t.Fatalf("BuildDailyDigest: %v", err)
+	}
+	if len(dig.Actions) != 1 || dig.Actions[0].AppliedSHA != "abcdef1234" || dig.Actions[0].SignalID != "sig:global:search_grep_low" || !dig.Actions[0].InstallPending {
+		t.Fatalf("BuildDailyDigest did not parse auto report body: actions=%+v", dig.Actions)
+	}
+
+	// 2. (*run).health leaves haltReason unset when task == nil or workerRan == true even when G9 budget is low.
+	for _, tc := range []struct {
+		name      string
+		workerRan bool
+		wantSub   string
+	}{
+		{"no_due_task", false, "no model task due"},
+		{"worker_already_ran", true, "worker already ran in this sweep"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := t.TempDir()
+			writeConfig(t, h, validConfig)
+			projDir := t.TempDir()
+			fe := &fakeEnv{usage: usageText("5%", "5%")}
+			r := &run{
+				o:         runOpts(h, &bytes.Buffer{}),
+				env:       fe,
+				say:       func(string) {},
+				workerRan: tc.workerRan,
+			}
+			var p Project
+			verdict := r.health(projDir, &p, projectRead{})
+			if r.haltReason != "" {
+				t.Errorf("%s: health set spurious haltReason=%q, want empty", tc.name, r.haltReason)
+			}
+			if !strings.Contains(verdict, tc.wantSub) {
+				t.Errorf("%s: verdict=%q, want substring %q", tc.name, verdict, tc.wantSub)
+			}
+		})
 	}
 }

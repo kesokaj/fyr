@@ -240,7 +240,8 @@ func (s *Store) accumulateEvalModelEvidence(accs map[string]*modelEvidenceAcc, s
 		FROM trials t
 		LEFT JOIN sessions s ON s.run = t.run AND (s.parent_id IS NULL OR s.parent_id = '')
 		WHERE t.started_at >= ? AND t.started_at < ?
-		  AND LOWER(t.status) IN ('pass', 'fail')`
+		  AND LOWER(t.status) IN ('pass', 'fail')
+		ORDER BY t.run, CASE WHEN TRIM(COALESCE(s.model, '')) != '' THEN 0 ELSE 1 END, COALESCE(s.started_at, 0) ASC`
 	rows, err := s.db.Query(q, since.UnixMilli(), now.UnixMilli())
 	if err != nil {
 		return err
@@ -267,11 +268,11 @@ func scanEvalTrialRow(rows *sql.Rows, seenRuns map[string]bool, accs map[string]
 	if seenRuns[run] {
 		return nil
 	}
-	seenRuns[run] = true
 	m := strings.TrimSpace(model)
 	if m == "" || strings.EqualFold(m, "default") {
 		return nil
 	}
+	seenRuns[run] = true
 	baseW := trialEvidenceWeight
 	if kind == "bench" {
 		baseW = benchEvidenceWeight

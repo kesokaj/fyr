@@ -112,6 +112,15 @@ func (s *Store) populateSummaryExtras(sum *Summary, o ShowOptions, all []sess, t
 	if err := s.populateCohorts(sum, o, all, data, since, now); err != nil {
 		return err
 	}
+	if strings.TrimSpace(o.Project) == "" && o.Label == "" {
+		ev, err := ReportEvalsWithDevFallback(s, home, ShowOptions{Since: since, Now: now})
+		if err != nil {
+			return err
+		}
+		if ev != nil {
+			sum.evalRows = ev.Rows
+		}
+	}
 	if err := s.populateWindowDeltas(sum, o, since, now); err != nil {
 		return err
 	}

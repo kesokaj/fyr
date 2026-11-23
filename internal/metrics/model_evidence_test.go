@@ -115,3 +115,48 @@ func TestModelEvidenceV910PolicyModelWeightsDecayAndRoles(t *testing.T) {
 		t.Errorf("opus evidence = %+v", opus)
 	}
 }
+
+func TestModelEvidenceEvalEmptyAndDefaultSessionCoexistence(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	s := openT(t, Path(t.TempDir()))
+	ts := now.Add(-time.Hour).UnixMilli()
+
+	// Trial 1: empty-model session row inserted BEFORE valid-model session row for same run.
+	if err := s.RecordTrial(Trial{
+		Run: "eval/coexist-empty/1", Label: "eval=builder", Kind: "capability",
+		Harness: "v9.10.0", Status: "pass", StartedAt: now.Add(-time.Hour), Seconds: 9,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, run, model, started_at, ended_at) VALUES
+		('s-empty-first', 'agy', 'eval/coexist-empty/1', '', ?, ?),
+		('s-valid-second', 'agy', 'eval/coexist-empty/1', 'gemini-4-coexist-high', ?, ?)`,
+		ts-5000, ts-4000, ts, ts+1000); err != nil {
+		t.Fatal(err)
+	}
+
+	// Trial 2: "default" session row inserted BEFORE valid-model session row for same run.
+	if err := s.RecordTrial(Trial{
+		Run: "eval/coexist-default/1", Label: "eval=builder", Kind: "capability",
+		Harness: "v9.10.0", Status: "pass", StartedAt: now.Add(-time.Hour), Seconds: 7,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, run, model, started_at, ended_at) VALUES
+		('s-default-first', 'agy', 'eval/coexist-default/1', 'default', ?, ?),
+		('s-valid-after-def', 'agy', 'eval/coexist-default/1', 'claude-opus-coexist-high', ?, ?)`,
+		ts-5000, ts-4000, ts, ts+1000); err != nil {
+		t.Fatal(err)
+	}
+
+	ev, err := s.ModelEvidence(time.Time{}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("ModelEvidence: %v", err)
+	}
+	if got := ev["gemini-4-coexist-high"]; got.EvalRuns != 1 || got.EvalPass != 1 {
+		t.Errorf("empty-model sibling shadowed valid-model session: got %+v, want EvalRuns=1 EvalPass=1", got)
+	}
+	if got := ev["claude-opus-coexist-high"]; got.EvalRuns != 1 || got.EvalPass != 1 {
+		t.Errorf("default-model sibling shadowed valid-model session: got %+v, want EvalRuns=1 EvalPass=1", got)
+	}
+}

@@ -431,13 +431,12 @@ func mergeMetricsEvidenceInto(out map[string]models.ModelEvidence, raw map[strin
 	for k, v := range raw {
 		cur := out[k]
 		prevRatings := cur.RatingRuns
+		prevWork := cur.WorkRuns
+		prevLat := cur.WorkRuns + cur.EvalRuns
+		addLat := v.WorkRuns + v.EvalRuns
+		cur.WorkMeanSeconds = mergeWeightedMean(cur.WorkMeanSeconds, prevWork, v.WorkMeanSeconds, v.WorkRuns)
+		cur.MeanLatencySeconds = mergeWeightedMean(cur.MeanLatencySeconds, prevLat, v.MeanLatencySeconds, addLat)
 		cur.WorkPass, cur.WorkRuns = cur.WorkPass+v.WorkPass, cur.WorkRuns+v.WorkRuns
-		if cur.WorkMeanSeconds <= 0 && v.WorkMeanSeconds > 0 {
-			cur.WorkMeanSeconds = v.WorkMeanSeconds
-		}
-		if cur.MeanLatencySeconds <= 0 && v.MeanLatencySeconds > 0 {
-			cur.MeanLatencySeconds = v.MeanLatencySeconds
-		}
 		cur.EvalPass, cur.EvalRuns = cur.EvalPass+v.EvalPass, cur.EvalRuns+v.EvalRuns
 		cur.TrialPass, cur.TrialRuns = cur.TrialPass+v.TrialPass, cur.TrialRuns+v.TrialRuns
 		cur.JudgePass, cur.JudgeRuns = cur.JudgePass+v.JudgePass, cur.JudgeRuns+v.JudgeRuns
@@ -454,6 +453,19 @@ func mergeMetricsEvidenceInto(out map[string]models.ModelEvidence, raw map[strin
 			cur.MeanTokenEfficiency = eff
 		}
 		out[k] = cur
+	}
+}
+
+func mergeWeightedMean(curMean float64, curN int, addMean float64, addN int) float64 {
+	switch {
+	case addMean <= 0:
+		return curMean
+	case curMean <= 0:
+		return addMean
+	case curN > 0 && addN > 0:
+		return (curMean*float64(curN) + addMean*float64(addN)) / float64(curN+addN)
+	default:
+		return curMean
 	}
 }
 

@@ -151,18 +151,28 @@ func enrichEntriesFromChangelog(ctx context.Context, home, agyPath string, entri
 func applyChangelogText(raw string, entries []CatalogEntry) {
 	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
 	for i := range entries {
+		preserveCtx := false
+		if hint := ParseContextWindowHint(entries[i].DisplayName); hint > 0 {
+			if entries[i].ContextWindow <= 0 {
+				entries[i].ContextWindow = hint
+			}
+			preserveCtx = true
+		}
+		appliedCtx := false
 		for _, line := range lines {
 			for _, clause := range splitChangelogClauses(line) {
-				applyChangelogClause(&entries[i], clause)
+				if applyChangelogClause(&entries[i], clause, preserveCtx || appliedCtx) {
+					appliedCtx = true
+				}
 			}
 		}
 	}
 }
 
-func applyChangelogClause(e *CatalogEntry, clause string) {
+func applyChangelogClause(e *CatalogEntry, clause string, skipContextWindow bool) bool {
 	low := strings.ToLower(clause)
 	if clause == "" || !matchesChangelogLine(*e, low) {
-		return
+		return false
 	}
 	if e.RetiringOn == "" {
 		if kwIdx := earliestKeywordIndex(low, "retir", "deprecat"); kwIdx >= 0 {
@@ -171,12 +181,17 @@ func applyChangelogClause(e *CatalogEntry, clause string) {
 			}
 		}
 	}
-	if hint := ParseContextWindowHint(clause); hint > 0 {
-		e.ContextWindow = hint
+	appliedCtx := false
+	if !skipContextWindow {
+		if hint := ParseContextWindowHint(clause); hint > 0 {
+			e.ContextWindow = hint
+			appliedCtx = true
+		}
 	}
 	if e.ChangelogNote == "" {
 		e.ChangelogNote = shortQuote(clause)
 	}
+	return appliedCtx
 }
 
 func splitChangelogClauses(line string) []string {

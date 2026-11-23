@@ -295,6 +295,7 @@ func TestHookDenialsExcludedFromToolErrorRate(t *testing.T) {
 		"[COORDINATOR_GUARD]",
 		"[POLL_LOOP]",
 		"[TOKEN_LOOP]",
+		"[ERROR_LOOP]",
 		"[SUBAGENT_BUDGET]",
 		"[MODEL_OVERRIDE]",
 		"[AUTO_SUBAGENT_PRO]",
@@ -375,6 +376,9 @@ func TestHookDenialsExcludedFromToolErrorRate(t *testing.T) {
 	wantRate2 := 1.0 / float64(4+len(markers))
 	if r := sum2.D.ToolErrorRate["agy"]; r == nil || math.Abs(*r-wantRate2) > 1e-9 {
 		t.Errorf("legacy is_error=1,denied=1 row inflated ToolErrorRate: got %v, want %.6f", r, wantRate2)
+	}
+	if got := hookDenialKind("[ERROR_LOOP] blocked"); got != "guard" {
+		t.Errorf("hookDenialKind([ERROR_LOOP]) = %q, want guard", got)
 	}
 }
 

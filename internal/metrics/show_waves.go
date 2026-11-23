@@ -101,8 +101,13 @@ func (s *Store) queryOrchestrationRunsForShow(o ShowOptions, since, now time.Tim
 	args := []any{since.UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339)}
 	if o.Project != "" {
 		p := filepath.Clean(o.Project)
-		conds = append(conds, `(project_root = ? OR substr(project_root, 1, length(?)) = ?)`)
-		args = append(args, p, p+"/", p+"/")
+		if rid := ResolveRepoID(p); rid != "" {
+			conds = append(conds, `(repo_id = ? OR project_root = ? OR substr(project_root, 1, length(?)) = ?)`)
+			args = append(args, rid, p, p+"/", p+"/")
+		} else {
+			conds = append(conds, `(project_root = ? OR substr(project_root, 1, length(?)) = ?)`)
+			args = append(args, p, p+"/", p+"/")
+		}
 	}
 	q := `SELECT id, ts, kind, COALESCE(project_root, ''), COALESCE(repo_id, ''), status, COALESCE(halt_code, ''), units, defect_rounds, passed, failed, duration_ms, COALESCE(worker_model, ''), COALESCE(judge_model, ''), COALESCE(verdict, '') FROM orchestration_runs WHERE ` + strings.Join(conds, ` AND `) + ` ORDER BY ts DESC, id DESC`
 	return scanOrchestrationRuns(s.db, q, args)
@@ -284,15 +289,23 @@ func (s *Store) collectSuggestedSkills(accs map[string]*skillTelemetryAcc, o Sho
 		return nil
 	}
 	where, args := windowAndProjectWhere("created_at", o, since, now)
-	rows, err := s.db.Query(`SELECT COALESCE(conversation_id, ''), COALESCE(suggested_skills, '') FROM turn_vets WHERE `+where+` AND TRIM(COALESCE(suggested_skills, '')) != ''`, args...)
+	if o.Label == "" && !o.AllLabels {
+		where += excludeLabeledTurnVetsSQL
+	}
+	filterSandboxes := o.Project == "" && !o.IncludeSandboxes
+	home := resolveMetricsHome(o, s.path)
+	rows, err := s.db.Query(`SELECT COALESCE(project_root, ''), COALESCE(conversation_id, ''), COALESCE(suggested_skills, '') FROM turn_vets WHERE `+where+` AND TRIM(COALESCE(suggested_skills, '')) != ''`, args...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var convID, raw string
-		if err := rows.Scan(&convID, &raw); err != nil {
+		var root, convID, raw string
+		if err := rows.Scan(&root, &convID, &raw); err != nil {
 			return err
+		}
+		if filterSandboxes && isEphemeralTurnVetRoot(root, home) {
+			continue
 		}
 		cid := strings.TrimSpace(convID)
 		for _, sk := range parseSuggestedSkills(raw) {

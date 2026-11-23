@@ -96,18 +96,7 @@ func (s *Store) populateDiagnostics(sum *Summary, o ShowOptions, since, now time
 	var evalRows []EvalRow
 	var prevDigest *DailyDigest
 	if scope == "global" {
-		ev, err := ReportEvalsWithDevFallback(s, resolveMetricsHome(o, s.path), ShowOptions{
-			Since:   since,
-			Now:     now,
-			Project: o.Project,
-			Label:   o.Label,
-		})
-		if err != nil {
-			return err
-		}
-		if ev != nil {
-			evalRows = ev.Rows
-		}
+		evalRows = sum.evalRows
 		day := now.UTC().Format("2006-01-02")
 		if pd, derr := PreviousDailyDigest(s, day); derr == nil && pd != nil && pd.Day == priorDayString(day) {
 			prevDigest = pd

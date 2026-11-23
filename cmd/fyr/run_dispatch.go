@@ -242,10 +242,10 @@ func (c *ctx) writesState() bool {
 	case "memory":
 		return c.fs.Arg(0) == "add"
 	case "report":
-		return !c.noIngest
+		return c.reportWritesState()
 	case "metrics":
 		sub := c.fs.Arg(0)
-		return sub == "ingest" || sub == "record-run" || (sub == "report" && !c.noIngest)
+		return sub == "ingest" || sub == "record-run" || (sub == "report" && c.reportWritesState())
 	case "eval":
 		// Sandboxes, the metrics store and the testing record; --list reads,
 		// and a refused --home is refused before anything moves (D37).
@@ -274,6 +274,10 @@ func (c *ctx) writesState() bool {
 		return false
 	}
 	return false
+}
+
+func (c *ctx) reportWritesState() bool {
+	return !c.noIngest || c.metricsDailyDigest
 }
 
 // migrateStateDir moves ~/.config/sh-agent to ~/.config/fyr for a verb that
