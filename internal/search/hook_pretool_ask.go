@@ -2,7 +2,6 @@ package search
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
@@ -11,8 +10,6 @@ import (
 	"slices"
 	"strings"
 )
-
-const askTranscriptScanBytes = 32 << 10
 
 var (
 	adrConflictIDRe = regexp.MustCompile(`(?i)\badr-\d+[a-z]?\b`)
@@ -50,7 +47,7 @@ func isHeadlessAskSource(source string) bool {
 		strings.HasPrefix(source, "session_meta:")
 }
 
-func detectKickoffOrWorkerSessionCtx(ctx context.Context, o Options, dir string, wd watchdogPreState, wdSt *store, wdRoot string, in HookInput) (bool, string) {
+func detectStatelessHeadlessAsk(ctx context.Context, wd watchdogPreState) (bool, string) {
 	if os.Getenv("FYR_RELAY") == "1" {
 		return true, "relay"
 	}
@@ -64,13 +61,26 @@ func detectKickoffOrWorkerSessionCtx(ctx context.Context, o Options, dir string,
 	if r := strings.TrimSpace(wd.role); r != "" && !strings.EqualFold(r, "main") {
 		return true, "role:" + r
 	}
-	if isKickoffOrWorkerPrompt(in.LastUserInput) {
-		return true, "prompt"
-	}
-	if ok, src := checkPersistedKickoffSessionCtx(ctx, dir, wdSt, wdRoot, in.ConversationID); ok {
+	return false, ""
+}
+
+func detectKickoffOrWorkerSessionCtx(ctx context.Context, o Options, dir string, wd watchdogPreState, wdSt *store, wdRoot string, in HookInput) (bool, string) {
+	if ok, src := detectStatelessHeadlessAsk(ctx, wd); ok {
 		return true, src
 	}
-	if firstPrompt := readTranscriptFirstUserPrompt(in.TranscriptPath); isKickoffOrWorkerPrompt(firstPrompt) {
+	if strings.TrimSpace(in.LastUserInput) != "" {
+		if ok, src := checkPersistedSessionRoleCtx(ctx, dir, wdSt, wdRoot, in.ConversationID); ok {
+			return true, src
+		}
+		if isKickoffOrWorkerPrompt(in.LastUserInput) {
+			return true, "prompt"
+		}
+		return false, ""
+	}
+	if ok, src, decided := checkPersistedKickoffSessionCtx(ctx, dir, wdSt, wdRoot, in.ConversationID); decided {
+		return ok, src
+	}
+	if latestPrompt := readTranscriptLatestUserPrompt(in.TranscriptPath); isKickoffOrWorkerPrompt(latestPrompt) {
 		return true, "transcript"
 	}
 	return false, ""
@@ -117,7 +127,7 @@ func hasKickoffResumeHeader(lines []string) bool {
 	return hasProject && hasCue
 }
 
-func checkPersistedKickoffSessionCtx(ctx context.Context, dir string, wdSt *store, wdRoot, convID string) (bool, string) {
+func checkPersistedSessionRoleCtx(ctx context.Context, dir string, wdSt *store, wdRoot, convID string) (bool, string) {
 	if ctx.Err() != nil || strings.TrimSpace(convID) == "" {
 		return false, ""
 	}
@@ -128,23 +138,46 @@ func checkPersistedKickoffSessionCtx(ctx context.Context, dir string, wdSt *stor
 	if ownSt {
 		defer st.close()
 	}
-	normConv := normalizeLedgerConvID(convID)
+	return querySessionMetaRoleCtx(ctx, st, normalizeLedgerConvID(convID))
+}
+
+func querySessionMetaRoleCtx(ctx context.Context, st *store, normConv string) (bool, string) {
 	var role string
 	if err := st.db.QueryRowContext(ctx, `SELECT COALESCE(agent_role, '') FROM session_meta WHERE conversation_id = ?`, normConv).Scan(&role); err == nil {
 		if r := strings.TrimSpace(role); r != "" && !strings.EqualFold(r, "main") {
 			return true, "session_meta:" + r
 		}
 	}
-	for _, q := range []string{
-		`SELECT COALESCE(raw_prompt, '') FROM vet_history WHERE conversation_id = ? ORDER BY turn_num DESC LIMIT 1`,
-		`SELECT COALESCE(raw_prompt, '') FROM vet_history WHERE conversation_id = ? ORDER BY turn_num ASC LIMIT 1`,
-	} {
-		var rawPrompt string
-		if err := st.db.QueryRowContext(ctx, q, normConv).Scan(&rawPrompt); err == nil && isKickoffOrWorkerPrompt(rawPrompt) {
-			return true, "vet_history"
-		}
-	}
 	return false, ""
+}
+
+func checkPersistedKickoffSessionCtx(ctx context.Context, dir string, wdSt *store, wdRoot, convID string) (bool, string, bool) {
+	if ctx.Err() != nil || strings.TrimSpace(convID) == "" {
+		return false, "", false
+	}
+	st, ownSt := openExistingAskStore(dir, wdSt, wdRoot)
+	if st == nil {
+		return false, "", false
+	}
+	if ownSt {
+		defer st.close()
+	}
+	normConv := normalizeLedgerConvID(convID)
+	if ok, src := querySessionMetaRoleCtx(ctx, st, normConv); ok {
+		return true, src, true
+	}
+	var rawPrompt string
+	err := st.db.QueryRowContext(ctx,
+		`SELECT COALESCE(raw_prompt, '') FROM vet_history WHERE conversation_id = ? ORDER BY turn_num DESC LIMIT 1`,
+		normConv,
+	).Scan(&rawPrompt)
+	if err != nil || strings.TrimSpace(rawPrompt) == "" {
+		return false, "", false
+	}
+	if isKickoffOrWorkerPrompt(rawPrompt) {
+		return true, "vet_history", true
+	}
+	return false, "", true
 }
 
 func openExistingAskStore(dir string, wdSt *store, wdRoot string) (*store, bool) {
@@ -165,98 +198,6 @@ func openExistingAskStore(dir string, wdSt *store, wdRoot string) (*store, bool)
 		return nil, false
 	}
 	return st, true
-}
-
-func readTranscriptFirstUserPrompt(path string) string {
-	p := strings.TrimSpace(path)
-	if p == "" {
-		return ""
-	}
-	fi, err := os.Lstat(p)
-	if err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() {
-		return ""
-	}
-	f, err := os.Open(p)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, askTranscriptScanBytes))
-	if err != nil || len(data) == 0 {
-		return ""
-	}
-	seen := 0
-	for _, rawLine := range strings.Split(string(data), "\n") {
-		line := strings.TrimSpace(rawLine)
-		if line == "" {
-			continue
-		}
-		if seen++; seen > 20 {
-			break
-		}
-		if text := extractTranscriptUserText(line); text != "" {
-			return text
-		}
-	}
-	return ""
-}
-
-func extractTranscriptUserText(line string) string {
-	var row map[string]any
-	if json.Unmarshal([]byte(line), &row) != nil {
-		return ""
-	}
-	if s := extractStringArg(row, "userInput", "user_input", "lastUserInput", "last_user_input", "prompt"); s != "" {
-		return s
-	}
-	if isUserTranscriptRole(row) {
-		if s := extractContentText(row["content"]); s != "" {
-			return s
-		}
-		if s := extractStringArg(row, "text", "body"); s != "" {
-			return s
-		}
-	}
-	if msg, ok := row["message"].(map[string]any); ok && isUserTranscriptRole(msg) {
-		return extractContentText(msg["content"])
-	}
-	return ""
-}
-
-func isUserTranscriptRole(row map[string]any) bool {
-	for _, k := range []string{"type", "role", "author"} {
-		if s, ok := row[k].(string); ok {
-			switch strings.ToLower(strings.TrimSpace(s)) {
-			case "user", "user_input", "human":
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func extractContentText(v any) string {
-	if s, ok := v.(string); ok {
-		return strings.TrimSpace(s)
-	}
-	arr, ok := v.([]any)
-	if !ok {
-		return ""
-	}
-	var out strings.Builder
-	for _, item := range arr {
-		m, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		if s := extractStringArg(m, "text", "content"); s != "" {
-			if out.Len() > 0 {
-				out.WriteByte('\n')
-			}
-			out.WriteString(s)
-		}
-	}
-	return strings.TrimSpace(out.String())
 }
 
 func collectAskQuestionText(args map[string]any) string {

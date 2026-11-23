@@ -269,7 +269,7 @@ func TestPreToolUseAskQuestionKickoffGuard(t *testing.T) {
 		t.Fatalf("subagent ask_question: got %+v, want deny [KICKOFF_GUARD]", d)
 	}
 
-	// 5. Kickoff detected from transcriptPath first user prompt -> blocked with [KICKOFF_GUARD].
+	// 5. Kickoff detected from transcriptPath latest user prompt -> blocked with [KICKOFF_GUARD].
 	trPath := filepath.Join(t.TempDir(), "transcript.jsonl")
 	trLine, _ := json.Marshal(map[string]any{"type": "user", "content": "This is a Kickoff written by fyr auto.\nFiles: service.go"})
 	if err := os.WriteFile(trPath, append(trLine, '\n'), 0o600); err != nil {

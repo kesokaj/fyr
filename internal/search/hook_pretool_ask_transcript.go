@@ -1,0 +1,168 @@
+package search
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"os"
+	"strings"
+
+	"github.com/kesokaj/fyr/internal/trail"
+)
+
+const (
+	askTranscriptScanBytes     = 32 << 10
+	askTranscriptTailBytes     = 512 << 10
+	askTranscriptMaxCandidates = 1024
+)
+
+func readTranscriptLatestUserPrompt(path string) string {
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return ""
+	}
+	fi, err := os.Lstat(p)
+	if err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() {
+		return ""
+	}
+	f, err := trail.OpenRegular(p)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() || !os.SameFile(fi, st) || st.Size() == 0 {
+		return ""
+	}
+	if text := readTranscriptTailUserPrompt(f, st.Size()); text != "" {
+		return text
+	}
+	if st.Size() <= askTranscriptTailBytes {
+		return ""
+	}
+	return readTranscriptHeadUserPrompt(f)
+}
+
+func readTranscriptTailUserPrompt(f *os.File, size int64) string {
+	skipFirst := false
+	if size > askTranscriptTailBytes {
+		scanStart := size - askTranscriptTailBytes
+		if _, err := f.Seek(scanStart-1, io.SeekStart); err != nil {
+			return ""
+		}
+		var prev [1]byte
+		if _, err := io.ReadFull(f, prev[:]); err != nil {
+			return ""
+		}
+		skipFirst = prev[0] != '\n'
+	}
+	data, err := io.ReadAll(io.LimitReader(f, askTranscriptTailBytes))
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	if skipFirst {
+		idx := bytes.IndexByte(data, '\n')
+		if idx < 0 {
+			return ""
+		}
+		data = data[idx+1:]
+	}
+	return findLatestTranscriptUserPrompt(data, askTranscriptMaxCandidates)
+}
+
+func readTranscriptHeadUserPrompt(f *os.File) string {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return ""
+	}
+	data, err := io.ReadAll(io.LimitReader(f, askTranscriptScanBytes))
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	return findLatestTranscriptUserPrompt(data, askTranscriptMaxCandidates)
+}
+
+func findLatestTranscriptUserPrompt(data []byte, maxCandidates int) string {
+	seen := 0
+	end := len(data)
+	for end > 0 {
+		start := bytes.LastIndexByte(data[:end], '\n') + 1
+		raw := bytes.TrimSpace(data[start:end])
+		end = start - 1
+		if len(raw) == 0 || raw[0] != '{' || !mayContainTranscriptUserPrompt(raw) {
+			continue
+		}
+		if seen++; seen > maxCandidates {
+			break
+		}
+		if text := extractTranscriptUserText(string(raw)); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func mayContainTranscriptUserPrompt(line []byte) bool {
+	if bytes.Contains(line, []byte(`\u`)) || bytes.Contains(line, []byte(`\U`)) {
+		return true
+	}
+	low := strings.ToLower(string(line))
+	return strings.Contains(low, "user") || strings.Contains(low, "human") || strings.Contains(low, "prompt")
+}
+
+func extractTranscriptUserText(line string) string {
+	var row map[string]any
+	if json.Unmarshal([]byte(line), &row) != nil {
+		return ""
+	}
+	if s := extractStringArg(row, "userInput", "user_input", "lastUserInput", "last_user_input", "prompt"); s != "" {
+		return s
+	}
+	if isUserTranscriptRole(row) {
+		if s := extractContentText(row["content"]); s != "" {
+			return s
+		}
+		if s := extractStringArg(row, "text", "body"); s != "" {
+			return s
+		}
+	}
+	if msg, ok := row["message"].(map[string]any); ok && isUserTranscriptRole(msg) {
+		return extractContentText(msg["content"])
+	}
+	return ""
+}
+
+func isUserTranscriptRole(row map[string]any) bool {
+	for _, k := range []string{"type", "role", "author"} {
+		if s, ok := row[k].(string); ok {
+			switch strings.ToLower(strings.TrimSpace(s)) {
+			case "user", "user_input", "human":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func extractContentText(v any) string {
+	if s, ok := v.(string); ok {
+		return strings.TrimSpace(s)
+	}
+	arr, ok := v.([]any)
+	if !ok {
+		return ""
+	}
+	var out strings.Builder
+	for _, item := range arr {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if s := extractStringArg(m, "text", "content"); s != "" {
+			if out.Len() > 0 {
+				out.WriteByte('\n')
+			}
+			out.WriteString(s)
+		}
+	}
+	return strings.TrimSpace(out.String())
+}
