@@ -66,20 +66,27 @@ func routeTaskIntent(clean, low string, skills []SkillMeta) string {
 }
 
 func hasBatchOrMultiPhaseCues(clean, low string) bool {
-	if hasIndependentTasks(clean, low) || multiPhaseRe.MatchString(low) {
+	if hasExplicitMultiPhaseOrParallelCues(low) {
 		return true
 	}
-	if containsAnyWord(low, "wave", "waves") {
+	return hasIndependentTasks(clean, low)
+}
+
+func hasExplicitMultiPhaseOrParallelCues(low string) bool {
+	if multiPhaseRe.MatchString(low) || containsAnyWord(low, "wave", "waves", "fyr-swarm") || strings.Contains(low, "/fyr-swarm") {
 		return true
 	}
 	return containsAnyWord(low, "parallel") && !strings.Contains(low, "not parallel") && !strings.Contains(low, "no parallel")
 }
 
 func hasIndependentTasks(clean, low string) bool {
-	if numberedTasksRe.MatchString(clean) {
-		return true
+	if strings.HasPrefix(low, "where ") {
+		return false
 	}
-	return countActionClauses(clean) >= 2 && !strings.HasPrefix(low, "where ")
+	if !numberedTasksRe.MatchString(clean) && countActionClauses(clean) < 2 {
+		return false
+	}
+	return countDistinctExplicitPackages(clean, splitDecomposeClauses(clean), nil) >= 2
 }
 
 func countActionClauses(clean string) int {

@@ -120,7 +120,8 @@ func hasSentenceStart(low, phrase string) bool {
 
 func hasEditOrFeatureVerb(low string) bool {
 	return isBugPrompt(low) || isFeatureKeyword(low) ||
-		containsAnyWord(low, "add", "create", "extend", "fix", "refactor", "implement", "build", "update")
+		containsAnyWord(low, "add", "create", "extend", "fix", "refactor", "implement", "update") ||
+		hasImperativeVerb(low, "build", buildNounPrevs, buildNounNexts)
 }
 
 func isReleasePrompt(low string) bool {
@@ -160,11 +161,12 @@ func isTrivialPrompt(low string, symbolHits int) bool {
 		return true
 	}
 	return len(words) <= 3 && symbolHits == 0 && !strings.HasSuffix(low, "?") &&
-		!isBugPrompt(low) && !isFeatureKeyword(low)
+		!isBugPrompt(low) && !isFeaturePrompt(low, symbolHits)
 }
 
 func isQuestionPrompt(orig, low string) bool {
-	hasEditVerb := containsAnyWord(low, "fix", "implement", "add", "build", "create", "refactor", "update", "write", "change", "remove", "delete")
+	hasEditVerb := containsAnyWord(low, "fix", "implement", "add", "create", "refactor", "update", "write", "change", "remove", "delete") ||
+		hasImperativeVerb(low, "build", buildNounPrevs, buildNounNexts)
 	if strings.HasSuffix(strings.TrimSpace(orig), "?") && (!hasEditVerb || isDeliberativeQuestion(low)) {
 		return true
 	}
@@ -195,11 +197,67 @@ func isFeaturePrompt(low string, symbolHits int) bool {
 	return containsAnyWord(low, "add", "create", "extend", "support") && (symbolHits == 0 || strings.Contains(low, "new "))
 }
 
-func isFeatureKeyword(low string) bool {
-	for _, kw := range []string{"build ", "implement ", "design ", "architect ", "new feature", "support for", "add support", "integrate ", "scaffold ", "introduce "} {
-		if strings.HasPrefix(low, kw) || strings.Contains(low, " "+kw) {
+func wordSet(words ...string) map[string]bool {
+	m := make(map[string]bool, len(words))
+	for _, w := range words {
+		m[w] = true
+	}
+	return m
+}
+
+var (
+	buildNounPrevs = wordSet(
+		"the", "a", "an", "this", "that", "our", "my", "your", "its", "their", "each", "every",
+		"last", "next", "latest", "current", "local", "clean", "full", "ci", "go", "docker", "npm",
+		"make", "during", "after", "before", "on", "in", "of", "for", "from", "failed", "failing", "broken",
+	)
+	buildNounNexts = wordSet(
+		"counter", "number", "id", "version", "status", "log", "logs", "output", "step", "steps",
+		"time", "duration", "failure", "failures", "error", "errors", "warning", "warnings", "cache",
+		"artifact", "artifacts", "dir", "directory", "tag", "tags", "flag", "flags", "target", "targets",
+		"matrix", "info", "metadata", "system", "pipeline", "script", "scripts", "tool", "tools",
+		"command", "failed", "fails", "broke", "broken", "succeeded", "passed",
+	)
+	designNounPrevs = wordSet(
+		"the", "a", "an", "this", "that", "our", "my", "your", "its", "their", "api", "schema",
+		"system", "ui", "ux", "database", "db", "current", "existing", "proposed", "of", "in", "for", "with",
+	)
+	designNounNexts = wordSet(
+		"doc", "docs", "document", "pattern", "patterns", "review", "choice", "choices",
+		"decision", "decisions", "question", "questions", "tradeoff", "tradeoffs", "of",
+	)
+)
+
+func hasImperativeVerb(low, verb string, nounPrevs, nounNexts map[string]bool) bool {
+	tokens := strings.FieldsFunc(low, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' && r != '-'
+	})
+	for i, tok := range tokens {
+		if tok != verb {
+			continue
+		}
+		prev := ""
+		if i > 0 {
+			prev = tokens[i-1]
+		}
+		next := ""
+		if i+1 < len(tokens) {
+			next = tokens[i+1]
+		}
+		if !nounPrevs[prev] && !nounNexts[next] {
 			return true
 		}
 	}
 	return false
+}
+
+func isFeatureKeyword(low string) bool {
+	if hasImperativeVerb(low, "build", buildNounPrevs, buildNounNexts) ||
+		hasImperativeVerb(low, "design", designNounPrevs, designNounNexts) {
+		return true
+	}
+	if containsAnyWord(low, "implement", "architect", "integrate", "scaffold", "introduce") {
+		return true
+	}
+	return containsAnySubstr(low, "new feature", "support for", "add support")
 }

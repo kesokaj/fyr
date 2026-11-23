@@ -67,6 +67,31 @@ func extractExplicitPromptTargets(trimmed string, knownFiles []string) []string 
 	return dedupKnownFiles(resolved)
 }
 
+// countDistinctExplicitPackages counts distinct package directories explicitly
+// referenced by action clauses (plus any lead-in before numbered markers),
+// ignoring dropped constraint clauses and unrelated 1-hop AST neighbors.
+func countDistinctExplicitPackages(prompt string, clauses, knownFiles []string) int {
+	dirs := map[string]bool{}
+	addFromText := func(text string) {
+		for _, target := range extractExplicitPromptTargets(text, knownFiles) {
+			if dir := packageDirKey(target); dir != "" {
+				dirs[dir] = true
+			}
+		}
+	}
+	if len(clauses) >= 2 {
+		if loc := numberedMarkerRe.FindStringIndex(prompt); loc != nil && loc[0] > 0 {
+			addFromText(prompt[:loc[0]])
+		}
+		for _, c := range clauses {
+			addFromText(c)
+		}
+		return len(dirs)
+	}
+	addFromText(prompt)
+	return len(dirs)
+}
+
 func hasDiagnosticReadOnlyVerb(s string) bool {
 	stripped := strings.ToLower(fileTokenRe.ReplaceAllString(" "+s+" ", " "))
 	return containsAnyWord(stripped, "check", "checks", "inspect", "inspects", "profile", "profiles", "profiling", "measure", "measures", "measuring", "verify", "verifies", "audit", "audits")

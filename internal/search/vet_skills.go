@@ -1,8 +1,14 @@
 package search
 
 import (
+	"math"
 	"sort"
 	"strings"
+)
+
+const (
+	maxMatchedSkills  = 3
+	minSkillBM25Score = 3.2
 )
 
 var intentPrimarySkill = map[IntentMode]string{
@@ -12,7 +18,20 @@ var intentPrimarySkill = map[IntentMode]string{
 	IntentRelease: "fyr-preflight",
 }
 
-// MatchSkills selects the top 1-2 skills (<= 600 B digest + SKILL.md path)
+type skillDoc struct {
+	meta        SkillMeta
+	nameTF      map[string]int
+	descTF      map[string]int
+	descExactTF map[string]int
+	digestTF    map[string]int
+	negTerms    map[string]bool
+	loadOnly    map[string]bool
+	docLen      float64
+	isSwarmLike bool
+}
+
+// MatchSkills dynamically scores the installed skill catalog using frontmatter
+// BM25F + file-extension signals (Top-3 cap, 0 phantom skills on empty catalog)
 // and sets the mandatory security subagent flag on auth/crypto/secret/frontmatter surfaces.
 func MatchSkills(prompt string, intent IntentMode, files []string, catalog []SkillMeta) ([]SkillMeta, bool) {
 	low := strings.ToLower(prompt)
@@ -20,37 +39,49 @@ func MatchSkills(prompt string, intent IntentMode, files []string, catalog []Ski
 	if intent == IntentApproval || intent == IntentTrivial {
 		return nil, false
 	}
-	byName := mergeSkillCatalog(catalog)
-	if intent == IntentCorrection {
-		return selectNamedSkills(byName, "operator correction", "fyr-feedback-log", "fyr-project-memory"), secReq
+	installed := normalizeSkillCatalog(catalog)
+	if len(installed) == 0 {
+		return nil, secReq
 	}
+	if intent == IntentCorrection {
+		return selectInstalledNamedSkills(installed, "operator correction", "fyr-feedback-log", "fyr-project-memory"), secReq
+	}
+	docs, idf, avgLen := buildSkillCorpus(installed)
+	queryTerms := extractPromptQueryTerms(low)
+	fileWeights := extractFileConceptWeights(low, files)
+
 	type scoredSkill struct {
 		meta  SkillMeta
-		score int
+		score float64
 	}
 	var scored []scoredSkill
-	for _, s := range byName {
-		if sc, reason := scoreSkillCandidate(s, low, intent, files); sc > 0 {
-			cand := s
+	for _, doc := range docs {
+		if sc, reason := scoreSkillDoc(doc, low, prompt, intent, queryTerms, fileWeights, idf, avgLen); sc > 0 {
+			cand := doc.meta
 			cand.Digest = truncateBytesUTF8(cand.Digest, maxSkillDigestBytes)
 			cand.Reason = reason
 			scored = append(scored, scoredSkill{meta: cand, score: sc})
 		}
 	}
 	sort.Slice(scored, func(i, j int) bool {
-		if scored[i].score != scored[j].score {
+		if math.Abs(scored[i].score-scored[j].score) > 1e-6 {
 			return scored[i].score > scored[j].score
 		}
 		return scored[i].meta.Name < scored[j].meta.Name
 	})
-	var out []SkillMeta
-	for i := 0; i < len(scored) && len(out) < 2; i++ {
+	limit := min(maxMatchedSkills, len(scored))
+	out := make([]SkillMeta, 0, limit)
+	for i := 0; i < limit; i++ {
 		out = append(out, scored[i].meta)
 	}
 	return out, secReq
 }
 
-func selectNamedSkills(byName map[string]SkillMeta, reason string, names ...string) []SkillMeta {
+func selectInstalledNamedSkills(installed []SkillMeta, reason string, names ...string) []SkillMeta {
+	byName := make(map[string]SkillMeta, len(installed))
+	for _, s := range installed {
+		byName[s.Name] = s
+	}
 	var out []SkillMeta
 	for _, name := range names {
 		if s, ok := byName[name]; ok {
@@ -62,21 +93,195 @@ func selectNamedSkills(byName map[string]SkillMeta, reason string, names ...stri
 	return out
 }
 
-func scoreSkillCandidate(s SkillMeta, lowPrompt string, intent IntentMode, files []string) (int, string) {
-	if isDiagnosticOrNegatedSkillMention(s.Name, lowPrompt) {
-		return 0, ""
+func buildSkillCorpus(installed []SkillMeta) ([]skillDoc, map[string]float64, float64) {
+	installedNames := make(map[string]bool, len(installed))
+	for _, s := range installed {
+		installedNames[strings.ToLower(s.Name)] = true
 	}
-	score, reason := scoreSkillSurface(s.Name, lowPrompt, intent, files)
-	if primary, ok := intentPrimarySkill[intent]; ok && s.Name == primary {
-		score, reason = 100, "intent="+string(intent)
+	docs := make([]skillDoc, 0, len(installed))
+	df := map[string]int{}
+	totalLen := 0.0
+	for _, s := range installed {
+		doc := newSkillDoc(s, installedNames)
+		totalLen += doc.docLen
+		recordDocFreq(df, doc)
+		docs = append(docs, doc)
 	}
-	if containsAnyWord(lowPrompt, s.Name) {
-		score += 40
-		if reason == "" {
-			reason = "named in prompt"
+	effectiveN := float64(max(len(docs), 20))
+	idf := make(map[string]float64, len(df))
+	for t, freq := range df {
+		idf[t] = math.Log(1.0 + (effectiveN-float64(freq)+0.5)/(float64(freq)+0.5))
+	}
+	avgLen := 1.0
+	if len(docs) > 0 && totalLen > 0 {
+		avgLen = totalLen / float64(len(docs))
+	}
+	return docs, idf, avgLen
+}
+
+func newSkillDoc(s SkillMeta, installedNames map[string]bool) skillDoc {
+	descSource, digestSource := s.Description, s.Digest
+	if strings.TrimSpace(descSource) == "" {
+		descSource, digestSource = s.Digest, ""
+	}
+	posDesc, negDesc, loadOnlyCue := splitSkillScope(descSource)
+	posDesc = stripOtherSkillSlashRefs(posDesc, s.Name, installedNames)
+	doc := skillDoc{
+		meta:        s,
+		nameTF:      extractSkillTerms(s.Name),
+		descTF:      extractSkillTerms(posDesc),
+		descExactTF: extractSkillTermsOpts(posDesc, false),
+		digestTF:    extractSkillTerms(digestSource),
+		negTerms:    map[string]bool{},
+		loadOnly:    map[string]bool{},
+		isSwarmLike: containsAnyWord(strings.ToLower(posDesc), "multi-agent", "swarm"),
+	}
+	doc.nameTF[strings.ToLower(s.Name)]++
+	for t := range extractSkillTerms(negDesc) {
+		if doc.nameTF[t] == 0 && doc.descTF[t] == 0 {
+			doc.negTerms[t] = true
 		}
 	}
-	return score, reason
+	for t := range extractSkillTerms(loadOnlyCue) {
+		doc.loadOnly[t] = true
+	}
+	doc.docLen = weightedDocLen(doc)
+	return doc
+}
+
+func recordDocFreq(df map[string]int, doc skillDoc) {
+	seen := map[string]bool{}
+	for _, m := range []map[string]int{doc.nameTF, doc.descTF, doc.digestTF} {
+		for t := range m {
+			if !seen[t] {
+				seen[t] = true
+				df[t]++
+			}
+		}
+	}
+}
+
+func weightedDocLen(doc skillDoc) float64 {
+	sum := 0.0
+	for _, c := range doc.nameTF {
+		sum += 3.0 * float64(c)
+	}
+	for _, c := range doc.descTF {
+		sum += 2.0 * float64(c)
+	}
+	for _, c := range doc.digestTF {
+		sum += 0.5 * float64(c)
+	}
+	if sum < 1.0 {
+		return 1.0
+	}
+	return sum
+}
+
+func scoreSkillDoc(
+	doc skillDoc,
+	lowPrompt, origPrompt string,
+	intent IntentMode,
+	queryTerms map[string]int,
+	fileWeights map[string]float64,
+	idf map[string]float64,
+	avgLen float64,
+) (float64, string) {
+	name := doc.meta.Name
+	if isDiagnosticOrNegatedSkillMention(name, lowPrompt) {
+		return 0, ""
+	}
+	directName := containsAnyWord(lowPrompt, strings.ToLower(name)) || strings.Contains(lowPrompt, "/"+strings.ToLower(name))
+	if len(doc.loadOnly) > 0 && !directName && !matchesLoadOnlyCue(doc, queryTerms) {
+		return 0, ""
+	}
+	if doc.isSwarmLike && isWorkerBriefPrompt(origPrompt) && !directName {
+		return 0, ""
+	}
+	bm25, nameDescHits, digestHits := computeSkillBM25(doc, queryTerms, idf, avgLen)
+	fileScore := computeFileConceptScore(doc, fileWeights)
+	total := bm25 + fileScore
+	reason := ""
+	if directName {
+		total += 12.0
+		reason = "named in prompt"
+	}
+	isPrimary := intentPrimarySkill[intent] == name
+	if negHits := countNegativeScopeHits(doc, queryTerms, fileWeights); negHits > 0 && !directName && !isPrimary {
+		total -= 8.0 * float64(negHits)
+		if nameDescHits < 2 && fileScore < 7.0 {
+			return 0, ""
+		}
+	}
+	if isPrimary {
+		return max(total, 100.0), "intent=" + string(intent)
+	}
+	if !directName && !(fileScore >= 4.0 && total >= 3.0) && !(total >= minSkillBM25Score && (nameDescHits >= 1 || digestHits >= 2)) {
+		return 0, ""
+	}
+	if reason == "" {
+		if fileScore > bm25 {
+			reason = "file surface match"
+		} else {
+			reason = "catalog BM25 match"
+		}
+	}
+	return total, reason
+}
+
+func matchesLoadOnlyCue(doc skillDoc, queryTerms map[string]int) bool {
+	for t := range doc.loadOnly {
+		if queryTerms[t] > 0 {
+			return true
+		}
+	}
+	return queryTerms[strings.ToLower(doc.meta.Name)] > 0
+}
+
+func computeSkillBM25(doc skillDoc, queryTerms map[string]int, idf map[string]float64, avgLen float64) (float64, int, int) {
+	const k1, b = 1.2, 0.5
+	lenNorm := 1.0 - b + b*(doc.docLen/avgLen)
+	score, nameDescHits, digestHits := 0.0, 0, 0
+	for qt := range queryTerms {
+		nTF, dTF, gTF := doc.nameTF[qt], doc.descTF[qt], doc.digestTF[qt]
+		tf := 3.0*float64(nTF) + 2.0*float64(dTF) + 0.5*float64(gTF)
+		if tf <= 0 {
+			continue
+		}
+		if nTF > 0 || dTF > 0 {
+			nameDescHits++
+		} else {
+			digestHits++
+		}
+		score += idf[qt] * (tf * (k1 + 1.0)) / (tf + k1*lenNorm)
+	}
+	return score, nameDescHits, digestHits
+}
+
+func computeFileConceptScore(doc skillDoc, fileWeights map[string]float64) float64 {
+	best := 0.0
+	for concept, w := range fileWeights {
+		score := 0.0
+		if doc.nameTF[concept] > 0 {
+			score = w
+		} else if doc.descExactTF[concept] > 0 {
+			score = w * 0.9
+		}
+		if score > best {
+			best = score
+		}
+	}
+	return best
+}
+
+func countNegativeScopeHits(doc skillDoc, queryTerms map[string]int, fileWeights map[string]float64) int {
+	hits := 0
+	for nt := range doc.negTerms {
+		if queryTerms[nt] > 0 || fileWeights[nt] > 0 {
+			hits++
+		}
+	}
+	return hits
 }
 
 func isDiagnosticOrNegatedSkillMention(name, lowPrompt string) bool {
@@ -97,149 +302,6 @@ func isDiagnosticOrNegatedSkillMention(name, lowPrompt string) bool {
 		return true
 	}
 	return false
-}
-
-func scoreSkillSurface(name, lowPrompt string, intent IntentMode, files []string) (int, string) {
-	if sc, r := scoreLangOrUISkill(name, lowPrompt, files); sc > 0 {
-		return sc, r
-	}
-	if sc, r := scoreInfraOrAPISkill(name, lowPrompt, files); sc > 0 {
-		return sc, r
-	}
-	return scoreFyrWorkflowSkill(name, lowPrompt, intent, files)
-}
-
-func scoreLangOrUISkill(name, lowPrompt string, files []string) (int, string) {
-	switch name {
-	case "golang":
-		goCount := countExt(files, ".go")
-		if goCount > 0 || containsAnyWord(lowPrompt, "golang", "goroutine", "slog", "httptest", "gofmt", "govulncheck") ||
-			containsAnySubstr(lowPrompt, "go test", "go build", "go run", "go vet", "go.mod", "go code", "in go") {
-			return 70 + min(15, goCount*3), "Go code surface"
-		}
-	case "typescript":
-		tsCount := countExt(files, ".ts", ".tsx")
-		if tsCount > 0 || containsAnyWord(lowPrompt, "typescript", "tsconfig", "vitest") {
-			return 70 + min(15, tsCount*3), "TypeScript surface"
-		}
-	case "bash":
-		if isBashSkillSurface(lowPrompt, files) {
-			return 70, "shell script surface"
-		}
-	case "frontend-ui-economist":
-		if hasExt(files, ".html", ".css", ".svg") || containsAnySubstr(lowPrompt, "plain html", "editorial ui", "svg chart", "economist") {
-			return 72, "editorial HTML/CSS/SVG UI surface"
-		}
-	case "frontend-ui-modern":
-		if hasExt(files, ".tsx") || containsAnyWord(lowPrompt, "shadcn", "tailwind", "react", "tanstack") {
-			return 72, "React/Tailwind/shadcn UI surface"
-		}
-	case "frontend-slate-ui":
-		if isAngularSlateUISurface(lowPrompt, files) {
-			tsExtra := max(0, countExt(files, ".ts", ".tsx")-1) * 3
-			return 74 + min(12, tsExtra), "Angular/SlateUI UI surface"
-		}
-	}
-	return 0, ""
-}
-
-func isAngularSlateUISurface(lowPrompt string, files []string) bool {
-	return hasBaseOrExt(files, ".component.ts", ".component.html") ||
-		containsAnyWord(lowPrompt, "angular", "slateui", "slate-ui", "ng-primitives", "uibutton", "provideslateuitheme") ||
-		containsAnySubstr(lowPrompt, ".component.ts", ".component.html", "@angular/")
-}
-
-func isBashSkillSurface(lowPrompt string, files []string) bool {
-	if promptHasExt(lowPrompt, ".sh") {
-		return true
-	}
-	shCount := countExt(files, ".sh")
-	if shCount > 0 && shCount*2 > len(files) {
-		return true
-	}
-	return containsAnySubstr(lowPrompt, "shell script", "bash script", "setup wizard", "bash wizard", "interactive wizard") ||
-		containsAnyWord(lowPrompt, "zsh", "shfmt", "shellcheck", "jq", "yq", "awk", "sed", "set_gcp_secret")
-}
-
-func scoreInfraOrAPISkill(name, lowPrompt string, files []string) (int, string) {
-	switch name {
-	case "docker":
-		if hasBaseOrExt(files, "dockerfile", "docker-compose") || containsAnyWord(lowPrompt, "docker", "dockerfile", "container", "colima") {
-			return 72, "container/Dockerfile surface"
-		}
-	case "cloud-run-deploy":
-		if containsAnySubstr(lowPrompt, "cloud run", "gcloud run", "artifact registry") {
-			return 74, "Cloud Run deploy surface"
-		}
-	case "data-gcp":
-		if hasExt(files, ".sql") || containsAnySubstr(lowPrompt, "cloud sql", "postgres", "postgresql", "pgx", "golang-migrate") {
-			return 74, "database/Cloud SQL surface"
-		}
-	case "api-auth-gcp":
-		if containsAnyWord(lowPrompt, "iap", "oidc", "firebase") || containsAnySubstr(lowPrompt, "identity-aware proxy", "id token") {
-			return 74, "GCP API auth surface"
-		}
-	case "json-api-style":
-		if containsAnySubstr(lowPrompt, "json api", "lowercamelcase", "pagetoken", "nextpagetoken", "aip-") {
-			return 68, "JSON API contract surface"
-		}
-	case "mermaid-syntax":
-		if containsAnyWord(lowPrompt, "mermaid", "flowchart", "sequencediagram", "statediagram", "erdiagram") {
-			return 75, "Mermaid diagram surface"
-		}
-	case "testing-strategy":
-		if containsAnyWord(lowPrompt, "test", "tests", "coverage", "verifier", "e2e") {
-			return 60, "verification/testing surface"
-		}
-	}
-	return 0, ""
-}
-
-var fyrWorkflowSkillRules = map[string]struct {
-	score  int
-	reason string
-	words  []string
-	subs   []string
-}{
-	"fyr-spec":           {65, "specification surface", []string{"spec", "specify", "contract", "interface"}, nil},
-	"spec":               {65, "specification surface", []string{"spec", "specify", "contract", "interface"}, nil},
-	"fyr-project-memory": {85, "memory directive", []string{"remember", "memory", "forget"}, nil},
-	"project-memory":     {85, "memory directive", []string{"remember", "memory", "forget"}, nil},
-	"fyr-swarm":          {78, "fyr swarm parallel orchestration surface", []string{"swarm", "parallel", "worker", "workers"}, []string{"/fyr-swarm", "fyr gate", "fyr land", "run_workflow"}},
-	"fyr-handoff":        {85, "session handoff surface", []string{"handoff", "fyr-handoff"}, []string{"hand off", "wrap up for next session"}},
-	"fyr-retro":          {85, "session retrospective surface", []string{"retro", "retrospective", "fyr-retro"}, nil},
-	"fyr-dream":          {82, "memory consolidation surface", nil, []string{"fyr dream", "/fyr-dream", "consolidate memory", "dreamer"}},
-	"fyr-harness-audit":  {88, "harness audit surface", nil, []string{"harness audit", "fyr-harness-audit", "audit the harness"}},
-	"fyr-triage":         {86, "issue/PR and backlog triage surface", []string{"triage", "fyr-triage", "wontfix", "needs-triage", "needs-info", "ready-for-agent"}, []string{"/fyr-triage", "agent brief", "needs my attention"}},
-}
-
-func scoreFyrWorkflowSkill(name, lowPrompt string, intent IntentMode, files []string) (int, string) {
-	switch name {
-	case "fyr-docs":
-		if containsAnyWord(lowPrompt, "fyr-docs", "docs-writer", "bluf", "docset") ||
-			containsAnySubstr(lowPrompt, "/fyr-docs", "audit docs", "audit the docs", "audit the documentation", "docs audit", "airy docs") {
-			return 84, "documentation standard/audit surface"
-		}
-		if containsAnyWord(lowPrompt, "documentation", "readme", "onboarding", "runbook") ||
-			containsAnySubstr(lowPrompt, "write docs", "update docs", "edit docs", "review docs") ||
-			(hasBaseOrExt(files, "readme.md", "sdd.md", "tdd.md") && !containsAnyWord(lowPrompt, "typo", "rename")) {
-			return 73, "documentation surface"
-		}
-	case "fyr-swarm":
-		if (len(fyrWorkflowSkillRules[name].words) > 0 && containsAnyWord(lowPrompt, fyrWorkflowSkillRules[name].words...)) ||
-			(len(fyrWorkflowSkillRules[name].subs) > 0 && containsAnySubstr(lowPrompt, fyrWorkflowSkillRules[name].subs...)) ||
-			(!isKickoffLow(lowPrompt) && hasBatchOrMultiPhaseCues(lowPrompt, lowPrompt)) {
-			return fyrWorkflowSkillRules[name].score, fyrWorkflowSkillRules[name].reason
-		}
-	default:
-		if rule, ok := fyrWorkflowSkillRules[name]; ok {
-			if (len(rule.words) > 0 && containsAnyWord(lowPrompt, rule.words...)) ||
-				(len(rule.subs) > 0 && containsAnySubstr(lowPrompt, rule.subs...)) {
-				return rule.score, rule.reason
-			}
-		}
-	}
-	return 0, ""
 }
 
 func touchesSecuritySurface(lowPrompt string, files []string) bool {

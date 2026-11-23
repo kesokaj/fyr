@@ -31,6 +31,7 @@ func TestPreInvocationEmitsImprovedPromptAndSkillDigests(t *testing.T) {
 			},
 		}
 	}
+	cat := loadInstalledRepoSkillCatalog(t)
 	runTurn := func(prompt string) PreInvocationBanner {
 		inJSON, _ := json.Marshal(map[string]any{
 			"conversationId": "conv-jit-1a",
@@ -46,6 +47,7 @@ func TestPreInvocationEmitsImprovedPromptAndSkillDigests(t *testing.T) {
 			Hook:             "pre-invocation",
 			HookIn:           bytes.NewReader(inJSON),
 			BrainTurnContext: turnCtx,
+			SkillCatalog:     func(_ string) []SkillMeta { return cat },
 		}, &out); err != nil {
 			t.Fatalf("Search pre-invocation: %v", err)
 		}

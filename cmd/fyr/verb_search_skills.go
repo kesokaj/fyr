@@ -10,27 +10,32 @@ import (
 )
 
 func makeSkillCatalog() func(home string) []search.SkillMeta {
-	return func(home string) []search.SkillMeta {
-		if home == "" {
-			return nil
-		}
-		skillsDir := filepath.Join(home, ".gemini", "config", "skills")
-		entries, err := os.ReadDir(skillsDir)
-		if err != nil {
-			return nil
-		}
-		var out []search.SkillMeta
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
-			p := filepath.Join(skillsDir, e.Name(), "SKILL.md")
-			if meta, ok := parseSkillMetaFile(e.Name(), p); ok {
-				out = append(out, meta)
-			}
-		}
-		return out
+	return LoadSkillCatalog
+}
+
+// LoadSkillCatalog reads installed SKILL.md metadata under
+// <home>/.gemini/config/skills/<name>/SKILL.md. Returns nil when home is empty
+// or no skills are installed (zero phantom fallback).
+func LoadSkillCatalog(home string) []search.SkillMeta {
+	if home == "" {
+		return nil
 	}
+	skillsDir := filepath.Join(home, ".gemini", "config", "skills")
+	entries, err := os.ReadDir(skillsDir)
+	if err != nil {
+		return nil
+	}
+	var out []search.SkillMeta
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		p := filepath.Join(skillsDir, e.Name(), "SKILL.md")
+		if meta, ok := parseSkillMetaFile(e.Name(), p); ok {
+			out = append(out, meta)
+		}
+	}
+	return out
 }
 
 func parseSkillMetaFile(name, path string) (search.SkillMeta, bool) {
@@ -52,7 +57,7 @@ func parseSkillMetaFile(name, path string) (search.SkillMeta, bool) {
 	return search.SkillMeta{
 		Name:        name,
 		Description: desc,
-		Path:        "skills/" + name + "/SKILL.md",
+		Path:        "~/.gemini/config/skills/" + name + "/SKILL.md",
 		Digest:      digest,
 	}, true
 }

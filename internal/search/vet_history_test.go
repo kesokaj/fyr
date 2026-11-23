@@ -294,12 +294,13 @@ func TestBuildVetSliceFiltersUnconfidentShellFiles(t *testing.T) {
 }
 
 func TestMatchSkillsBashVsGolangAndDiagnosticMentions(t *testing.T) {
+	cat := loadInstalledRepoSkillCatalog(t)
 	// 1. Diagnostic mention ("loading the bash skill very often") suppresses bash.
 	skills1, sec1 := MatchSkills(
 		"I want you to investigate the VET_PROCESS if we can make it better. As 1 example i see it loading the bash skill very often.",
 		IntentBug,
 		[]string{"internal/search/vet.go", "internal/search/hook.go"},
-		nil,
+		cat,
 	)
 	if sec1 {
 		t.Errorf("expected SecurityRequired=false on VET_PROCESS investigation")
@@ -314,7 +315,7 @@ func TestMatchSkillsBashVsGolangAndDiagnosticMentions(t *testing.T) {
 	}
 
 	// 2. Negated mention ("don't use docker") suppresses docker.
-	skills2, _ := MatchSkills("Run tests in internal/models/catalog.go and don't use docker", IntentTask, []string{"internal/models/catalog.go"}, nil)
+	skills2, _ := MatchSkills("Run tests in internal/models/catalog.go and don't use docker", IntentTask, []string{"internal/models/catalog.go"}, cat)
 	for _, s := range skills2 {
 		if s.Name == "docker" {
 			t.Errorf("expected negated docker skill to be suppressed, got %+v", skills2)
@@ -322,7 +323,7 @@ func TestMatchSkillsBashVsGolangAndDiagnosticMentions(t *testing.T) {
 	}
 
 	// 3. Genuine shell script prompt triggers bash.
-	skills3, _ := MatchSkills("Fix shellcheck quoting in scripts/check-trailers.sh with jq", IntentTask, []string{"scripts/check-trailers.sh"}, nil)
+	skills3, _ := MatchSkills("Fix shellcheck quoting in scripts/check-trailers.sh with jq", IntentTask, []string{"scripts/check-trailers.sh"}, cat)
 	foundBash := false
 	for _, s := range skills3 {
 		if s.Name == "bash" {
@@ -334,35 +335,36 @@ func TestMatchSkillsBashVsGolangAndDiagnosticMentions(t *testing.T) {
 	}
 
 	// 4. Expanded skill surfaces match mermaid-syntax, fyr-swarm, and frontend-ui-modern.
-	skillsMermaid, _ := MatchSkills("Add a Mermaid flowchart diagram to README.md", IntentTask, []string{"README.md"}, nil)
+	skillsMermaid, _ := MatchSkills("Add a Mermaid flowchart diagram to README.md", IntentTask, []string{"README.md"}, cat)
 	if len(skillsMermaid) == 0 || skillsMermaid[0].Name != "mermaid-syntax" {
 		t.Errorf("expected mermaid-syntax skill, got %+v", skillsMermaid)
 	}
-	skillsSwarm, _ := MatchSkills("Run parallel /fyr-swarm workers with fyr gate and fyr land on internal/models/catalog.go", IntentTask, []string{"internal/models/catalog.go"}, nil)
+	skillsSwarm, _ := MatchSkills("Run parallel /fyr-swarm workers with fyr gate and fyr land on internal/models/catalog.go", IntentTask, []string{"internal/models/catalog.go"}, cat)
 	if len(skillsSwarm) < 2 || skillsSwarm[0].Name != "fyr-swarm" || skillsSwarm[1].Name != "golang" {
 		t.Errorf("expected [fyr-swarm, golang], got %+v", skillsSwarm)
 	}
 }
 
 func TestMatchSkillsFyrDocsTriageAndBashWizard(t *testing.T) {
+	cat := loadInstalledRepoSkillCatalog(t)
 	// 1. fyr-docs triggers on docset audit, BLUF, and README/documentation authoring.
-	skillsAudit, _ := MatchSkills("Audit the documentation in README.md and SDD.md for BLUF and collapsible details", IntentTask, []string{"README.md", "SDD.md"}, nil)
+	skillsAudit, _ := MatchSkills("Audit the documentation in README.md and SDD.md for BLUF and collapsible details", IntentTask, []string{"README.md", "SDD.md"}, cat)
 	if len(skillsAudit) == 0 || skillsAudit[0].Name != "fyr-docs" {
 		t.Errorf("expected fyr-docs first on doc audit/BLUF prompt, got %+v", skillsAudit)
 	}
-	skillsWriteDocs, _ := MatchSkills("Write documentation for the new CLI flags in README.md", IntentTask, []string{"README.md"}, nil)
+	skillsWriteDocs, _ := MatchSkills("Write documentation for the new CLI flags in README.md", IntentTask, []string{"README.md"}, cat)
 	if len(skillsWriteDocs) == 0 || skillsWriteDocs[0].Name != "fyr-docs" {
 		t.Errorf("expected fyr-docs on README documentation prompt, got %+v", skillsWriteDocs)
 	}
 
 	// 2. fyr-triage triggers on issue/PR/backlog triage and Agent Brief requests.
-	skillsTriage, _ := MatchSkills("Triage issue #42 and open backlog items into an agent brief", IntentTask, nil, nil)
+	skillsTriage, _ := MatchSkills("Triage issue #42 and open backlog items into an agent brief", IntentTask, nil, cat)
 	if len(skillsTriage) == 0 || skillsTriage[0].Name != "fyr-triage" {
 		t.Errorf("expected fyr-triage on issue/backlog triage prompt, got %+v", skillsTriage)
 	}
 
 	// 3. bash triggers on interactive setup wizard and set_gcp_secret prompts.
-	skillsWizard, _ := MatchSkills("Generate an interactive setup wizard using set_gcp_secret for Cloud Run secrets", IntentTask, nil, nil)
+	skillsWizard, _ := MatchSkills("Generate an interactive setup wizard using set_gcp_secret for Cloud Run secrets", IntentTask, nil, cat)
 	foundBash := false
 	for _, s := range skillsWizard {
 		if s.Name == "bash" {
@@ -422,9 +424,10 @@ func TestHookFyrProcessArtifact(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	cat := loadInstalledRepoSkillCatalog(t)
 	var out bytes.Buffer
 	inJSON := fmt.Sprintf(`{"conversationId":"conv-vis-1","workspacePaths":[%q],"transcriptPath":%q,"invocationNum":1,"lastUserInput":"Fix ReconcileProjectIndex in service.go"}`, dir, transcriptPath)
-	if err := RunHook(Options{Hook: "pre-invocation", Dir: dir, Home: home}, strings.NewReader(inJSON), &out); err != nil {
+	if err := RunHook(Options{Hook: "pre-invocation", Dir: dir, Home: home, SkillCatalog: func(_ string) []SkillMeta { return cat }}, strings.NewReader(inJSON), &out); err != nil {
 		t.Fatalf("RunHook pre-invocation: %v", err)
 	}
 	var hookResp PreInvocationOutput

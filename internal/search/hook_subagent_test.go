@@ -253,7 +253,10 @@ func TestPreToolUseWorkerJITCapsuleOverwrite(t *testing.T) {
 				}
 			},
 			SkillCatalog: func(_ string) []SkillMeta {
-				return []SkillMeta{{Name: "golang", Path: "skills/golang/SKILL.md", Digest: longDigest}}
+				return []SkillMeta{
+					{Name: "fyr-bug", Path: "~/.gemini/config/skills/fyr-bug/SKILL.md", Description: "Bug-fix workflow (/fyr-bug): problem note, goldfish diagnosis, failing test first.", Digest: "Bug-fix workflow: failing test first, smallest fix."},
+					{Name: "golang", Path: "~/.gemini/config/skills/golang/SKILL.md", Digest: longDigest},
+				}
 			},
 		}
 		dec := runSubagentPreToolHook(t, heavyOpts, "conv-heavy", "gemini-4-carbon-high", "invoke_subagent", map[string]any{

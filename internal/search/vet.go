@@ -121,9 +121,9 @@ func EvaluateAnchors(prompt string, slice SliceResult, brainCtx TurnBrainContext
 		fileTokenRe.MatchString(p) || identTokenRe.MatchString(p)
 	hasGoal := len(strings.Fields(p)) >= 3
 	hasScope := (sliceConfident && len(slice.Files) > 0) || fileTokenRe.MatchString(p) ||
-		containsAnyWord(low, "only", "in", "package", "file", "module", "phase", "without")
+		containsAnyWord(low, "only", "in", "package", "file", "module", "phase", "without", "handler", "middleware", "server", "config")
 	hasIO := flagOrRange.MatchString(p) || strings.ContainsAny(p, "()`[]{}") ||
-		containsAnyWord(low, "flag", "json", "input", "output", "returns", "error", "repro", "expect", "command", "stdin", "stdout")
+		containsAnyWord(low, "flag", "json", "input", "output", "returns", "returning", "error", "repro", "expect", "command", "stdin", "stdout", "status", "http", "endpoint", "response", "request", "timeout", "retry", "csv", "yaml", "xml", "exit", "format", "formatting", "pagination")
 	hasConstraints := len(brainCtx.Conflicts) == 0 && (len(brainCtx.ADRs) > 0 || len(brainCtx.Memories) > 0 ||
 		containsAnyWord(low, "adr", "prd", "bug", "ms", "bytes", "tokens", "stdlib", "limit", "budget", "never", "must", "approvals"))
 	hasVerify := containsAnyWord(low, "test", "tests", "verify", "expect", "benchmark", "repro", "check", "pass")
@@ -181,7 +181,7 @@ func vetPromptCoreWithHistory(
 	skills = filterSuggestedSkills(skills, files, recentSkills, recentPivots)
 	res := VetResult{
 		Intent:           intent,
-		Gate:             decideVetGate(trimmed, intent, present, conflicts),
+		Gate:             decideVetGate(trimmed, intent, slice, present, conflicts),
 		Score:            score,
 		CarriedFromTurn:  carriedFrom,
 		PresentAnchors:   present,
@@ -200,7 +200,7 @@ func vetPromptCoreWithHistory(
 	return res
 }
 
-func decideVetGate(rawPrompt string, intent IntentMode, present, conflicts []string) VetGate {
+func decideVetGate(rawPrompt string, intent IntentMode, slice SliceResult, present, conflicts []string) VetGate {
 	if rawPrompt == "" || strings.HasPrefix(rawPrompt, "!") {
 		return GatePassThrough
 	}
@@ -217,16 +217,22 @@ func decideVetGate(rawPrompt string, intent IntentMode, present, conflicts []str
 	if hasAutonomousWaiver(low) {
 		return GateEnrichAndProceed
 	}
-	hasTarget := slices.Contains(present, "target")
-	hasIO := slices.Contains(present, "inputs_outputs")
-	hasScope := slices.Contains(present, "scope")
-	if intent == IntentFeature && (!hasTarget || (!hasIO && !hasScope) || len(present) < 3) {
-		return GateVetFirst
-	}
-	if intent == IntentBug && !hasTarget && !hasIO {
+	if (intent == IntentFeature || intent == IntentBug) && isUltraVagueZeroHit(rawPrompt, slice, present) {
 		return GateVetFirst
 	}
 	return GateEnrichAndProceed
+}
+
+func isUltraVagueZeroHit(rawPrompt string, slice SliceResult, present []string) bool {
+	sliceConfident := slice.Confident || slice.Pivots > 0
+	if sliceConfident && (slice.SymbolHits > 0 || len(slice.Files) > 0) {
+		return false
+	}
+	if slices.Contains(present, "target") || slices.Contains(present, "scope") ||
+		slices.Contains(present, "inputs_outputs") || slices.Contains(present, "verification") {
+		return false
+	}
+	return len(strings.Fields(rawPrompt)) <= 6
 }
 
 func detectTurnConflicts(prompt string, brainCtx TurnBrainContext) []string {

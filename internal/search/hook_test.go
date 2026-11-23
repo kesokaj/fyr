@@ -632,11 +632,13 @@ func TestRunHookPreInvocationFenceAndTurnContract(t *testing.T) {
 		"lastUserInput":  "Fix ReconcileProjectIndex in service.go when root is empty and run go test",
 	})
 	var out bytes.Buffer
+	catalog := loadInstalledRepoSkillCatalog(t)
 	err := Search(Options{
-		Dir:    dir,
-		Home:   home,
-		Hook:   "pre-invocation",
-		HookIn: bytes.NewReader(inJSON),
+		Dir:          dir,
+		Home:         home,
+		Hook:         "pre-invocation",
+		HookIn:       bytes.NewReader(inJSON),
+		SkillCatalog: func(_ string) []SkillMeta { return catalog },
 		BrainTurnContext: func(d, h, p string, files []string) TurnBrainContext {
 			return TurnBrainContext{
 				Memories: []MatchedRecord{

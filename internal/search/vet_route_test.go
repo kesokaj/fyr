@@ -205,15 +205,14 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 			wantImprovedPrompt: true,
 		},
 		{
-			name:               "anchored single-phase feature",
-			prompt:             "Implement CacheIndex in internal/search/service.go returning CacheStats and verify with go test",
-			wantGate:           GateEnrichAndProceed,
-			wantRoute:          "/fyr-feature (pre-build interview first)",
-			wantImprovedPrompt: true,
+			name:      "anchored single-phase feature",
+			prompt:    "Implement CacheIndex in internal/search/service.go returning CacheStats and verify with go test",
+			wantGate:  GateEnrichAndProceed,
+			wantRoute: "/fyr-feature (pre-build interview first)",
 		},
 		{
 			name:               "two independent tasks",
-			prompt:             "Update internal/search/service.go; update internal/search/vet.go",
+			prompt:             "Update internal/search/service.go; update internal/metrics/store.go",
 			wantGate:           GateEnrichAndProceed,
 			wantRoute:          "/fyr-swarm (isolated subtasks; zero shared memory)",
 			wantImprovedPrompt: true,
@@ -361,8 +360,8 @@ func TestReadOnlyAndMultiPackageLookupSkipsDecomposeAndKeepsSliceRoute(t *testin
 		t.Errorf("(b) VetPrompt banner.Route = %q, want %q", bannerB.Route, "fyr search --slice")
 	}
 
-	// (c) Multi-clause numbered mixed prompt must still decompose into >= 2 slices and keep COORDINATE_SUBTASKS.
-	mixedPrompt := "1. Fix parser in internal/search/vet.go 2. Find callers of Handle"
+	// (c) Multi-clause numbered mixed prompt spanning 2 packages must still decompose into >= 2 slices and keep COORDINATE_SUBTASKS.
+	mixedPrompt := "1. Fix parser in internal/search/vet.go 2. Find callers of Handle in internal/brain/store.go"
 	mixedSubtasks := DecomposeSubtasks(mixedPrompt, "", SliceResult{}, nil, nil)
 	if len(mixedSubtasks) < 2 {
 		t.Fatalf("(c) DecomposeSubtasks returned %d slices, want >= 2: %+v", len(mixedSubtasks), mixedSubtasks)

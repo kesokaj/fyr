@@ -97,7 +97,7 @@ func checkCoordinatorWriteGuard(o Options, dir, toolDir string, in HookInput, ta
 	if lastVet != nil && hasBangOrWorkerSignal(lastVet.RawPrompt) {
 		return ""
 	}
-	if lastVet != nil && (lastVet.Directive == "COORDINATE_SUBTASKS" || lastVet.SubtaskCount >= 2) {
+	if lastVet != nil && (lastVet.Directive == "COORDINATE_SUBTASKS" || lastVet.SubtaskCount >= 2) && !isSinglePackageNonParallelVet(lastVet) {
 		label := fmt.Sprintf("multi-subtask turn (%d subtasks)", max(2, lastVet.SubtaskCount))
 		if lastVet.Directive == "COORDINATE_SUBTASKS" {
 			label = fmt.Sprintf("active COORDINATE_SUBTASKS turn (%d subtasks)", max(2, lastVet.SubtaskCount))
@@ -223,6 +223,26 @@ func resolveTargetWithAncestors(toolDir, target string) string {
 func hasBangOrWorkerSignal(raw string) bool {
 	trimmed := stripAnySandboxPreamble(raw)
 	return trimmed != "" && (strings.HasPrefix(trimmed, "!") || isWorkerBriefPrompt(trimmed))
+}
+
+func isSinglePackageNonParallelVet(row *VetHistoryRow) bool {
+	if row == nil || hasExplicitMultiPhaseOrParallelCues(strings.ToLower(row.RawPrompt)) {
+		return false
+	}
+	files := extractPromptAndSliceFiles(row.RawPrompt, nil)
+	if len(files) == 0 {
+		files = row.PivotFiles
+	}
+	if len(files) == 0 {
+		return false
+	}
+	dirs := map[string]bool{}
+	for _, f := range files {
+		if n := normalizeSlashPath(f); n != "" {
+			dirs[packageDirKey(n)] = true
+		}
+	}
+	return len(dirs) == 1
 }
 
 func readLatestVetHistoryFast(root, convID string) *VetHistoryRow {

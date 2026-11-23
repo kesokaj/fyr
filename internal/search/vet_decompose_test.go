@@ -153,7 +153,7 @@ func TestDecomposeSubtasksClausesAndPackages(t *testing.T) {
 			if r := RouteFeature(sc.prompt, sc.intent, nil); r != "" {
 				t.Errorf("%s: RouteFeature = %q, want empty", sc.name, r)
 			}
-			skills, _ := MatchSkills(sc.prompt, sc.intent, []string{"internal/a/a.go", "internal/b/b.go"}, nil)
+			skills, _ := MatchSkills(sc.prompt, sc.intent, []string{"internal/a/a.go", "internal/b/b.go"}, loadInstalledRepoSkillCatalog(t))
 			for _, sk := range skills {
 				if sk.Name == "fyr-swarm" {
 					t.Errorf("%s: MatchSkills unexpectedly suggested fyr-swarm on worker brief: %+v", sc.name, skills)
@@ -239,7 +239,7 @@ func TestDecomposeSkipsReadOnlyAndPackageLookup(t *testing.T) {
 		{"implement with trace domain noun", "Implement trace logging across internal/a/a.go and internal/b/b.go"},
 		{"scoped do not edit exclusion", "1. Fix parser in internal/search/vet.go 2. Update store in internal/metrics/store.go; do not edit PRD.md"},
 		{"scoped without editing exclusion", "Update internal/a/a.go and internal/b/b.go without editing tests"},
-		{"multi-clause mixed fix and find", "1. Fix parser in internal/search/vet.go 2. Find callers of Handle"},
+		{"multi-clause mixed fix and find", "1. Fix parser in internal/search/vet.go 2. Find callers of Handle in internal/brain/store.go"},
 	}
 	for _, tc := range keepCases {
 		got := DecomposeSubtasks(tc.prompt, "", SliceResult{}, nil, nil)

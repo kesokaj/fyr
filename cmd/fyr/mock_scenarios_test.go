@@ -163,7 +163,7 @@ func verifyLedgerTurns1And2(t *testing.T, proj, home, dbPath string) {
 	if slices.Sort(samples[:]); samples[2] >= 250*time.Millisecond {
 		t.Fatalf("Turn 2 dirty fast-path median %v exceeded 250ms R3 budget", samples[2])
 	}
-	for _, want := range []string{"# fast-path:", "FastPath: dirty", "Intent:    FEATURE", "PRE_INVOCATION · VET_FIRST", "verification"} {
+	for _, want := range []string{"# fast-path:", "FastPath: dirty", "Intent:    FEATURE", "PRE_INVOCATION · ENRICH_AND_PROCEED", "Route:     /fyr-feature"} {
 		if sys2 := t2.InjectSteps[0].SystemMessage.SystemMessage; !strings.Contains(sys2, want) {
 			t.Fatalf("Turn 2 missing %q in:\n%s", want, sys2)
 		}

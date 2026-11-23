@@ -18,7 +18,7 @@ func TestVetPrecisionFixPlanAndSlashWords(t *testing.T) {
 	if got := ClassifyIntent("Should we go forward with this design?", 0); got != IntentQuestion {
 		t.Errorf("ClassifyIntent question = %s, want QUESTION", got)
 	}
-	skills, _ := MatchSkills("Should we go forward with this design?", IntentQuestion, nil, nil)
+	skills, _ := MatchSkills("Should we go forward with this design?", IntentQuestion, nil, loadInstalledRepoSkillCatalog(t))
 	for _, s := range skills {
 		if s.Name == "golang" {
 			t.Errorf("English word \"go\" in question matched golang skill: %+v", skills)
@@ -108,6 +108,7 @@ func TestPreInvocationSessionDedupAndCompactionReset(t *testing.T) {
 			ADRs:     []MatchedRecord{{ID: "ADR-521", Kind: "adr", Status: "accepted", Title: "Lean vet hook", Body: "Never block clean prompts."}},
 		}
 	}
+	cat := loadInstalledRepoSkillCatalog(t)
 	runTurn := func(inv int, prompt string) string {
 		inJSON, _ := json.Marshal(map[string]any{
 			"conversationId": "conv-dedup-1",
@@ -123,6 +124,7 @@ func TestPreInvocationSessionDedupAndCompactionReset(t *testing.T) {
 			Hook:             "pre-invocation",
 			HookIn:           bytes.NewReader(inJSON),
 			BrainTurnContext: turnCtx,
+			SkillCatalog:     func(_ string) []SkillMeta { return cat },
 		}, &out); err != nil {
 			t.Fatalf("Search inv %d: %v", inv, err)
 		}

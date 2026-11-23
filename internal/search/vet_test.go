@@ -3,12 +3,16 @@ package search
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/redact"
 )
 
 var fenceBoundaryRe = regexp.MustCompile(`^=====[0-9a-f]{18}=====$`)
@@ -152,8 +156,8 @@ func TestVetPromptGatesAndBypasses(t *testing.T) {
 		}
 	}
 
-	// 6. CORRECTION gets ENRICH_AND_PROCEED and prefetches fyr-feedback-log + fyr-project-memory.
-	corrRes := VetPrompt("No, always do table-driven tests with -race", "", SliceResult{}, TurnBrainContext{})
+	// 6. CORRECTION gets ENRICH_AND_PROCEED and prefetches fyr-feedback-log + fyr-project-memory from installed catalog.
+	corrRes := VetPrompt("No, always do table-driven tests with -race", "", SliceResult{}, TurnBrainContext{}, loadInstalledRepoSkillCatalog(t))
 	if corrRes.Intent != IntentCorrection || corrRes.Gate != GateEnrichAndProceed {
 		t.Errorf("CORRECTION: got intent=%s gate=%s, want CORRECTION / ENRICH_AND_PROCEED", corrRes.Intent, corrRes.Gate)
 	}
@@ -272,23 +276,24 @@ func TestMatchSkillsDigestCapAndSecuritySubagent(t *testing.T) {
 }
 
 func TestMatchSkillsFrontendSlateUIRouting(t *testing.T) {
-	// Positive: Angular / SlateUI / uiButton / provideSlateUiTheme / .component.ts outranks generic typescript (74 > 73) under IntentFeature.
+	cat := loadInstalledRepoSkillCatalog(t)
+	// Positive: Angular / SlateUI / uiButton / provideSlateUiTheme / .component.ts outranks generic typescript under IntentFeature.
 	featSkills, _ := MatchSkills(
 		"Build an Angular 20 workspace using SlateUI [uiButton] and provideSlateUiTheme",
 		IntentFeature,
 		[]string{"src/app/workspace.component.ts", "src/app/header.component.ts"},
-		nil,
+		cat,
 	)
-	if len(featSkills) != 2 || featSkills[0].Name != "fyr-feature" || featSkills[1].Name != "frontend-slate-ui" {
-		t.Fatalf("Angular/SlateUI feature skills = %+v, want [fyr-feature, frontend-slate-ui]", featSkills)
+	if len(featSkills) < 2 || len(featSkills) > 3 || featSkills[0].Name != "fyr-feature" || featSkills[1].Name != "frontend-slate-ui" {
+		t.Fatalf("Angular/SlateUI feature skills = %+v, want [fyr-feature, frontend-slate-ui, ...]", featSkills)
 	}
 
-	// Positive: ng-primitives + .component.html outranks frontend-ui-economist (74 > 72).
+	// Positive: ng-primitives + .component.html outranks frontend-ui-economist.
 	htmlSkills, _ := MatchSkills(
 		"Wire ng-primitives dialog focus trap in user-dialog.component.html",
 		IntentTask,
 		[]string{"src/app/user-dialog.component.html"},
-		nil,
+		cat,
 	)
 	if len(htmlSkills) == 0 || htmlSkills[0].Name != "frontend-slate-ui" {
 		t.Fatalf("ng-primitives/.component.html skills = %+v, want top skill frontend-slate-ui", htmlSkills)
@@ -305,7 +310,7 @@ func TestMatchSkillsFrontendSlateUIRouting(t *testing.T) {
 		{"editorial_html", "Create an editorial UI report with SVG chart in plain HTML", []string{"report.html"}},
 		{"negated", "Build a TypeScript table without frontend-slate-ui in table.ts", []string{"src/table.ts"}},
 	} {
-		got, _ := MatchSkills(tc.prompt, IntentTask, tc.files, nil)
+		got, _ := MatchSkills(tc.prompt, IntentTask, tc.files, cat)
 		for _, s := range got {
 			if s.Name == "frontend-slate-ui" {
 				t.Errorf("%s: MatchSkills(%q) unexpectedly matched frontend-slate-ui: %+v", tc.name, tc.prompt, got)
@@ -481,4 +486,350 @@ func VetPrompt(prompt string, intent IntentMode, slice SliceResult, brainCtx Tur
 	res.SystemMessage = sysMsg
 	res.UserMarkdownBanner = banner
 	return res
+}
+
+func loadInstalledRepoSkillCatalog(t *testing.T) []SkillMeta {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join("..", "..", "skills"))
+	if err != nil {
+		t.Fatalf("read skills dir: %v", err)
+	}
+	var out []SkillMeta
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		rawBytes, err := os.ReadFile(filepath.Join("..", "..", "skills", e.Name(), "SKILL.md"))
+		if err != nil {
+			continue
+		}
+		desc := extractTestFrontmatterDesc(string(rawBytes))
+		out = append(out, SkillMeta{
+			Name:        e.Name(),
+			Description: desc,
+			Path:        "~/.gemini/config/skills/" + e.Name() + "/SKILL.md",
+			Digest:      desc,
+		})
+	}
+	if len(out) < 35 {
+		t.Fatalf("expected >= 35 repo skills, got %d", len(out))
+	}
+	return out
+}
+
+func extractTestFrontmatterDesc(text string) string {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	if len(lines) < 3 || strings.TrimSpace(lines[0]) != "---" {
+		return ""
+	}
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			break
+		}
+		if strings.HasPrefix(lines[i], "description:") {
+			v := strings.TrimSpace(strings.TrimPrefix(lines[i], "description:"))
+			return strings.Trim(v, `"'`)
+		}
+	}
+	return ""
+}
+
+func TestV910DynamicSkillPrefetch(t *testing.T) {
+	// 1. Nil or empty catalog MUST yield 0 phantom skills across all intents.
+	for _, intent := range []IntentMode{IntentTask, IntentBug, IntentFeature, IntentCorrection, IntentReview, IntentRelease} {
+		got, _ := MatchSkills("Fix Go auth JWT in service.go and terraform HCL", intent, []string{"service.go"}, nil)
+		if len(got) != 0 {
+			t.Errorf("nil catalog (%s): expected 0 phantom skills, got %+v", intent, got)
+		}
+		gotEmpty, _ := MatchSkills("Fix Go auth JWT in service.go", intent, []string{"service.go"}, []SkillMeta{})
+		if len(gotEmpty) != 0 {
+			t.Errorf("empty catalog (%s): expected 0 phantom skills, got %+v", intent, gotEmpty)
+		}
+	}
+
+	catalog := loadInstalledRepoSkillCatalog(t)
+	// 2. N05 neutral question with noun "build" must classify as QUESTION and match 0 skills.
+	const n05 = "Explain why the build counter incremented from 41 to 42"
+	if gotIntent := ClassifyIntent(n05, 0); gotIntent != IntentQuestion {
+		t.Errorf("ClassifyIntent(N05) = %s, want QUESTION", gotIntent)
+	}
+	if n05Skills, _ := MatchSkills(n05, ClassifyIntent(n05, 0), nil, catalog); len(n05Skills) != 0 {
+		t.Errorf("N05 matched unexpected skills: %+v", n05Skills)
+	}
+
+	// 3. Dynamic coverage of all 35 installed skills (including the 8 previously uncovered) + synthetic 36th skill.
+	probes := []struct {
+		want   string
+		prompt string
+		intent IntentMode
+		files  []string
+	}{
+		{"api-auth-gcp", "Verify IAP and Firebase Auth OIDC tokens on Cloud Run Go API", IntentTask, []string{"auth.go"}},
+		{"bash", "Write a Bash Zsh interactive setup wizard with jq and shellcheck", IntentTask, []string{"scripts/setup.sh"}},
+		{"cloud-run-deploy", "Push image to Artifact Registry and run gcloud run deploy", IntentTask, nil},
+		{"data-gcp", "Configure Cloud SQL Postgres pgx socket and golang-migrate jobs", IntentTask, []string{"migrations/001.sql"}},
+		{"docker", "Fix Dockerfile and Colima compose services volumes networking", IntentTask, []string{"Dockerfile"}},
+		{"frontend-slate-ui", "Build Angular 20 UI with SlateUI directives and ng-primitives Signals", IntentTask, []string{"app.component.ts"}},
+		{"frontend-ui-economist", "Design an editorial plain HTML SVG chart report with white-space checks", IntentTask, []string{"report.html"}},
+		{"frontend-ui-modern", "Build a modern React Tailwind shadcn dashboard mockup", IntentTask, []string{"App.tsx"}},
+		{"fyr-auto", "This is a Kickoff written by fyr auto: follow unattended worker risk rubric and drafts JSONL", IntentTask, nil},
+		{"fyr-bug", "Fix failing parser crash with goldfish diagnosis and BUG record", IntentBug, nil},
+		{"fyr-docs", "Audit docs for BLUF short prose and collapsible details tables", IntentTask, []string{"README.md"}},
+		{"fyr-dream", "Run /fyr-dream interactive memory consolidation and assign verdicts", IntentTask, nil},
+		{"fyr-feature", "Plan phased feature recon with cold-reader check and interview", IntentFeature, nil},
+		{"fyr-feedback-log", "No, always record operator corrections as global feedback records", IntentCorrection, nil},
+		{"fyr-handoff", "Wrap up with /fyr-handoff immutable handoff and Kickoff", IntentTask, nil},
+		{"fyr-harness-audit", "Run /fyr-harness-audit area by area with --reaudit", IntentTask, nil},
+		{"fyr-init-project", "Scaffold a fyr project with /fyr-init-project root docs and seed guides", IntentTask, nil},
+		{"fyr-preflight", "Run /fyr-preflight release gate and SHIP/NO-SHIP report", IntentRelease, nil},
+		{"fyr-project-memory", "Remember this durable operator preference via fyr memory add", IntentTask, nil},
+		{"fyr-requirements", "Elicit and trace PRD.md requirements with enforced by sites via /fyr-requirements", IntentTask, []string{"PRD.md"}},
+		{"fyr-research", "Compare 3 options and recommend one via /fyr-research before drafting spec", IntentQuestion, nil},
+		{"fyr-retro", "Run /fyr-retro session retrospective to turn corrections into proposals", IntentTask, nil},
+		{"fyr-review", "Run multi-lens /fyr-review --code --security --judge", IntentReview, nil},
+		{"fyr-spec", "Author a SPEC-api-auth surface spec verified by fyr check", IntentTask, nil},
+		{"fyr-swarm", "Coordinate parallel multi-agent slices via /fyr-swarm run_workflow and fyr gate", IntentTask, nil},
+		{"fyr-triage", "Triage GitHub issues and local fyr queues into Agent Briefs via /fyr-triage", IntentTask, nil},
+		{"gcloud-setup", "Configure gcloud CLI auth ADC credentials and --project settings", IntentTask, nil},
+		{"golang", "Refactor Go service in cmd/app and internal/ using slog JSON and table tests", IntentTask, []string{"internal/svc/svc.go"}},
+		{"json-api-style", "Design Google AIP JSON API with lowerCamelCase keys RFC 3339 timestamps and pageToken", IntentTask, nil},
+		{"mermaid-syntax", "Fix Mermaid v11 flowchart and sequence diagram quoting and escaping", IntentTask, nil},
+		{"operate-gcp", "Write Cloud Run runbooks for rollback Cloud Logging alerts and queues", IntentTask, nil},
+		{"review-standards", "Check Go and TypeScript dead code flow layout simplicity and decoupling checklist", IntentReview, []string{"internal/svc/svc.go"}},
+		{"terraform", "Write Google Cloud Terraform OpenTofu HCL for Secret Manager IAM and GCS state", IntentTask, []string{"infra/main.tf"}},
+		{"testing-strategy", "Plan unit integration API e2e container smoke test tiers and GUIDE-testing", IntentTask, nil},
+		{"typescript", "Enforce strict tsconfig narrowing generics ESM boundaries and Vitest", IntentTask, []string{"src/api.ts"}},
+	}
+	for _, p := range probes {
+		got, _ := MatchSkills(p.prompt, p.intent, p.files, catalog)
+		if len(got) == 0 || len(got) > 3 {
+			t.Errorf("%s: got %d skills (%+v), want 1..3", p.want, len(got), got)
+			continue
+		}
+		found := false
+		for _, s := range got {
+			if s.Name == p.want {
+				found = true
+				if !strings.HasPrefix(s.Path, "~/.gemini/config/skills/") {
+					t.Errorf("%s: expected installed path ~/.gemini/config/skills/..., got %q", p.want, s.Path)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s: not matched in top-%d %+v for prompt %q", p.want, len(got), got, p.prompt)
+		}
+	}
+
+	// 4. Synthetic 36th skill proves scoring is dynamic (no static switch table) and Top-3 cap holds.
+	withCustom := append(append([]SkillMeta{}, catalog...), SkillMeta{
+		Name:        "quantum-mesh",
+		Description: "Calibrate quantum-mesh qubits, entanglement routing, and cryogenic decoherence telemetry.",
+		Path:        "~/.gemini/config/skills/quantum-mesh/SKILL.md",
+		Digest:      "Calibrate qubits and cryogenic decoherence telemetry.",
+	})
+	customGot, _ := MatchSkills("Calibrate entanglement routing and cryogenic decoherence telemetry for qubits", IntentTask, nil, withCustom)
+	if len(customGot) == 0 || customGot[0].Name != "quantum-mesh" {
+		t.Errorf("dynamic 36th skill failed: got %+v, want quantum-mesh first", customGot)
+	}
+	top3Got, _ := MatchSkills("Review Go dead code simplicity decoupling checklist with slog table tests in internal/svc/svc.go", IntentReview, []string{"internal/svc/svc.go"}, catalog)
+	if len(top3Got) != 3 {
+		t.Errorf("multi-surface review prompt got %d skills (%+v), want Top-3 cap of 3", len(top3Got), top3Got)
+	}
+}
+
+func TestV910VetFirstCalibration(t *testing.T) {
+	// 1. 10/10 clear natural-language engineering prompts must receive ENRICH_AND_PROCEED (not false VET_FIRST).
+	clearPrompts := []string{
+		"Add rate limiting to the HTTP middleware with 100 requests per minute per IP",
+		"Implement exponential backoff retry logic for database connections with max 3 attempts",
+		"Add a --dry-run flag to the deploy command that prints planned actions without applying them",
+		"Create a health check endpoint returning 200 OK with build version and uptime",
+		"Support JSON output format for the status subcommand",
+		"Add pagination support with cursor and limit parameters to the list users endpoint",
+		"Add dark mode toggle persisted in local storage",
+		"Implement graceful shutdown handling SIGTERM with a 10s drain timeout",
+		"Add structured request logging middleware recording method, path, status, and duration",
+		"Fix the timeout bug when the upstream server closes idle connections",
+		// Exact 10 F-014 campaign prompts (6-7 words, zero symbol hits) must all get ENRICH_AND_PROCEED.
+		"Add a health endpoint to the server",
+		"Fix the nil pointer crash on empty input",
+		"Add pagination to the list handler",
+		"Refactor greeting formatting to support uppercase",
+		"Add request timeout to the HTTP server",
+		"Fix bug where trailing spaces break greetings",
+		"Add a version endpoint returning JSON",
+		"Create a middleware for structured request logging",
+		"Add retry logic when reading config",
+		"Fix race condition in cache lookup",
+	}
+	for _, p := range clearPrompts {
+		res := VetPrompt(p, "", SliceResult{SymbolHits: 0}, TurnBrainContext{})
+		if res.Gate != GateEnrichAndProceed {
+			t.Errorf("clear prompt %q got gate=%s (intent=%s present=%v), want ENRICH_AND_PROCEED", p, res.Gate, res.Intent, res.PresentAnchors)
+		}
+	}
+
+	// 2. True ADR/PRD conflicts MUST still trigger VET_FIRST (keeping vet-first-gate eval green!).
+	adrCtx := TurnBrainContext{
+		ADRs: []MatchedRecord{
+			{ID: "ADR-001", Kind: "adr", Status: "accepted", Title: "Stdlib only", Body: "Rejected: redis cache cluster, external cache."},
+		},
+	}
+	redisRes := VetPrompt("Add a Redis cache cluster to the greeting service", "", SliceResult{SymbolHits: 1}, adrCtx)
+	if redisRes.Gate != GateVetFirst || len(redisRes.Conflicts) == 0 {
+		t.Errorf("vet-first-gate ADR conflict got gate=%s conflicts=%v, want VET_FIRST", redisRes.Gate, redisRes.Conflicts)
+	}
+	prdRes := VetPrompt("Implement a background daemon and mcp server for indexing", "", SliceResult{}, TurnBrainContext{})
+	if prdRes.Gate != GateVetFirst || len(prdRes.Conflicts) == 0 {
+		t.Errorf("PRD R3 conflict got gate=%s conflicts=%v, want VET_FIRST", prdRes.Gate, prdRes.Conflicts)
+	}
+
+	// 3. Ultra-vague zero-hit asks still trigger VET_FIRST.
+	for _, vague := range []string{"Build a new caching system", "Something is broken and fails", "Add caching"} {
+		res := VetPrompt(vague, "", SliceResult{SymbolHits: 0}, TurnBrainContext{})
+		if res.Gate != GateVetFirst {
+			t.Errorf("ultra-vague %q got gate=%s, want VET_FIRST", vague, res.Gate)
+		}
+	}
+}
+
+func TestV910CoordinatorNarrow(t *testing.T) {
+	singlePkgPrompts := []string{
+		"In internal/search/vet.go: (1) update EvaluateAnchors, (2) calibrate decideVetGate, (3) add unit tests in internal/search/vet_test.go",
+		"1. Add validation helper in internal/cfg/load.go 2. Wire defaults in internal/cfg/validate.go 3. Add tests in internal/cfg/load_test.go",
+		"(1) Add validation helper (2) Wire it into handler (3) Run go test",
+		"Update internal/search/service.go; update internal/search/vet.go",
+	}
+	multiNeighborSlice := SliceResult{
+		Files:      []string{"internal/search/vet.go", "internal/brain/store.go", "cmd/fyr/main.go"},
+		SymbolHits: 2,
+	}
+	for _, p := range singlePkgPrompts {
+		if got := DecomposeSubtasks(p, IntentTask, multiNeighborSlice, nil, nil); len(got) != 0 {
+			t.Errorf("single-package prompt %q decomposed into %d subtasks: %+v", p, len(got), got)
+		}
+		if r := RouteFeature(p, IntentTask, nil); strings.HasPrefix(r, "/fyr-swarm") {
+			t.Errorf("single-package prompt %q routed to %q, want non-swarm", p, r)
+		}
+		res := VetPrompt(p, "", multiNeighborSlice, TurnBrainContext{})
+		if dir := preInvocationDirective(res); dir == "COORDINATE_SUBTASKS" {
+			t.Errorf("single-package prompt %q emitted COORDINATE_SUBTASKS", p)
+		}
+	}
+
+	// Positive controls: >= 2 distinct packages OR explicit multi-phase/parallel cues still decompose.
+	for _, p := range []string{
+		"1. Update parser in internal/alpha/alpha.go 2. Update store in internal/beta/beta.go",
+		"Run 2 independent tasks in parallel: (1) implement parser (2) implement formatter",
+		"Execute Phase 1 and Phase 2 in waves: 1. Build schema 2. Wire handler",
+	} {
+		if got := DecomposeSubtasks(p, IntentTask, SliceResult{}, nil, nil); len(got) < 2 {
+			t.Errorf("multi-package/parallel prompt %q got %d subtasks, want >= 2", p, len(got))
+		}
+	}
+}
+
+func TestV910VetCoordinatorAndDynamicSkillPrefetch(t *testing.T) {
+	dir := setupHookRepo(t)
+	writeFile(t, dir, "internal/alpha/alpha.go", "package alpha\n\nfunc AlphaWork() int { return 1 }\n")
+	writeFile(t, dir, "internal/alpha/helper.go", "package alpha\n\nfunc AlphaHelper() int { return 2 }\n")
+	writeFile(t, dir, "internal/beta/beta.go", "package beta\n\nfunc BetaWork() int { return 3 }\n")
+	commitAll(t, dir, "seed v910 packages")
+	home := t.TempDir()
+	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	catalog := loadInstalledRepoSkillCatalog(t)
+	runPreInv := func(convID, prompt string, cat []SkillMeta) PreInvocationBanner {
+		t.Helper()
+		req, _ := json.Marshal(map[string]any{
+			"conversationId": convID,
+			"workspacePaths": []string{dir},
+			"invocationNum":  0,
+			"lastUserInput":  prompt,
+		})
+		opts := Options{Dir: dir, Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(req)}
+		if cat != nil {
+			opts.SkillCatalog = func(_ string) []SkillMeta { return cat }
+		}
+		var out bytes.Buffer
+		if err := Search(opts, &out); err != nil {
+			t.Fatalf("pre-invocation(%s): %v", convID, err)
+		}
+		var resp PreInvocationOutput
+		if err := json.Unmarshal(out.Bytes(), &resp); err != nil || len(resp.InjectSteps) != 1 || resp.InjectSteps[0].SystemMessage == nil {
+			t.Fatalf("unexpected pre-invocation output (%v): %s", err, out.String())
+		}
+		return parseStructuredBanner(t, resp.InjectSteps[0].SystemMessage.SystemMessage)
+	}
+	runWrite := func(convID, target string) HookDecisionOutput {
+		t.Helper()
+		req, _ := json.Marshal(map[string]any{
+			"conversationId": convID,
+			"workspacePaths": []string{dir},
+			"toolCall":       map[string]any{"name": "edit_file", "args": map[string]any{"Path": target}},
+		})
+		var out bytes.Buffer
+		if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(req)}, &out); err != nil {
+			t.Fatalf("pre-tool-use(%s): %v", target, err)
+		}
+		var dec HookDecisionOutput
+		if err := json.Unmarshal(out.Bytes(), &dec); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		return dec
+	}
+
+	// 1. Single-package (1)(2)(3) prompt: no COORDINATE_SUBTASKS, direct edit_file allowed (no [COORDINATOR_GUARD]).
+	bSingle := runPreInv("conv-v910-single", "In internal/alpha: (1) update AlphaWork in internal/alpha/alpha.go (2) update AlphaHelper in internal/alpha/helper.go (3) run go test", catalog)
+	if bSingle.Directive == "COORDINATE_SUBTASKS" {
+		t.Errorf("single-package (1)(2)(3) emitted COORDINATE_SUBTASKS: %+v", bSingle)
+	}
+	if dec := runWrite("conv-v910-single", "internal/alpha/alpha.go"); dec.Decision != "allow" {
+		t.Errorf("single-package (1)(2)(3) falsely triggered [COORDINATOR_GUARD]: %+v", dec)
+	}
+
+	// 2. Two-package numbered prompt: emits COORDINATE_SUBTASKS and blocks direct Coordinator edit.
+	bMulti := runPreInv("conv-v910-multi", "1. Update AlphaWork in internal/alpha/alpha.go 2. Update BetaWork in internal/beta/beta.go", catalog)
+	if bMulti.Directive != "COORDINATE_SUBTASKS" {
+		t.Errorf("two-package prompt directive = %q, want COORDINATE_SUBTASKS", bMulti.Directive)
+	}
+	if dec := runWrite("conv-v910-multi", "internal/alpha/alpha.go"); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[COORDINATOR_GUARD]") {
+		t.Errorf("two-package prompt expected [COORDINATOR_GUARD] deny, got %+v", dec)
+	}
+
+	// 3. Dynamic installed-catalog skill prefetching (terraform) vs empty catalog (0 phantoms) vs N05 (0 skills).
+	bEmpty := runPreInv("conv-v910-empty", "Fix ReconcileProjectIndex in service.go", nil)
+	if len(bEmpty.Skills) != 0 {
+		t.Errorf("empty SkillCatalog leaked phantom skills: %v", bEmpty.Skills)
+	}
+	bTF := runPreInv("conv-v910-tf", "Write Terraform HCL for Cloud SQL Secret Manager IAM and GCS state in infra/main.tf", catalog)
+	if !slices.Contains(bTF.Skills, "terraform") {
+		t.Errorf("expected dynamic terraform skill prefetch, got %v", bTF.Skills)
+	}
+	bN05 := runPreInv("conv-v910-n05", "Explain why the build counter incremented from 41 to 42", catalog)
+	if bN05.Intent != "QUESTION" || len(bN05.Skills) != 0 {
+		t.Errorf("N05 hook banner = (intent=%s skills=%v), want QUESTION / 0 skills", bN05.Intent, bN05.Skills)
+	}
+}
+
+func TestV910NoSecretScannerFalsePositivesInVetSources(t *testing.T) {
+	for _, rel := range []string{
+		"vet_intent.go",
+		"vet_skills_catalog.go",
+		"vet_route.go",
+		"vet_decompose.go",
+		"vet_decompose_pkg.go",
+		"hook_coordinator.go",
+	} {
+		data, err := os.ReadFile(rel)
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		for i, line := range strings.Split(string(data), "\n") {
+			if redact.Redact(line) != line {
+				t.Errorf("%s:%d triggered redact secret scanner: %s", rel, i+1, strings.TrimSpace(line))
+			}
+		}
+	}
 }

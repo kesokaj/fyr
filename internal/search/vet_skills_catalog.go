@@ -81,58 +81,327 @@ func hasBaseOrExt(files []string, subs ...string) bool {
 	return false
 }
 
-func defaultSkillCatalog() []SkillMeta {
-	return []SkillMeta{
-		{Name: "fyr-bug", Path: "skills/fyr-bug/SKILL.md", Digest: "Workflow for fixing broken behavior: problem note, goldfish diagnosis on symptom/repro only, failing test before the fix, smallest fix, review, bug record."},
-		{Name: "fyr-feature", Path: "skills/fyr-feature/SKILL.md", Digest: "Workflow for feature work: scope confirmation, plan record with phases and task checkboxes, cold-reader check before code, one phase per checkpoint, e2e verification."},
-		{Name: "fyr-feedback-log", Path: "skills/fyr-feedback-log/SKILL.md", Digest: "Passive correction logger: when the operator corrects or overrides agent behavior, record a structured global feedback record (`fyr record add feedback --global`)."},
-		{Name: "fyr-project-memory", Path: "skills/fyr-project-memory/SKILL.md", Digest: "Save and load project memory through `fyr memory add` and `fyr memory show` when the operator states a preference, correction, or project constraint."},
-		{Name: "fyr-review", Path: "skills/fyr-review/SKILL.md", Digest: "Review working tree, git range, PR, or paths through reviewer, security, verifier, and explorer subagents (`--code`, `--security`, `--docs`, `--tests`)."},
-		{Name: "fyr-preflight", Path: "skills/fyr-preflight/SKILL.md", Digest: "Release gate and release path (`/fyr-preflight vX.Y.Z`): Definition of Done, reviewer and security dispatch over release diff, SHIP/NO-SHIP report, annotated tag."},
-		{Name: "golang", Path: "skills/golang/SKILL.md", Digest: "Go standards: `cmd/<app>` + `internal/`, stdlib first, `log/slog` JSON, table-driven tests with `-race`, hand-written fakes, functions <= 50 lines."},
-		{Name: "typescript", Path: "skills/typescript/SKILL.md", Digest: "TypeScript standards: strict tsconfig, narrowing, ESM module boundaries, runtime validation at boundaries, Vitest and Playwright tiers."},
-		{Name: "bash", Path: "skills/bash/SKILL.md", Digest: "Bash and shell scripting: `set -euo pipefail`, safe quoting, `jq`/`rg`/`fd` pipelines, shellcheck compliance, and interactive setup wizards (`set_gcp_secret`)."},
-		{Name: "testing-strategy", Path: "skills/testing-strategy/SKILL.md", Digest: "Decide test tiers owed by a change: unit with `-race`, integration, API `httptest`, e2e, and `GUIDE-testing` maintenance."},
-		{Name: "fyr-docs", Path: "skills/fyr-docs/SKILL.md", Digest: "Airy, visual-first documentation standard and docset audit: BLUF (Bottom Line Up Front), short prose, Mermaid diagrams, and `<details>` folding."},
-		{Name: "fyr-triage", Path: "skills/fyr-triage/SKILL.md", Digest: "Triage GitHub issues/PRs and local `fyr` queues (`TODO.md` Backlog, `BUG-*`, `PROPOSAL-*`) via redundancy and `PRD.md`/ADR checks into Agent Briefs or `/fyr-swarm` Kickoffs."},
-		{Name: "fyr-spec", Path: "skills/fyr-spec/SKILL.md", Digest: "Write or update a `SPEC-<app>-<topic>` record concrete enough that two implementers converge and `fyr check` verifies it."},
-		{Name: "frontend-ui-economist", Path: "skills/frontend-ui-economist/SKILL.md", Digest: "Editorial, report and airy UI in plain HTML/CSS/SVG: six themes on one token contract, an SVG chart kit, a white-space method."},
-		{Name: "frontend-ui-modern", Path: "skills/frontend-ui-modern/SKILL.md", Digest: "Modern web-app UI on shadcn/ui, Tailwind and React: dashboards, tables, forms, theming, dark mode."},
-		{Name: "frontend-slate-ui", Path: "skills/frontend-slate-ui/SKILL.md", Digest: "Angular 20 web-app UI on SlateUI directives, ng-primitives, Signals, Tailwind CSS 4, and vendored ThemeService (`provideSlateUiTheme`)."},
-		{Name: "docker", Path: "skills/docker/SKILL.md", Digest: "Container-based development with Docker and Colima: building images, compose services, Dockerfiles, volumes and networking."},
-		{Name: "cloud-run-deploy", Path: "skills/cloud-run-deploy/SKILL.md", Digest: "Google Cloud Run deployment mechanics: build locally, push to Artifact Registry, deploy, verify, roll back."},
-		{Name: "data-gcp", Path: "skills/data-gcp/SKILL.md", Digest: "Cloud SQL PostgreSQL for Go on Cloud Run: pgx over /cloudsql socket, golang-migrate job, owner/runtime role split, indexes."},
-		{Name: "api-auth-gcp", Path: "skills/api-auth-gcp/SKILL.md", Digest: "Cloud Run caller verification: IAP, Firebase Auth, OIDC identity tokens for service-to-service, Scheduler, Tasks, and Pub/Sub."},
-		{Name: "json-api-style", Path: "skills/json-api-style/SKILL.md", Digest: "Google AIP JSON API design: lowerCamelCase keys, RFC 3339 timestamps, string enums, pageSize/pageToken, structured errors."},
-		{Name: "mermaid-syntax", Path: "skills/mermaid-syntax/SKILL.md", Digest: "Error-free Mermaid v11 diagrams: flowcharts, sequence, state, class, ER, and XY charts with quoted special-character labels."},
-		{Name: "fyr-swarm", Path: "skills/fyr-swarm/SKILL.md", Digest: "Route parallel multi-file work into isolated `Files:`-leased worktrees or `run_workflow` stages and land each with `fyr gate` and `fyr land`."},
-		{Name: "fyr-handoff", Path: "skills/fyr-handoff/SKILL.md", Digest: "Compact the session into an immutable handoff record with a Kickoff block, commit, push, and fyr metrics ingest."},
-		{Name: "fyr-retro", Path: "skills/fyr-retro/SKILL.md", Digest: "Session retrospective: analyze corrections, memory promotions, bugs, and metrics to propose minimal rule/skill improvements."},
-		{Name: "fyr-dream", Path: "skills/fyr-dream/SKILL.md", Digest: "Interactive project memory consolidation: assign verdicts (keep, graduated, stale, broken, merge, promote) to memory records."},
-		{Name: "fyr-harness-audit", Path: "skills/fyr-harness-audit/SKILL.md", Digest: "Audit the harness checkout area by area with read-only agents and write a severity-ranked report and action plan."},
+// normalizeSkillCatalog deduplicates the installed catalog without fabricating
+// phantom fallback skills when catalog is empty.
+func normalizeSkillCatalog(catalog []SkillMeta) []SkillMeta {
+	if len(catalog) == 0 {
+		return nil
+	}
+	order := make([]string, 0, len(catalog))
+	byName := make(map[string]SkillMeta, len(catalog))
+	for _, s := range catalog {
+		name := strings.TrimSpace(s.Name)
+		if name == "" {
+			continue
+		}
+		s.Name = name
+		if strings.TrimSpace(s.Digest) == "" {
+			s.Digest = s.Description
+		}
+		if strings.TrimSpace(s.Path) == "" {
+			s.Path = "~/.gemini/config/skills/" + name + "/SKILL.md"
+		}
+		if _, exists := byName[name]; !exists {
+			order = append(order, name)
+		}
+		byName[name] = s
+	}
+	out := make([]SkillMeta, 0, len(order))
+	for _, name := range order {
+		out = append(out, byName[name])
+	}
+	return out
+}
+
+func splitSkillScope(text string) (pos, neg, loadOnly string) {
+	low := strings.ToLower(text)
+	cutIdx, kind := len(text), ""
+	markers := []struct {
+		sep  string
+		kind string
+	}{
+		{". not for ", "neg"},
+		{"; not for ", "neg"},
+		{". not ", "neg"},
+		{". load only ", "load"},
+		{". use /", "use"},
+	}
+	for _, m := range markers {
+		if idx := strings.Index(low, m.sep); idx >= 0 && idx < cutIdx {
+			cutIdx, kind = idx, m.kind
+		}
+	}
+	pos = strings.TrimSpace(text[:cutIdx])
+	if cutIdx >= len(text) {
+		return pos, "", ""
+	}
+	rest := strings.TrimSpace(text[cutIdx+1:])
+	switch kind {
+	case "neg":
+		neg = rest
+	case "load":
+		loadOnly = rest
+	}
+	return pos, neg, loadOnly
+}
+
+var skillStopwords = map[string]bool{
+	"a": true, "an": true, "the": true, "and": true, "or": true, "but": true,
+	"in": true, "on": true, "at": true, "to": true, "for": true, "of": true,
+	"with": true, "by": true, "from": true, "as": true, "is": true, "are": true,
+	"was": true, "were": true, "be": true, "been": true, "being": true, "have": true,
+	"has": true, "had": true, "do": true, "does": true, "did": true, "will": true,
+	"would": true, "could": true, "should": true, "can": true, "may": true, "might": true,
+	"must": true, "not": true, "no": true, "nor": true, "so": true, "if": true,
+	"then": true, "else": true, "when": true, "where": true, "why": true, "how": true,
+	"what": true, "which": true, "who": true, "this": true, "that": true, "these": true,
+	"those": true, "it": true, "its": true, "we": true, "our": true, "you": true,
+	"your": true, "they": true, "their": true, "i": true, "my": true, "me": true,
+	"all": true, "any": true, "both": true, "each": true, "few": true, "more": true,
+	"most": true, "other": true, "some": true, "such": true, "only": true, "own": true,
+	"same": true, "than": true, "too": true, "very": true, "just": true, "into": true,
+	"onto": true, "over": true, "under": true, "about": true, "after": true, "before": true,
+	"between": true, "through": true, "during": true, "without": true, "via": true, "per": true,
+	"up": true, "out": true, "off": true, "down": true, "one": true, "two": true,
+	"three": true, "new": true, "use": true, "using": true, "used": true, "make": true,
+	"get": true, "set": true, "put": true, "keep": true, "take": true, "give": true,
+	"say": true, "see": true, "know": true, "want": true, "need": true, "like": true,
+	"also": true, "now": true, "here": true, "there": true, "yes": true, "ok": true,
+	"okay": true, "please": true, "help": true, "tell": true, "explain": true, "show": true,
+	"look": true, "find": true, "work": true, "works": true, "working": true, "go": true,
+	"fyr": true, "build": true, "builds": true, "code": true, "app": true, "apps": true,
+	"file": true, "files": true, "line": true, "lines": true, "run": true, "runs": true,
+	"running": true, "local": true, "first": true, "short": true, "plain": true, "single": true,
+	"task": true, "tasks": true, "step": true, "steps": true, "note": true, "notes": true,
+	"rule": true, "rules": true, "path": true, "paths": true, "dir": true, "name": true,
+	"turn": true, "turns": true, "end": true, "start": true, "read": true, "write": true,
+	"edit": true, "update": true, "fix": true, "add": true, "create": true, "change": true,
+	"changes": true, "remove": true, "delete": true, "move": true, "open": true, "close": true,
+	"list": true, "load": true, "save": true, "store": true, "data": true, "error": true,
+	"errors": true, "flag": true, "flags": true, "mode": true, "type": true, "value": true,
+	"count": true, "index": true, "query": true, "search": true, "project": true, "repo": true,
+	"repository": true, "service": true, "services": true, "system": true, "tool": true,
+	"tools": true, "command": true, "commands": true, "prompt": true, "prompts": true,
+	"session": true, "agent": true, "agents": true, "worker": true, "workers": true,
+	"workflow": true, "standard": true, "standards": true, "check": true, "checks": true,
+	"plan": true, "plans": true, "record": true, "records": true, "design": true, "forward": true,
+	"test": true, "tests": true, "testing": true, "google": true, "web": true, "modern": true,
+}
+
+func buildAliasMap(pairs [][2]string) map[string]string {
+	m := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		m[p[0]] = p[1]
+	}
+	return m
+}
+
+var skillTermAliases = buildAliasMap([][2]string{
+	{"documentation", "docs"},
+	{"doc", "docs"},
+	{"docset", "docs"},
+	{"retrospective", "retro"},
+	{"specification", "spec"},
+	{"specifications", "spec"},
+	{"postgresql", "postgres"},
+	{"remember", "recall"},
+	{"shell", "bash"},
+	{"shellcheck", "bash"},
+	{"shfmt", "bash"},
+	{"opentofu", "terraform"},
+	{"kubernetes", "k8s"},
+	{"goroutine", "golang"},
+	{"gofmt", "golang"},
+	{"govulncheck", "golang"},
+	{"httptest", "golang"},
+	{"uibutton", "slateui"},
+	{"themeservice", "slateui"},
+	{"angular", "angular"},
+	{"sequencediagram", "mermaid"},
+	{"statediagram", "mermaid"},
+	{"erdiagram", "mermaid"},
+	{"lowercamelcase", "aip"},
+	{"nextpagetoken", "pagetoken"},
+	{"set_gcp_secret", "wizard"},
+	{"provideslateuitheme", "slateui"},
+})
+
+func stemSkillTerm(tok string) string {
+	if len(tok) < 4 || strings.Contains(tok, "-") {
+		return tok
+	}
+	switch {
+	case strings.HasSuffix(tok, "ies") && len(tok) >= 5:
+		return tok[:len(tok)-3] + "y"
+	case strings.HasSuffix(tok, "ing") && len(tok) >= 6:
+		return tok[:len(tok)-3]
+	case strings.HasSuffix(tok, "es") && len(tok) >= 5 && (strings.HasSuffix(tok, "shes") || strings.HasSuffix(tok, "ches") || strings.HasSuffix(tok, "xes") || strings.HasSuffix(tok, "zes")):
+		return tok[:len(tok)-2]
+	case strings.HasSuffix(tok, "s") && !strings.HasSuffix(tok, "ss") && !strings.HasSuffix(tok, "us") && !strings.HasSuffix(tok, "is"):
+		return tok[:len(tok)-1]
+	}
+	return tok
+}
+
+func addNormalizedSkillTerm(tf map[string]int, raw string) {
+	t := strings.Trim(strings.ToLower(raw), "-_")
+	if len(t) < 2 || isAllDigits(t) {
+		return
+	}
+	if mapped, ok := skillTermAliases[t]; ok {
+		tf[mapped]++
+		return
+	}
+	if skillStopwords[t] {
+		return
+	}
+	stem := stemSkillTerm(t)
+	if mapped, ok := skillTermAliases[stem]; ok {
+		tf[mapped]++
+		return
+	}
+	if skillStopwords[stem] {
+		return
+	}
+	tf[stem]++
+}
+
+func extractSkillTerms(text string) map[string]int {
+	return extractSkillTermsOpts(text, true)
+}
+
+func extractSkillTermsOpts(text string, splitHyphens bool) map[string]int {
+	tf := map[string]int{}
+	low := strings.ToLower(text)
+	rawToks := strings.FieldsFunc(low, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' && r != '_'
+	})
+	for _, raw := range rawToks {
+		addNormalizedSkillTerm(tf, raw)
+		if splitHyphens && strings.Contains(raw, "-") {
+			parts := strings.Split(raw, "-")
+			for _, p := range parts {
+				addNormalizedSkillTerm(tf, p)
+			}
+			for i := 0; i+1 < len(parts); i++ {
+				if len(parts[i]) >= 2 && len(parts[i+1]) >= 2 {
+					addNormalizedSkillTerm(tf, parts[i]+parts[i+1])
+				}
+			}
+		}
+	}
+	return tf
+}
+
+func stripOtherSkillSlashRefs(text, selfName string, installedNames map[string]bool) string {
+	if !strings.Contains(text, "/") || len(installedNames) == 0 {
+		return text
+	}
+	selfLow := strings.ToLower(selfName)
+	words := strings.Fields(text)
+	kept := make([]string, 0, len(words))
+	for _, w := range words {
+		clean := strings.Trim(strings.ToLower(w), "().,;:\"'`")
+		if strings.HasPrefix(clean, "/") {
+			ref := strings.TrimPrefix(clean, "/")
+			if ref != selfLow && installedNames[ref] {
+				continue
+			}
+		}
+		kept = append(kept, w)
+	}
+	return strings.Join(kept, " ")
+}
+
+func extractPromptQueryTerms(lowPrompt string) map[string]int {
+	tf := extractSkillTerms(lowPrompt)
+	phraseSignals := []struct {
+		sub  string
+		term string
+	}{
+		{"go test", "golang"}, {"go build", "golang"}, {"go run", "golang"},
+		{"go vet", "golang"}, {"go.mod", "golang"}, {"go code", "golang"},
+		{"go service", "golang"}, {"in go", "golang"},
+		{"fyr auto", "auto"}, {"fyr memory", "recall"},
+		{"fyr gate", "swarm"}, {"fyr land", "swarm"},
+		{"cloud run", "cloud-run"}, {"cloud sql", "cloud-sql"},
+		{"plain html", "plain-html"}, {"setup wizard", "wizard"},
+		{"id token", "oidc"}, {"identity-aware proxy", "iap"},
+		{"agent brief", "triage"}, {"enforced by", "requirement"},
+		{"risk rubric", "rubric"}, {"drafts jsonl", "jsonl"},
+		{"hand off", "handoff"}, {"wrap up for next session", "handoff"},
+		{"dead code", "decoupling"}, {"code-excellence", "checklist"},
+		{"ship/no-ship", "preflight"}, {"white-space", "editorial"},
+	}
+	for _, ps := range phraseSignals {
+		if strings.Contains(lowPrompt, ps.sub) {
+			tf[ps.term]++
+		}
+	}
+	return tf
+}
+
+func extractFileConceptWeights(lowPrompt string, files []string) map[string]float64 {
+	weights := map[string]float64{}
+	bump := func(term string, w float64) {
+		if w > weights[term] {
+			weights[term] = w
+		}
+	}
+	addCodeFileConceptWeights(lowPrompt, files, bump)
+	addInfraAndDocConceptWeights(lowPrompt, files, bump)
+	return weights
+}
+
+func addCodeFileConceptWeights(lowPrompt string, files []string, bump func(string, float64)) {
+	if goCount := countExt(files, ".go"); goCount > 0 {
+		bump("golang", 5.5+min(1.5, float64(goCount)*0.3))
+	}
+	if hasBaseOrExt(files, ".component.ts", ".component.html") || containsAnySubstr(lowPrompt, ".component.ts", ".component.html", "@angular/") {
+		bump("angular", 8.0)
+		bump("slateui", 8.0)
+		bump("ng-primitives", 7.0)
+	}
+	if tsCount := countExt(files, ".ts"); tsCount > 0 && !hasBaseOrExt(files, ".component.ts") {
+		bump("typescript", 5.5+min(1.5, float64(tsCount)*0.3))
+		bump("tsconfig", 4.5)
+	}
+	if hasExt(files, ".tsx", ".jsx") {
+		bump("react", 6.5)
+		bump("typescript", 5.0)
+	}
+	if shCount := countExt(files, ".sh", ".zsh"); promptHasExt(lowPrompt, ".sh", ".zsh") || (shCount > 0 && shCount*2 > len(files)) {
+		bump("bash", 6.5)
+		bump("zsh", 5.5)
+	}
+	if hasExt(files, ".html", ".css", ".svg") && !hasBaseOrExt(files, ".component.html") {
+		bump("html", 5.5)
+		bump("svg", 5.5)
+		bump("css", 5.0)
 	}
 }
 
-func mergeSkillCatalog(custom []SkillMeta) map[string]SkillMeta {
-	byName := map[string]SkillMeta{}
-	for _, s := range defaultSkillCatalog() {
-		byName[s.Name] = s
+func addInfraAndDocConceptWeights(lowPrompt string, files []string, bump func(string, float64)) {
+	if hasExt(files, ".tf", ".tfvars", ".hcl") {
+		bump("terraform", 7.5)
+		bump("hcl", 7.5)
 	}
-	for _, s := range custom {
-		if s.Name == "" {
-			continue
-		}
-		if s.Digest == "" {
-			if def, ok := byName[s.Name]; ok {
-				s.Digest = def.Digest
-			} else {
-				s.Digest = s.Description
-			}
-		}
-		if s.Path == "" {
-			s.Path = "skills/" + s.Name + "/SKILL.md"
-		}
-		byName[s.Name] = s
+	if hasExt(files, ".sql") {
+		bump("sql", 6.5)
+		bump("postgres", 6.5)
+		bump("pgx", 5.5)
 	}
-	return byName
+	if hasBaseOrExt(files, "dockerfile", "docker-compose", "compose.yml", "compose.yaml") {
+		bump("docker", 7.0)
+		bump("dockerfile", 7.0)
+		bump("compose", 6.0)
+	}
+	if hasBaseOrExt(files, "prd.md") {
+		bump("prd", 6.5)
+		bump("requirement", 6.5)
+	}
+	if hasBaseOrExt(files, "readme.md", "sdd.md", "tdd.md") && !containsAnyWord(lowPrompt, "typo", "rename") {
+		bump("docs", 5.0)
+		bump("bluf", 4.5)
+	}
 }
