@@ -73,22 +73,17 @@ func ruleIsAlwaysOn(data []byte) bool {
 	return tr == "" || tr == "always_on"
 }
 
-// skillFrontmatterRule lints every tracked non-vendored skills/<name>/SKILL.md
-// frontmatter via harness.LintSkillFrontmatter (drift-M8).
+// skillFrontmatterRule lints every tracked skills/<name>/SKILL.md frontmatter
+// via harness.LintSkillFrontmatter (drift-M8), matching fyr install and
+// TestSkillFrontmatterDescriptionsUnder140Chars (including local forks listed
+// in skills/VENDORED.md).
 func (k *checker) skillFrontmatterRule() []Finding {
-	skip := k.vendoredSkips()
 	isMarked := k.noIndexed()
 	var out []Finding
-next:
 	for _, p := range k.tracked {
 		parts := strings.Split(p, "/")
 		if len(parts) != 3 || parts[0] != "skills" || parts[2] != "SKILL.md" {
 			continue
-		}
-		for _, s := range skip {
-			if strings.HasPrefix(p, s) {
-				continue next
-			}
 		}
 		if isMarked(path.Dir(p)) {
 			continue

@@ -548,13 +548,17 @@ func TestV910DynamicSkillPrefetch(t *testing.T) {
 	}
 
 	catalog := loadInstalledRepoSkillCatalog(t)
-	// 2. N05 neutral question with noun "build" must classify as QUESTION and match 0 skills.
-	const n05 = "Explain why the build counter incremented from 41 to 42"
-	if gotIntent := ClassifyIntent(n05, 0); gotIntent != IntentQuestion {
-		t.Errorf("ClassifyIntent(N05) = %s, want QUESTION", gotIntent)
-	}
-	if n05Skills, _ := MatchSkills(n05, ClassifyIntent(n05, 0), nil, catalog); len(n05Skills) != 0 {
-		t.Errorf("N05 matched unexpected skills: %+v", n05Skills)
+	// 2. Neutral QUESTION controls (N01 timestamps, N05 build noun) must match 0 skills.
+	for _, neutral := range []string{
+		"What time zone are the timestamps in the changelog?",
+		"Explain why the build counter incremented from 41 to 42",
+	} {
+		if gotIntent := ClassifyIntent(neutral, 0); gotIntent != IntentQuestion {
+			t.Errorf("ClassifyIntent(%q) = %s, want QUESTION", neutral, gotIntent)
+		}
+		if gotSkills, _ := MatchSkills(neutral, ClassifyIntent(neutral, 0), nil, catalog); len(gotSkills) != 0 {
+			t.Errorf("neutral question %q matched unexpected skills: %+v", neutral, gotSkills)
+		}
 	}
 
 	// 3. Dynamic coverage of all 35 installed skills (including the 8 previously uncovered) + synthetic 36th skill.
@@ -699,6 +703,7 @@ func TestV910CoordinatorNarrow(t *testing.T) {
 		"1. Add validation helper in internal/cfg/load.go 2. Wire defaults in internal/cfg/validate.go 3. Add tests in internal/cfg/load_test.go",
 		"(1) Add validation helper (2) Wire it into handler (3) Run go test",
 		"Update internal/search/service.go; update internal/search/vet.go",
+		"Implement purge.go in internal/store with: (1) delete expired rows, (2) return deleted count, (3) add table-driven tests",
 	}
 	multiNeighborSlice := SliceResult{
 		Files:      []string{"internal/search/vet.go", "internal/brain/store.go", "cmd/fyr/main.go"},

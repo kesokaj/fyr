@@ -543,3 +543,57 @@ func testV910OpenSSHPrompts(t *testing.T) {
 		}
 	}
 }
+
+func TestV910WatchNoDeadlockWithAuxTables(t *testing.T) {
+	now := time.Date(2026, 11, 23, 8, 0, 0, 0, time.UTC)
+	home, dir := t.TempDir(), t.TempDir()
+	seedWatchDBs(t, home, dir, []convSpec{
+		{id: "lead", ws: dir, mod: now.Add(-1 * time.Minute)},
+		{id: "sub-aux", ws: dir, agent: "reviewer", parent: "lead", mod: now.Add(-1 * time.Minute)},
+	}, nil)
+	sdbPath := seedRichSearchMeta(t, dir, 0, []richMetaRow{
+		{id: "sub-aux", role: "reviewer", agent: "reviewer", turns: 35, tools: 35, updatedAt: now.Add(-20 * time.Second).Unix()},
+	})
+	db, err := sql.Open("sqlite", search.DSN(sdbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ddl := range []string{
+		`CREATE TABLE watchdog_ring(conversation_id TEXT, ts INTEGER)`,
+		`CREATE TABLE vet_history(conversation_id TEXT, created_at INTEGER)`,
+		`CREATE TABLE read_ledger(conversation_id TEXT, updated_at INTEGER)`,
+	} {
+		if _, err := db.Exec(ddl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ts := now.Add(-10 * time.Second).Unix()
+	if _, err := db.Exec(`INSERT INTO vet_history VALUES ('sub-aux', ?)`, ts); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	done := make(chan error, 1)
+	var rep Report
+	go func() {
+		var checkErr error
+		rep, checkErr = Check(context.Background(), Options{
+			Home:       home,
+			Dir:        dir,
+			Now:        func() time.Time { return now },
+			ProcLister: liveAgyProcs(),
+		})
+		done <- checkErr
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Check with aux tables: %v", err)
+		}
+		if !hasWatchFinding(rep, kindBudgetNearLimit, "sub-aux") {
+			t.Errorf("expected BUDGET_NEAR_LIMIT for sub-aux, got %+v", rep.Findings)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("watch.Check deadlocked on SetMaxOpenConns(1) with aux tables open during rows.Next")
+	}
+}

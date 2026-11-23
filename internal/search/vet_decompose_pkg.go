@@ -69,14 +69,28 @@ func extractExplicitPromptTargets(trimmed string, knownFiles []string) []string 
 
 // countDistinctExplicitPackages counts distinct package directories explicitly
 // referenced by action clauses (plus any lead-in before numbered markers),
-// ignoring dropped constraint clauses and unrelated 1-hop AST neighbors.
+// ignoring dropped constraint clauses, unrelated 1-hop AST neighbors, and
+// unresolved bare filenames paired with an explicit target directory.
 func countDistinctExplicitPackages(prompt string, clauses, knownFiles []string) int {
+	knownSet := make(map[string]bool, len(knownFiles))
+	for _, kf := range knownFiles {
+		if n := normalizeSlashPath(kf); n != "" {
+			knownSet[n] = true
+		}
+	}
 	dirs := map[string]bool{}
+	hasUnresolvedBare := false
 	addFromText := func(text string) {
 		for _, target := range extractExplicitPromptTargets(text, knownFiles) {
-			if dir := packageDirKey(target); dir != "" {
-				dirs[dir] = true
+			dir := packageDirKey(target)
+			if dir == "" {
+				continue
 			}
+			if dir == "." && !strings.Contains(target, "/") && !isDirPathToken(target) && !knownSet[target] {
+				hasUnresolvedBare = true
+				continue
+			}
+			dirs[dir] = true
 		}
 	}
 	if len(clauses) >= 2 {
@@ -86,9 +100,12 @@ func countDistinctExplicitPackages(prompt string, clauses, knownFiles []string) 
 		for _, c := range clauses {
 			addFromText(c)
 		}
-		return len(dirs)
+	} else {
+		addFromText(prompt)
 	}
-	addFromText(prompt)
+	if hasUnresolvedBare && len(dirs) == 0 {
+		return 1
+	}
 	return len(dirs)
 }
 

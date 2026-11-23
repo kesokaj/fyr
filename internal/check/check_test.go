@@ -220,7 +220,7 @@ func TestDocsRuleSymlinkOutOfRoot(t *testing.T) {
 func TestDocsRuleSkipsVendoredAndNoIndex(t *testing.T) {
 	dir := repo(t, map[string]string{
 		"skills/VENDORED.md":         "| Skill | Source |\n|-------|--------|\n| grilling | x |\n",
-		"skills/grilling/SKILL.md":   "`fyr frobnicate` `internal/gone.go`\n",
+		"skills/grilling/SKILL.md":   "---\nname: grilling\ndescription: vendored grilling skill\n---\n`fyr frobnicate` `internal/gone.go`\n",
 		"skills/own/SKILL.md":        "---\nname: own\ndescription: own skill\n---\n`fyr frobnicate`\n",
 		"data/new/.fyr-noindex":      "",
 		"data/new/sub/a.md":          "`fyr frobnicate`\n",
@@ -491,6 +491,13 @@ func testV910DriftM8(t *testing.T) {
 			same(t, run(t, repo(t, map[string]string{"skills/bad/SKILL.md": body})).Findings, "skills/bad/SKILL.md:0 frontmatter")
 		})
 	}
+	t.Run("local-fork-in-vendored-still-linted", func(t *testing.T) {
+		dir := repo(t, map[string]string{
+			"skills/VENDORED.md":       "| Skill | Publisher |\n|---|---|\n| fyr-docs | Google |\n",
+			"skills/fyr-docs/SKILL.md": "---\nname: fyr-docs\ndescription: \"" + strings.Repeat("a", 178) + "\"\n---\nbody\n",
+		})
+		same(t, run(t, dir).Findings, "skills/fyr-docs/SKILL.md:0 frontmatter")
+	})
 }
 
 func testV910TestAttribution(t *testing.T) {

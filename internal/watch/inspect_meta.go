@@ -77,33 +77,51 @@ func runSessionMetaScan(db *sql.DB, in metaCheckInput, searchDBMod time.Time) (i
 	return scanSessionMeta(db, cols, in, searchDBMod)
 }
 
+type sessionMetaRow struct {
+	id, role, agent, parent string
+	turns, tools            int
+	updated                 any
+}
+
+func loadSessionMetaRows(db *sql.DB, cols map[string]bool) ([]sessionMetaRow, error) {
+	rows, err := db.Query(buildSessionMetaQuery(cols))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []sessionMetaRow
+	for rows.Next() {
+		var r sessionMetaRow
+		if err := rows.Scan(&r.id, &r.turns, &r.tools, &r.role, &r.agent, &r.parent, &r.updated); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 func scanSessionMeta(db *sql.DB, cols map[string]bool, in metaCheckInput, searchDBMod time.Time) (int, []Finding, error) {
 	sources := loadMetaTimeSources(db)
-	ended := openMetricsEndedLookup(in.home)
-	defer ended.close()
-	rows, err := db.Query(buildSessionMetaQuery(cols))
+	// Buffer all rows and close the cursor before per-row queries in
+	// maxConvUnixTime so SetMaxOpenConns(1) read-only handles never deadlock.
+	metaRows, err := loadSessionMetaRows(db, cols)
 	if err != nil {
 		return 0, nil, err
 	}
-	defer rows.Close()
+	ended := openMetricsEndedLookup(in.home)
+	defer ended.close()
 	checked := 0
 	var findings []Finding
-	for rows.Next() {
-		var id, rowRole, rowAgent, rowParent string
-		var turns, tools int
-		var rowUpdated any
-		if err := rows.Scan(&id, &turns, &tools, &rowRole, &rowAgent, &rowParent, &rowUpdated); err != nil {
-			return checked, nil, err
-		}
-		if !validConvID(id) || !isActiveMetaRow(db, sources, ended, in, id, rowUpdated, searchDBMod) {
+	for _, r := range metaRows {
+		if !validConvID(r.id) || !isActiveMetaRow(db, sources, ended, in, r.id, r.updated, searchDBMod) {
 			continue
 		}
 		checked++
-		if f, ok := checkBudgetRow(id, max(turns, tools), rowRole, rowAgent, rowParent, in.summaries, in.hasSum); ok {
+		if f, ok := checkBudgetRow(r.id, max(r.turns, r.tools), r.role, r.agent, r.parent, in.summaries, in.hasSum); ok {
 			findings = append(findings, f)
 		}
 	}
-	return checked, findings, rows.Err()
+	return checked, findings, nil
 }
 
 func loadMetaTimeSources(db *sql.DB) metaTimeSources {

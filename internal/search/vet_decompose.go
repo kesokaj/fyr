@@ -45,7 +45,7 @@ func DecomposeSubtasks(cleanPrompt string, intent IntentMode, slice SliceResult,
 	knownFiles := dedupKnownFiles(extractPromptAndSliceFiles(trimmed, append(append([]string{}, slice.Files...), files...)))
 	if clauses := splitDecomposeClauses(trimmed); len(clauses) >= 2 {
 		if !hasExplicitMultiPhaseOrParallelCues(strings.ToLower(trimmed)) &&
-			countDistinctExplicitPackages(trimmed, clauses, knownFiles) < 2 {
+			countDistinctExplicitPackages(trimmed, clauses, slice.Files) < 2 {
 			return nil
 		}
 		return buildClauseSubtasks(clauses, slice, knownFiles, catalog)

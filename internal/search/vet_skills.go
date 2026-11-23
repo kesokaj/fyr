@@ -216,7 +216,7 @@ func scoreSkillDoc(
 	if isPrimary {
 		return max(total, 100.0), "intent=" + string(intent)
 	}
-	if !directName && !(fileScore >= 4.0 && total >= 3.0) && !(total >= minSkillBM25Score && (nameDescHits >= 1 || digestHits >= 2)) {
+	if !passesSkillScoreThreshold(intent, directName, fileScore, total, nameDescHits, digestHits) {
 		return 0, ""
 	}
 	if reason == "" {
@@ -227,6 +227,16 @@ func scoreSkillDoc(
 		}
 	}
 	return total, reason
+}
+
+func passesSkillScoreThreshold(intent IntentMode, directName bool, fileScore, total float64, nameDescHits, digestHits int) bool {
+	if directName {
+		return true
+	}
+	if intent == IntentQuestion && fileScore < 4.0 && nameDescHits < 2 {
+		return false
+	}
+	return (fileScore >= 4.0 && total >= 3.0) || (total >= minSkillBM25Score && (nameDescHits >= 1 || digestHits >= 2))
 }
 
 func matchesLoadOnlyCue(doc skillDoc, queryTerms map[string]int) bool {
