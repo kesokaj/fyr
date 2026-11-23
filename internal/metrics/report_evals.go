@@ -126,10 +126,6 @@ func OpenDevEvalFallbackRO(home string) (*Store, func(), bool) {
 	return &Store{db: db, path: devPath}, cleanup, true
 }
 
-func openDevEvalStoreRO(home string) (*Store, func(), bool) {
-	return OpenDevEvalFallbackRO(home)
-}
-
 func openCopySQLiteFile(scratchHome, base string, relParts ...string) (*sql.DB, func(), bool) {
 	db, _, cleanup, ok := openCopySQLiteFileWithPath(scratchHome, base, relParts...)
 	return db, cleanup, ok

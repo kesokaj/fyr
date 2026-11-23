@@ -330,12 +330,8 @@ func (r *run) usage() (string, error) {
 	return r.usageText, r.usageErr
 }
 
-// budget is G9: `/usage` is read only for a project past G8, so the free gates
-// spend no call.
-func (r *run) budget() (string, bool) {
-	return r.budgetForModel("")
-}
-
+// budgetForModel is G9: `/usage` is read only for a project past G8, so the
+// free gates spend no call.
 func (r *run) budgetForModel(targetModel string) (string, bool) {
 	runs := r.st.modelRunsToday(r.o.now())
 	if runs >= modelRunsPerDay {
@@ -348,10 +344,6 @@ func (r *run) budgetForModel(targetModel string) (string, bool) {
 		}
 	}
 	return gateBudgetForModel(runs, targetModel, text, err)
-}
-
-func (r *run) cooldownStop() string {
-	return r.cooldownStopFor("", r.usageText, r.usageErr)
 }
 
 func (r *run) cooldownStopFor(targetModel, text string, readErr error) string {

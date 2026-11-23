@@ -41,16 +41,16 @@ func TestAgyGensPrefersConcreteModelField328WithFallbackTo119(t *testing.T) {
 	w := writer{tx: tx, salt: "s"}
 	cBoth := agyConv{id: "conv-concrete", root: t.TempDir()}
 	w.agySession(cBoth)
-	w.agyGens(cBoth, [][]byte{
+	w.agyGensWithOverrides(cBoth, [][]byte{
 		genWith("gemini-4-neon", ""),
 		genWith("gemini-4-neon", "gemini-4-neon-high"),
-	}, []int64{1000, 2000})
+	}, []int64{1000, 2000}, nil)
 
 	cFallback := agyConv{id: "conv-fallback", root: t.TempDir()}
 	w.agySession(cFallback)
-	w.agyGens(cFallback, [][]byte{
+	w.agyGensWithOverrides(cFallback, [][]byte{
 		genWith("claude-sonnet-5-5", ""),
-	}, []int64{3000})
+	}, []int64{3000}, nil)
 	if w.err != nil {
 		t.Fatal(w.err)
 	}

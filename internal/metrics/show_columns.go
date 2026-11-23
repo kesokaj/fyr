@@ -133,21 +133,18 @@ func isSedReadFlags(flags []string) bool {
 	return hasN && !hasI
 }
 
+func isCDBashVerb(v string) bool {
+	return v == "cd" || strings.HasPrefix(v, "cd ")
+}
+
 func firstNonCDBashVerb(verbs []string) string {
 	for _, v := range verbs {
-		if v == "cd" || strings.HasPrefix(v, "cd ") {
+		if isCDBashVerb(v) {
 			continue
 		}
 		return v
 	}
 	return ""
-}
-
-func isBashReadStep(st stp) bool {
-	if st.kind != "tool" || st.tool != "Bash" || st.denied {
-		return false
-	}
-	return isUnrangedBashReadVerb(firstNonCDBashVerb(st.verbs))
 }
 
 // bashReadTracker identifies true unguarded Bash file-read bypasses within one

@@ -270,6 +270,7 @@ func (s *Summary) addFileRead(r *stepRun, v string, st stp) {
 func (s *Summary) verbs(v string, st stp) {
 	a := s.acc(v)
 	commit, test := false, false
+	firstVerb := st.firstNonCDVerbIdx()
 	for i, verb := range st.verbs {
 		w := strings.Fields(verb)
 		switch {
@@ -278,7 +279,7 @@ func (s *Summary) verbs(v string, st stp) {
 			if st.ts > 0 {
 				s.day(st.ts).SQLiteVerbs[v]++
 			}
-		case st.verbN(i) == 0 && isGrepVerb(verb):
+		case i == firstVerb && isGrepVerb(verb):
 			a.grep++
 			if st.ts > 0 {
 				s.day(st.ts).GrepCalls[v]++

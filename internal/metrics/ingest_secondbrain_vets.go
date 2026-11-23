@@ -141,23 +141,37 @@ func scanVetHistoryRow(
 	}, nil
 }
 
+// maxSuggestedSkillsBytes caps persisted and transferred turn_vets.suggested_skills
+// CSV lists across ingest, export, and import, trimmed strictly on comma boundaries.
+const maxSuggestedSkillsBytes = 512
+
 func normalizeSuggestedSkillsCSV(s string) string {
 	items := parseListItems(s)
 	if len(items) == 0 {
 		return ""
 	}
 	seen := map[string]bool{}
-	clean := make([]string, 0, len(items))
+	var b strings.Builder
 	for _, raw := range items {
 		item := clipPrintable(raw, 64)
 		low := strings.ToLower(item)
 		if item == "" || seen[low] {
 			continue
 		}
+		need := len(item)
+		if b.Len() > 0 {
+			need++
+		}
+		if b.Len()+need > maxSuggestedSkillsBytes {
+			break
+		}
 		seen[low] = true
-		clean = append(clean, item)
+		if b.Len() > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(item)
 	}
-	return clipPrintable(strings.Join(clean, ","), 512)
+	return b.String()
 }
 
 func parseListItems(s string) []string {

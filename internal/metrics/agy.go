@@ -218,10 +218,6 @@ func firstWorkspace(uris string) string {
 	return ""
 }
 
-func (s *Store) ingestAgyConversation(src string, c agyConv, source, tmp string, o Options) error {
-	return s.ingestAgyConversationWithOverrides(src, c, source, tmp, o, nil)
-}
-
 func (s *Store) ingestAgyConversationWithOverrides(src string, c agyConv, source, tmp string, o Options, overrides map[string]int64) error {
 	db, err := search.OpenCopy(filepath.Join(src, "conversations"), c.id+".db", tmp)
 	if errors.Is(err, os.ErrNotExist) {

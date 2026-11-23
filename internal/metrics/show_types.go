@@ -322,6 +322,22 @@ func (st stp) verbN(idx int) int {
 	return idx
 }
 
+// firstNonCDVerbIdx returns the slice index of the first non-`cd` Bash verb
+// starting from verb index 0 (matching firstNonCDBashVerb), or -1 when verb 0
+// is missing or every verb is `cd`.
+func (st stp) firstNonCDVerbIdx() int {
+	for i, v := range st.verbs {
+		if st.verbN(i) != i {
+			return -1
+		}
+		if isCDBashVerb(v) {
+			continue
+		}
+		return i
+	}
+	return -1
+}
+
 // OrchestrationSummary aggregates shape-only orchestration_runs rows (schema 14, F-032).
 type OrchestrationSummary struct {
 	Runs           int            `json:"runs"`

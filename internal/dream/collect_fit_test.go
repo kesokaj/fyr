@@ -405,3 +405,81 @@ func equalSlice(a, b []string) bool {
 	}
 	return true
 }
+
+func TestFitOldestLeftLeavesSIMIntactWhenTrimCannotFit(t *testing.T) {
+	simOrig := "SIM_START\n" + strings.Repeat("sim-entry-line-0123456789\n", 80) // ~2090 B (> minSIMTrimText 1024; max trim ~1020 B)
+	trText := strings.Repeat("transcript-body-0123456789\n", 200)                // ~5400 B (>= minTrimTranscriptBytes 4096)
+	droppedPre := "prior.jsonl: " + strings.Repeat("d", 4000)
+
+	// Construct oldestLeft case: transcript fits f.room, so it is NOT tooBig,
+	// yet total size exceeds limit by ~2500 B — more than trimming kindSIM down
+	// to minSIMTrimText can free. Transcript must be dropped and kindSIM must
+	// remain completely untrimmed.
+	base := Collected{
+		Name:    "p",
+		Dropped: []string{droppedPre},
+		Inputs: []Input{
+			{Kind: kindMemory, Label: "memory/a.md", Text: "mem"},
+			{Kind: kindSIM, Label: "optimizer-memory", Text: simOrig},
+			{Kind: kindTranscript, Label: "antigravity conv-oldest", Text: trText, Time: day(1)},
+		},
+	}
+	totalNoLimit := len(prompt(base))
+	limit := totalNoLimit - 2500
+	room := limit - len(head(base)) - leftOutSlackReserve - len(block(base.Inputs[0])) - len(block(base.Inputs[1]))
+	if len(block(base.Inputs[2])) > room {
+		t.Fatalf("fixture setup invalid: transcript (%d) > room (%d), would hit tooBig instead of oldestLeft", len(block(base.Inputs[2])), room)
+	}
+
+	c := base
+	c.Dropped = append([]string(nil), base.Dropped...)
+	c.Inputs = append([]Input(nil), base.Inputs...)
+	if err := c.fit(limit); err != nil {
+		t.Fatalf("fit: %v", err)
+	}
+	if rendered := prompt(c); len(rendered) > limit {
+		t.Fatalf("rendered prompt %d > limit %d", len(rendered), limit)
+	}
+	var gotSIM *Input
+	for i := range c.Inputs {
+		if c.Inputs[i].Kind == kindTranscript {
+			t.Fatalf("expected oversized oldestLeft transcript to be dropped, still present")
+		}
+		if c.Inputs[i].Kind == kindSIM {
+			gotSIM = &c.Inputs[i]
+		}
+	}
+	if gotSIM == nil {
+		t.Fatalf("kindSIM unexpectedly dropped; inputs=%s dropped=%v", labels(c), c.Dropped)
+	}
+	if gotSIM.Text != simOrig {
+		t.Fatalf("kindSIM was mutated when trimming could not save the transcript: got len=%d (contains trimmed=%v), want exact len=%d",
+			len(gotSIM.Text), strings.Contains(gotSIM.Text, "[... trimmed"), len(simOrig))
+	}
+
+	// Complementary must-pass case: when overage (400 B) IS smaller than what
+	// trimming kindSIM can free (~1020 B), kindSIM IS trimmed and the oldestLeft
+	// transcript IS preserved.
+	limitFits := totalNoLimit - 400
+	cFits := base
+	cFits.Dropped = append([]string(nil), base.Dropped...)
+	cFits.Inputs = append([]Input(nil), base.Inputs...)
+	if err := cFits.fit(limitFits); err != nil {
+		t.Fatalf("fit(limitFits): %v", err)
+	}
+	if rendered := prompt(cFits); len(rendered) > limitFits {
+		t.Fatalf("limitFits rendered prompt %d > limit %d", len(rendered), limitFits)
+	}
+	var keptTranscript, trimmedSIM bool
+	for _, in := range cFits.Inputs {
+		if in.Kind == kindTranscript {
+			keptTranscript = true
+		}
+		if in.Kind == kindSIM && strings.Contains(in.Text, "[... trimmed") {
+			trimmedSIM = true
+		}
+	}
+	if !keptTranscript || !trimmedSIM {
+		t.Fatalf("expected oldestLeft transcript kept (%v) via trimmed kindSIM (%v); dropped=%v", keptTranscript, trimmedSIM, cFits.Dropped)
+	}
+}

@@ -12,17 +12,18 @@ import (
 const (
 	// maxContextBytes is PRD G1's ceiling on context/*.md.
 	maxContextBytes = 15000
-	// maxAlwaysOnBlockBytes is PRD Known limits' ceiling on context/*.md plus
-	// always-on rules/*.md before Antigravity silently truncates.
-	maxAlwaysOnBlockBytes = 24000
+	// maxRulesBlockBytes is PRD Known limits' ceiling on combined context/*.md
+	// plus all rules/*.md (always-on and model_decision) before Antigravity
+	// silently truncates (matching internal/harness/size_test.go).
+	maxRulesBlockBytes = 24000
 )
 
 // contextRulesBudgetRule enforces context/*.md <= 15,000 B and combined
-// context/*.md + always-on rules/*.md <= 24,000 B when those directories
-// exist in the checkout (drift-M7).
+// context/*.md + rules/*.md <= 24,000 B (including model_decision rules) when
+// those directories exist in the checkout (drift-M7).
 func (k *checker) contextRulesBudgetRule() []Finding {
 	isMarked := k.noIndexed()
-	var ctxBytes, alwaysRuleBytes int
+	var ctxBytes, ruleBytes int
 	var hasCtx, hasRules bool
 	for _, p := range k.tracked {
 		if !strings.HasSuffix(p, ".md") || isMarked(path.Dir(p)) {
@@ -36,8 +37,8 @@ func (k *checker) contextRulesBudgetRule() []Finding {
 			}
 		case "rules":
 			hasRules = true
-			if data, err := k.readFile(filepath.FromSlash(p)); err == nil && ruleIsAlwaysOn(data) {
-				alwaysRuleBytes += len(data)
+			if data, err := k.readFile(filepath.FromSlash(p)); err == nil {
+				ruleBytes += len(data)
 			}
 		}
 	}
@@ -49,8 +50,8 @@ func (k *checker) contextRulesBudgetRule() []Finding {
 			Text:  fmt.Sprintf("context/*.md is %d bytes, over the %d-byte ceiling", ctxBytes, maxContextBytes),
 		})
 	}
-	total := ctxBytes + alwaysRuleBytes
-	if (hasCtx || hasRules) && total > maxAlwaysOnBlockBytes {
+	total := ctxBytes + ruleBytes
+	if (hasCtx || hasRules) && total > maxRulesBlockBytes {
 		where := "context"
 		if hasRules {
 			where = "rules"
@@ -58,19 +59,10 @@ func (k *checker) contextRulesBudgetRule() []Finding {
 		out = append(out, Finding{
 			Where: where,
 			Rule:  "budget",
-			Text:  fmt.Sprintf("context/*.md + always-on rules/*.md is %d bytes (context %d, always-on rules %d), over the %d-byte ceiling", total, ctxBytes, alwaysRuleBytes, maxAlwaysOnBlockBytes),
+			Text:  fmt.Sprintf("context/*.md + rules/*.md is %d bytes (context %d, rules %d), over the %d-byte ceiling", total, ctxBytes, ruleBytes, maxRulesBlockBytes),
 		})
 	}
 	return out
-}
-
-func ruleIsAlwaysOn(data []byte) bool {
-	front, _, err := harness.Split(string(data))
-	if err != nil {
-		return true
-	}
-	tr := strings.TrimSpace(harness.Parse(front)["trigger"])
-	return tr == "" || tr == "always_on"
 }
 
 // skillFrontmatterRule lints every tracked skills/<name>/SKILL.md frontmatter

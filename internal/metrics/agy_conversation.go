@@ -203,13 +203,10 @@ func stepTimes(meta []byte, f fields) (started, ended int64, startedCol, endedCo
 	return started, ended, startedCol, endedCol, waitCol
 }
 
-// agyGens stores one generation step per gen_metadata row: its tokens, its
-// context, and the concrete model ID from (3,28) falling back to (1,19).
-// Bare stems paired with effort-suffixed variants collapse to the concrete ID.
-func (w *writer) agyGens(c agyConv, gens [][]byte, replyTimes []int64) {
-	w.agyGensWithOverrides(c, gens, replyTimes, nil)
-}
-
+// agyGensWithOverrides stores one generation step per gen_metadata row: its
+// tokens, its context, and the concrete model ID from (3,28) falling back to
+// (1,19). Bare stems paired with effort-suffixed variants collapse to the
+// concrete ID.
 func (w *writer) agyGensWithOverrides(c agyConv, gens [][]byte, replyTimes []int64, overrides map[string]int64) {
 	seenModels := map[string]bool{}
 	var firstModel string

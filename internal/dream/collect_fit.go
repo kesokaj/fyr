@@ -153,8 +153,11 @@ func (f *fitter) dropDated(i, how int) {
 		}
 		f.drop(i, fmt.Sprintf("too big for the %d KB cap beside memory and skills", f.limit/1024))
 	case oldestLeft:
-		if in.Kind == kindTranscript && len(in.Text) >= minTrimTranscriptBytes && f.over() && f.trimSIMBlock(f.size-f.limit) && !f.over() {
-			return
+		if in.Kind == kindTranscript && len(in.Text) >= minTrimTranscriptBytes && f.over() {
+			need := f.size - f.limit
+			if f.trimSIMBlock(need, need) && !f.over() {
+				return
+			}
 		}
 		f.drop(i, fmt.Sprintf("dropped to fit the %d KB cap; not sent again", f.limit/1024))
 	default:
@@ -225,8 +228,8 @@ func (f *fitter) chunkOversized(i int) bool {
 	}
 	avail := f.room - len(leftOut(f.c.Dropped))
 	if len(in.Text) >= minTrimTranscriptBytes && (f.room < minTranscriptChunkRoom || avail < minTranscriptChunkRoom) {
-		need := max(minTranscriptChunkRoom-f.room, minTranscriptChunkRoom-avail) + leftOutSlackReserve
-		if f.trimSIMBlock(need) {
+		minNeed := max(minTranscriptChunkRoom-f.room, minTranscriptChunkRoom-avail)
+		if f.trimSIMBlock(minNeed+leftOutSlackReserve, minNeed) {
 			avail = f.room - len(leftOut(f.c.Dropped))
 		}
 	}
@@ -259,9 +262,10 @@ func (f *fitter) chunkOversized(i int) bool {
 }
 
 // trimSIMBlock trims the kindSIM input by at least need bytes (down to a
-// bounded minimum prefix) to preserve room for chunked transcripts instead of
-// dropping them.
-func (f *fitter) trimSIMBlock(need int) bool {
+// bounded minimum prefix) to preserve room for transcripts instead of dropping
+// them. When trimming down to minSIMTrimText cannot free at least minFreed
+// bytes, kindSIM is left untouched and trimSIMBlock returns false.
+func (f *fitter) trimSIMBlock(need, minFreed int) bool {
 	if need <= 0 {
 		return false
 	}
@@ -291,6 +295,9 @@ func (f *fitter) trimSIMBlock(need int) bool {
 		return false
 	}
 	freed := f.sizes[idx] - newSize
+	if freed < minFreed {
+		return false
+	}
 	f.c.Inputs[idx] = sim
 	f.sizes[idx] = newSize
 	f.size -= freed

@@ -177,11 +177,12 @@ func addProjectStepVerbs(p *projAcc, st stp) {
 	if st.tool == "Grep" {
 		p.grepCalls++
 	}
+	firstVerb := st.firstNonCDVerbIdx()
 	for i, verb := range st.verbs {
 		switch {
 		case isSQLiteVerb(verb):
 			p.sqliteVerbs++
-		case st.verbN(i) == 0 && isGrepVerb(verb):
+		case i == firstVerb && isGrepVerb(verb):
 			p.grepCalls++
 		}
 	}

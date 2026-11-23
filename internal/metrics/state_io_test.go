@@ -3,6 +3,7 @@ package metrics
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -284,5 +285,103 @@ func TestStateIOV14FieldsAndFutureSchemaRefusal(t *testing.T) {
 	}
 	if c13, err := ImportSanitizedState(dest, v13, false); err != nil || c13.BackgroundRuns != 1 {
 		t.Fatalf("ImportSanitizedState v13 = (%+v, %v)", c13, err)
+	}
+}
+
+func TestSuggestedSkills512RoundTripAndCommaTrim(t *testing.T) {
+	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	var skills20 []string
+	for i := 1; i <= 20; i++ {
+		skills20 = append(skills20, fmt.Sprintf("fyr-skill-name-%02d", i))
+	}
+	over256 := strings.Join(skills20, ",") // 359 bytes: > 256 and <= 512
+	if len(over256) <= 256 || len(over256) > 512 {
+		t.Fatalf("fixture over256 len = %d, want (256, 512]", len(over256))
+	}
+
+	var skills40 []string
+	for i := 1; i <= 40; i++ {
+		skills40 = append(skills40, fmt.Sprintf("fyr-skill-name-%02d", i))
+	}
+	over512 := strings.Join(skills40, ",") // 719 bytes: > 512
+	if len(over512) <= 512 {
+		t.Fatalf("fixture over512 len = %d, want > 512", len(over512))
+	}
+
+	// Verify ingest normalization trims cleanly on comma boundaries at 512 bytes.
+	norm := normalizeSuggestedSkillsCSV(over512)
+	if len(norm) > 512 || len(norm) <= 256 {
+		t.Fatalf("normalizeSuggestedSkillsCSV len = %d, want (256, 512]", len(norm))
+	}
+	wantSet := map[string]bool{}
+	for _, sk := range skills40 {
+		wantSet[sk] = true
+	}
+	for _, tok := range strings.Split(norm, ",") {
+		if !wantSet[tok] {
+			t.Fatalf("normalizeSuggestedSkillsCSV truncated token mid-name: %q in %q", tok, norm)
+		}
+	}
+
+	// Round-trip both >256-byte and >512-byte suggested_skills through export and import.
+	src := openT(t, filepath.Join(t.TempDir(), "src.db"))
+	for i, sk := range []string{over256, over512} {
+		if _, err := src.db.Exec(
+			`INSERT INTO turn_vets(project_root, repo_id, conversation_id, turn_num, intent, gate, score, suggested_skills, created_at) VALUES ('/p/a', 'git:github.com/org/alpha', 'c-long', ?, 'TASK', 'PROCEED', 90, ?, ?)`,
+			i+1, sk, now.UnixMilli(),
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	exp, err := ExportSanitizedState(src, "", now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("ExportSanitizedState: %v", err)
+	}
+	if len(exp.TurnVets) != 2 {
+		t.Fatalf("exported TurnVets = %d, want 2", len(exp.TurnVets))
+	}
+	if exp.TurnVets[0].SuggestedSkills != over256 {
+		t.Errorf("exported >256 suggested_skills = %q (len %d), want exact %q (len %d)", exp.TurnVets[0].SuggestedSkills, len(exp.TurnVets[0].SuggestedSkills), over256, len(over256))
+	}
+	if exp.TurnVets[1].SuggestedSkills != norm {
+		t.Errorf("exported >512 suggested_skills = %q (len %d), want comma-trimmed %q (len %d)", exp.TurnVets[1].SuggestedSkills, len(exp.TurnVets[1].SuggestedSkills), norm, len(norm))
+	}
+
+	dest := openT(t, filepath.Join(t.TempDir(), "dest.db"))
+	if _, err := ImportSanitizedState(dest, exp, false); err != nil {
+		t.Fatalf("ImportSanitizedState: %v", err)
+	}
+	var got1, got2 string
+	if err := dest.db.QueryRow(`SELECT suggested_skills FROM turn_vets WHERE conversation_id = 'c-long' AND turn_num = 1`).Scan(&got1); err != nil {
+		t.Fatal(err)
+	}
+	if err := dest.db.QueryRow(`SELECT suggested_skills FROM turn_vets WHERE conversation_id = 'c-long' AND turn_num = 2`).Scan(&got2); err != nil {
+		t.Fatal(err)
+	}
+	if got1 != over256 {
+		t.Errorf("imported >256 suggested_skills = %q (len %d), want exact %q (len %d)", got1, len(got1), over256, len(over256))
+	}
+	if got2 != norm {
+		t.Errorf("imported >512 suggested_skills = %q (len %d), want comma-trimmed %q (len %d)", got2, len(got2), norm, len(norm))
+	}
+
+	// Direct import of an untrimmed >512 payload must also trim cleanly on comma boundaries.
+	rawPayload := SanitizedMetricsExport{
+		Schema: 14,
+		TurnVets: []SanitizedTurnVet{{
+			RepoID: "git:github.com/org/alpha", ConversationID: "c-raw", TurnNum: 1,
+			Intent: "TASK", Gate: "PROCEED", Score: 90, SuggestedSkills: over512, CreatedAt: now.UnixMilli(),
+		}},
+	}
+	if _, err := ImportSanitizedState(dest, rawPayload, false); err != nil {
+		t.Fatalf("ImportSanitizedState raw >512: %v", err)
+	}
+	var gotRaw string
+	if err := dest.db.QueryRow(`SELECT suggested_skills FROM turn_vets WHERE conversation_id = 'c-raw' AND turn_num = 1`).Scan(&gotRaw); err != nil {
+		t.Fatal(err)
+	}
+	if gotRaw != norm {
+		t.Errorf("imported raw >512 suggested_skills = %q (len %d), want comma-trimmed %q (len %d)", gotRaw, len(gotRaw), norm, len(norm))
 	}
 }

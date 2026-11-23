@@ -227,13 +227,15 @@ func ContextKneeWithOverrides(modelID string, overrides map[string]int64) int64 
 	return CalibratedContextKnee(ContextBudgetWithOverrides(modelID, overrides))
 }
 
-// ContextKneeTokens returns the 60% KNEE_EXCEEDED token threshold for modelID.
+// ContextKneeTokens returns the calibrated [40%..60%] empirical-onset
+// KNEE_EXCEEDED token threshold for modelID (via ContextKneeWithOverrides).
 func ContextKneeTokens(modelID string) int64 {
 	return ContextKneeWithOverrides(modelID, nil)
 }
 
-// ContextKneeTokensForHome resolves the 60% KNEE_EXCEEDED token threshold for
-// modelID including any models.json context_window overrides under home.
+// ContextKneeTokensForHome resolves the calibrated [40%..60%] empirical-onset
+// KNEE_EXCEEDED token threshold for modelID (via ContextKneeWithOverrides),
+// including any models.json context_window overrides under home.
 func ContextKneeTokensForHome(home, modelID string) int64 {
 	return ContextKneeWithOverrides(modelID, ContextWindowOverrides(home))
 }

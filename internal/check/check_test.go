@@ -468,9 +468,19 @@ func testV910DriftM7(t *testing.T) {
 	})
 	same(t, run(t, overAlways).Findings, "rules:0 budget")
 
-	okModelDecision := repo(t, map[string]string{
+	overModelDecision := repo(t, map[string]string{
 		"context/AGENTS.md": strings.Repeat("a", 10000),
 		"rules/cond.md":     "---\ntrigger: model_decision\ndescription: x\n---\n" + strings.Repeat("b", 15000),
+	})
+	repOverModel := run(t, overModelDecision)
+	same(t, repOverModel.Findings, "rules:0 budget")
+	if len(repOverModel.Findings) > 0 && strings.Contains(repOverModel.Findings[0].Text, "always-on") {
+		t.Errorf("budget finding text still says always-on: %q", repOverModel.Findings[0].Text)
+	}
+
+	okModelDecision := repo(t, map[string]string{
+		"context/AGENTS.md": strings.Repeat("a", 10000),
+		"rules/cond.md":     "---\ntrigger: model_decision\ndescription: x\n---\n" + strings.Repeat("b", 13900),
 	})
 	same(t, run(t, okModelDecision).Findings)
 }

@@ -42,20 +42,10 @@ func chooseRunner(wo *isolate.WorkerOptions, isolateAvail func() error) (runner,
 // Every line that names the runner is built here (sweep_line_test.go).
 func withRunner(line, runnerWhy string) string { return line + "; runner " + runnerWhy }
 
-// runModelTask picks the highest due model task for root (rotating p.LastClass
-// to the end), files any rubric ask, and runs at most one worker (allowing
-// DraftsOnly tasks on dirty, non-git, or GlobalWorkspace roots while enforcing
-// clean git checkouts for non-DraftsOnly tasks).
-func (r *run) runModelTask(root string, p *Project, findings []Finding) (string, []Finding) {
-	if r.workerRan {
-		return "worker already ran in this sweep", nil
-	}
-	endPass := r.beginProjectPass(root)
-	defer endPass()
-	t, stopMsg := r.selectModelTask(root, p, findings)
-	return r.runSelectedModelTask(root, p, t, stopMsg)
-}
-
+// runSelectedModelTask files any rubric ask and runs at most one worker for
+// the pre-selected model task (allowing DraftsOnly tasks on dirty, non-git, or
+// GlobalWorkspace roots while enforcing clean git checkouts for non-DraftsOnly
+// tasks).
 func (r *run) runSelectedModelTask(root string, p *Project, t *Task, stopMsg string) (string, []Finding) {
 	if r.workerRan {
 		return "worker already ran in this sweep", nil

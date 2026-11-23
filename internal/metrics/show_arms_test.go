@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// The arms of add, finish, Numbers, Show and ingestAgyConversation that
+// The arms of add, finish, Numbers, Show and ingestAgyConversationWithOverrides that
 // their splits move into helpers, pinned before the split
 // (PLAN-2026-10-27-funclen Phase 3, D13).
 
@@ -94,8 +94,8 @@ func TestAgyConversationStepErrors(t *testing.T) {
 			db := filepath.Join(src, "conversations", "C9.db")
 			sqliteT(t, db, stmts...)
 			s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
-			if err := s.ingestAgyConversation(src, agyConv{id: "C9"}, db, t.TempDir(), Options{}); err == nil {
-				t.Fatal("ingestAgyConversation: nil error, want the steps read's")
+			if err := s.ingestAgyConversationWithOverrides(src, agyConv{id: "C9"}, db, t.TempDir(), Options{}, nil); err == nil {
+				t.Fatal("ingestAgyConversationWithOverrides: nil error, want the steps read's")
 			}
 			var n int
 			s.db.QueryRow(`SELECT count(*) FROM sessions`).Scan(&n)

@@ -255,7 +255,7 @@ func importOneTurnVetTx(tx *sql.Tx, r SanitizedTurnVet, c *StateImportCounts) er
 		min(100, max(0, r.Score)), boolInt(r.Bypassed), max(0, r.SkillsCount), max(0, r.PivotsCount),
 		max(0, r.LedgerSaved), clipSanitizedText(r.Directive, 128), max(0, r.SubtaskCount),
 		max(0, r.DurationMS), boolInt(r.TimedOut), max(0, r.InjectedBytes),
-		max(0, r.PivotsUsedCount), max(0, r.SkillsLoadedCount), clipSanitizedText(r.SuggestedSkills, 256), r.CreatedAt)
+		max(0, r.PivotsUsedCount), max(0, r.SkillsLoadedCount), clipSanitizedSuggestedSkills(r.SuggestedSkills), r.CreatedAt)
 	if err != nil {
 		return err
 	}

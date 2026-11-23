@@ -39,12 +39,6 @@ func budgetLine(pools []Pool) string {
 	return fmt.Sprintf("budget: %s; floors %d/%d", strings.Join(parts, ", "), floorFive, floorWeek)
 }
 
-// gateBudget is G9 over one `/usage` reading across all pools (when no target
-// model is specified).
-func gateBudget(runs int, text string, readErr error) (line string, stop bool) {
-	return gateBudgetForModel(runs, "", text, readErr)
-}
-
 // gateBudgetForModel is G9 over one `/usage` reading gating only the pool
 // matching targetModel against [50% 5h / 30% week] (ADR-534, F-004). An empty
 // targetModel gates all pools; an unreadable or missing target pool fails closed.

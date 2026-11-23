@@ -89,10 +89,11 @@ func accumulateRoleSteps(a *roleAcc, x sess, steps []stp, seen map[string]bool) 
 		if st.tool == "Grep" {
 			a.grep++
 		}
+		firstVerb := st.firstNonCDVerbIdx()
 		for i, v := range st.verbs {
 			if isSQLiteVerb(v) {
 				a.sqlite++
-			} else if st.verbN(i) == 0 && isGrepVerb(v) {
+			} else if i == firstVerb && isGrepVerb(v) {
 				a.grep++
 			}
 		}
@@ -268,10 +269,11 @@ func accumulateCohortSteps(cm *CohortMetrics, x sess, steps []stp, seen map[stri
 		if st.tool == "Grep" {
 			cm.GrepCalls++
 		}
+		firstVerb := st.firstNonCDVerbIdx()
 		for i, v := range st.verbs {
 			if isSQLiteVerb(v) {
 				cm.SQLiteVerbs++
-			} else if st.verbN(i) == 0 && isGrepVerb(v) {
+			} else if i == firstVerb && isGrepVerb(v) {
 				cm.GrepCalls++
 			}
 		}

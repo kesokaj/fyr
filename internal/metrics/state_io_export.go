@@ -397,7 +397,7 @@ func scanSanitizedTurnVets(db *sql.DB, q string, args []any) ([]SanitizedTurnVet
 		r.Intent = clipSanitizedText(r.Intent, 64)
 		r.Gate = clipSanitizedText(r.Gate, 64)
 		r.Directive = clipSanitizedText(r.Directive, 128)
-		r.SuggestedSkills = clipSanitizedText(r.SuggestedSkills, 256)
+		r.SuggestedSkills = clipSanitizedSuggestedSkills(r.SuggestedSkills)
 		if r.ConversationID != "" {
 			out = append(out, r)
 		}

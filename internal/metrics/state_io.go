@@ -293,6 +293,20 @@ func clipSanitizedText(raw string, maxLen int) string {
 	return clipPrintable(red, maxLen)
 }
 
+func clipSanitizedSuggestedSkills(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	red := strings.TrimSpace(redact.Redact(s))
+	if strings.Contains(red, "[redacted by fyr") {
+		return ""
+	}
+	red = ScrubHostHomePaths(red)
+	red = strings.NewReplacer("\r", " ", "\n", " ").Replace(red)
+	return normalizeSuggestedSkillsCSV(red)
+}
+
 // ScrubHostHomePaths replaces the operator home directory and /home/<user> or
 // /Users/<user> path prefixes with ~ before metrics or state leave the host.
 func ScrubHostHomePaths(s string) string {

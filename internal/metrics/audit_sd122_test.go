@@ -192,15 +192,15 @@ func TestSD130ToSD139HealthEvalReportAndTrajectoryFixes(t *testing.T) {
 		t.Fatalf("PassK merged dev evals despite primary eval rows: %+v", sum.A.PassK)
 	}
 
-	// SD131 schema < 5 guard in openDevEvalStoreRO.
+	// SD131 schema < 5 guard in OpenDevEvalFallbackRO.
 	oldHome := t.TempDir()
 	oldDev := filepath.Join(oldHome, harness.StateDir, "dev", "fyr-eval", harness.StateDir, "metrics.db")
 	if err := os.MkdirAll(filepath.Dir(oldDev), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	sqliteT(t, oldDev, `CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT)`, `INSERT INTO meta VALUES ('schema', '4')`)
-	if _, _, ok := openDevEvalStoreRO(oldHome); ok {
-		t.Fatal("openDevEvalStoreRO accepted schema 4")
+	if _, _, ok := OpenDevEvalFallbackRO(oldHome); ok {
+		t.Fatal("OpenDevEvalFallbackRO accepted schema 4")
 	}
 
 	// SD133: wave + judge_verdicts deduplication & cross-family Gemini judge classification.

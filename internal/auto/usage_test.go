@@ -65,7 +65,7 @@ func TestUsageQuotesAreBounded(t *testing.T) {
 		"a window": "P\t" + long + "\t90%\tx\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			line, stop := gateBudget(0, text, nil)
+			line, stop := gateBudgetForModel(0, "", text, nil)
 			if !stop || len(line) > 2*lineLimit {
 				t.Errorf("stop %v, %d bytes", stop, len(line))
 			}
@@ -103,7 +103,7 @@ func TestUsageFloors(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			line, stop := gateBudget(c.runs, usageText(c.week, c.five), c.err)
+			line, stop := gateBudgetForModel(c.runs, "", usageText(c.week, c.five), c.err)
 			if stop != c.stop || !strings.Contains(line, c.want) {
 				t.Errorf("%q, stop %v", line, stop)
 			}
@@ -113,7 +113,7 @@ func TestUsageFloors(t *testing.T) {
 
 func TestUsageAnyPoolStops(t *testing.T) {
 	text := usageText("90%", "90%") + strings.ReplaceAll(usageText("10%", "90%"), "P\t", "Q\t")
-	if line, stop := gateBudget(0, text, nil); !stop || !strings.Contains(line, "Q 90% of 5h, 10% of week") {
+	if line, stop := gateBudgetForModel(0, "", text, nil); !stop || !strings.Contains(line, "Q 90% of 5h, 10% of week") {
 		t.Errorf("%q", line)
 	}
 }

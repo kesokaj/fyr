@@ -272,35 +272,48 @@ func returnsSingleString(ft *ast.FuncType) bool {
 }
 
 func collectFlagTokens(text string, out map[string]bool) {
-	for i := 0; i+2 < len(text); i++ {
-		if text[i] != '-' || text[i+1] != '-' {
+	for i := 0; i+1 < len(text); i++ {
+		if text[i] != '-' || !isFlagBoundaryBefore(text, i) {
 			continue
 		}
-		if i > 0 && isFlagTokenChar(text[i-1]) {
+		dashes := 1
+		if text[i+1] == '-' {
+			dashes = 2
+		}
+		start := i + dashes
+		if start >= len(text) || !isASCIIAlpha(text[start]) {
 			continue
 		}
-		if text[i+2] < 'a' || text[i+2] > 'z' {
-			continue
-		}
-		j := i + 2
-		for j < len(text) && isLowerFlagTokenChar(text[j]) {
+		j := start + 1
+		for j < len(text) && isFlagTokenChar(text[j]) {
 			j++
 		}
-		if j < len(text) && text[j] >= 'A' && text[j] <= 'Z' {
-			continue
-		}
-		name := strings.TrimRight(text[i+2:j], "-")
-		if name != "" {
+		name := strings.TrimRight(text[start:j], "-")
+		if name != "" && astFlagNameRe.MatchString(name) {
 			out[name] = true
 		}
 		i = j - 1
 	}
 }
 
-func isFlagTokenChar(b byte) bool {
-	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-'
+func isFlagBoundaryBefore(text string, i int) bool {
+	if i == 0 {
+		return true
+	}
+	switch text[i-1] {
+	case ' ', '\t', '\n', '\r', '[', '(', '{', ',', '|', '/', ':', ';', '*':
+		return true
+	case '`', '"', '\'':
+		return i < 2 || !isFlagTokenChar(text[i-2])
+	default:
+		return false
+	}
 }
 
-func isLowerFlagTokenChar(b byte) bool {
-	return (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '-'
+func isASCIIAlpha(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+func isFlagTokenChar(b byte) bool {
+	return isASCIIAlpha(b) || (b >= '0' && b <= '9') || b == '-'
 }
