@@ -13,6 +13,7 @@ import (
 // MemoryShowOptions configures `MemoryShowWithOptions` and `MemoryShowJSONWithOptions`.
 type MemoryShowOptions struct {
 	IncludeLow bool
+	Limit      int
 }
 
 // MemoryShow is the memory index, one line per active memory (>= 0.40), capped
@@ -29,7 +30,6 @@ func MemoryShowWithOptions(o Options, showOpts MemoryShowOptions) (string, error
 	if err != nil {
 		return "", err
 	}
-	sortScoredMemories(mems)
 	lines := make([]string, len(mems))
 	for i, m := range mems {
 		lines[i] = formatMemoryIndexLineWithStale(m.rec, m.val, m.staleTag)
@@ -85,6 +85,10 @@ func loadActiveMemories(o Options, showOpts MemoryShowOptions) ([]scoredMemory, 
 			continue
 		}
 		mems = append(mems, scoredMemory{rec: r, val: val, staleTag: staleTag})
+	}
+	sortScoredMemories(mems)
+	if showOpts.Limit > 0 && len(mems) > showOpts.Limit {
+		mems = mems[:showOpts.Limit]
 	}
 	return mems, nil
 }

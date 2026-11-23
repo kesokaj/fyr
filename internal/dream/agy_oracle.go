@@ -55,7 +55,11 @@ func hooksAny(data json.RawMessage) string {
 func oracle(argv0, name, work string, env []string) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), oracleTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, argv0, "-p", "/"+name, "--output-format", "json")
+	exe := argv0
+	if resolved, ok := ResolveBinary(exe, ""); ok {
+		exe = resolved
+	}
+	cmd := exec.CommandContext(ctx, exe, "-p", "/"+name, "--output-format", "json")
 	cmd.Dir, cmd.Env = work, env
 	var out bytes.Buffer
 	cmd.Stdout = &out

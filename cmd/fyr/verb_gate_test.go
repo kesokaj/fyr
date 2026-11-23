@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/gate"
 	iso "github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/metrics"
@@ -377,5 +378,97 @@ func TestShortHashAndPrintVerifyLandText(t *testing.T) {
 	})
 	if !strings.Contains(failLand.String(), "[lease] x.go:3: out") || !strings.Contains(failLand.String(), "verify vet:") {
 		t.Errorf("printLandText failure = %q", failLand.String())
+	}
+}
+
+func TestV910CloseStdinFailFast(t *testing.T) {
+	home := t.TempDir()
+	repo := initCLITestRepo(t)
+	if outStr, errStr, code := runCLIWithErr("verify", "--home", home, "--dir", repo); code != 0 {
+		t.Fatalf("verify: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+
+	// 1. Help first 6 lines must document reading stdin when --body-file is omitted.
+	helpOut, _, code := runCLIWithErr("close", "--help")
+	if code != 0 {
+		t.Fatalf("close --help exit=%d", code)
+	}
+	headLines := strings.Split(helpOut, "\n")
+	if len(headLines) > 6 {
+		headLines = headLines[:6]
+	}
+	if !strings.Contains(strings.Join(headLines, "\n"), "stdin") {
+		t.Errorf("close --help first 6 lines lack stdin note:\n%s", strings.Join(headLines, "\n"))
+	}
+
+	// 2. Idle open pipe (like `sleep 4 | fyr close`) fails fast (< 50ms) with exit 2.
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pr.Close()
+	defer pw.Close()
+	origStdin := stdin
+	t.Cleanup(func() { stdin = origStdin })
+	stdin = pr
+	t0 := time.Now()
+	_, errStr, code := runCLIWithErr("close", "--home", home, "--dir", repo, "--title", "idle-pipe")
+	elapsed := time.Since(t0)
+	if code != 2 || !strings.Contains(errStr, "no body on stdin") || !strings.Contains(errStr, "--body-file") {
+		t.Fatalf("idle pipe close: code=%d err=%q elapsed=%s", code, errStr, elapsed)
+	}
+	if elapsed >= 50*time.Millisecond {
+		t.Errorf("idle pipe close took %s, want < 50ms", elapsed)
+	}
+
+	// 3. /dev/null (char device) and empty reader fail fast with exit 2.
+	if devNull, err := os.Open(os.DevNull); err == nil {
+		defer devNull.Close()
+		stdin = devNull
+		_, errStr, code = runCLIWithErr("close", "--home", home, "--dir", repo, "--title", "dev-null")
+		if code != 2 || !strings.Contains(errStr, "no body on stdin") {
+			t.Errorf("/dev/null close: code=%d err=%q", code, errStr)
+		}
+	}
+	stdin = strings.NewReader("")
+	_, errStr, code = runCLIWithErr("close", "--home", home, "--dir", repo, "--title", "empty-reader")
+	if code != 2 || !strings.Contains(errStr, "no body on stdin") {
+		t.Errorf("empty reader close: code=%d err=%q", code, errStr)
+	}
+
+	// 4. Populated pipe preserves ALL bytes (including first byte!) and writes handoff.
+	pr2, pw2, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pr2.Close()
+	const wantBody = "First-byte preserved handoff summary.\n"
+	if _, err := pw2.WriteString(wantBody); err != nil {
+		t.Fatal(err)
+	}
+	pw2.Close()
+	stdin = pr2
+	outStr, errStr, code := runCLIWithErr("close", "--home", home, "--dir", repo, "--title", "piped-ok")
+	if code != 0 || !strings.HasPrefix(strings.TrimSpace(outStr), "HANDOFF-") {
+		t.Fatalf("piped close: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	recs, _, gerr := brain.Get(brain.Options{Home: home, Dir: repo}, []string{strings.TrimSpace(outStr)})
+	if gerr != nil || len(recs) != 1 || !strings.HasPrefix(recs[0].Body, wantBody) {
+		t.Fatalf("stored handoff body corrupted: err=%v recs=%+v", gerr, recs)
+	}
+
+	// 5. Oversized stdin and oversized --body-file (> brain.MaxBodyBytes) both exit 2.
+	oversized := strings.Repeat("x", brain.MaxBodyBytes+1)
+	stdin = strings.NewReader(oversized)
+	_, errStr, code = runCLIWithErr("close", "--home", home, "--dir", repo, "--title", "too-big-stdin")
+	if code != 2 || !strings.Contains(errStr, "exceeds") {
+		t.Errorf("oversized stdin close: code=%d err=%q", code, errStr)
+	}
+	stdin = strings.NewReader("")
+	bigFile := filepath.Join(t.TempDir(), "big.md")
+	writeCLITestFile(t, bigFile, oversized)
+	_, errStr, code = runCLIWithErr("close", "--home", home, "--dir", repo, "--title", "too-big-file", "--body-file", bigFile)
+	if code != 2 || !strings.Contains(errStr, "exceeds") {
+		t.Errorf("oversized --body-file close: code=%d err=%q", code, errStr)
 	}
 }

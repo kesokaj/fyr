@@ -167,3 +167,34 @@ func TestMemoryPartsAndGlobalScope(t *testing.T) {
 		t.Errorf("draft MemoryKind=%q Validity=%.2f, want procedural 0.90", recs[0].MemoryKind, recs[0].Validity)
 	}
 }
+
+func TestV910MemoryShowLimit(t *testing.T) {
+	home := t.TempDir()
+	dir := repo(t)
+	for i, name := range []string{"card-a", "card-b", "card-c"} {
+		o := Options{Home: home, Dir: dir, Now: func() time.Time { return fixed.Add(time.Duration(i) * time.Minute) }}
+		if _, err := MemoryAdd(o, MemoryEntry{Type: "semantic", Name: name, Description: "desc " + name}, strings.NewReader("body "+name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	o := Options{Home: home, Dir: dir, Now: func() time.Time { return fixed.Add(10 * time.Minute) }}
+	text, err := MemoryShowWithOptions(o, MemoryShowOptions{Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	if len(lines) != 2 || !strings.Contains(lines[0], "card-c") || !strings.Contains(lines[1], "card-b") {
+		t.Errorf("MemoryShowWithOptions(Limit:2) = %q, want newest 2 (card-c, card-b)", text)
+	}
+	rawJSON, err := MemoryShowJSONWithOptions(o, MemoryShowOptions{Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var items []MemorySummary
+	if err := json.Unmarshal([]byte(rawJSON), &items); err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].Name != "card-c" || items[1].Name != "card-b" {
+		t.Errorf("MemoryShowJSONWithOptions(Limit:2) = %+v, want [card-c, card-b]", items)
+	}
+}

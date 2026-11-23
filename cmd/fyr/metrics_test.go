@@ -267,17 +267,17 @@ func TestMetricsUsageErrorsExit2(t *testing.T) {
 	}
 }
 
-// show, report, evals and export on a home that never ingested say so and exit 1;
+// show, report --no-ingest, evals and export on a home that never ingested say so and exit 1;
 // they never create an empty store whose zeros would read as "no sessions".
 func TestMetricsWithoutStore(t *testing.T) {
 	home := t.TempDir()
 	for _, args := range [][]string{
 		{"metrics", "show"},
-		{"metrics", "report", "--out", filepath.Join(t.TempDir(), "r.html")},
+		{"metrics", "report", "--no-ingest", "--out", filepath.Join(t.TempDir(), "r.html")},
 		{"metrics", "export", filepath.Join(t.TempDir(), "e.jsonl")},
 		{"metrics", "evals"},
 		{"metrics", "trajectory"},
-		{"report", "--out", filepath.Join(t.TempDir(), "r.html")},
+		{"report", "--no-ingest", "--out", filepath.Join(t.TempDir(), "r.html")},
 	} {
 		var out bytes.Buffer
 		err := run(append(args, "--home", home), &out)

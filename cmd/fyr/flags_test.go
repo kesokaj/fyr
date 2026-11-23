@@ -375,3 +375,239 @@ func TestStatusJSON(t *testing.T) {
 		t.Errorf("unexpected statusSummary: %+v", sum)
 	}
 }
+
+func TestV910CLIErgonomicsAndCloseStdin(t *testing.T) {
+	t.Run("leading_global_flags", testV910LeadingGlobalFlags)
+	t.Run("auto_log_and_memory_show_limit", testV910AutoLogAndMemoryShowLimit)
+	t.Run("models_explain_flag_aware", testV910ModelsExplainFlagAware)
+	t.Run("report_auto_ingest_and_no_ingest", testV910ReportAutoIngest)
+	t.Run("record_sync_stale_hint", testV910RecordSyncStaleHint)
+	t.Run("local_bin_agy_lookup", testV910LocalBinAgyLookup)
+}
+
+func testV910LeadingGlobalFlags(t *testing.T) {
+	t.Setenv(harness.ChildEnv, "1")
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj := recordRepo(t)
+	home := t.TempDir()
+	out, err := recordCmd(t, "Title: Lead flag bug\n\nBody.\n", "-C", proj, "--home", home, "record", "add", "bug")
+	if err != nil || out != "BUG-001\n" {
+		t.Fatalf("leading -C --home record add: %q %v", out, err)
+	}
+	for _, args := range [][]string{
+		{"--dir=" + proj, "--home=" + home, "record", "list"},
+		{"-dir", proj, "-home", home, "record", "list"},
+		{"-C=" + proj, "--home", home, "record", "list"},
+	} {
+		got, rerr := recordCmd(t, "", args...)
+		if rerr != nil || !strings.Contains(got, "BUG-001") {
+			t.Errorf("%v: got=%q err=%v", args, got, rerr)
+		}
+	}
+	var buf bytes.Buffer
+	if err := run([]string{"--repo", repoRoot, "--home", home, "list"}, &buf); err != nil || !strings.Contains(buf.String(), "skills") {
+		t.Errorf("leading --repo --home list: err=%v out=%q", err, buf.String())
+	}
+	for _, hArgs := range [][]string{
+		{"--home", home, "help", "record"},
+		{"-C", proj, "-h", "record"},
+		{"--dir=" + proj, "--help", "record"},
+		{"--home", home, "-h"},
+	} {
+		buf.Reset()
+		if err := run(hArgs, &buf); err != nil {
+			t.Errorf("%v: err=%v out=%q", hArgs, err, buf.String())
+		}
+	}
+	buf.Reset()
+	if err := run(nil, &buf); err != nil || buf.String() != shortPage {
+		t.Errorf("empty args: err=%v", err)
+	}
+	for _, bad := range [][]string{
+		{"-C"},
+		{"--dir"},
+		{"--home"},
+		{"--repo"},
+		{"--home="},
+		{"-C", "--home", home, "version"},
+		{"--home", home},
+		{"--home", home, "no-such-verb"},
+	} {
+		buf.Reset()
+		if err := run(bad, &buf); exitOf(err) != 2 {
+			t.Errorf("%v: exit=%d want 2 (out=%q)", bad, exitOf(err), buf.String())
+		}
+	}
+}
+
+func testV910AutoLogAndMemoryShowLimit(t *testing.T) {
+	home := t.TempDir()
+	logPath := filepath.Join(home, harness.StateDir, "auto", "auto.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logPath, []byte("l1\nl2\nl3\nl4\nl5\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"auto", "log", "--limit", "2", "--home", home}, &out); err != nil {
+		t.Fatalf("auto log --limit 2: %v (%q)", err, out.String())
+	}
+	if out.String() != "l4\nl5\n" {
+		t.Errorf("auto log --limit 2 = %q, want l4\\nl5\\n", out.String())
+	}
+	for _, bad := range [][]string{
+		{"auto", "log", "--limit", "0"},
+		{"auto", "log", "--limit", "-1"},
+		{"auto", "log", "--limit", "2", "--all"},
+		{"auto", "log", "--limit", "2", "--lines", "2"},
+		{"auto", "status", "--limit", "2"},
+		{"auto", "run", "--dry-run", "--limit", "2"},
+	} {
+		out.Reset()
+		if err := run(append(bad, "--home", home), &out); exitOf(err) != 2 {
+			t.Errorf("%v: exit=%d want 2 (out=%q)", bad, exitOf(err), out.String())
+		}
+	}
+
+	proj := recordRepo(t)
+	for _, n := range []string{"m-one", "m-two", "m-three"} {
+		if got, err := recordCmd(t, "body "+n+"\n", "memory", "add", "--type", "semantic", "--name", n, "--description", "desc "+n, "-C", proj, "--home", home); err != nil {
+			t.Fatalf("memory add %s: %v %q", n, err, got)
+		}
+	}
+	gotText, err := recordCmd(t, "", "memory", "show", "--limit", "2", "-C", proj, "--home", home)
+	if err != nil || strings.Count(strings.TrimSpace(gotText), "\n") != 1 {
+		t.Errorf("memory show --limit 2: err=%v out=%q", err, gotText)
+	}
+	gotJSON, err := recordCmd(t, "", "memory", "show", "--limit", "2", "--json", "-C", proj, "--home", home)
+	if err != nil {
+		t.Fatalf("memory show --limit 2 --json: %v %q", err, gotJSON)
+	}
+	var memItems []map[string]any
+	if err := json.Unmarshal([]byte(gotJSON), &memItems); err != nil || len(memItems) != 2 {
+		t.Errorf("memory show --limit 2 --json: len=%d err=%v out=%q", len(memItems), err, gotJSON)
+	}
+	for _, bad := range [][]string{
+		{"memory", "add", "--type", "semantic", "--name", "x", "--description", "d", "--limit", "1"},
+		{"memory", "show", "--limit", "-1"},
+	} {
+		out.Reset()
+		if err := run(append(bad, "-C", proj, "--home", home), &out); exitOf(err) != 2 {
+			t.Errorf("%v: exit=%d want 2 (out=%q)", bad, exitOf(err), out.String())
+		}
+	}
+}
+
+func testV910ModelsExplainFlagAware(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
+	catDir := filepath.Join(home, harness.StateDir)
+	if err := os.MkdirAll(catDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	catJSON := `{"updated_at":"2026-11-22T10:00:00Z","entries":[` +
+		`{"id":"gemini-4-carbon-high","family":"google","subfamily":"carbon","tier":"pro","status":"active"},` +
+		`{"id":"claude-opus-5-5-high","family":"anthropic","subfamily":"opus","tier":"pro","status":"active"}]}`
+	if err := os.WriteFile(filepath.Join(catDir, "models.json"), []byte(catJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outStr, errStr, code := runCLIWithErr("models", "--explain", "--json", "--home", home)
+	if code != 0 || errStr != "" {
+		t.Fatalf("models --explain --json: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	var items []map[string]any
+	if err := json.Unmarshal([]byte(outStr), &items); err != nil || len(items) != 2 {
+		t.Fatalf("models --explain --json decode: len=%d err=%v out=%q", len(items), err, outStr)
+	}
+	outStr, errStr, code = runCLIWithErr("models", "--home", home, "--explain")
+	if code != 0 || !strings.Contains(outStr, "ID: gemini-4-carbon-high") || !strings.Contains(outStr, "ID: claude-opus-5-5-high") {
+		t.Fatalf("bare models --explain: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	for _, bad := range [][]string{
+		{"models", "--explain", "--pick", "builder", "--home", home},
+		{"models", "--explain", "--bench", "--home", home},
+	} {
+		if _, _, c := runCLIWithErr(bad...); c != 2 {
+			t.Errorf("%v: exit=%d want 2", bad, c)
+		}
+	}
+}
+
+func testV910ReportAutoIngest(t *testing.T) {
+	freshHome := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	proj := recordRepo(t)
+	agyHomeIn(t, freshHome, "33333333-3333-3333-3333-333333333333", proj)
+
+	// --no-ingest skips auto-ingest and fails with exit 1 "no metrics store".
+	outStr, _, code := runCLIWithErr("report", "--no-ingest", "--md", "--dir", proj, "--home", freshHome)
+	if code != 1 || !strings.Contains(outStr, "no metrics store") {
+		t.Fatalf("report --no-ingest on fresh home: code=%d out=%q", code, outStr)
+	}
+	if _, err := os.Stat(filepath.Join(freshHome, harness.StateDir, "metrics.db")); !os.IsNotExist(err) {
+		t.Fatalf("report --no-ingest created metrics.db")
+	}
+
+	// Default report auto-ingests incrementally and renders without manual prior ingest.
+	outStr, errStr, code := runCLIWithErr("report", "--md", "--since", "2026-10-01", "--dir", proj, "--home", freshHome)
+	if code != 0 || !strings.Contains(outStr, "| Sessions | 1 |") {
+		t.Fatalf("report auto-ingest: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	if _, _, c := runCLIWithErr("metrics", "show", "--no-ingest", "--home", freshHome); c != 2 {
+		t.Errorf("metrics show --no-ingest: exit=%d want 2", c)
+	}
+}
+
+func testV910RecordSyncStaleHint(t *testing.T) {
+	proj := recordRepo(t)
+	home := t.TempDir()
+	if _, err := recordCmd(t, "body 1\n", "record", "add", "bug", "--title", "bug one", "-C", proj, "--home", home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recordCmd(t, "", "record", "export", "-C", proj, "--home", home); err != nil {
+		t.Fatal(err)
+	}
+	// Matching counts: no stderr hint.
+	_, errStr, code := runCLIWithErr("record", "sync", "-C", proj, "--home", home)
+	if code != 0 || errStr != "" {
+		t.Fatalf("matching sync: code=%d stderr=%q", code, errStr)
+	}
+	// Add another record in brain.db without exporting: trail.jsonl is now stale.
+	if _, err := recordCmd(t, "body 2\n", "record", "add", "bug", "--title", "bug two", "-C", proj, "--home", home); err != nil {
+		t.Fatal(err)
+	}
+	outStr, errStr, code := runCLIWithErr("record", "sync", "-C", proj, "--home", home)
+	if code != 0 || outStr != "sync: 1 records loaded from .agents/trail.jsonl\n" {
+		t.Fatalf("stale sync: code=%d out=%q", code, outStr)
+	}
+	if !strings.Contains(errStr, "fyr record export") {
+		t.Errorf("stale sync missing export hint on stderr: %q", errStr)
+	}
+}
+
+func testV910LocalBinAgyLookup(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	localBin := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(localBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	agy := "#!/bin/sh\nif [ \"$1\" = \"models\" ]; then printf 'gemini-4-carbon-high\\tGemini 4 Carbon (High)\\n'; exit 0; fi\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(localBin, "agy"), []byte(agy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outStr, errStr, code := runCLIWithErr("dream", "--all", "--dry-run", "--home", home)
+	if code != 0 {
+		t.Fatalf("bare-PATH dream --all --dry-run with ~/.local/bin/agy: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	outStr, errStr, code = runCLIWithErr("models", "--home", home)
+	if code != 0 || !strings.Contains(outStr, "gemini-4-carbon-high") {
+		t.Fatalf("bare-PATH models with ~/.local/bin/agy: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+}

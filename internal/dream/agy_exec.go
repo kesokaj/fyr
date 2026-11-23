@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -49,7 +50,7 @@ func callWithin(argv []string, prompt, work string, env []string, timeout, grace
 		return "", "", err
 	}
 	err = runGroup(cmd, grace)
-	return cliResult(argv[0], timeout, ctx.Err(), out.kept.String(), errb.kept.String(), err)
+	return cliResult(filepath.Base(argv[0]), timeout, ctx.Err(), out.kept.String(), errb.kept.String(), err)
 }
 
 // runGroup runs cmd, made with exec.CommandContext, in its own process
@@ -103,7 +104,11 @@ func cliCommand(ctx context.Context, argv []string, prompt, work string, env []s
 		return nil, nil, nil, err
 	}
 	stdin := string(msg) + "\n"
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	exe := argv[0]
+	if resolved, ok := ResolveBinary(exe, ""); ok {
+		exe = resolved
+	}
+	cmd := exec.CommandContext(ctx, exe, argv[1:]...)
 	cmd.Dir = work
 	cmd.Env = env
 	cmd.Stdin = strings.NewReader(stdin)

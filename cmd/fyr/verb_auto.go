@@ -37,7 +37,7 @@ var autoFlags = map[string]map[string]bool{
 	"off":    {"dry-run": true},
 	"status": {},
 	"run":    {"dry-run": true, "force": true},
-	"log":    {"lines": true, "all": true},
+	"log":    {"lines": true, "limit": true, "all": true},
 	"sim": {
 		"signal": true, "path": true, "status": true, "limit": true, "json": true, "json-in": true,
 		"problem": true, "root-cause": true, "mechanism": true, "what": true, "files": true,
@@ -105,19 +105,35 @@ func (c *ctx) dispatchAutoSub(sub string, o auto.Options) error {
 		if reason := c.autoLogError(); reason != "" {
 			return usageErr(c.out, "auto", reason)
 		}
-		return auto.Log(o, c.autoLines, c.autoAll)
+		lines := c.autoLines
+		if c.limit > 0 {
+			lines = c.limit
+		}
+		return auto.Log(o, lines, c.autoAll)
 	}
 	return nil
 }
 
 func (c *ctx) autoLogError() string {
-	linesGiven := false
-	c.fs.Visit(func(f *flag.Flag) { linesGiven = linesGiven || f.Name == "lines" })
+	var linesGiven, limitGiven bool
+	c.fs.Visit(func(f *flag.Flag) {
+		linesGiven = linesGiven || f.Name == "lines"
+		limitGiven = limitGiven || f.Name == "limit"
+	})
+	if linesGiven && limitGiven {
+		return "fyr auto log: --lines and --limit exclude each other"
+	}
 	if c.autoLines < 0 || (linesGiven && c.autoLines <= 0) {
 		return "fyr auto log: --lines must be above 0"
 	}
+	if c.limit < 0 || (limitGiven && c.limit <= 0) {
+		return "fyr auto log: --limit must be above 0"
+	}
 	if linesGiven && c.autoAll {
 		return "fyr auto log: --lines and --all exclude each other"
+	}
+	if limitGiven && c.autoAll {
+		return "fyr auto log: --limit and --all exclude each other"
 	}
 	return ""
 }

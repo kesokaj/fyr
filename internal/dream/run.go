@@ -112,10 +112,10 @@ func (o Options) sweepIdle() {
 // prepareAgy checks the CLI and makes the empty working directory; each
 // project's HOME is its branch's (branchFor).
 func (r *dreamRun) prepareAgy() error {
-	r.argv = commandWithModel(r.o.resolveModel())
-	if err := checkAgy(); err != nil {
+	if err := checkAgy(r.o.Home); err != nil {
 		return err
 	}
+	r.argv = commandFor(r.o.Home, r.o.resolveModel())
 	r.work = harness.DreamWork(r.o.Home)
 	return os.MkdirAll(r.work, 0o700)
 }
@@ -208,7 +208,7 @@ func (r *dreamRun) project(p search.Project) {
 	if !ok {
 		return
 	}
-	nProps, nRatings, err := r.o.writeCounts(r.conf, c, resp, r.argv[0], r.t0)
+	nProps, nRatings, err := r.o.writeCounts(r.conf, c, resp, filepath.Base(r.argv[0]), r.t0)
 	if err != nil {
 		r.failed++
 		r.logf(p.Root + " fail " + scrub(err.Error(), r.o.Home))

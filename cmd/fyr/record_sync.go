@@ -20,10 +20,19 @@ func recordExport(c *ctx, o brain.Options) error {
 // recordSync serves `record sync`: loads .agents/trail.jsonl into brain.db and
 // its FTS5 index on demand.
 func recordSync(c *ctx, o brain.Options) error {
+	priorCount := 0
+	if !o.Global {
+		if prior, ok, rerr := brain.ReadScope(o.Home, o.Dir); rerr == nil && ok {
+			priorCount = len(prior)
+		}
+	}
 	recs, err := brain.Sync(o)
 	if err == nil {
 		fmt.Fprintf(c.out, "sync: %d records loaded from .agents/trail.jsonl\n", len(recs))
 		warnSyncRedactable(recs)
+		if priorCount > len(recs) {
+			fmt.Fprintf(stderr, "fyr record sync: hint: brain.db had %d exported records for this project vs %d in .agents/trail.jsonl; run `fyr record export` when brain.db is newer\n", priorCount, len(recs))
+		}
 	}
 	return recordErr(c, err)
 }

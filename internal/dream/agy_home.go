@@ -14,12 +14,13 @@ import (
 )
 
 // checkAgy is the one refusal a run makes about the Antigravity CLI before
-// it creates anything: agy on PATH. The login belongs to the branch (the
-// visible one reads it under --home, the private one under $HOME, plan
-// D12), so a missing one fails a project, not the run. The dry run calls it
-// too, so it refuses what the run refuses (SD27 of the 2026-10-27 audit).
-func checkAgy() error {
-	if name := command()[0]; !onPath(name) {
+// it creates anything: agy on PATH or in sibling/~/.local/bin. The login
+// belongs to the branch (the visible one reads it under --home, the private
+// one under $HOME, plan D12), so a missing one fails a project, not the run.
+// The dry run calls it too, so it refuses what the run refuses (SD27).
+func checkAgy(home string) error {
+	name := command()[0]
+	if _, ok := ResolveBinary(name, home); !ok {
 		return fmt.Errorf("no %s on PATH: the dream job runs the Antigravity CLI", name)
 	}
 	return nil
@@ -185,8 +186,71 @@ func removeCopies(conf string, now time.Time) {
 	}
 }
 
-// onPath reports whether name resolves on PATH.
-func onPath(name string) bool {
-	_, err := exec.LookPath(name)
-	return err == nil
+// dreamExecutable is os.Executable; a test replaces it to verify sibling lookup.
+var dreamExecutable = os.Executable
+
+// ResolveBinary locates name by checking PATH first, then the directory beside
+// the running executable, then home/.local/bin and $HOME/.local/bin.
+func ResolveBinary(name, home string) (string, bool) {
+	if name == "" {
+		return "", false
+	}
+	if p, err := exec.LookPath(name); err == nil {
+		return p, true
+	}
+	if strings.ContainsRune(name, filepath.Separator) {
+		return "", false
+	}
+	for _, dir := range localBinDirs(home) {
+		cand := filepath.Join(dir, name)
+		if isExecutableFile(cand) {
+			return cand, true
+		}
+	}
+	return "", false
+}
+
+// resolveFallbackBinary resolves name from local/sibling bin dirs only when
+// name is absent from PATH, preserving bare command names on normal PATHs.
+func resolveFallbackBinary(name, home string) (string, bool) {
+	if name == "" {
+		return "", false
+	}
+	if _, err := exec.LookPath(name); err == nil {
+		return "", false
+	}
+	return ResolveBinary(name, home)
+}
+
+func localBinDirs(home string) []string {
+	var dirs []string
+	seen := map[string]bool{}
+	add := func(d string) {
+		if d == "" {
+			return
+		}
+		d = filepath.Clean(d)
+		if !seen[d] {
+			seen[d] = true
+			dirs = append(dirs, d)
+		}
+	}
+	if exe, err := dreamExecutable(); err == nil && exe != "" {
+		add(filepath.Dir(exe))
+		if realExe, err := filepath.EvalSymlinks(exe); err == nil && realExe != "" {
+			add(filepath.Dir(realExe))
+		}
+	}
+	if home != "" && filepath.IsAbs(home) {
+		add(filepath.Join(home, ".local", "bin"))
+	}
+	if envHome := os.Getenv("HOME"); envHome != "" && filepath.IsAbs(envHome) {
+		add(filepath.Join(envHome, ".local", "bin"))
+	}
+	return dirs
+}
+
+func isExecutableFile(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0
 }

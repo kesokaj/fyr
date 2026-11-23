@@ -60,6 +60,9 @@ var unexportedSQL = func() string {
 // maxBody is the largest body a record takes.
 const maxBody = 1 << 20
 
+// MaxBodyBytes is the largest body a record takes (1 MiB).
+const MaxBodyBytes = maxBody
+
 // maxTitle is the longest title, in bytes: one line a list or a hit prints.
 const maxTitle = 512
 

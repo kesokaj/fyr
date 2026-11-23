@@ -186,7 +186,7 @@ var coreVerbPages = map[string]verbPage{
 			"usage: fyr memory add [--type T --name SLUG --description TEXT]",
 			"                      [--body-file FILE | --json-in]",
 			"                      [--provenance operator|derived] [--global]",
-			"       fyr memory show [--global] [--include-low] [--json]",
+			"       fyr memory show [--global] [--include-low] [--limit N] [--json]",
 		},
 		about: []string{
 			"Project or shared (--global) memory cards in the brain store, never exported.",

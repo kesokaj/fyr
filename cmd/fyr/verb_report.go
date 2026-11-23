@@ -51,6 +51,14 @@ func (c *ctx) renderReport(prefix string) error {
 	if err != nil {
 		return usageErr(c.out, c.cmd, prefix+": "+err.Error())
 	}
+	if !c.noIngest {
+		r, ierr := ingestInto(metrics.Options{Home: c.home}, io.Discard)
+		if ierr != nil {
+			fmt.Fprintf(stderr, "%s: warning: auto-ingest failed: %v\n", prefix, ierr)
+		} else if len(r.Failed) > 0 {
+			fmt.Fprintf(stderr, "%s: warning: auto-ingest had %d failed source(s)\n", prefix, len(r.Failed))
+		}
+	}
 	s, err := c.existingMetricsStore()
 	if err != nil {
 		return err

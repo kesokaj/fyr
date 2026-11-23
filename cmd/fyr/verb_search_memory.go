@@ -35,12 +35,19 @@ func runMemory(c *ctx) error {
 		fmt.Fprintln(c.out, "fyr memory: show takes no --type, --name, --description, --body-file, --json-in or --provenance")
 		return exitCode(2)
 	}
-	if args[0] == "add" && (given["json"] || given["include-low"]) {
-		if given["include-low"] {
+	if args[0] == "add" && (given["json"] || given["include-low"] || given["limit"]) {
+		switch {
+		case given["include-low"]:
 			fmt.Fprintln(c.out, "fyr memory: add takes no --include-low")
-		} else {
+		case given["limit"]:
+			fmt.Fprintln(c.out, "fyr memory: add takes no --limit")
+		default:
 			fmt.Fprintln(c.out, "fyr memory: add takes no --json")
 		}
+		return exitCode(2)
+	}
+	if args[0] == "show" && c.limit < 0 {
+		fmt.Fprintln(c.out, "fyr memory: --limit must be >= 0")
 		return exitCode(2)
 	}
 	wd, err := c.projectDir()
@@ -49,7 +56,7 @@ func runMemory(c *ctx) error {
 	}
 	o := brain.Options{Home: c.home, Dir: wd, Global: c.global}
 	if args[0] == "show" {
-		showOpts := brain.MemoryShowOptions{IncludeLow: c.memIncludeLow}
+		showOpts := brain.MemoryShowOptions{IncludeLow: c.memIncludeLow, Limit: c.limit}
 		if c.jsonOut {
 			text, serr := brain.MemoryShowJSONWithOptions(o, showOpts)
 			return memoryFinish(serr, text, c.out)

@@ -131,7 +131,7 @@ func (c *ctx) metricsShow(args []string) error {
 
 // metricsReport serves `metrics report`: HTML, --md, --json, --daily-digest, or --web.
 func (c *ctx) metricsReport(args []string) error {
-	if bad := c.metricsFlagsOutside("since", "since-tag", "until", "project", "global", "md", "json", "daily-digest", "web", "listen", "include-sandboxes", "label", "all-labels", "context-target", "out"); bad != "" {
+	if bad := c.metricsFlagsOutside("since", "since-tag", "until", "project", "global", "md", "json", "daily-digest", "web", "listen", "include-sandboxes", "label", "all-labels", "context-target", "out", "no-ingest"); bad != "" {
 		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics report: --%s does not apply to report", bad))
 	}
 	if len(args) > 0 {
@@ -288,8 +288,8 @@ func (c *ctx) validateReportAndShowFlags() error {
 	if (c.metricsOut != "" || outGiven) && !isReport {
 		return errors.New("--out belongs to report")
 	}
-	if (c.global || c.metricsMD || c.metricsWeb || c.metricsDailyDigest || listenGiven || c.metricsListen != "") && !isReport {
-		return errors.New("--global, --md, --web, --listen and --daily-digest belong to report")
+	if (c.global || c.metricsMD || c.metricsWeb || c.metricsDailyDigest || c.noIngest || listenGiven || c.metricsListen != "") && !isReport {
+		return errors.New("--global, --md, --web, --listen, --daily-digest and --no-ingest belong to report")
 	}
 	if ctxGiven && c.metricsContextTarget <= 0 {
 		return errors.New("--context-target takes a token count above 0")

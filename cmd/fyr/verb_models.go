@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -14,17 +13,20 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/trail"
 )
+
+const bareExplainSentinel = "\x00all"
 
 func init() {
 	verbs["models"] = verb{
 		flags: func(c *ctx) {
 			c.fs.Bool("bench", false, "probe up to --max 0-run active models and record kind=bench trials")
 			c.fs.String("caller-family", "", "with --pick: caller `FAMILY` (gemini, anthropic or other)")
-			c.fs.StringVar(&c.modelsExplain, "explain", "", "print profile, score breakdown, and empirical stats for model `ID`")
+			c.fs.StringVar(&c.modelsExplain, "explain", "", "print profile, score breakdown, and empirical stats for model `ID` (or all if omitted)")
 			c.fs.BoolVar(&c.jsonOut, "json", false, "print the catalog, --pick, --explain or --bench result as JSON")
 			c.fs.Int("max", models.DefaultBenchMax, "with --bench: probe at most `N` 0-run active models (default 3)")
 			c.fs.String("model", "", "with --bench: probe only the active non-interactive model `ID`")
@@ -99,7 +101,7 @@ func runModels(c *ctx) error {
 	sig, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
-	agyPath, _ := exec.LookPath("agy")
+	agyPath, _ := dream.ResolveBinary("agy", c.home)
 	cat, poolsProbed, err := loadOrRefreshCatalog(sig, c, agyPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "models: %v\n", err)
@@ -267,6 +269,22 @@ func writeIndentedJSON(c *ctx, v any) error {
 }
 
 func runModelsExplain(c *ctx, cat models.Catalog, target string) error {
+	if target == bareExplainSentinel {
+		if c.jsonOut {
+			entries := cat.Entries
+			if entries == nil {
+				entries = []models.CatalogEntry{}
+			}
+			return writeIndentedJSON(c, entries)
+		}
+		for i, e := range cat.Entries {
+			if i > 0 {
+				fmt.Fprintln(c.out)
+			}
+			printCatalogEntryDetail(c, e)
+		}
+		return nil
+	}
 	lowTarget := strings.ToLower(strings.TrimSpace(target))
 	for _, e := range cat.Entries {
 		if strings.EqualFold(e.ID, lowTarget) || strings.ToLower(e.Subfamily) == lowTarget {
@@ -362,7 +380,7 @@ func refreshModelsBestEffort(parent context.Context, home string) {
 	if home == "" || models.CheckHomeDir(home) != nil || trail.Command(home, "rev-parse", "--git-dir").Run() == nil {
 		return
 	}
-	if agyPath, err := exec.LookPath("agy"); err == nil {
+	if agyPath, ok := dream.ResolveBinary("agy", home); ok {
 		ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 		defer cancel()
 		_, _ = models.RefreshCatalog(ctx, home, agyPath, loadMetricsModelEvidence(home))

@@ -36,6 +36,7 @@ type ctx struct {
 	metricsUntil, metricsSinceTag, metricsHarness, metricsListen                                      string
 	metricsContextTarget                                                                              int64
 	metricsAllLabels, metricsJSON, metricsMD, metricsWeb, metricsDailyDigest, metricsIncludeSandboxes bool
+	noIngest                                                                                          bool
 	recTitle, recTitleFile, recBodyFile, recOut, recStatus, recID, recProject                         string
 	recBody, recAll                                                                                   bool
 	evalFixture                                                                                       string
@@ -115,6 +116,7 @@ var verbs = map[string]verb{
 		c.fs.BoolVar(&c.memIncludeLow, "include-low", false, "show: include cards with validity < 0.40")
 		c.fs.BoolVar(&c.jsonIn, "json-in", false, "add: read JSON payload from stdin")
 		c.fs.BoolVar(&c.jsonOut, "json", false, "show: print the memory index as JSON")
+		c.fs.IntVar(&c.limit, "limit", 0, "show: print at most `N` memory cards")
 	}, positional: true, run: runMemory},
 	"dream": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.dreamAll, "all", false, "every workspace discovered from conversations, brain.db and search.db")
@@ -126,6 +128,7 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.autoLevel, "level", "", "on: deprecated no-op `L` (fyr auto is now binary on/off)")
 		c.fs.StringVar(&c.autoProjectIdle, "project-idle", "", "on: deprecated no-op `D` (use --conversation-idle)")
 		c.fs.StringVar(&c.autoUserIdle, "user-idle", "", "on: deprecated no-op `D` (use --conversation-idle)")
+		c.fs.IntVar(&c.limit, "limit", 0, "log: alias for --lines, print the last `N` lines of auto.log")
 		c.fs.IntVar(&c.autoLines, "lines", 0, "log: print the last `N` lines of auto.log (default 50)")
 		c.fs.BoolVar(&c.autoAll, "all", false, "log: print every line of auto.log")
 		c.fs.BoolVar(&c.force, "force", false, "run: bypass the 4h model-run cooldown")
@@ -230,7 +233,7 @@ func (c *ctx) registerReportFlags(withSubverbs bool) {
 	out := "the output file `FILE` (default ~/.config/fyr/reports/<date-time>-metrics.html)"
 	label := "only sessions with `KEY=VALUE`"
 	if withSubverbs {
-		project = "show, report, trajectory: only sessions in the project root `DIR`"
+		project = "show, trajectory: only sessions in `DIR` (required); report: DIR (bare uses checkout)"
 		out = "report: the HTML, Markdown or JSON file `FILE` to write (default ~/.config/fyr/reports/<date-time>-metrics.html)"
 		label = "ingest: `KEY=VALUE` stamped on every --source session; show, report: only that label"
 	} else {
@@ -245,6 +248,7 @@ func (c *ctx) registerReportFlags(withSubverbs bool) {
 	c.fs.BoolVar(&c.metricsDailyDigest, "daily-digest", false, p("report", "compute, store and print today's daily health digest"))
 	c.fs.BoolVar(&c.metricsWeb, "web", false, p("report", "serve the rendered report in memory on 127.0.0.1:0 in the foreground"))
 	c.fs.StringVar(&c.metricsListen, "listen", "", p("report", "with --web, bind `ADDR` instead of 127.0.0.1:0"))
+	c.fs.BoolVar(&c.noIngest, "no-ingest", false, p("report", "skip incremental metrics ingest before rendering"))
 	c.fs.BoolVar(&c.metricsIncludeSandboxes, "include-sandboxes", false, p("show, report", "include ephemeral eval, smoke, probe and scratch roots"))
 	c.fs.BoolVar(&c.metricsAllLabels, "all-labels", false, p("show, report", "include labelled (sandbox) sessions"))
 	c.fs.Int64Var(&c.metricsContextTarget, "context-target", 0, p("show, report", "the peak context, `N` tokens, a main session should stay under (default 300000)"))

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
@@ -197,5 +198,81 @@ func TestV910DreamAgyRemoteControlServe(t *testing.T) {
 	}
 	if got, err := agySession("darwin", 501); err != nil || !got {
 		t.Errorf("agySession(darwin, remote-control serve) = %v, %v; want true", got, err)
+	}
+}
+
+func TestV910ResolveBinaryLocalBin(t *testing.T) {
+	origPATH := os.Getenv("PATH")
+	home := t.TempDir()
+	envHome := t.TempDir()
+	siblingDir := t.TempDir()
+	t.Setenv("HOME", envHome)
+	t.Setenv("PATH", t.TempDir())
+
+	origExe := dreamExecutable
+	t.Cleanup(func() { dreamExecutable = origExe })
+	dreamExecutable = func() (string, error) { return filepath.Join(siblingDir, "fyr"), nil }
+
+	// Nothing installed yet: must return false (never leaks real operator $HOME).
+	if p, ok := ResolveBinary("agy", home); ok {
+		t.Fatalf("ResolveBinary with bare PATH/HOME leaked %q", p)
+	}
+	// Non-executable file in home/.local/bin must be ignored.
+	homeBin := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(homeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nonExec := filepath.Join(homeBin, "agy")
+	if err := os.WriteFile(nonExec, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if p, ok := ResolveBinary("agy", home); ok {
+		t.Fatalf("ResolveBinary accepted non-executable %q", p)
+	}
+	// Executable in $HOME/.local/bin resolves when home/.local/bin is not executable.
+	envBin := filepath.Join(envHome, ".local", "bin")
+	if err := os.MkdirAll(envBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	envAgy := filepath.Join(envBin, "agy")
+	if err := os.WriteFile(envAgy, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if p, ok := ResolveBinary("agy", home); !ok || p != envAgy {
+		t.Fatalf("ResolveBinary($HOME/.local/bin) = (%q, %v), want (%q, true)", p, ok, envAgy)
+	}
+	// Executable in home/.local/bin takes precedence over $HOME/.local/bin.
+	if err := os.Chmod(nonExec, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if p, ok := ResolveBinary("agy", home); !ok || p != nonExec {
+		t.Fatalf("ResolveBinary(home/.local/bin) = (%q, %v), want (%q, true)", p, ok, nonExec)
+	}
+	// Executable sibling dir takes precedence over home/.local/bin.
+	sibAgy := filepath.Join(siblingDir, "agy")
+	if err := os.WriteFile(sibAgy, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if p, ok := ResolveBinary("agy", home); !ok || p != sibAgy {
+		t.Fatalf("ResolveBinary(sibling) = (%q, %v), want (%q, true)", p, ok, sibAgy)
+	}
+	// Bare-PATH dream --dry-run locates home/.local/bin/agy cleanly.
+	t.Setenv("PATH", origPATH)
+	f := newFixture(t)
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	dreamExecutable = origExe
+	fBin := filepath.Join(f.home, ".local", "bin")
+	if err := os.MkdirAll(fBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fBin, "agy"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	o := Options{Home: f.home, All: true, DryRun: true, Out: &out, Now: func() time.Time { return now }, Active: idle, Scopes: noScopes,
+		Projects: func(string) ([]search.Project, error) { return []search.Project{project(f)}, nil }}
+	if err := Run(o); err != nil {
+		t.Fatalf("bare-PATH dry-run with home/.local/bin/agy: %v\n%s", err, out.String())
 	}
 }

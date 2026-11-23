@@ -278,6 +278,14 @@ func commandWithModel(model string) []string {
 	return append(out, base[len(base)-2:]...)
 }
 
+func commandFor(home, model string) []string {
+	argv := commandWithModel(model)
+	if p, ok := resolveFallbackBinary(argv[0], home); ok {
+		argv[0] = p
+	}
+	return argv
+}
+
 func (o Options) resolveModel() string {
 	if m := strings.TrimSpace(o.Model); m != "" {
 		return m

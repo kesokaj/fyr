@@ -18,7 +18,10 @@ func run(args []string, out io.Writer) error {
 		fmt.Fprint(out, shortPage)
 		return nil
 	}
-	cmd, rest := args[0], args[1:]
+	cmd, rest, errMsg := splitLeadingVerb(args)
+	if errMsg != "" {
+		return usageErr(out, "", errMsg)
+	}
 	if cmd == "help" || cmd == "-h" || cmd == "-help" || cmd == "--help" {
 		return runHelp(rest, out)
 	}
@@ -38,6 +41,10 @@ func run(args []string, out io.Writer) error {
 	}
 
 	c := newCtx(cmd, v, out)
+	return c.execute(v, rest)
+}
+
+func (c *ctx) execute(v verb, rest []string) error {
 	if stop, err := c.parse(v, rest); stop {
 		return err
 	}
@@ -175,13 +182,50 @@ func (c *ctx) updateFromZipFlag() (zip bool, err error) {
 	return true, updateFromZip(c.fromZip, c.home, c.dryRun, c.out)
 }
 
+// splitLeadingVerb accepts leading global flags (-C, --dir, --home, --repo in
+// space-separated or = forms, single or double dash) before the verb or help,
+// splicing them right after the verb so FlagSet parses them identically.
+func splitLeadingVerb(args []string) (cmd string, rest []string, errMsg string) {
+	var leading []string
+	i := 0
+	for i < len(args) {
+		a := args[i]
+		name, ok := flagTokenName(a)
+		if !ok || !isGlobalFlag(name) {
+			break
+		}
+		if _, val, hasEq := strings.Cut(a, "="); hasEq {
+			if val == "" {
+				return "", nil, fmt.Sprintf("fyr: flag needs an argument: %s", a)
+			}
+			leading = append(leading, a)
+			i++
+			continue
+		}
+		if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+			return "", nil, fmt.Sprintf("fyr: flag needs an argument: %s", a)
+		}
+		leading = append(leading, a, args[i+1])
+		i += 2
+	}
+	if i >= len(args) {
+		return "", nil, "fyr: missing command"
+	}
+	cmd, rest = args[i], args[i+1:]
+	if len(leading) > 0 {
+		rest = append(append([]string(nil), leading...), rest...)
+	}
+	return cmd, rest, ""
+}
+
 // writesState reports whether this invocation may write under the state
 // directory, and so moves the old one first (plan fyr D13). A dry run, a
 // --check and a verb or subcommand that only reads answer false, except
 // record: every record verb but a dry-run import answers true, get and list
-// included, because a read loads a changed trail.jsonl. The table is
-// by verb, so it errs early on purpose: adopt (which writes into the repo), a
-// project-local search or index (which writes .agents/scratch/search.db)
+// included, because opening brain.db may create or migrate it (record reads
+// do not auto-load trail.jsonl; record sync loads it on demand, ADR-091).
+// The table is by verb, so it errs early on purpose: adopt (which writes into
+// the repo), a project-local search or index (which writes .agents/scratch/search.db)
 // writes nothing there, yet migrates too. Moving the old directory early is harmless — one rename, refused for
 // a symlink, and both directories present are left alone — and a verb that
 // starts writing there later needs no change here (IN18).
@@ -190,17 +234,18 @@ func (c *ctx) writesState() bool {
 	case "install", "sync", "uninstall", "adopt", "index", "search", "dream":
 		return !c.dryRun
 	case "record":
-		// Every record verb may write the brain store: a read loads a
-		// trail.jsonl that changed under it (ADR-063, D21). Only import takes
-		// --dry-run, which writes nothing (IN33 of the 2026-10-27 audit).
+		// Every record verb except import --dry-run opens brain.db (creating
+		// or migrating it; reads do not auto-load trail.jsonl, ADR-091).
 		return !c.dryRun
 	case "update":
 		return !c.dryRun && !c.check
 	case "memory":
 		return c.fs.Arg(0) == "add"
+	case "report":
+		return !c.noIngest
 	case "metrics":
 		sub := c.fs.Arg(0)
-		return sub == "ingest" || sub == "record-run"
+		return sub == "ingest" || sub == "record-run" || (sub == "report" && !c.noIngest)
 	case "eval":
 		// Sandboxes, the metrics store and the testing record; --list reads,
 		// and a refused --home is refused before anything moves (D37).
@@ -289,15 +334,9 @@ func reorder(fs *flag.FlagSet, args []string) []string {
 			positional = append(positional, args[i+1:]...)
 			i = len(args)
 		case strings.HasPrefix(a, "-"):
-			if (a == "--project" || a == "-project") && valueFlags[a] && (i+1 == len(args) || strings.HasPrefix(args[i+1], "-")) {
-				if isReportBareProject(fs, args, i, valueFlags) {
-					flags = append(flags, "--project="+bareProjectSentinel)
-					continue
-				}
-				if fs.Name() == "metrics" {
-					flags = append(flags, "--project="+missingProjectSentinel)
-					continue
-				}
+			if rewritten, ok := rewriteBareValueFlag(fs, args, i, valueFlags); ok {
+				flags = append(flags, rewritten)
+				continue
 			}
 			flags = append(flags, a)
 			if valueFlags[a] && i+1 < len(args) {
@@ -312,6 +351,25 @@ func reorder(fs *flag.FlagSet, args []string) []string {
 		flags = append(flags, "--")
 	}
 	return append(flags, positional...)
+}
+
+func rewriteBareValueFlag(fs *flag.FlagSet, args []string, i int, valueFlags map[string]bool) (string, bool) {
+	a := args[i]
+	if !valueFlags[a] || (i+1 < len(args) && !strings.HasPrefix(args[i+1], "-")) {
+		return "", false
+	}
+	if a == "--project" || a == "-project" {
+		if isReportBareProject(fs, args, i, valueFlags) {
+			return "--project=" + bareProjectSentinel, true
+		}
+		if fs.Name() == "metrics" {
+			return "--project=" + missingProjectSentinel, true
+		}
+	}
+	if fs.Name() == "models" && (a == "--explain" || a == "-explain") {
+		return "--explain=" + bareExplainSentinel, true
+	}
+	return "", false
 }
 
 func isReportBareProject(fs *flag.FlagSet, args []string, i int, valueFlags map[string]bool) bool {

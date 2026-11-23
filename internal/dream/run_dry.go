@@ -34,7 +34,7 @@ func (o Options) dryRun(projects []search.Project, skips []skipped, st state) er
 	for _, p := range projects {
 		o.dryProject(p, st, cli)
 	}
-	if err := checkAgy(); err != nil {
+	if err := checkAgy(o.Home); err != nil {
 		if !sessionOn {
 			fmt.Fprintf(o.Out, "[dry-run] warning: %s\n", err.Error())
 			return nil

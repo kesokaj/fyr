@@ -83,7 +83,11 @@ func (o Options) dryBranch() string {
 	if _, err := os.Lstat(work); errors.Is(err, fs.ErrNotExist) {
 		return "agy home not asked: no dream-work yet; a real run makes it, then asks the oracle"
 	}
-	ok, why := visibleHome(command()[0], o.Home, work, os.Environ())
+	argv0 := command()[0]
+	if p, ok := ResolveBinary(argv0, o.Home); ok {
+		argv0 = p
+	}
+	ok, why := visibleHome(argv0, o.Home, work, os.Environ())
 	if ok {
 		return "agy home visible (HOME " + o.Home + ")"
 	}

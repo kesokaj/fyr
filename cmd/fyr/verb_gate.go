@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,7 +10,10 @@ import (
 	"io"
 	"os"
 	"strings"
+	"syscall"
+	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/gate"
 	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/search"
@@ -216,16 +220,89 @@ func runClose(c *ctx) error {
 func readCloseBody(c *ctx) (string, error) {
 	bodySet := false
 	c.fs.Visit(func(f *flag.Flag) { bodySet = bodySet || f.Name == "body-file" })
-	r, cleanup, err := openBodyReader(c.closeBodyFile, bodySet)
-	if err != nil {
-		return "", err
+	var (
+		r       io.Reader
+		cleanup = func() {}
+		err     error
+	)
+	if !bodySet {
+		var ok bool
+		r, ok = peekCloseStdin(stdin)
+		if !ok {
+			return "", fmt.Errorf("%w: no body on stdin; pass --body-file <file> or pipe a handoff body on stdin", gate.ErrRefused)
+		}
+	} else {
+		r, cleanup, err = openBodyReader(c.closeBodyFile, true)
+		if err != nil {
+			if brain.IsRefusal(err) || brain.IsUsage(err) {
+				return "", fmt.Errorf("%w: %v", gate.ErrRefused, err)
+			}
+			return "", err
+		}
 	}
 	defer cleanup()
-	raw, err := io.ReadAll(r)
+	raw, err := io.ReadAll(io.LimitReader(r, brain.MaxBodyBytes+1))
 	if err != nil {
 		return "", err
 	}
+	if len(raw) > brain.MaxBodyBytes {
+		return "", fmt.Errorf("%w: handoff body exceeds %d bytes", gate.ErrRefused, brain.MaxBodyBytes)
+	}
 	return string(raw), nil
+}
+
+// peekCloseStdin checks whether stdin carries immediate data without blocking
+// on a TTY or idle open pipe and without discarding the first read byte.
+func peekCloseStdin(r io.Reader) (io.Reader, bool) {
+	if r == nil {
+		return nil, false
+	}
+	if f, ok := r.(*os.File); ok {
+		fi, err := f.Stat()
+		if err != nil || fi.Mode()&os.ModeCharDevice != 0 {
+			return nil, false
+		}
+		if fi.Mode().IsRegular() {
+			return peekOneByte(f)
+		}
+		return peekNonBlockPipe(f)
+	}
+	return peekOneByte(r)
+}
+
+func peekOneByte(r io.Reader) (io.Reader, bool) {
+	var b [1]byte
+	n, _ := r.Read(b[:])
+	if n == 0 {
+		return nil, false
+	}
+	return io.MultiReader(bytes.NewReader(b[:n]), r), true
+}
+
+func peekNonBlockPipe(f *os.File) (io.Reader, bool) {
+	fd := int(f.Fd())
+	if err := syscall.SetNonblock(fd, true); err != nil {
+		return nil, false
+	}
+	defer syscall.SetNonblock(fd, false)
+	var b [1]byte
+	deadline := time.Now().Add(15 * time.Millisecond)
+	for {
+		n, err := syscall.Read(fd, b[:])
+		if n > 0 {
+			return io.MultiReader(bytes.NewReader(b[:n]), f), true
+		}
+		if err == nil {
+			return nil, false
+		}
+		if !errors.Is(err, syscall.EAGAIN) && !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
+			return nil, false
+		}
+		if !time.Now().Before(deadline) {
+			return nil, false
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 }
 
 func emitGateOutcome[T any](c *ctx, rep T, hasReport bool, err error, printText func(io.Writer, T)) error {
