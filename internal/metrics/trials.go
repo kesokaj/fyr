@@ -165,9 +165,9 @@ func (s *Store) trialsIn(o ShowOptions, since, now time.Time) ([]trial, error) {
 	return out, rows.Err()
 }
 
-// RunModels is the distinct models of the sessions whose run is among runs,
-// sorted; a session with no model is left out, and no run gives none. The
-// testing record's header names them (SPEC-fyr-eval § The testing record).
+// RunModels is the distinct models of the main sessions whose run is among
+// runs, sorted; subagent sessions, sessions with no model, and empty runs are
+// left out (F-011). The testing record's header and policy_model read them.
 func (s *Store) RunModels(runs []string) ([]string, error) {
 	if len(runs) == 0 {
 		return nil, nil
@@ -177,6 +177,7 @@ func (s *Store) RunModels(runs []string) ([]string, error) {
 		args[i] = r
 	}
 	rows, err := s.db.Query(`SELECT DISTINCT model FROM sessions WHERE model IS NOT NULL AND model != ''
+		AND (parent_id IS NULL OR parent_id = '')
 		AND run IN (?`+strings.Repeat(", ?", len(runs)-1)+`) ORDER BY model`, args...)
 	if err != nil {
 		return nil, err

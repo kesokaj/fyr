@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -120,6 +122,8 @@ func (w *writer) agySteps(c agyConv, steps []agyStep) []int64 {
 		case agyReply:
 			w.timedStep(c.id, ext, ts, "assistant", startedCol, endedCol, waitCol)
 			replyTimes = append(replyTimes, ts)
+		case agyCheckpoint:
+			w.step(c.id, ext, ts, "compaction")
 		case agyTool:
 			w.agyTool(c, ext, ts, st, f, startedCol, endedCol, waitCol)
 		default:
@@ -203,37 +207,77 @@ func stepTimes(meta []byte, f fields) (started, ended int64, startedCol, endedCo
 // context, and the concrete model ID from (3,28) falling back to (1,19).
 // Bare stems paired with effort-suffixed variants collapse to the concrete ID.
 func (w *writer) agyGens(c agyConv, gens [][]byte, replyTimes []int64) {
+	w.agyGensWithOverrides(c, gens, replyTimes, nil)
+}
+
+func (w *writer) agyGensWithOverrides(c agyConv, gens [][]byte, replyTimes []int64, overrides map[string]int64) {
 	seenModels := map[string]bool{}
 	var firstModel string
+	var peakCtx, peakTS int64
 	for i, g := range gens {
 		f := fieldMap(g)
 		var ts any
+		var tsMS int64
 		if i < len(replyTimes) && replyTimes[i] > 0 {
-			ts = replyTimes[i]
+			ts, tsMS = replyTimes[i], replyTimes[i]
 		}
+		tokIn, tokOut, cacheRead := f.varint(1, 4, 2), f.varint(1, 4, 3), f.varint(1, 4, 5)
+		used := f.varint(1, 9, 10, 1)
 		var ctx any
-		if used := f.varint(1, 9, 10, 1); used > 0 {
+		if used > 0 {
 			ctx = used
+		}
+		effCtx := int64(used)
+		if effCtx == 0 {
+			effCtx = int64(tokIn + cacheRead)
+		}
+		if effCtx > peakCtx {
+			peakCtx = effCtx
+			if tsMS > 0 {
+				peakTS = tsMS
+			}
 		}
 		w.exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tok_in, tok_out, cache_read, context)
 			VALUES (?, ?, ?, 'generation', ?, ?, ?, ?) ON CONFLICT(session_id, ext_id) DO UPDATE SET
 				ts = excluded.ts, tok_in = excluded.tok_in, tok_out = excluded.tok_out,
 				cache_read = excluded.cache_read, context = excluded.context`,
-			c.id, fmt.Sprintf("%s:gen:%d", c.id, i), ts, f.varint(1, 4, 2), f.varint(1, 4, 3), f.varint(1, 4, 5), ctx)
-		m := identifier(f.text(3, 28))
-		if m == "" {
-			m = identifier(f.text(1, 19))
-		}
-		if m != "" {
+			c.id, fmt.Sprintf("%s:gen:%d", c.id, i), ts, tokIn, tokOut, cacheRead, ctx)
+		if m := genModelID(f); m != "" {
 			if firstModel == "" {
 				firstModel = m
 			}
 			seenModels[strings.ToLower(m)] = true
 		}
 	}
-	if sessionModel := normalizeSessionModel(firstModel, seenModels); sessionModel != "" {
+	sessionModel := normalizeSessionModel(firstModel, seenModels)
+	if sessionModel != "" {
 		w.exec(`UPDATE sessions SET model = ? WHERE id = ?`, sessionModel, c.id)
 	}
+	if len(gens) > 0 {
+		w.syncKneeExceededEvent(c, sessionModel, peakCtx, peakTS, overrides)
+	}
+}
+
+func genModelID(f fields) string {
+	if m := identifier(f.text(3, 28)); m != "" {
+		return m
+	}
+	return identifier(f.text(1, 19))
+}
+
+func (w *writer) syncKneeExceededEvent(c agyConv, sessionModel string, peakCtx, peakTS int64, overrides map[string]int64) {
+	knee := models.ContextKneeWithOverrides(sessionModel, overrides)
+	if knee > 0 && peakCtx >= knee {
+		ts := peakTS
+		if ts == 0 {
+			ts = c.modified
+		}
+		w.exec(`INSERT INTO events(session_id, ts, kind, ref, value) VALUES (?, ?, 'knee_exceeded', 'context_knee', ?)
+			ON CONFLICT(session_id, kind, ref) DO UPDATE SET ts = excluded.ts, value = excluded.value`,
+			c.id, ts, strconv.FormatInt(peakCtx, 10))
+		return
+	}
+	w.exec(`DELETE FROM events WHERE session_id = ? AND kind = 'knee_exceeded' AND ref = 'context_knee'`, c.id)
 }
 
 func normalizeSessionModel(first string, seen map[string]bool) string {

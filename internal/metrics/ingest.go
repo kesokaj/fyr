@@ -23,18 +23,26 @@ type Options struct {
 	// A Go field only: the kit's ingest surface has no flag for it (the
 	// eval-metrics plan D17).
 	Run string
+	// BrainHome is an optional alternate home whose brain.db is also read when
+	// joining trail and feedback events (e.g. an eval sandbox home sb whose
+	// sb/.config/fyr/brain.db holds records written during the trial, F-012).
+	BrainHome string
 }
 
 // Result counts one ingest.
 type Result struct {
-	Sessions, Steps, Events int
-	Failed                  []string
+	Sessions, Steps, Events, TurnVets int
+	Failed                            []string
 }
 
 // Line is the summary ingest prints.
 func (r Result) Line() string {
 	// No skipped-lines count: it belonged to the removed transcript-line
 	// reader and was never incremented (SD50 of the 2026-10-27 audit).
+	if r.TurnVets > 0 {
+		return fmt.Sprintf("metrics: %d sessions, %d steps, %d events, %d turn_vets added; %d sources failed",
+			r.Sessions, r.Steps, r.Events, r.TurnVets, len(r.Failed))
+	}
 	return fmt.Sprintf("metrics: %d sessions, %d steps, %d events added; %d sources failed",
 		r.Sessions, r.Steps, r.Events, len(r.Failed))
 }
@@ -120,9 +128,8 @@ func Ingest(s *Store, o Options, log io.Writer) (Result, error) {
 		}
 	}
 	// Events come from the real home's projects and its global feedback
-	// records, also for a --source run: its sessions' project roots are where
-	// git and the trail are.
-	notes, err := s.joinEvents(o.Home)
+	// records, plus BrainHome when a sandbox holds its own brain.db (F-012).
+	notes, err := s.joinEventsWithBrainHome(o.Home, o.BrainHome)
 	if err != nil {
 		r.Failed = append(r.Failed, "events")
 		fmt.Fprintln(log, printable(fmt.Sprintf("metrics: events: %v", err)))
@@ -132,21 +139,26 @@ func Ingest(s *Store, o Options, log io.Writer) (Result, error) {
 	}
 	if o.Source == "" {
 		ingestSecondBrainAndWaves(s, o.Home, log)
+	} else {
+		s.ingestSourceSecondBrain(o, log)
 	}
 	after, err := s.counts()
 	if err != nil {
 		return r, err
 	}
-	r.Sessions, r.Steps, r.Events = after[0]-before[0], after[1]-before[1], after[2]-before[2]
+	r.Sessions, r.Steps, r.Events, r.TurnVets = after[0]-before[0], after[1]-before[1], after[2]-before[2], after[3]-before[3]
 	return r, nil
 }
 
-func (s *Store) counts() ([3]int, error) {
-	var c [3]int
+func (s *Store) counts() ([4]int, error) {
+	var c [4]int
 	for i, t := range []string{"sessions", "steps", "events"} {
 		if err := s.db.QueryRow(`SELECT count(*) FROM ` + t).Scan(&c[i]); err != nil {
 			return c, err
 		}
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM turn_vets`).Scan(&c[3]); err != nil && !strings.Contains(err.Error(), "no such table") {
+		return c, err
 	}
 	return c, nil
 }

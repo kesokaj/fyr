@@ -3,6 +3,7 @@ package metrics
 import (
 	"database/sql"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 )
@@ -123,13 +124,14 @@ func scanVetHistoryRow(
 	if !cols["pivots_used_count"] && pivotsUsed == 0 {
 		pivotsUsed = countMatchedItems(pivotsCSV, readFiles[convID], false)
 	}
-	if !cols["skills_loaded_count"] && skillsLoaded == 0 {
-		skillsLoaded = countMatchedItems(skillsCSV, loadedSkills[convID], true)
+	if matched := countMatchedItems(skillsCSV, loadedSkills[convID], true); matched > skillsLoaded {
+		skillsLoaded = matched
 	}
 	return turnVetRow{
 		projectRoot: root, repoID: repoID, convID: convID, turnNum: turnNum,
 		intent: clipPrintable(intent, 64), gate: clipPrintable(gate, 64),
-		score: min(100, max(0, score)), bypassed: byp,
+		suggestedSkills: normalizeSuggestedSkillsCSV(skillsCSV),
+		score:           min(100, max(0, score)), bypassed: byp,
 		skillsCount: countCSVItems(skillsCSV), pivotsCount: countCSVItems(pivotsCSV),
 		ledger: max(0, saved), directive: clipPrintable(directive, 128),
 		subtaskCount: max(0, subtaskCnt), durationMS: max(0, durMS),
@@ -137,6 +139,25 @@ func scanVetHistoryRow(
 		pivotsUsedCount: max(0, pivotsUsed), skillsLoadedCount: max(0, skillsLoaded),
 		createdAt: createdAt,
 	}, nil
+}
+
+func normalizeSuggestedSkillsCSV(s string) string {
+	items := parseListItems(s)
+	if len(items) == 0 {
+		return ""
+	}
+	seen := map[string]bool{}
+	clean := make([]string, 0, len(items))
+	for _, raw := range items {
+		item := clipPrintable(raw, 64)
+		low := strings.ToLower(item)
+		if item == "" || seen[low] {
+			continue
+		}
+		seen[low] = true
+		clean = append(clean, item)
+	}
+	return clipPrintable(strings.Join(clean, ","), 512)
 }
 
 func parseListItems(s string) []string {
@@ -221,4 +242,69 @@ func (s *Store) readLoadedSkillsByConv() map[string]map[string]bool {
 		}
 	}
 	return out
+}
+
+func (s *Store) rootNeedsSuggestedSkillsBackfill(root string) bool {
+	if s == nil || s.db == nil {
+		return false
+	}
+	var one int
+	err := s.db.QueryRow(`SELECT 1 FROM turn_vets WHERE project_root = ? AND skills_count > 0 AND suggested_skills = '' LIMIT 1`, root).Scan(&one)
+	return err == nil
+}
+
+type skillLoadedUpdate struct {
+	root, convID string
+	turnNum      int
+	loaded       int
+}
+
+// rejoinTurnVetSkillsLoaded recomputes turn_vets.skills_loaded_count against
+// metrics.db.steps using the persisted suggested_skills CSV, so late-arriving
+// skill read steps update skills_loaded_count even when search.db mtime is
+// unchanged in ingest_state (F-039).
+func (s *Store) rejoinTurnVetSkillsLoaded(log io.Writer) {
+	loadedSkills := s.readLoadedSkillsByConv()
+	if len(loadedSkills) == 0 {
+		return
+	}
+	rows, err := s.db.Query(`SELECT project_root, conversation_id, turn_num, suggested_skills, skills_loaded_count FROM turn_vets WHERE suggested_skills != ''`)
+	if err != nil {
+		return
+	}
+	var updates []skillLoadedUpdate
+	for rows.Next() {
+		var root, convID, suggested string
+		var turnNum, cur int
+		if rows.Scan(&root, &convID, &turnNum, &suggested, &cur) != nil {
+			continue
+		}
+		if matched := countMatchedItems(suggested, loadedSkills[convID], true); matched > cur {
+			updates = append(updates, skillLoadedUpdate{root: root, convID: convID, turnNum: turnNum, loaded: matched})
+		}
+	}
+	rows.Close()
+	if len(updates) == 0 {
+		return
+	}
+	if err := s.applySkillLoadedUpdates(updates); err != nil {
+		noteSecondBrain(log, "turn_vets skills rejoin: %v", err)
+	}
+}
+
+func (s *Store) applySkillLoadedUpdates(updates []skillLoadedUpdate) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, u := range updates {
+		if _, err := tx.Exec(
+			`UPDATE turn_vets SET skills_loaded_count = ? WHERE project_root = ? AND conversation_id = ? AND turn_num = ?`,
+			u.loaded, u.root, u.convID, u.turnNum,
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

@@ -13,16 +13,18 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-// Antigravity step types and statuses (plan D35; Item 7).
+// Antigravity step types and statuses (plan D35; Item 7; v9.10.0 F-003).
 const (
-	agyUser    = 14
-	agyReply   = 15
-	agyTool    = 132
-	agyFailed  = 7
-	agyWaiting = 9
+	agyUser       = 14
+	agyReply      = 15
+	agyCheckpoint = 23
+	agyTool       = 132
+	agyFailed     = 7
+	agyWaiting    = 9
 )
 
 type agyConv struct {
@@ -67,7 +69,8 @@ func (s *Store) ingestAgy(o Options, r *Result, log io.Writer) {
 	}
 	unchanged, changed := s.agyConvSyncState(src, convs)
 	resolveWorktreeRootsFor(convs, s.db, changed)
-	s.ingestChangedAgyConvs(src, tmp, convs, unchanged, o, fail)
+	overrides := models.ContextWindowOverrides(resolveMetricsHome(ShowOptions{Home: o.Home}, s.path))
+	s.ingestChangedAgyConvs(src, tmp, convs, unchanged, o, overrides, fail)
 }
 
 func (s *Store) agyConvSyncState(src string, convs []agyConv) ([]bool, map[string]bool) {
@@ -91,7 +94,7 @@ func (s *Store) agyConvSyncState(src string, convs []agyConv) ([]bool, map[strin
 	return unchanged, changed
 }
 
-func (s *Store) ingestChangedAgyConvs(src, tmp string, convs []agyConv, unchanged []bool, o Options, fail func(string, error)) {
+func (s *Store) ingestChangedAgyConvs(src, tmp string, convs []agyConv, unchanged []bool, o Options, overrides map[string]int64, fail func(string, error)) {
 	for i, c := range convs {
 		source := filepath.Join(src, "conversations", c.id+".db")
 		if unchanged[i] {
@@ -107,7 +110,7 @@ func (s *Store) ingestChangedAgyConvs(src, tmp string, convs []agyConv, unchange
 			fail(source, errors.New("not a regular file"))
 			continue
 		}
-		if err := s.ingestAgyConversation(src, c, source, tmp, o); err != nil {
+		if err := s.ingestAgyConversationWithOverrides(src, c, source, tmp, o, overrides); err != nil {
 			fail(source, err)
 		}
 	}
@@ -216,6 +219,10 @@ func firstWorkspace(uris string) string {
 }
 
 func (s *Store) ingestAgyConversation(src string, c agyConv, source, tmp string, o Options) error {
+	return s.ingestAgyConversationWithOverrides(src, c, source, tmp, o, nil)
+}
+
+func (s *Store) ingestAgyConversationWithOverrides(src string, c agyConv, source, tmp string, o Options, overrides map[string]int64) error {
 	db, err := search.OpenCopy(filepath.Join(src, "conversations"), c.id+".db", tmp)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil // listed but not written yet
@@ -243,7 +250,7 @@ func (s *Store) ingestAgyConversation(src string, c agyConv, source, tmp string,
 	defer tx.Rollback()
 	w := writer{tx: tx, salt: salt, label: o.Label, outcome: o.Outcome, run: o.Run}
 	w.agySession(c)
-	w.agyGens(c, gens, w.agySteps(c, steps))
+	w.agyGensWithOverrides(c, gens, w.agySteps(c, steps), overrides)
 	w.agyIngestState(source, c.modified)
 	if w.err != nil {
 		return w.err

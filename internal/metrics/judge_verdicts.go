@@ -24,7 +24,13 @@ type JudgeVerdictRow struct {
 	Verdict         string `json:"verdict"`
 }
 
-const verdictTSMSExpr = `(CASE WHEN ts >= 100000000 AND ts < 100000000000 THEN ts * 1000 ELSE ts END)`
+const (
+	verdictTSMSExpr         = `(CASE WHEN ts >= 100000000 AND ts < 100000000000 THEN ts * 1000 ELSE ts END)`
+	sessionTSMSExpr         = `(CASE WHEN COALESCE(NULLIF(ended_at, 0), NULLIF(started_at, 0), 0) >= 100000000 AND COALESCE(NULLIF(ended_at, 0), NULLIF(started_at, 0), 0) < 100000000000 THEN COALESCE(NULLIF(ended_at, 0), NULLIF(started_at, 0), 0) * 1000 ELSE COALESCE(NULLIF(ended_at, 0), NULLIF(started_at, 0), 0) END)`
+	workerAttributionWindow = 24 * time.Hour
+)
+
+var judgeAttributionNow = time.Now
 
 // RecordJudgeVerdict validates and inserts row into <home>/<StateDir>/metrics.db.
 func RecordJudgeVerdict(home string, row JudgeVerdictRow) error {
@@ -124,7 +130,7 @@ func (s *Store) JudgeVerdicts(project string, since, now time.Time) ([]JudgeVerd
 // InferWorkerAttribution best-effort resolves (workerModel, workerSessionID) from
 // <home>/<StateDir>/metrics.db for a gate/land target when not explicitly set.
 func InferWorkerAttribution(home, projectRoot, target string) (string, string) {
-	if strings.TrimSpace(home) == "" || strings.TrimSpace(target) == "" {
+	if strings.TrimSpace(home) == "" || (strings.TrimSpace(projectRoot) == "" && strings.TrimSpace(target) == "") {
 		return "", ""
 	}
 	s, err := Open(Path(home))
@@ -137,26 +143,60 @@ func InferWorkerAttribution(home, projectRoot, target string) (string, string) {
 
 func (s *Store) inferWorkerAttribution(projectRoot, target string) (string, string) {
 	tgt := strings.TrimSpace(target)
-	cleanTgt := filepath.Clean(tgt)
-	var sid, mod string
-	if err := s.db.QueryRow(
-		`SELECT id, COALESCE(model, '') FROM sessions WHERE project_root = ? AND COALESCE(model, '') != '' ORDER BY COALESCE(ended_at, started_at, 0) DESC LIMIT 1`,
-		cleanTgt,
-	).Scan(&sid, &mod); err == nil && mod != "" {
-		return mod, sid
-	}
-	workerCand := strings.TrimPrefix(tgt, "work/")
-	if _, base, ok := strings.Cut(tgt, "/"); ok && !strings.HasPrefix(tgt, "/") {
-		workerCand = base
-	}
 	proj := ""
 	if strings.TrimSpace(projectRoot) != "" {
 		proj = filepath.Clean(projectRoot)
 	}
+	cutoffMS := judgeAttributionNow().Add(-workerAttributionWindow).UnixMilli()
+	if tgt != "" && filepath.IsAbs(tgt) {
+		if mod, sid := s.inferSessionByProject(filepath.Clean(tgt), "", cutoffMS); mod != "" {
+			return mod, sid
+		}
+	}
+	if tgt != "" {
+		if mod := s.inferWaveWorkerModel(proj, tgt); mod != "" {
+			_, sid := s.inferSessionByProject(proj, mod, cutoffMS)
+			return mod, sid
+		}
+	}
+	if proj != "" {
+		return s.inferSessionByProject(proj, "", cutoffMS)
+	}
+	return "", ""
+}
+
+func (s *Store) inferWaveWorkerModel(proj, tgt string) string {
+	workerCand := strings.TrimPrefix(tgt, "work/")
+	if _, base, ok := strings.Cut(tgt, "/"); ok && !strings.HasPrefix(tgt, "/") {
+		workerCand = base
+	}
+	var mod string
 	_ = s.db.QueryRow(
 		`SELECT model FROM work_waves WHERE (worker = ? OR worker = ? OR stamp || '/' || worker = ?) AND (? = '' OR project_root = '' OR project_root = ?) AND COALESCE(model, '') != '' ORDER BY updated_at DESC LIMIT 1`,
 		tgt, workerCand, tgt, proj, proj,
 	).Scan(&mod)
+	return mod
+}
+
+func (s *Store) inferSessionByProject(proj, modelFilter string, cutoffMS int64) (string, string) {
+	if proj == "" {
+		return "", ""
+	}
+	repoID := ResolveRepoID(proj)
+	var sid, mod string
+	err := s.db.QueryRow(`SELECT id, COALESCE(model, '') FROM sessions
+		WHERE COALESCE(model, '') != ''
+			AND (? = '' OR model = ?)
+			AND COALESCE(LOWER(agent_type), '') NOT IN ('reviewer', 'security', 'verifier', 'dreamer')
+			AND `+sessionTSMSExpr+` >= ?
+			AND (project_root = ? OR substr(project_root, 1, length(?)) = ? OR (? != '' AND repo_id = ?))
+		ORDER BY CASE WHEN project_root = ? THEN 0 ELSE 1 END, `+sessionTSMSExpr+` DESC
+		LIMIT 1`,
+		modelFilter, modelFilter, cutoffMS, proj, proj+"/", proj+"/", repoID, repoID, proj,
+	).Scan(&sid, &mod)
+	if err != nil {
+		return "", ""
+	}
 	return mod, sid
 }
 

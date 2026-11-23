@@ -11,6 +11,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/brain"
+	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/models"
 )
 
 const canary = "SECRETCANARY123"
@@ -453,5 +457,142 @@ func TestAgyZeroTimeIsNoTime(t *testing.T) {
 	}
 	if ended != nil || mtime != int64(0) {
 		t.Fatalf("ended_at %v, mtime %v; want NULL and 0", ended, mtime)
+	}
+}
+
+func agyGenModel(model string, in, out, cached, ctx uint64) []byte {
+	usage := cat(pbV(2, in), pbV(3, out))
+	if cached > 0 {
+		usage = cat(usage, pbV(5, cached))
+	}
+	inner := cat(pbB(4, usage), pbB(9, pbB(10, cat(pbV(1, ctx), pbV(4, 256000)))), pbB(19, []byte(model)))
+	return pbB(1, inner)
+}
+
+func TestV910MetricsIngestCompactionAndKnee(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(t.TempDir(), "proj")
+	os.MkdirAll(filepath.Join(home, harness.StateDir), 0o700)
+	os.MkdirAll(root, 0o755)
+	if err := models.SaveCatalog(home, models.Catalog{
+		UpdatedAt: "2026-11-23T00:00:00Z",
+		Entries:   []models.CatalogEntry{{ID: "custom-tight", DisplayName: "Tight", Status: "active", ContextWindow: 100000}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, ".gemini", "antigravity-cli")
+	os.MkdirAll(filepath.Join(dir, "conversations"), 0o755)
+	sqliteT(t, filepath.Join(dir, "conversation_summaries.db"),
+		"CREATE TABLE conversation_summaries (`conversation_id` text, `last_modified_time` datetime NOT NULL, `workspace_uris` text NOT NULL, `agent_name` text NOT NULL DEFAULT '', `parent_conversation_id` text NOT NULL DEFAULT '')",
+		`INSERT INTO conversation_summaries VALUES ('K-OVER', '2026-10-08 10:05:00+00:00', '["file://`+root+`"]', '', '')`,
+		`INSERT INTO conversation_summaries VALUES ('K-UNDER', '2026-10-08 10:05:00+00:00', '["file://`+root+`"]', '', '')`,
+		`INSERT INTO conversation_summaries VALUES ('K-OVR', '2026-10-08 10:05:00+00:00', '["file://`+root+`"]', '', '')`,
+	)
+	writeConv := func(id string, steps [][]any, gens [][]byte) {
+		p := filepath.Join(dir, "conversations", id+".db")
+		sqliteT(t, p,
+			"CREATE TABLE steps (`idx` integer, `step_type` integer NOT NULL DEFAULT 0, `status` integer NOT NULL DEFAULT 0, `metadata` blob, `error_details` blob, `step_payload` blob)",
+			"CREATE TABLE gen_metadata (`idx` integer, `data` blob, `size` integer NOT NULL DEFAULT 0)")
+		db, _ := sql.Open("sqlite", p)
+		defer db.Close()
+		for i, st := range steps {
+			db.Exec(`INSERT INTO steps VALUES (?, ?, ?, ?, NULL, NULL)`, i, st[0], st[1], st[2])
+		}
+		for i, g := range gens {
+			db.Exec(`INSERT INTO gen_metadata VALUES (?, ?, ?)`, i, g, len(g))
+		}
+	}
+	const t0 = 1791367200
+	fileArg := map[string]string{"Path": filepath.Join(root, "a.go")}
+	writeConv("K-OVER", [][]any{
+		{14, 3, agyStepMeta(t0, "", nil)},
+		{132, 3, agyStepMeta(t0+1, "read_file", fileArg)},
+		{23, 3, agyStepMeta(t0+2, "", nil)}, // Antigravity checkpoint -> compaction
+		{132, 3, agyStepMeta(t0+3, "read_file", fileArg)},
+		{15, 3, agyStepMeta(t0+4, "", nil)},
+	}, [][]byte{agyGenModel("claude-sonnet-4-6", 1000, 100, 0, 185000)})
+	writeConv("K-UNDER", [][]any{
+		{14, 3, agyStepMeta(t0, "", nil)},
+		{15, 3, agyStepMeta(t0+2, "", nil)},
+	}, [][]byte{agyGenModel("gemini-4-neon-high", 1000, 100, 0, 250000)})
+	writeConv("K-OVR", [][]any{
+		{14, 3, agyStepMeta(t0, "", nil)},
+		{15, 3, agyStepMeta(t0+2, "", nil)},
+	}, [][]byte{agyGenModel("custom-tight", 1000, 100, 0, 62000)})
+
+	s := openT(t, Path(home))
+	ingestT(t, s, Options{Home: home})
+
+	var compactions int
+	if err := s.db.QueryRow(`SELECT count(*) FROM steps WHERE session_id = 'K-OVER' AND kind = 'compaction'`).Scan(&compactions); err != nil || compactions != 1 {
+		t.Fatalf("compaction steps = %d (err=%v), want 1", compactions, err)
+	}
+	gotKnee := map[string]int{}
+	rows, _ := s.db.Query(`SELECT session_id, count(*) FROM events WHERE kind = 'knee_exceeded' GROUP BY session_id`)
+	for rows.Next() {
+		var sid string
+		var cnt int
+		rows.Scan(&sid, &cnt)
+		gotKnee[sid] = cnt
+	}
+	rows.Close()
+	if gotKnee["K-OVER"] != 1 || gotKnee["K-UNDER"] != 0 || gotKnee["K-OVR"] != 1 {
+		t.Fatalf("knee_exceeded events = %v, want K-OVER=1, K-UNDER=0, K-OVR=1", gotKnee)
+	}
+	// Trajectory must clear seenReads at compaction step (no false REDUNDANT_READ).
+	tr, err := s.Trajectories(TrajectoryOptions{SessionID: "K-OVER"})
+	if err != nil || len(tr) != 1 || strings.Contains(strings.Join(tr[0].Anomalies, ","), "REDUNDANT_READ") {
+		t.Fatalf("K-OVER trajectory = %+v (err=%v), want no REDUNDANT_READ after compaction", tr, err)
+	}
+}
+
+func TestV910MetricsIngestTruth(t *testing.T) {
+	local := time.Local
+	time.Local = time.UTC
+	t.Cleanup(func() { time.Local = local })
+
+	evalHome := t.TempDir()
+	sb, root := agyFixture(t)
+	const t0 = 1791367200
+	when := time.Unix(t0+60, 0).UTC()
+	gitT(t, root, when, "init", "-q", "-b", "main")
+	os.WriteFile(filepath.Join(root, "f.go"), []byte("package p\n"), 0o644)
+	gitT(t, root, when, "add", "f.go")
+	gitT(t, root, when, "commit", "-q", "-m", "work")
+	markRegistered(t, evalHome, root)
+	_ = os.RemoveAll(filepath.Join(root, ".agents", "docs"))
+	addRecord(t, brain.Options{Home: sb, Dir: root, Now: func() time.Time { return when }},
+		brain.AddInput{Kind: "handoff", ID: "HANDOFF-2026-10-07-1001-done", Title: "Handoff — done"}, "done\n")
+
+	os.MkdirAll(filepath.Join(root, ".agents", "scratch"), 0o755)
+	sqliteT(t, filepath.Join(root, ".agents", "scratch", "search.db"),
+		`CREATE TABLE vet_history(conversation_id TEXT, turn_num INT, intent TEXT, gate TEXT, score INT, raw_prompt TEXT, suggested_skills TEXT, pivot_files TEXT, subtask_count INT, directive TEXT, duration_ms INT, timed_out INT, injected_bytes INT, pivots_used_count INT, skills_loaded_count INT, created_at INT)`,
+		`INSERT INTO vet_history VALUES ('C1', 1, 'TASK', 'PROCEED', 90, 'p', 'golang,fyr-bug', 'f.go', 1, 'PROCEED', 25, 0, 128, 0, 0, 1791367200)`,
+	)
+	dir := filepath.Join(sb, ".gemini", "antigravity-cli")
+	db, err := sql.Open("sqlite", filepath.Join(dir, "conversations", "C1.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Exec(`INSERT INTO steps VALUES (98, 23, 3, ?, NULL, NULL)`, agyStepMeta(t0+20, "", nil))
+	db.Exec(`INSERT INTO steps VALUES (99, 132, 3, ?, NULL, NULL)`, agyStepMeta(t0+21, "read_file", map[string]string{"Path": "/home/u/.gemini/config/skills/golang/SKILL.md"}))
+	db.Exec(`INSERT INTO steps VALUES (100, 132, 3, ?, NULL, NULL)`, agyStepMeta(t0+22, "read_file", map[string]string{"Path": filepath.Join(root, "skills", "fyr-bug", "SKILL.md")}))
+	db.Exec(`INSERT INTO gen_metadata VALUES (2, ?, 0)`, agyGenModel("claude-sonnet-4-6", 1000, 50, 0, 190000))
+	db.Close()
+
+	s := openT(t, Path(evalHome))
+	res := ingestT(t, s, Options{Home: evalHome, Source: sb, BrainHome: sb, Label: "eval=truth", Outcome: "pass", Run: "r/truth/1"})
+	if res.TurnVets != 1 || !strings.Contains(res.Line(), "1 turn_vets added") {
+		t.Fatalf("Result = %+v, line=%q; want TurnVets=1", res, res.Line())
+	}
+	var comp, knee, repoSkill, handoffs, loaded int
+	var sug string
+	s.db.QueryRow(`SELECT count(*) FROM steps WHERE session_id='C1' AND kind='compaction'`).Scan(&comp)
+	s.db.QueryRow(`SELECT count(*) FROM events WHERE session_id='C1' AND kind='knee_exceeded'`).Scan(&knee)
+	s.db.QueryRow(`SELECT count(*) FROM steps WHERE ext_id='C1:100' AND skill IS NOT NULL`).Scan(&repoSkill)
+	s.db.QueryRow(`SELECT count(*) FROM events WHERE session_id='C1' AND kind='handoff'`).Scan(&handoffs)
+	s.db.QueryRow(`SELECT suggested_skills, skills_loaded_count FROM turn_vets WHERE conversation_id='C1'`).Scan(&sug, &loaded)
+	if comp != 1 || knee != 1 || repoSkill != 0 || handoffs != 1 || sug != "golang,fyr-bug" || loaded != 1 {
+		t.Fatalf("truth mismatch: comp=%d knee=%d repoSkill=%d handoffs=%d sug=%q loaded=%d", comp, knee, repoSkill, handoffs, sug, loaded)
 	}
 }

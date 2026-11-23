@@ -268,3 +268,29 @@ func TestRunModels(t *testing.T) {
 		}
 	}
 }
+
+func TestV910RunModelsExcludesSubagents(t *testing.T) {
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	for _, row := range []struct {
+		id, run, model string
+		parent         any
+	}{
+		{"main-1", "r/sub/1", "gemini-4-carbon-high", nil},
+		{"sub-1", "r/sub/1", "gemini-3-flash", "main-1"},
+		{"sub-2", "r/sub/1", "claude-opus-5-5-high", "main-1"},
+		{"sub-only", "r/sub/2", "gemini-3-flash", "missing-parent"},
+	} {
+		if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, model, run, parent_id) VALUES (?, 'agy', ?, ?, ?)`,
+			row.id, row.model, row.run, row.parent); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.RunModels([]string{"r/sub/1"})
+	if err != nil || strings.Join(got, ",") != "gemini-4-carbon-high" {
+		t.Fatalf("RunModels(r/sub/1) = (%v, %v), want [gemini-4-carbon-high]", got, err)
+	}
+	gotEmpty, err := s.RunModels([]string{"r/sub/2"})
+	if err != nil || len(gotEmpty) != 0 {
+		t.Fatalf("RunModels(subagent-only) = (%v, %v), want empty", gotEmpty, err)
+	}
+}

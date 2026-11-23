@@ -254,7 +254,13 @@ func ingestRow(home string, r eval.Result) error {
 	}
 	defer s.Close()
 	var log bytes.Buffer
-	res, err := metrics.Ingest(s, metrics.Options{Home: home, Source: sb, Label: "eval=" + r.Row, Outcome: outcome, Run: r.Run}, &log)
+	brainHome := ""
+	if regErr == nil && realDirs(sb, strings.Split(filepath.ToSlash(harness.StateDir), "/")...) && regularOrAbsent(brain.Path(sb)) {
+		brainHome = sb
+	}
+	res, err := metrics.Ingest(s, metrics.Options{
+		Home: home, Source: sb, BrainHome: brainHome, Label: "eval=" + r.Row, Outcome: outcome, Run: r.Run,
+	}, &log)
 	if err != nil {
 		return err
 	}
@@ -265,6 +271,16 @@ func ingestRow(home string, r eval.Result) error {
 		return fmt.Errorf("the clone was not registered, so its sessions have no record events: %w", regErr)
 	}
 	return nil
+}
+
+// regularOrAbsent reports whether path does not exist or is a regular file
+// (never a symlink or directory).
+func regularOrAbsent(path string) bool {
+	st, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	return err == nil && st.Mode().IsRegular()
 }
 
 // realDirs reports whether dir, and each of parts below it in turn, is a

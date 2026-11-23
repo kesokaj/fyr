@@ -22,6 +22,7 @@ type turnKey struct {
 
 type turnVetRow struct {
 	projectRoot, repoID, convID, intent, gate, directive       string
+	suggestedSkills                                            string
 	turnNum, score, bypassed, skillsCount, pivotsCount, ledger int
 	subtaskCount, durationMS, timedOut, injectedBytes          int
 	pivotsUsedCount, skillsLoadedCount                         int
@@ -44,7 +45,19 @@ func noteSecondBrain(log io.Writer, format string, args ...any) {
 }
 
 func (s *Store) ingestSecondBrain(home string, log io.Writer) {
-	roots := s.candidateProjectRoots(home, log)
+	s.ingestSearchDBRoots(s.candidateProjectRoots(home, log), log)
+	s.rejoinTurnVetSkillsLoaded(log)
+}
+
+func (s *Store) ingestSourceSecondBrain(o Options, log io.Writer) {
+	if s == nil || s.db == nil {
+		return
+	}
+	s.ingestSearchDBRoots(s.sourceProjectRoots(o), log)
+	s.rejoinTurnVetSkillsLoaded(log)
+}
+
+func (s *Store) ingestSearchDBRoots(roots []string, log io.Writer) {
 	if len(roots) == 0 {
 		return
 	}
@@ -67,6 +80,40 @@ func (s *Store) ingestSecondBrain(home string, log io.Writer) {
 	for i, root := range roots {
 		s.ingestProjectSearchDB(root, i, tempDir, log)
 	}
+}
+
+func (s *Store) sourceProjectRoots(o Options) []string {
+	var rows *sql.Rows
+	var err error
+	switch {
+	case o.Run != "":
+		rows, err = s.db.Query(`SELECT DISTINCT project_root FROM sessions WHERE run = ? AND project_root IS NOT NULL AND project_root <> ''`, o.Run)
+	case o.Label != "":
+		rows, err = s.db.Query(`SELECT DISTINCT project_root FROM sessions WHERE label = ? AND project_root IS NOT NULL AND project_root <> ''`, o.Label)
+	default:
+		return nil
+	}
+	if err != nil {
+		return nil
+	}
+	var sessionRoots []string
+	for rows.Next() {
+		var r string
+		if rows.Scan(&r) == nil {
+			sessionRoots = append(sessionRoots, r)
+		}
+	}
+	rows.Close()
+	seen := map[string]bool{}
+	for _, r := range sessionRoots {
+		s.addCandidateRoot(seen, r)
+	}
+	out := make([]string, 0, len(seen))
+	for r := range seen {
+		out = append(out, r)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (s *Store) candidateProjectRoots(home string, log io.Writer) []string {
@@ -178,6 +225,9 @@ func (s *Store) recordIngestState(source string, size, mtime int64) error {
 }
 
 func (s *Store) ingestProjectSearchDB(root string, idx int, tempDir func() (string, error), log io.Writer) {
+	if !isRealDirChain(root, ".agents", "scratch") {
+		return
+	}
 	dbPath := filepath.Join(root, ".agents", "scratch", "search.db")
 	fi, err := os.Lstat(dbPath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -192,7 +242,7 @@ func (s *Store) ingestProjectSearchDB(root string, idx int, tempDir func() (stri
 		return
 	}
 	size, mtime := searchDBSignature(dbPath, fi)
-	if s.sourceUnchanged(dbPath, size, mtime) {
+	if s.sourceUnchanged(dbPath, size, mtime) && !s.rootNeedsSuggestedSkillsBackfill(filepath.Clean(root)) {
 		return
 	}
 	baseTmp, err := tempDir()
@@ -267,13 +317,13 @@ func (s *Store) upsertTurnVets(rows []turnVetRow) error {
 	const q = `INSERT OR REPLACE INTO turn_vets(
 		project_root, repo_id, conversation_id, turn_num, intent, gate, score, bypassed,
 		skills_count, pivots_count, ledger_saved, directive, subtask_count, duration_ms,
-		timed_out, injected_bytes, pivots_used_count, skills_loaded_count, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		timed_out, injected_bytes, pivots_used_count, skills_loaded_count, suggested_skills, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	for _, r := range rows {
 		if _, err := tx.Exec(
 			q, r.projectRoot, r.repoID, r.convID, r.turnNum, r.intent, r.gate, r.score, r.bypassed,
 			r.skillsCount, r.pivotsCount, r.ledger, r.directive, r.subtaskCount, r.durationMS,
-			r.timedOut, r.injectedBytes, r.pivotsUsedCount, r.skillsLoadedCount, r.createdAt,
+			r.timedOut, r.injectedBytes, r.pivotsUsedCount, r.skillsLoadedCount, r.suggestedSkills, r.createdAt,
 		); err != nil {
 			return err
 		}

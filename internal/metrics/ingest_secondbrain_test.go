@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,5 +164,54 @@ func TestSD50CopyDevSessionsSkipsExistingSteps(t *testing.T) {
 	}
 	if s2Steps != 1 || s2Verbs != 1 {
 		t.Fatalf("new session steps/verbs not copied: steps=%d verbs=%d", s2Steps, s2Verbs)
+	}
+}
+
+func TestV910TurnVetsSuggestedSkillsAndLateSkillRejoin(t *testing.T) {
+	home := t.TempDir()
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".agents", "scratch"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	sdb := filepath.Join(repo, ".agents", "scratch", "search.db")
+	sqliteT(t, sdb,
+		`CREATE TABLE vet_history(conversation_id TEXT, turn_num INT, intent TEXT, gate TEXT, score INT, raw_prompt TEXT, suggested_skills TEXT, pivot_files TEXT, subtask_count INT, directive TEXT, duration_ms INT, timed_out INT, injected_bytes INT, pivots_used_count INT, skills_loaded_count INT, created_at INT)`,
+		`INSERT INTO vet_history VALUES ('C-LATE', 1, 'TASK', 'PROCEED', 88, 'fix', '["golang","fyr-bug"]', 'a.go', 1, 'PROCEED', 42, 0, 512, 0, 0, 1791453600)`,
+	)
+	st := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	if _, err := st.db.Exec(`INSERT INTO sessions(id, vendor, project_root) VALUES ('C-LATE', 'agy', ?)`, repo); err != nil {
+		t.Fatal(err)
+	}
+
+	// First ingest: search.db is ingested before any SKILL.md read steps arrive.
+	res1 := ingestT(t, st, Options{Home: home})
+	if res1.TurnVets != 1 || !strings.Contains(res1.Line(), "1 turn_vets added") {
+		t.Fatalf("first ingest Result = %+v, line=%q; want TurnVets=1 in Line()", res1, res1.Line())
+	}
+	var suggested string
+	var loaded int
+	if err := st.db.QueryRow(`SELECT suggested_skills, skills_loaded_count FROM turn_vets WHERE conversation_id = 'C-LATE' AND turn_num = 1`).Scan(&suggested, &loaded); err != nil {
+		t.Fatalf("query turn_vets: %v", err)
+	}
+	if suggested != "golang,fyr-bug" || loaded != 0 {
+		t.Fatalf("initial turn_vets = (suggested=%q, loaded=%d), want ('golang,fyr-bug', 0)", suggested, loaded)
+	}
+
+	// Late-arriving skill read step lands in steps while search.db mtime stays unchanged.
+	if _, err := st.db.Exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tool, skill, is_error, denied) VALUES ('C-LATE', 'C-LATE:5', 1791453610000, 'tool', 'Read', 'golang', 0, 0)`); err != nil {
+		t.Fatal(err)
+	}
+	res2 := ingestT(t, st, Options{Home: home})
+	if res2.TurnVets != 0 {
+		t.Fatalf("second ingest TurnVets = %d, want 0", res2.TurnVets)
+	}
+	if err := st.db.QueryRow(`SELECT skills_loaded_count FROM turn_vets WHERE conversation_id = 'C-LATE' AND turn_num = 1`).Scan(&loaded); err != nil {
+		t.Fatalf("re-query turn_vets: %v", err)
+	}
+	if loaded != 1 {
+		t.Fatalf("late skill read did not update skills_loaded_count: got %d, want 1", loaded)
 	}
 }

@@ -125,3 +125,47 @@ func TestAgyPathKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestV910SkillPathAnchored(t *testing.T) {
+	home, root := agyFixture(t)
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"/home/u/.gemini/config/skills/golang/SKILL.md", "golang"},
+		{filepath.Join(root, ".agents", "skills", "fyr-bug", "SKILL.md"), "fyr-bug"},
+		{"/opt/agy/builtin/skills/review-standards/SKILL.md", "review-standards"},
+		// Must-fail: repo-source skills/ edits and nested paths must be ignored (F-043).
+		{filepath.Join(root, "skills", "golang", "SKILL.md"), ""},
+		{"/work/fyr/skills/fyr-feature/SKILL.md", ""},
+		{"skills/golang/SKILL.md", ""},
+		{"/home/u/.gemini/config/skills/golang/references/ref.md", ""},
+		{"/home/u/.gemini/config/skills/golang/sub/SKILL.md", ""},
+	}
+	p := filepath.Join(home, ".gemini", "antigravity-cli", "conversations", "C1.db")
+	db, err := sql.Open("sqlite", p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM steps`); err != nil {
+		t.Fatal(err)
+	}
+	for i, tc := range cases {
+		meta := agyStepMeta(1791367200+uint64(i), "read_file", map[string]string{"Path": tc.path})
+		if _, err := db.Exec(`INSERT INTO steps VALUES (?, ?, 3, ?, NULL, NULL)`, i, agyTool, meta); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	ingestT(t, s, Options{Home: home})
+	for i, tc := range cases {
+		var got sql.NullString
+		if err := s.db.QueryRow(`SELECT skill FROM steps WHERE ext_id = ?`, fmt.Sprintf("C1:%d", i)).Scan(&got); err != nil {
+			t.Fatalf("%s: %v", tc.path, err)
+		}
+		if got.String != tc.want {
+			t.Errorf("read %q stored skill %q, want %q", tc.path, got.String, tc.want)
+		}
+	}
+}

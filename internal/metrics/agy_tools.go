@@ -26,7 +26,9 @@ var agyTools = map[string]string{
 }
 
 // skillPath is a read of an installed skill's SKILL.md; only the name is kept.
-var skillPath = regexp.MustCompile(`/skills/([A-Za-z0-9_.-]+)/SKILL\.md$`)
+// Anchored to installed skill roots so repo-source skills/<name>/SKILL.md reads
+// are ignored (v9.10.0 F-043).
+var skillPath = regexp.MustCompile(`(?:/\.gemini/config/skills/|/\.agents/skills/|/builtin/skills/)([A-Za-z0-9_.-]+)/SKILL\.md$`)
 
 // agyArgs is the only part of a tool call's arguments read, in memory: a
 // command line (normalised, hashed) and a path (classified). D28. Each file
