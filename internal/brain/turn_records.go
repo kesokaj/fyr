@@ -22,7 +22,6 @@ const (
 	maxTurnPlanBodies       = 4
 	maxTurnADRCandidates    = 8
 	maxTurnMemoryCandidates = 8
-	maxTurnBugCandidates    = 4
 )
 
 var trivialTurnFTSWords = map[string]bool{
@@ -72,18 +71,13 @@ type turnMetaRow struct {
 	rec Record
 }
 
-// ListTurnRecords returns only active turn-relevant records (open plans, active
-// memories, open bugs, accepted/open ADRs) for o.Dir plus closed global memories
-// (or the global scope when o.Global is true), without creating or mutating
-// brain.db (falling back to a temporary read-only copy only if a WAL blocks
-// direct mode=ro).
-func ListTurnRecords(o Options) ([]Record, error) {
-	return ListTurnRecordsCtx(context.Background(), o)
-}
-
-// ListTurnRecordsCtx is the context-bounded variant of ListTurnRecords.
-// It hydrates all active turn-relevant records so callers such as BrainRefs
-// see full bodies across all active ADRs, open bugs, plans, and memories.
+// ListTurnRecordsCtx returns only active turn-relevant records (open plans,
+// active memories, open bugs, accepted/open ADRs) for o.Dir plus closed global
+// memories (or the global scope when o.Global is true), without creating or
+// mutating brain.db (falling back to a temporary read-only copy only if a WAL
+// blocks direct mode=ro). It hydrates all active turn-relevant records so
+// callers such as BrainRefs see full bodies across all active ADRs, open bugs,
+// plans, and memories.
 func ListTurnRecordsCtx(ctx context.Context, o Options) ([]Record, error) {
 	if ctx != nil && ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -111,13 +105,9 @@ func ListTurnRecordsCtx(ctx context.Context, o Options) ([]Record, error) {
 	return hydrateTurnRecordsCtx(ctx, st, ver, metaRows, wantRIDs)
 }
 
-// SearchTurnRecords runs FTS5 record search scoped only to active turn-relevant
-// records, avoiding scans over rejected proposals and historical closed records.
-func SearchTurnRecords(o Options, words []string, limit int) ([]Hit, error) {
-	return SearchTurnRecordsCtx(context.Background(), o, words, limit)
-}
-
-// SearchTurnRecordsCtx is the context-bounded variant of SearchTurnRecords.
+// SearchTurnRecordsCtx runs context-bounded FTS5 record search scoped only to
+// active turn-relevant records, avoiding scans over rejected proposals and
+// historical closed records.
 func SearchTurnRecordsCtx(ctx context.Context, o Options, words []string, limit int) ([]Hit, error) {
 	if ctx != nil && ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -154,23 +144,11 @@ type TurnLoad struct {
 	Complete bool
 }
 
-// LoadTurnRecordsAndFTS opens brain.db once read-only and returns both active
-// turn records and FTS5 hits (when meaningful words and limit are non-empty).
-func LoadTurnRecordsAndFTS(o Options, words []string, limit int) ([]Record, []Hit, error) {
-	return LoadTurnRecordsAndFTSCtx(context.Background(), o, words, limit)
-}
-
-// LoadTurnRecordsAndFTSCtx opens brain.db once read-only with ctx bounds,
-// resolves trail.Roots once, projects metadata first, runs FTS5, and fetches
-// full Body for active plans, open bugs, FTS/title-matched rows, and active
-// ADR/memory candidates.
-func LoadTurnRecordsAndFTSCtx(ctx context.Context, o Options, words []string, limit int) ([]Record, []Hit, error) {
-	res, err := LoadTurnDataCtx(ctx, o, words, limit)
-	return res.Records, res.Hits, err
-}
-
-// LoadTurnDataCtx performs the combined single-open turn record + FTS load and
-// reports in TurnLoad.Complete whether all active records were fully hydrated.
+// LoadTurnDataCtx opens brain.db once read-only with ctx bounds, resolves
+// trail.Roots once, projects metadata first, runs FTS5 (when meaningful words
+// and limit are non-empty), fetches full Body for active plans, open bugs,
+// FTS/title-matched rows, and active ADR/memory candidates, and reports in
+// TurnLoad.Complete whether all active records were fully hydrated.
 func LoadTurnDataCtx(ctx context.Context, o Options, words []string, limit int) (TurnLoad, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -280,7 +258,7 @@ func normalizeTurnTitleWords(words []string) []string {
 
 func selectTurnBodyRIDs(rows []turnMetaRow, hitRIDs map[int64]bool, rawWords []string) map[int64]bool {
 	words := normalizeTurnTitleWords(rawWords)
-	want := make(map[int64]bool, len(hitRIDs)+maxTurnPlanBodies+maxTurnADRCandidates+maxTurnMemoryCandidates+maxTurnBugCandidates)
+	want := make(map[int64]bool, len(hitRIDs)+maxTurnPlanBodies+maxTurnADRCandidates+maxTurnMemoryCandidates)
 	plans, adrs, mems := 0, 0, 0
 	for _, row := range rows {
 		if hitRIDs[row.rid] || titleMatchesTurnWords(row.rec, words) {

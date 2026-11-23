@@ -194,16 +194,8 @@ func handlePreToolBash(home, dir string, in HookInput, out io.Writer) error {
 }
 
 func handlePreToolBashCtx(ctx context.Context, home, dir string, wdSt *store, wdRoot string, in HookInput, out io.Writer) error {
-	if hooksDisabledGlobal(home) {
+	if !isRelaySession() && (hooksDisabledGlobal(home) || bashDirHooksDisabled(dir, in)) {
 		return writeDecision(out, "allow", "")
-	}
-	if !isRelaySession() {
-		if hooksDisabled(dir) {
-			return writeDecision(out, "allow", "")
-		}
-		if toolDir := bashToolProjectDir(dir, in); toolDir != "" && !sameCleanPath(dir, toolDir) && hooksDisabled(toolDir) {
-			return writeDecision(out, "allow", "")
-		}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -212,11 +204,8 @@ func handlePreToolBashCtx(ctx context.Context, home, dir string, wdSt *store, wd
 	if denyReason != "" {
 		return writeDecision(out, "deny", denyReason)
 	}
-	if hooksDisabled(dir) {
-		return writeDecision(out, "allow", "")
-	}
-	if toolDir := bashToolProjectDir(dir, in); toolDir != "" && !sameCleanPath(dir, toolDir) && hooksDisabled(toolDir) {
-		return writeDecision(out, "allow", "")
+	if hooksDisabledGlobal(home) || bashDirHooksDisabled(dir, in) {
+		return writeBashAllowDecision(out, "", overwrite)
 	}
 	cmd := extractStringArg(in.ToolCall.Args, "CommandLine", "commandLine", "command_line", "Command", "command", "cmd")
 	if reads := ParseBashFileReads(cmd); len(reads) > 0 {
@@ -227,6 +216,18 @@ func handlePreToolBashCtx(ctx context.Context, home, dir string, wdSt *store, wd
 		}
 	}
 	nudge := checkBashGrepNudgeCtx(ctx, home, dir, wdSt, wdRoot, in, cmd)
+	return writeBashAllowDecision(out, nudge, overwrite)
+}
+
+func bashDirHooksDisabled(dir string, in HookInput) bool {
+	if hooksDisabled(dir) {
+		return true
+	}
+	toolDir := bashToolProjectDir(dir, in)
+	return toolDir != "" && !sameCleanPath(dir, toolDir) && hooksDisabled(toolDir)
+}
+
+func writeBashAllowDecision(out io.Writer, nudge string, overwrite map[string]any) error {
 	if overwrite != nil {
 		reason := "[AUTO_GIT_TERMINAL_PROMPT] prepended export GIT_TERMINAL_PROMPT=0"
 		if nudge != "" {

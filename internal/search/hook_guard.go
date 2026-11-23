@@ -146,7 +146,7 @@ func advanceOrSkipTurn(ctx context.Context, st *store, conversationID string, ge
 	if err := ctx.Err(); err != nil {
 		return SessionState{}, false, err
 	}
-	midTurn := isMidTurnContinuation(in) || (!hasNewTurnCue(in) && in.InvocationNum > 1 && in.InvocationNum > lastInvNum)
+	midTurn := isMidTurnContinuation(in) || (!hasNewTurnCue(in) && in.InvocationNum > 0 && in.InvocationNum > lastInvNum)
 	if !compacted && promptSum != "" && prevSum == promptSum && midTurn {
 		if hasSize {
 			lastBytes, est = curBytes, calcEstTokens(curBytes, cpOffset)

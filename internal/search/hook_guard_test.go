@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
 )
@@ -700,4 +701,170 @@ func TestGitCtxAndBrainTurnContextCtxCancellation(t *testing.T) {
 	if fallbackCalled {
 		t.Fatal("BrainTurnContext fallback should not run when BrainTurnContextCtx is set")
 	}
+}
+
+func TestRelayBashPreservesGitTerminalPromptOverwriteWithNoHooks(t *testing.T) {
+	runBash := func(home, dir string) HookDecisionOutput {
+		payload, _ := json.Marshal(map[string]any{
+			"conversationId": "conv-relay-bash",
+			"workspacePaths": []string{dir},
+			"toolCall":       map[string]any{"name": "run_command", "args": map[string]any{"CommandLine": "git fetch origin"}},
+		})
+		var out bytes.Buffer
+		if err := RunHook(Options{Home: home, Dir: dir, Hook: "pre-tool-use"}, bytes.NewReader(payload), &out); err != nil {
+			t.Fatalf("RunHook pre-tool-use: %v", err)
+		}
+		var dec HookDecisionOutput
+		if err := json.Unmarshal(out.Bytes(), &dec); err != nil {
+			t.Fatalf("unmarshal decision: %v (raw=%q)", err, out.String())
+		}
+		return dec
+	}
+
+	// (a) Global no-hooks under FYR_RELAY=1 must still prepend GIT_TERMINAL_PROMPT=0.
+	dir1, home1 := setupHookRepo(t), t.TempDir()
+	stateDir := filepath.Join(home1, harness.StateDir)
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "no-hooks"), []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Non-relay must-pass control: global no-hooks skips overwrite.
+	t.Setenv("FYR_RELAY", "")
+	if dec := runBash(home1, dir1); dec.Decision != "allow" || dec.Overwrite != nil {
+		t.Fatalf("non-relay global no-hooks = %+v, want plain allow without Overwrite", dec)
+	}
+	t.Setenv("FYR_RELAY", "1")
+	decGlobal := runBash(home1, dir1)
+	if cmd, _ := decGlobal.Overwrite["CommandLine"].(string); decGlobal.Decision != "allow" || !strings.Contains(cmd, "GIT_TERMINAL_PROMPT=0") {
+		t.Fatalf("relay + global no-hooks = %+v, want allow with GIT_TERMINAL_PROMPT=0 Overwrite", decGlobal)
+	}
+
+	// (b) Repo .agents/scratch/no-hooks under FYR_RELAY=1 skips bash read clamping but preserves Overwrite.
+	dir2, home2 := setupHookRepo(t), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir2, ".agents", "scratch"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir2, ".agents", "scratch", "no-hooks"), []byte("1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	decRepo := runBash(home2, dir2)
+	if cmd, _ := decRepo.Overwrite["CommandLine"].(string); decRepo.Decision != "allow" || !strings.Contains(cmd, "GIT_TERMINAL_PROMPT=0") {
+		t.Fatalf("relay + repo no-hooks = %+v, want allow with GIT_TERMINAL_PROMPT=0 Overwrite", decRepo)
+	}
+}
+
+func TestBrainTurnContextCtxUsedAcrossHookPaths(t *testing.T) {
+	dir, home := setupHookRepo(t), t.TempDir()
+	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	type ctxKey struct{}
+	wantCtxVal := "active-ctx"
+	calls := 0
+	sawCtxKey := 0
+	ctxCallback := func(ctx context.Context, d, h, prompt string, files []string) TurnBrainContext {
+		calls++
+		if ctx != nil && ctx.Value(ctxKey{}) == wantCtxVal {
+			sawCtxKey++
+		}
+		return TurnBrainContext{
+			ActivePlan: &MatchedRecord{ID: "PLAN-CTX", Kind: "plan", Title: "Ctx Plan"},
+			Bugs:       []MatchedRecord{{ID: "BUG-CTX", Kind: "bug", Status: "open", Title: "Ctx Bug"}},
+		}
+	}
+	optsOnlyCtx := Options{Dir: dir, Home: home, BrainTurnContextCtx: ctxCallback}
+
+	// 1. session-start (extractSessionPlan) uses BrainTurnContextCtx with active ctx.
+	var ssOut bytes.Buffer
+	if err := handleSessionStart(context.WithValue(context.Background(), ctxKey{}, wantCtxVal), optsOnlyCtx, dir, HookInput{}, &ssOut); err != nil {
+		t.Fatalf("handleSessionStart: %v", err)
+	}
+	if !strings.Contains(ssOut.String(), "PLAN-CTX") || sawCtxKey != 1 {
+		t.Fatalf("handleSessionStart did not invoke BrainTurnContextCtx with active ctx: sawCtxKey=%d out=%s", sawCtxKey, ssOut.String())
+	}
+
+	// 2. lookupWorkerRecords uses BrainTurnContextCtx.
+	recs := lookupWorkerRecords(optsOnlyCtx, dir, "fix service", []string{"service.go"})
+	if len(recs) == 0 || recs[0].ID != "BUG-CTX" {
+		t.Fatalf("lookupWorkerRecords did not invoke BrainTurnContextCtx: recs=%+v", recs)
+	}
+
+	// 3. runVet uses BrainTurnContextCtx.
+	var vetOut bytes.Buffer
+	if err := Search(Options{Dir: dir, Home: home, Vet: "fix ReconcileProjectIndex in service.go", BrainTurnContextCtx: ctxCallback}, &vetOut); err != nil {
+		t.Fatalf("Search --vet: %v", err)
+	}
+	if !strings.Contains(vetOut.String(), "BUG-CTX") {
+		t.Fatalf("runVet did not invoke BrainTurnContextCtx: out=%s", vetOut.String())
+	}
+
+	// 4. buildHookEnvelopeWithModelTimed uses BrainTurnContextCtx with active ctx.
+	prevCalls := calls
+	_, _ = buildHookEnvelopeWithModelTimed(
+		context.WithValue(context.Background(), ctxKey{}, wantCtxVal),
+		optsOnlyCtx, modelsCatalogFile{}, false, nil, dir, "conv-env", resolvedModelInfo{},
+		HookInput{ConversationID: "conv-env"}, SessionState{TurnCount: 1},
+		"fix ReconcileProjectIndex in service.go", "fix ReconcileProjectIndex in service.go",
+		SliceResult{Files: []string{"service.go"}, SymbolHits: 1}, nil, TurnBannerMeta{}, time.Time{},
+	)
+	if calls <= prevCalls || sawCtxKey != 2 {
+		t.Fatalf("buildHookEnvelopeWithModelTimed did not invoke BrainTurnContextCtx with active ctx: calls=%d->%d sawCtxKey=%d", prevCalls, calls, sawCtxKey)
+	}
+}
+
+func TestZeroIndexedInvocationNumAndBypassedSkillDigests(t *testing.T) {
+	dir := setupHookRepo(t)
+	prompt := "fix ReconcileProjectIndex in service.go"
+
+	// 1. 0-indexed InvocationNum=0 followed by InvocationNum=1 (same prompt, no new-turn cue) returns skip=true.
+	st1, skip1, err := checkTurnOrMidTurnInput(dir, HookInput{ConversationID: "conv-zero-mid", InvocationNum: 0}, prompt)
+	if err != nil || skip1 || st1.TurnCount != 1 {
+		t.Fatalf("inv=0 first call: state=%+v skip=%v err=%v", st1, skip1, err)
+	}
+	st2, skip2, err := checkTurnOrMidTurnInput(dir, HookInput{ConversationID: "conv-zero-mid", InvocationNum: 1}, prompt)
+	if err != nil || !skip2 || st2.TurnCount != 1 {
+		t.Errorf("0-indexed inv=0 -> inv=1 mid-turn: state=%+v skip=%v err=%v, want skip=true turn=1", st2, skip2, err)
+	}
+
+	// 2. InvocationNum=0 -> InvocationNum=0 still returns skip=false.
+	_, _, _ = checkTurnOrMidTurnInput(dir, HookInput{ConversationID: "conv-zero-repeat", InvocationNum: 0}, prompt)
+	stRep, skipRep, err := checkTurnOrMidTurnInput(dir, HookInput{ConversationID: "conv-zero-repeat", InvocationNum: 0}, prompt)
+	if err != nil || skipRep || stRep.TurnCount != 2 {
+		t.Errorf("inv=0 -> inv=0: state=%+v skip=%v err=%v, want skip=false turn=2", stRep, skipRep, err)
+	}
+
+	// 3. InvocationNum=0 -> InvocationNum=1 with explicit new-turn cue still returns skip=false.
+	_, _, _ = checkTurnOrMidTurnInput(dir, HookInput{ConversationID: "conv-zero-cue", InvocationNum: 0}, prompt)
+	stCue, skipCue, err := checkTurnOrMidTurnInput(dir, HookInput{
+		ConversationID: "conv-zero-cue", InvocationNum: 1, InitialNumSteps: 4, StepIdx: 4,
+	}, prompt)
+	if err != nil || skipCue || stCue.TurnCount != 2 {
+		t.Errorf("inv=0 -> inv=1 with new-turn cue: state=%+v skip=%v err=%v, want skip=false turn=2", stCue, skipCue, err)
+	}
+
+	// 4. Bypassed (!-prefix) prompt omits Enrichment.SkillDigests while keeping Banner.Skills and Enrichment.AstSlice.
+	slice := SliceResult{Capsule: "[Hop 0] service.go:1-5 (ReconcileProjectIndex)"}
+	skills := []SkillMeta{{Name: "golang", Digest: "Use stdlib first; table-driven -race tests."}}
+	bypRes := makeGuardVetResult(true, GatePassThrough, skills)
+	bypBanner := buildPreInvocationBannerBaseWithMeta(bypRes, TurnBannerMeta{})
+	bypEnrich := buildPreInvocationEnrichment(bypRes, slice, TurnBrainContext{}, nil, 0)
+	if bypEnrich == nil || len(bypEnrich.SkillDigests) != 0 || bypEnrich.AstSlice == "" {
+		t.Errorf("bypassed enrichment = %+v, want empty SkillDigests and non-empty AstSlice", bypEnrich)
+	}
+	if len(bypBanner.Skills) == 0 || bypBanner.Skills[0] != "golang" {
+		t.Errorf("bypassed banner skills = %+v, want [golang]", bypBanner.Skills)
+	}
+	normRes := makeGuardVetResult(false, GateEnrichAndProceed, skills)
+	normEnrich := buildPreInvocationEnrichment(normRes, slice, TurnBrainContext{}, nil, 0)
+	if normEnrich == nil || len(normEnrich.SkillDigests) != 1 {
+		t.Errorf("non-bypassed enrichment = %+v, want 1 SkillDigest", normEnrich)
+	}
+}
+
+func makeGuardVetResult(b bool, gate VetGate, skills []SkillMeta) VetResult {
+	r := VetResult{Gate: gate, Intent: IntentFeature, Skills: skills}
+	r.Bypassed = b
+	return r
 }

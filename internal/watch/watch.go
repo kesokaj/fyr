@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
@@ -114,19 +115,9 @@ func runChecks(ctx context.Context, o Options, customProcs bool, tmp string, rep
 		return err
 	}
 	if o.Dir != "" {
-		n, artFindings := inspectArtifacts(o.Dir, o.IdleSec, now)
-		rep.Checked += n
-		rep.Findings = append(rep.Findings, artFindings...)
-		nMeta, metaFindings, err := inspectSessionMeta(metaCheckInput{
-			home: o.Home, dir: o.Dir, convID: o.ConvID, tmp: tmp,
-			idleSec: o.IdleSec, now: now, summaries: summaries,
-			hasSum: hasSum, targetSet: targetSet, procs: procs,
-		})
-		if err != nil {
+		if err := inspectProjectDir(o, summaries, hasSum, targetSet, procs, tmp, now, rep); err != nil {
 			return err
 		}
-		rep.Checked += nMeta
-		rep.Findings = append(rep.Findings, metaFindings...)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -134,6 +125,29 @@ func runChecks(ctx context.Context, o Options, customProcs bool, tmp string, rep
 	nProcs, procFindings := inspectProcsFrom(o, customProcs, procs)
 	rep.Checked += nProcs
 	rep.Findings = append(rep.Findings, procFindings...)
+	return nil
+}
+
+func inspectProjectDir(o Options, summaries map[string]summaryRow, hasSum bool, targetSet map[string]bool, procs []ProcInfo, tmp string, now time.Time, rep *Report) error {
+	if err := trail.CheckScratchNoSymlinks(o.Dir); err != nil {
+		return fmt.Errorf("watch: scratch path: %w", err)
+	}
+	n, artFindings, err := inspectArtifactsChecked(o.Dir, o.IdleSec, now)
+	if err != nil {
+		return err
+	}
+	rep.Checked += n
+	rep.Findings = append(rep.Findings, artFindings...)
+	nMeta, metaFindings, err := inspectSessionMeta(metaCheckInput{
+		home: o.Home, dir: o.Dir, convID: o.ConvID, tmp: tmp,
+		idleSec: o.IdleSec, now: now, summaries: summaries,
+		hasSum: hasSum, targetSet: targetSet, procs: procs,
+	})
+	if err != nil {
+		return err
+	}
+	rep.Checked += nMeta
+	rep.Findings = append(rep.Findings, metaFindings...)
 	return nil
 }
 

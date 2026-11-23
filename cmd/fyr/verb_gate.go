@@ -296,28 +296,33 @@ func peekPipeSyscallConn(f *os.File) (io.Reader, bool) {
 	}
 	var b [1]byte
 	var got int
+	var readErr error
 	deadline := time.Now().Add(closePipeReadyWindow)
-	for {
-		var rerr error
-		cerr := raw.Read(func(fd uintptr) bool {
-			n, err := syscall.Read(int(fd), b[:])
-			got, rerr = n, err
-			return true
-		})
-		if cerr == nil && got > 0 {
-			return io.MultiReader(bytes.NewReader(b[:got]), f), true
+	cerr := raw.Control(func(fd uintptr) {
+		for {
+			rem := time.Until(deadline)
+			if rem < 0 {
+				rem = 0
+			}
+			if !waitPipeReady(fd, rem) {
+				return
+			}
+			n, rerr := syscall.Read(int(fd), b[:])
+			if errors.Is(rerr, syscall.EINTR) && time.Now().Before(deadline) {
+				continue
+			}
+			if (errors.Is(rerr, syscall.EAGAIN) || errors.Is(rerr, syscall.EWOULDBLOCK)) && time.Now().Before(deadline) {
+				time.Sleep(5 * time.Millisecond)
+				continue
+			}
+			got, readErr = n, rerr
+			return
 		}
-		if cerr != nil || rerr == nil {
-			return nil, false
-		}
-		if !errors.Is(rerr, syscall.EAGAIN) && !errors.Is(rerr, syscall.EWOULDBLOCK) && !errors.Is(rerr, syscall.EINTR) {
-			return nil, false
-		}
-		if !time.Now().Before(deadline) {
-			return nil, false
-		}
-		time.Sleep(5 * time.Millisecond)
+	})
+	if cerr != nil || readErr != nil || got <= 0 {
+		return nil, false
 	}
+	return io.MultiReader(bytes.NewReader(b[:got]), f), true
 }
 
 func emitGateOutcome[T any](c *ctx, rep T, hasReport bool, err error, printText func(io.Writer, T)) error {

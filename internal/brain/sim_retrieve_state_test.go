@@ -1,6 +1,7 @@
 package brain
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -524,22 +525,22 @@ func TestSIMIsolation(t *testing.T) {
 		}
 	}
 
-	// 3. ListTurnRecords and SearchTurnRecords MUST emit zero SIM rows.
-	turnRecs, err := ListTurnRecords(o)
+	// 3. ListTurnRecordsCtx and SearchTurnRecordsCtx MUST emit zero SIM rows.
+	turnRecs, err := ListTurnRecordsCtx(context.Background(), o)
 	if err != nil {
-		t.Fatalf("ListTurnRecords: %v", err)
+		t.Fatalf("ListTurnRecordsCtx: %v", err)
 	}
 	for _, r := range turnRecs {
 		if strings.Contains(r.ID+r.Title+r.Body, markerRC) || strings.HasPrefix(r.ID, "SIM-P") {
-			t.Errorf("ListTurnRecords leaked SIM row: %+v", r)
+			t.Errorf("ListTurnRecordsCtx leaked SIM row: %+v", r)
 		}
 	}
-	turnHits, err := SearchTurnRecords(o, []string{markerRC, "isolation"}, 10)
+	turnHits, err := SearchTurnRecordsCtx(context.Background(), o, []string{markerRC, "isolation"}, 10)
 	if err != nil {
-		t.Fatalf("SearchTurnRecords: %v", err)
+		t.Fatalf("SearchTurnRecordsCtx: %v", err)
 	}
 	if len(turnHits) != 0 {
-		t.Errorf("SearchTurnRecords leaked SIM hits: %+v", turnHits)
+		t.Errorf("SearchTurnRecordsCtx leaked SIM hits: %+v", turnHits)
 	}
 
 	// 4. Export (.agents/trail.jsonl) MUST emit zero SIM rows.

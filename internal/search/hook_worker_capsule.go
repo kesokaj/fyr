@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -155,8 +156,8 @@ func lookupWorkerRecords(o Options, explicitDir, prompt string, files []string) 
 		seen[r.ID] = true
 		out = append(out, r)
 	}
-	if explicitDir != "" && o.BrainTurnContext != nil {
-		bc := o.BrainTurnContext(explicitDir, o.Home, prompt, files)
+	if explicitDir != "" && hasBrainTurnContext(o) {
+		bc := invokeBrainTurnContext(context.Background(), o, explicitDir, prompt, files)
 		for _, r := range append(append(append([]MatchedRecord{}, bc.Bugs...), bc.ADRs...), bc.Memories...) {
 			add(r)
 		}

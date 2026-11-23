@@ -2,6 +2,8 @@ package watch
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -115,10 +117,33 @@ func latestStepOutput(stepsDir string) string {
 }
 
 func inspectArtifacts(dir string, idleSec int, now time.Time) (int, []Finding) {
+	checked, findings, _ := inspectArtifactsChecked(dir, idleSec, now)
+	return checked, findings
+}
+
+func checkAgentsDirNoSymlink(agentsDir string) (bool, error) {
+	info, err := os.Lstat(agentsDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return false, fmt.Errorf("%w: %s is a symlink", trail.ErrStampSymlink, agentsDir)
+	}
+	return info.IsDir(), nil
+}
+
+func inspectArtifactsChecked(dir string, idleSec int, now time.Time) (int, []Finding, error) {
 	agentsDir := filepath.Join(dir, ".agents", "scratch", "agents")
+	okDir, err := checkAgentsDirNoSymlink(agentsDir)
+	if err != nil || !okDir {
+		return 0, nil, err
+	}
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
-		return 0, nil
+		return 0, nil, nil
 	}
 	checked := 0
 	var findings []Finding
@@ -150,7 +175,7 @@ func inspectArtifacts(dir string, idleSec int, now time.Time) (int, []Finding) {
 			})
 		}
 	}
-	return checked, findings
+	return checked, findings, nil
 }
 
 func hasInProgressStatus(body string) bool {

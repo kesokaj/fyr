@@ -16,11 +16,12 @@ func TestTurnRecordsFiltersAndDoesNotCreateStore(t *testing.T) {
 	emptyHome := t.TempDir()
 
 	// Must not create brain.db when missing.
-	if recs, err := ListTurnRecords(Options{Home: emptyHome, Dir: dir}); err != nil || len(recs) != 0 {
-		t.Fatalf("missing store ListTurnRecords = (%v, %v), want nil, nil", recs, err)
+	bg := context.Background()
+	if recs, err := ListTurnRecordsCtx(bg, Options{Home: emptyHome, Dir: dir}); err != nil || len(recs) != 0 {
+		t.Fatalf("missing store ListTurnRecordsCtx = (%v, %v), want nil, nil", recs, err)
 	}
-	if hits, err := SearchTurnRecords(Options{Home: emptyHome, Dir: dir}, []string{"migration"}, 8); err != nil || len(hits) != 0 {
-		t.Fatalf("missing store SearchTurnRecords = (%v, %v), want nil, nil", hits, err)
+	if hits, err := SearchTurnRecordsCtx(bg, Options{Home: emptyHome, Dir: dir}, []string{"migration"}, 8); err != nil || len(hits) != 0 {
+		t.Fatalf("missing store SearchTurnRecordsCtx = (%v, %v), want nil, nil", hits, err)
 	}
 	if _, err := os.Stat(Path(emptyHome)); !os.IsNotExist(err) {
 		t.Fatalf("expected missing brain.db not to be created, stat err=%v", err)
@@ -70,9 +71,9 @@ func TestTurnRecordsFiltersAndDoesNotCreateStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	recs, err := ListTurnRecords(bo)
+	recs, err := ListTurnRecordsCtx(bg, bo)
 	if err != nil {
-		t.Fatalf("ListTurnRecords: %v", err)
+		t.Fatalf("ListTurnRecordsCtx: %v", err)
 	}
 	gotIDs := map[string]bool{}
 	for _, r := range recs {
@@ -80,18 +81,18 @@ func TestTurnRecordsFiltersAndDoesNotCreateStore(t *testing.T) {
 	}
 	for _, want := range []string{openPlanID, projMemID, globMemID, openBugID, accADRID} {
 		if !gotIDs[want] {
-			t.Errorf("ListTurnRecords missing active %s (got %v)", want, gotIDs)
+			t.Errorf("ListTurnRecordsCtx missing active %s (got %v)", want, gotIDs)
 		}
 	}
 	for _, unwanted := range []string{closedPlanID, fixedBugID, revID, rejPropID} {
 		if gotIDs[unwanted] {
-			t.Errorf("ListTurnRecords unexpectedly included %s", unwanted)
+			t.Errorf("ListTurnRecordsCtx unexpectedly included %s", unwanted)
 		}
 	}
 
-	hits, err := SearchTurnRecords(bo, []string{"migrations"}, 16)
+	hits, err := SearchTurnRecordsCtx(bg, bo, []string{"migrations"}, 16)
 	if err != nil {
-		t.Fatalf("SearchTurnRecords: %v", err)
+		t.Fatalf("SearchTurnRecordsCtx: %v", err)
 	}
 	hitIDs := map[string]bool{}
 	for _, h := range hits {
@@ -99,12 +100,12 @@ func TestTurnRecordsFiltersAndDoesNotCreateStore(t *testing.T) {
 	}
 	for _, want := range []string{projMemID, globMemID, openBugID, accADRID} {
 		if !hitIDs[want] {
-			t.Errorf("SearchTurnRecords missing stemmed active %s (got %v)", want, hitIDs)
+			t.Errorf("SearchTurnRecordsCtx missing stemmed active %s (got %v)", want, hitIDs)
 		}
 	}
 	for _, unwanted := range []string{closedPlanID, fixedBugID, revID, rejPropID} {
 		if hitIDs[unwanted] {
-			t.Errorf("SearchTurnRecords unexpectedly returned non-turn record %s", unwanted)
+			t.Errorf("SearchTurnRecordsCtx unexpectedly returned non-turn record %s", unwanted)
 		}
 	}
 
@@ -147,9 +148,9 @@ func TestTurnRecordsFiltersAndDoesNotCreateStore(t *testing.T) {
 	_ = tx.Rollback()
 	_ = keep.Close()
 
-	walRecs, err := ListTurnRecords(Options{Home: walHome, Dir: dir})
+	walRecs, err := ListTurnRecordsCtx(bg, Options{Home: walHome, Dir: dir})
 	if err != nil {
-		t.Fatalf("ListTurnRecords with uncheckpointed -wal fallback: %v", err)
+		t.Fatalf("ListTurnRecordsCtx with uncheckpointed -wal fallback: %v", err)
 	}
 	if !containsRecordID(walRecs, walPlanID) {
 		t.Errorf("WAL fallback missed uncheckpointed plan %s; got %d records", walPlanID, len(walRecs))
@@ -179,11 +180,11 @@ func TestTurnRecordsFiltersAndDoesNotCreateStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = fdb.Close()
-	if _, err := ListTurnRecords(Options{Home: futureHome, Dir: dir}); err == nil || !strings.Contains(err.Error(), "schema 99") {
-		t.Errorf("ListTurnRecords future schema err = %v, want schema 99 refusal", err)
+	if _, err := ListTurnRecordsCtx(bg, Options{Home: futureHome, Dir: dir}); err == nil || !strings.Contains(err.Error(), "schema 99") {
+		t.Errorf("ListTurnRecordsCtx future schema err = %v, want schema 99 refusal", err)
 	}
-	if _, err := SearchTurnRecords(Options{Home: futureHome, Dir: dir}, []string{"migration"}, 8); err == nil || !strings.Contains(err.Error(), "schema 99") {
-		t.Errorf("SearchTurnRecords future schema err = %v, want schema 99 refusal", err)
+	if _, err := SearchTurnRecordsCtx(bg, Options{Home: futureHome, Dir: dir}, []string{"migration"}, 8); err == nil || !strings.Contains(err.Error(), "schema 99") {
+		t.Errorf("SearchTurnRecordsCtx future schema err = %v, want schema 99 refusal", err)
 	}
 
 	// Verify genuine read-only directory succeeds when -wal is absent.
@@ -200,27 +201,27 @@ func TestTurnRecordsFiltersAndDoesNotCreateStore(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
 	}
-	if _, err := ListTurnRecords(bo); err != nil {
-		t.Errorf("ListTurnRecords on read-only dir: %v", err)
+	if _, err := ListTurnRecordsCtx(bg, bo); err != nil {
+		t.Errorf("ListTurnRecordsCtx on read-only dir: %v", err)
 	}
-	if _, err := SearchTurnRecords(bo, []string{"migration"}, 8); err != nil {
-		t.Errorf("SearchTurnRecords on read-only dir: %v", err)
+	if _, err := SearchTurnRecordsCtx(bg, bo, []string{"migration"}, 8); err != nil {
+		t.Errorf("SearchTurnRecordsCtx on read-only dir: %v", err)
 	}
-	if recs, hits, err := LoadTurnRecordsAndFTS(Options{Home: emptyHome, Dir: dir}, []string{"migration"}, 8); err != nil || len(recs) != 0 || len(hits) != 0 {
-		t.Errorf("missing store LoadTurnRecordsAndFTS = (%d, %d, %v), want 0, 0, nil", len(recs), len(hits), err)
+	if load, err := LoadTurnDataCtx(bg, Options{Home: emptyHome, Dir: dir}, []string{"migration"}, 8); err != nil || len(load.Records) != 0 || len(load.Hits) != 0 {
+		t.Errorf("missing store LoadTurnDataCtx = (%d, %d, %v), want 0, 0, nil", len(load.Records), len(load.Hits), err)
 	}
-	if _, _, err := LoadTurnRecordsAndFTS(Options{Home: futureHome, Dir: dir}, []string{"migration"}, 8); err == nil || !strings.Contains(err.Error(), "schema 99") {
-		t.Errorf("LoadTurnRecordsAndFTS future schema err = %v, want schema 99 refusal", err)
+	if _, err := LoadTurnDataCtx(bg, Options{Home: futureHome, Dir: dir}, []string{"migration"}, 8); err == nil || !strings.Contains(err.Error(), "schema 99") {
+		t.Errorf("LoadTurnDataCtx future schema err = %v, want schema 99 refusal", err)
 	}
-	combinedRecs, combinedHits, err := LoadTurnRecordsAndFTS(bo, []string{"migrations"}, 16)
+	combined, err := LoadTurnDataCtx(bg, bo, []string{"migrations"}, 16)
 	if err != nil {
-		t.Fatalf("LoadTurnRecordsAndFTS: %v", err)
+		t.Fatalf("LoadTurnDataCtx: %v", err)
 	}
-	if !containsRecordID(combinedRecs, openPlanID) || !containsRecordID(combinedRecs, projMemID) {
-		t.Errorf("LoadTurnRecordsAndFTS missing expected active records")
+	if !combined.Complete || !containsRecordID(combined.Records, openPlanID) || !containsRecordID(combined.Records, projMemID) {
+		t.Errorf("LoadTurnDataCtx missing expected active records (complete=%v)", combined.Complete)
 	}
-	if len(combinedHits) == 0 || combinedHits[0].ID == "" {
-		t.Errorf("LoadTurnRecordsAndFTS hits = %+v, want non-empty FTS hits", combinedHits)
+	if len(combined.Hits) == 0 || combined.Hits[0].ID == "" {
+		t.Errorf("LoadTurnDataCtx hits = %+v, want non-empty FTS hits", combined.Hits)
 	}
 }
 
@@ -322,17 +323,17 @@ func TestTurnRecordsIndexAndFilterWords(t *testing.T) {
 		t.Errorf("unexpected normalized words: %v", got)
 	}
 
-	// 4. SearchTurnRecords and LoadTurnRecordsAndFTS skip FTS when only trivial/stopword words are passed.
+	// 4. SearchTurnRecordsCtx and LoadTurnDataCtx skip FTS when only trivial/stopword words are passed.
 	bo := Options{Home: home, Dir: dir}
 	if _, err := Add(bo, AddInput{Kind: "adr", Status: "accepted", Title: "Check tests please", Body: strings.NewReader("Please fix and check all approved tests.\n")}); err != nil {
 		t.Fatalf("Add adr: %v", err)
 	}
 	trivialWords := []string{"please", "fix", "check", "all", "approved", "tests", "123"}
-	if hits, err := SearchTurnRecords(bo, trivialWords, 8); err != nil || len(hits) != 0 {
-		t.Errorf("SearchTurnRecords(trivial) = (%v, %v), want nil, nil", hits, err)
+	if hits, err := SearchTurnRecordsCtx(context.Background(), bo, trivialWords, 8); err != nil || len(hits) != 0 {
+		t.Errorf("SearchTurnRecordsCtx(trivial) = (%v, %v), want nil, nil", hits, err)
 	}
-	if recs, hits, err := LoadTurnRecordsAndFTS(bo, trivialWords, 8); err != nil || len(recs) != 1 || len(hits) != 0 {
-		t.Errorf("LoadTurnRecordsAndFTS(trivial) = (recs=%d, hits=%d, err=%v), want 1, 0, nil", len(recs), len(hits), err)
+	if load, err := LoadTurnDataCtx(context.Background(), bo, trivialWords, 8); err != nil || len(load.Records) != 1 || len(load.Hits) != 0 {
+		t.Errorf("LoadTurnDataCtx(trivial) = (recs=%d, hits=%d, err=%v), want 1, 0, nil", len(load.Records), len(load.Hits), err)
 	}
 }
 
@@ -403,19 +404,22 @@ func TestTurnRecordsSeeded1143LatencyAndSelectiveBody(t *testing.T) {
 	planID, hitADRID, hitMemID, oldADRID := seed1143TurnRecordsT(t, bo)
 
 	// Warm load on 1,143 seeded records must stay well under 120ms and selectively hydrate bodies.
-	_, _, err := LoadTurnRecordsAndFTSCtx(context.Background(), bo, []string{"quorumsnapshot"}, 16)
-	if err != nil {
-		t.Fatalf("warmup LoadTurnRecordsAndFTSCtx: %v", err)
+	if _, err := LoadTurnDataCtx(context.Background(), bo, []string{"quorumsnapshot"}, 16); err != nil {
+		t.Fatalf("warmup LoadTurnDataCtx: %v", err)
 	}
 	start := time.Now()
-	recs, hits, err := LoadTurnRecordsAndFTSCtx(context.Background(), bo, []string{"quorumsnapshot"}, 16)
+	load, err := LoadTurnDataCtx(context.Background(), bo, []string{"quorumsnapshot"}, 16)
 	elapsed := time.Since(start)
 	if err != nil {
-		t.Fatalf("LoadTurnRecordsAndFTSCtx: %v", err)
+		t.Fatalf("LoadTurnDataCtx: %v", err)
 	}
 	if elapsed >= turnRecordsWarmBudget {
-		t.Errorf("warm LoadTurnRecordsAndFTSCtx on 1143 records took %v, want < %v", elapsed, turnRecordsWarmBudget)
+		t.Errorf("warm LoadTurnDataCtx on 1143 records took %v, want < %v", elapsed, turnRecordsWarmBudget)
 	}
+	if load.Complete {
+		t.Errorf("expected selective hydration Complete=false on 1143 records")
+	}
+	recs, hits := load.Records, load.Hits
 	if len(hits) < 2 {
 		t.Fatalf("expected >= 2 FTS hits for quorumsnapshot, got %+v", hits)
 	}
@@ -438,7 +442,7 @@ func TestTurnRecordsSeeded1143LatencyAndSelectiveBody(t *testing.T) {
 	// Pre-canceled context must abort cleanly without returning records.
 	cctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, _, err := LoadTurnRecordsAndFTSCtx(cctx, bo, []string{"quorumsnapshot"}, 16); err == nil {
+	if _, err := LoadTurnDataCtx(cctx, bo, []string{"quorumsnapshot"}, 16); err == nil {
 		t.Errorf("expected error for canceled context, got nil")
 	}
 }
@@ -470,12 +474,13 @@ func TestTurnRecordsMetaColsProvenanceFullListAndROFirst(t *testing.T) {
 		t.Errorf("ListTurnRecordsCtx left %s Body empty; want full hydration", oldADRID)
 	}
 
-	// 2. LoadTurnRecordsAndFTSCtx preserves real metadata provenance/kind on unhydrated memories
+	// 2. LoadTurnDataCtx preserves real metadata provenance/kind on unhydrated memories
 	//    and hydrates all open bugs (even > 4).
-	partRecs, _, err := LoadTurnRecordsAndFTSCtx(context.Background(), bo, []string{"quorumsnapshot"}, 16)
+	partLoad, err := LoadTurnDataCtx(context.Background(), bo, []string{"quorumsnapshot"}, 16)
 	if err != nil {
-		t.Fatalf("LoadTurnRecordsAndFTSCtx: %v", err)
+		t.Fatalf("LoadTurnDataCtx: %v", err)
 	}
+	partRecs := partLoad.Records
 	var oldMem Record
 	openBugsHydrated := 0
 	for _, r := range partRecs {
@@ -491,7 +496,7 @@ func TestTurnRecordsMetaColsProvenanceFullListAndROFirst(t *testing.T) {
 			oldMem.Provenance, oldMem.MemoryKind, oldMem.VerifiedAt, oldMem.Updated)
 	}
 	if openBugsHydrated < 6 {
-		t.Errorf("LoadTurnRecordsAndFTSCtx hydrated %d open bugs, want all 6", openBugsHydrated)
+		t.Errorf("LoadTurnDataCtx hydrated %d open bugs, want all 6", openBugsHydrated)
 	}
 
 	// 3. openExistingTurnStoreCtx uses normal mode=ro first on writable DB (sees later external writes;

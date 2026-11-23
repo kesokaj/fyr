@@ -712,14 +712,21 @@ esac`
 		}
 		lines := strings.Split(strings.TrimSpace(string(rawLog)), "\n")
 		var landSeq []string
-		var sawVerify, sawJudgeModel bool
+		var sawVerify, sawJudge, sawJudgeModel bool
 		for _, ln := range lines {
-			if strings.HasPrefix(ln, "gate ") && (strings.Contains(ln, "--judge") || strings.Contains(ln, "--judge-model")) {
-				t.Errorf("gate CLI line unexpectedly invoked --judge (must run once in land):\n%s", ln)
-			}
-			if strings.HasPrefix(ln, "land ") {
+			if strings.HasPrefix(ln, "gate ") {
+				if strings.Contains(ln, "--judge ") {
+					sawJudge = true
+				}
 				if strings.Contains(ln, "--judge-model claude-opus-5-5-high") {
 					sawJudgeModel = true
+				}
+			}
+			if strings.HasPrefix(ln, "land ") {
+				for _, forbidden := range []string{"--judge", "--judge-model", "--worker-model", "--worker-session"} {
+					if strings.Contains(ln, forbidden) {
+						t.Errorf("land CLI line unexpectedly contained %q (judge must run once in gate):\n%s", forbidden, ln)
+					}
 				}
 				landSeq = append(landSeq, strings.Fields(ln)[1])
 			}
@@ -727,8 +734,8 @@ esac`
 				sawVerify = true
 			}
 		}
-		if strings.Join(landSeq, ",") != "work/slice-a,work/slice-b" || !sawVerify || !sawJudgeModel {
-			t.Fatalf("unexpected CLI sequence (land=%v verify=%v judgeModel=%v):\n%s", landSeq, sawVerify, sawJudgeModel, rawLog)
+		if strings.Join(landSeq, ",") != "work/slice-a,work/slice-b" || !sawVerify || !sawJudge || !sawJudgeModel {
+			t.Fatalf("unexpected CLI sequence (land=%v verify=%v judge=%v judgeModel=%v):\n%s", landSeq, sawVerify, sawJudge, sawJudgeModel, rawLog)
 		}
 	})
 
@@ -1075,7 +1082,7 @@ func TestV910WorkflowsPhaseLoopLandJudgeTrailLeaseAndDynamicFamily(t *testing.T)
 		}
 	})
 
-	t.Run("phase_loop passes judge and worker flags to land and extracts structured land failure detail", func(t *testing.T) {
+	t.Run("phase_loop passes judge and worker flags to gate and extracts structured land failure detail", func(t *testing.T) {
 		binDir, workDir, homeDir := t.TempDir(), t.TempDir(), t.TempDir()
 		logFile := filepath.Join(workDir, "fyr.log")
 		recFile := filepath.Join(workDir, "record_run.json")
@@ -1126,14 +1133,14 @@ esac`
 				landLine = ln
 			}
 		}
-		for _, forbidden := range []string{"--judge", "--judge-model"} {
-			if strings.Contains(gateLine, forbidden) {
-				t.Errorf("gate CLI line unexpectedly contains %q (judge must run once in land):\n%s", forbidden, gateLine)
+		for _, want := range []string{"--judge check s1", "--judge-model claude-opus-5-5-high", "--worker-model gemini-4-carbon-high", "--worker-session conv-w1"} {
+			if !strings.Contains(gateLine, want) {
+				t.Errorf("gate CLI line missing %q:\n%s", want, gateLine)
 			}
 		}
-		for _, want := range []string{"--judge check s1", "--judge-model claude-opus-5-5-high", "--worker-model gemini-4-carbon-high", "--worker-session conv-w1"} {
-			if !strings.Contains(landLine, want) {
-				t.Errorf("land CLI line missing %q:\n%s", want, landLine)
+		for _, forbidden := range []string{"--judge", "--judge-model", "--worker-model", "--worker-session"} {
+			if strings.Contains(landLine, forbidden) {
+				t.Errorf("land CLI line unexpectedly contains %q (judge must run once in gate):\n%s", forbidden, landLine)
 			}
 		}
 		rawRec, err := os.ReadFile(recFile)
@@ -1143,6 +1150,56 @@ esac`
 		var row map[string]any
 		if err := json.Unmarshal(rawRec, &row); err != nil || row["kind"] != "phase_loop" || row["status"] != "ESCALATE" {
 			t.Fatalf("unexpected record-run payload: err=%v row=%+v raw=%s", err, row, rawRec)
+		}
+	})
+
+	t.Run("phase_loop land=false with judge_criterion still runs fyr gate --judge without calling land", func(t *testing.T) {
+		binDir, workDir, homeDir := t.TempDir(), t.TempDir(), t.TempDir()
+		logFile := filepath.Join(workDir, "fyr.log")
+		fakeFyr := `echo "$*" >> ` + logFile + `
+case "$1" in
+  gate) printf '{"ok":true,"findings":[],"judgeVerdict":"PASS"}\n' ;;
+  metrics) printf '{"id":"ok"}\n' ;;
+  *) echo "unexpected cmd: $*" >&2; exit 2 ;;
+esac`
+		writeFakeBin(t, binDir, "fyr", fakeFyr)
+		res := runWorkflowScriptWithOpts(t, "workflows/phase_loop.py", map[string]any{
+			"plan_id": "PLAN-noland", "phase_name": "Wave 5", "date": "2026-11-23",
+			"exec_cli": true, "cross_family": true, "land": false,
+			"judge_model": "claude-opus-5-5-high", "worker_model": "gemini-4-carbon-high", "worker_session": "conv-nl1",
+			"slices": []map[string]any{{
+				"id": "s1", "goal": "g1", "files": []string{"internal/a/**"},
+				"judge_criterion": "check no-land judge", "branch": "work/s1",
+			}},
+		}, workflowExecOpts{
+			workDir: workDir, pathPrefix: binDir, homeDir: homeDir,
+			rawMocks: map[string]any{
+				"builder:s1": map[string]any{"status": "DONE", "branch": "work/s1", "commit": "111aaaa", "files_changed": []string{"internal/a/a.go"}, "verify_ok": true},
+			},
+		})
+		if res.Output["status"] != "PASS" {
+			t.Fatalf("land=false status = %v, want PASS (%+v)", res.Output["status"], res.Output)
+		}
+		if landed, _ := res.Output["landed"].([]any); len(landed) != 0 {
+			t.Fatalf("land=false unexpectedly landed slices: %+v", landed)
+		}
+		rawLog, err := os.ReadFile(logFile)
+		if err != nil {
+			t.Fatalf("read fyr.log: %v", err)
+		}
+		var gateLine string
+		for _, ln := range strings.Split(strings.TrimSpace(string(rawLog)), "\n") {
+			if strings.HasPrefix(ln, "land ") {
+				t.Errorf("land=false unexpectedly invoked fyr land:\n%s", ln)
+			}
+			if strings.HasPrefix(ln, "gate ") {
+				gateLine = ln
+			}
+		}
+		for _, want := range []string{"--judge check no-land judge", "--judge-model claude-opus-5-5-high", "--worker-model gemini-4-carbon-high", "--worker-session conv-nl1"} {
+			if !strings.Contains(gateLine, want) {
+				t.Errorf("land=false gate CLI line missing %q:\n%s", want, gateLine)
+			}
 		}
 	})
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 func liveAgyProcs() func() ([]ProcInfo, error) {
@@ -641,6 +642,44 @@ func TestV910SecuritySymlinkScratchAndMetricsStateDir(t *testing.T) {
 		}
 		if *copies != 0 {
 			t.Errorf("symlinked .agents/scratch invoked OpenCopy %d times, want 0", *copies)
+		}
+	})
+
+	t.Run("symlinked_scratch_without_searchdb_refused_before_artifacts", func(t *testing.T) {
+		home, dir, extDir := t.TempDir(), t.TempDir(), t.TempDir()
+		extArt := filepath.Join(extDir, "agents", "stuck.md")
+		mustWriteWatchFile(t, extArt, "# Stuck\n## Status: IN PROGRESS\n", now.Add(-5*time.Minute))
+		if err := os.MkdirAll(filepath.Join(dir, ".agents"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(extDir, filepath.Join(dir, ".agents", "scratch")); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Check(context.Background(), Options{
+			Home: home, Dir: dir, Now: func() time.Time { return now }, ProcLister: liveAgyProcs(),
+		})
+		if !errors.Is(err, trail.ErrStampSymlink) {
+			t.Fatalf("symlinked .agents/scratch without search.db err = %v, want trail.ErrStampSymlink", err)
+		}
+	})
+
+	t.Run("symlinked_agents_dir_refused", func(t *testing.T) {
+		home, dir, extAgents := t.TempDir(), t.TempDir(), t.TempDir()
+		mustWriteWatchFile(t, filepath.Join(extAgents, "stuck.md"), "# Stuck\n## Status: IN PROGRESS\n", now.Add(-5*time.Minute))
+		if err := os.MkdirAll(filepath.Join(dir, ".agents", "scratch"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(extAgents, filepath.Join(dir, ".agents", "scratch", "agents")); err != nil {
+			t.Fatal(err)
+		}
+		if checked, findings := inspectArtifacts(dir, 90, now); checked != 0 || len(findings) != 0 {
+			t.Errorf("inspectArtifacts followed symlinked agents dir: checked=%d findings=%+v", checked, findings)
+		}
+		_, err := Check(context.Background(), Options{
+			Home: home, Dir: dir, Now: func() time.Time { return now }, ProcLister: liveAgyProcs(),
+		})
+		if !errors.Is(err, trail.ErrStampSymlink) {
+			t.Fatalf("Check with symlinked .agents/scratch/agents err = %v, want trail.ErrStampSymlink", err)
 		}
 	})
 

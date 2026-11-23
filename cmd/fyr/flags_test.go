@@ -615,7 +615,7 @@ func testV910LocalBinAgyLookup(t *testing.T) {
 }
 
 func TestReportNoIngestWritesStateAndRelayRecordWarn(t *testing.T) {
-	// 1. report --no-ingest writesState: true for --daily-digest and default HTML; false for --md/--json/--web/--out.
+	// 1. report --no-ingest writesState: true for --daily-digest --no-ingest; false for read-only report --no-ingest (matching TestStateDirMigrationByVerb).
 	for _, tc := range []struct {
 		name string
 		cmd  string

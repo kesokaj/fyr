@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -492,5 +494,74 @@ func TestV910CloseStdinFailFast(t *testing.T) {
 	_, errStr, code = runCLIWithErr("close", "--home", home, "--dir", repo, "--title", "too-big-file", "--body-file", bigFile)
 	if code != 2 || !strings.Contains(errStr, "exceeds") {
 		t.Errorf("oversized --body-file close: code=%d err=%q", code, errStr)
+	}
+}
+
+func makeBlockingPipeT(t *testing.T) (*os.File, *os.File) {
+	t.Helper()
+	var fds [2]int
+	if err := syscall.Pipe(fds[:]); err != nil {
+		t.Fatalf("syscall.Pipe: %v", err)
+	}
+	pr := os.NewFile(uintptr(fds[0]), "blocking-pipe-r")
+	pw := os.NewFile(uintptr(fds[1]), "blocking-pipe-w")
+	if err := pr.SetReadDeadline(time.Now().Add(time.Second)); !errors.Is(err, os.ErrNoDeadline) {
+		_ = pr.Close()
+		_ = pw.Close()
+		t.Fatalf("expected blocking pipe SetReadDeadline to return os.ErrNoDeadline, got %v", err)
+	}
+	return pr, pw
+}
+
+func TestV910CloseBlockingPipeFailFastAndDelayed(t *testing.T) {
+	home := t.TempDir()
+	repo := initCLITestRepo(t)
+	if outStr, errStr, code := runCLIWithErr("verify", "--home", home, "--dir", repo); code != 0 {
+		t.Fatalf("verify: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	origStdin := stdin
+	t.Cleanup(func() { stdin = origStdin })
+
+	// (a) Idle blocking pipe (no O_NONBLOCK, SetReadDeadline == ErrNoDeadline) fails fast < 250ms with exit 2.
+	prIdle, pwIdle := makeBlockingPipeT(t)
+	defer prIdle.Close()
+	defer pwIdle.Close()
+	doneIdle := make(chan struct{})
+	go func() {
+		select {
+		case <-doneIdle:
+		case <-time.After(600 * time.Millisecond):
+			_ = pwIdle.Close()
+		}
+	}()
+	stdin = prIdle
+	t0 := time.Now()
+	_, errStr, code := runCLIWithErr("close", "--home", home, "--dir", repo, "--title", "idle-blocking-pipe")
+	elapsed := time.Since(t0)
+	close(doneIdle)
+	if code != 2 || !strings.Contains(errStr, "no body on stdin") {
+		t.Fatalf("idle blocking pipe close: code=%d err=%q elapsed=%s", code, errStr, elapsed)
+	}
+	if elapsed >= 250*time.Millisecond {
+		t.Errorf("idle blocking pipe close took %s, want < 250ms", elapsed)
+	}
+
+	// (b) 50ms delayed writer on blocking pipe succeeds and preserves byte 0.
+	prDelay, pwDelay := makeBlockingPipeT(t)
+	defer prDelay.Close()
+	const delayedBody = "Blocking-pipe byte-0 preserved handoff.\n"
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		_, _ = pwDelay.WriteString(delayedBody)
+		_ = pwDelay.Close()
+	}()
+	stdin = prDelay
+	dOut, dErr, dCode := runCLIWithErr("close", "--home", home, "--dir", repo, "--title", "delayed-blocking-pipe")
+	if dCode != 0 || !strings.HasPrefix(strings.TrimSpace(dOut), "HANDOFF-") {
+		t.Fatalf("50ms delayed blocking pipe close failed: code=%d out=%q err=%q", dCode, dOut, dErr)
+	}
+	recs, _, gerr := brain.Get(brain.Options{Home: home, Dir: repo}, []string{strings.TrimSpace(dOut)})
+	if gerr != nil || len(recs) != 1 || !strings.HasPrefix(recs[0].Body, delayedBody) {
+		t.Fatalf("delayed blocking pipe handoff body corrupted: err=%v recs=%+v", gerr, recs)
 	}
 }

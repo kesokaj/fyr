@@ -92,8 +92,12 @@ func buildHookEnvelopeWithModelTimed(ctx context.Context, o Options, cat modelsC
 	bypassed := strings.HasPrefix(strings.TrimSpace(rawPrompt), "!")
 	skipBrainAndSkills := !state.Compacted && !bypassed && (intent == IntentApproval || intent == IntentTrivial)
 	var brainCtx TurnBrainContext
-	if !skipBrainAndSkills && o.BrainTurnContext != nil {
-		brainCtx = o.BrainTurnContext(dir, o.Home, cleanPrompt, slice.Files)
+	if !skipBrainAndSkills && hasBrainTurnContext(o) {
+		bctx := ctx
+		if bctx == nil {
+			bctx = context.Background()
+		}
+		brainCtx = invokeBrainTurnContext(bctx, o, dir, cleanPrompt, slice.Files)
 	}
 	var catalog []SkillMeta
 	if !skipBrainAndSkills && o.SkillCatalog != nil {

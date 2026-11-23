@@ -417,8 +417,8 @@ func (sc *scope) runVet(o Options, out io.Writer) error {
 	}
 	intent := ClassifyIntent(cleanPrompt, slice.SymbolHits)
 	var brainCtx TurnBrainContext
-	if o.BrainTurnContext != nil {
-		brainCtx = o.BrainTurnContext(o.Dir, o.Home, cleanPrompt, slice.Files)
+	if hasBrainTurnContext(o) {
+		brainCtx = invokeBrainTurnContext(context.Background(), o, o.Dir, cleanPrompt, slice.Files)
 	}
 	var catalog []SkillMeta
 	if o.SkillCatalog != nil {

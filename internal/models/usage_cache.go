@@ -176,13 +176,11 @@ func pickCrossFamilyWithQuota(ctx context.Context, cat Catalog, opts PickRoleOpt
 func pickCrossFamilyAnthropicCaller(ctx context.Context, cat Catalog, opts PickRoleOptions, normRole, normTier string, freshCache bool) (RolePick, []Pool, error) {
 	activePools, livePools := cat.Pools, ([]Pool)(nil)
 	if !freshCache {
-		uText, err := probeUsageForHome(ctx, opts.Home, opts.AgyPath)
-		if err == nil {
+		activePools = nil
+		if uText, err := probeUsageForHome(ctx, opts.Home, opts.AgyPath); err == nil {
 			if parsed, perr := ParseUsage(uText); perr == nil {
 				livePools, activePools = parsed, parsed
 			}
-		} else {
-			activePools = nil
 		}
 	}
 	pick, err := PickFromEntriesWithPoolsAndCaller(cat.Entries, cat.Picks, activePools, normRole, normTier, "anthropic")

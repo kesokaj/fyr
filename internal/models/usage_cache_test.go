@@ -269,4 +269,18 @@ func TestPickRoleExpiredSameFamilyAndCrossFamilyRepickReason(t *testing.T) {
 	if !strings.Contains(pickRepick.FallbackReason, "custom-other-pro-high") || strings.Contains(pickRepick.FallbackReason, "gemini-4-carbon-high") {
 		t.Errorf("cross-family repick FallbackReason named stale model: %q", pickRepick.FallbackReason)
 	}
+
+	// 3. Cross-family anthropic caller with expired exhausted cat.Pools + unparseable live /usage output:
+	//    must NOT fall back to expired cat.Pools (activePools must be cleared to nil).
+	UsageProbeFunc = func(context.Context, string) (string, error) {
+		return "garbled unparseable /usage output\n", nil
+	}
+	pickUnparseable, liveUnparseable, err := PickRoleFromCatalogForHome(
+		ctx, expiredExhausted,
+		PickRoleOptions{AgyPath: "agy", CallerFamily: "anthropic"},
+		"judge", "pro",
+	)
+	if err != nil || pickUnparseable.Model != "gemini-4-carbon-high" || len(liveUnparseable) != 0 {
+		t.Fatalf("expired anthropic caller + unparseable /usage fell back to stale pools: pick=%+v live=%+v err=%v", pickUnparseable, liveUnparseable, err)
+	}
 }

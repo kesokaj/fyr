@@ -222,9 +222,11 @@ func buildPreInvocationEnrichment(res VetResult, slice SliceResult, brainCtx Tur
 	}
 	e := &PreInvocationEnrichment{
 		PriorTurnContext: strings.TrimSpace(printable(res.PriorTurnContext)),
-		SkillDigests:     buildPreInvocationSkillDigests(res.Skills),
 		Records:          buildPreInvocationRecords(brainCtx),
 		AstSlice:         printableMultiline(slice.Capsule),
+	}
+	if !res.Bypassed {
+		e.SkillDigests = buildPreInvocationSkillDigests(res.Skills)
 	}
 	if res.Gate == GateEnrichAndProceed && res.Intent != IntentQuestion && res.Intent != IntentCorrection {
 		e.ImprovedPrompt = printableMultiline(res.ImprovedPrompt)
