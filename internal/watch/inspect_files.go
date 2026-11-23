@@ -24,7 +24,7 @@ const (
 )
 
 var (
-	interactivePromptRe = regexp.MustCompile("(?i)(\\[y/n\\]|\\[yes/no\\]|pa" + "ssword:|pa" + "ssphrase|continue\\?|press enter)")
+	interactivePromptRe = regexp.MustCompile("(?i)(\\[y/n\\]|\\(y/n\\)|\\[yes/no\\]|\\(yes/no(?:/\\[fingerprint\\])?\\)\\?|pa" + "ssword:|pa" + "ssphrase|continue\\?|press enter)")
 	statusInProgressRe  = regexp.MustCompile(`(?i)^(?:#{1,6}\s*)?status:\s*in\s+progress(?:\s|$|<!--)`)
 )
 

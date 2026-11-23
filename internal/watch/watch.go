@@ -17,15 +17,14 @@ import (
 )
 
 const (
-	defaultIdleSec      = 90
-	auditSubagentCap    = 40
-	selfSubagentCap     = 120
-	budgetWarnPct       = 80
-	discoveryWindow     = 24 * time.Hour
-	watchTempPrefix     = "watch-agy-"
-	kindInteractiveWait = "INTERACTIVE_WAIT"
-	kindStuckNoProgress = "STUCK_NO_PROGRESS"
-	kindBudgetNearLimit = "BUDGET_NEAR_LIMIT"
+	defaultIdleSec         = 90
+	minActiveMetaWindowSec = 300
+	budgetWarnPct          = 80
+	discoveryWindow        = 24 * time.Hour
+	watchTempPrefix        = "watch-agy-"
+	kindInteractiveWait    = "INTERACTIVE_WAIT"
+	kindStuckNoProgress    = "STUCK_NO_PROGRESS"
+	kindBudgetNearLimit    = "BUDGET_NEAR_LIMIT"
 )
 
 // Options configures a single out-of-band watch inspection pass.
@@ -67,8 +66,9 @@ type Report struct {
 	Findings []Finding `json:"findings,omitempty"`
 }
 
-// Check runs a read-only hang and budget inspection pass using copies of any
-// SQLite stores under a scratch temp dir in harness.StateDir.
+// Check runs a read-only hang and budget inspection pass, opening search.db
+// and metrics.db read-only and falling back to copies under harness.StateDir
+// only when required.
 func Check(ctx context.Context, o Options) (Report, error) {
 	if err := ctx.Err(); err != nil {
 		return Report{}, err
@@ -106,11 +106,22 @@ func runChecks(ctx context.Context, o Options, customProcs bool, tmp string, rep
 			rep.Findings = append(rep.Findings, f)
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	procs, err := o.ProcLister()
+	if err != nil {
+		return err
+	}
 	if o.Dir != "" {
 		n, artFindings := inspectArtifacts(o.Dir, o.IdleSec, now)
 		rep.Checked += n
 		rep.Findings = append(rep.Findings, artFindings...)
-		nMeta, metaFindings, err := inspectSessionMeta(o.Home, o.Dir, o.ConvID, tmp, now, summaries, hasSum, targetSet)
+		nMeta, metaFindings, err := inspectSessionMeta(metaCheckInput{
+			home: o.Home, dir: o.Dir, convID: o.ConvID, tmp: tmp,
+			idleSec: o.IdleSec, now: now, summaries: summaries,
+			hasSum: hasSum, targetSet: targetSet, procs: procs,
+		})
 		if err != nil {
 			return err
 		}
@@ -120,10 +131,7 @@ func runChecks(ctx context.Context, o Options, customProcs bool, tmp string, rep
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	nProcs, procFindings, err := inspectProcs(o, customProcs)
-	if err != nil {
-		return err
-	}
+	nProcs, procFindings := inspectProcsFrom(o, customProcs, procs)
 	rep.Checked += nProcs
 	rep.Findings = append(rep.Findings, procFindings...)
 	return nil

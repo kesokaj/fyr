@@ -496,7 +496,9 @@ func TestWatchSessionMetaWindowAndBudgets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
-	for _, want := range []string{"worker-coder", "sub-rev-recent"} {
+	// Under Phase 7 / F-036 aligned role caps (search.SubagentBudgetCap),
+	// unknown custom roles ("worker-x") default to cap 40 (not 120).
+	for _, want := range []string{"worker-coder", "worker-custom", "sub-rev-recent"} {
 		if !hasWatchFinding(rep, kindBudgetNearLimit, want) {
 			t.Errorf("missing BUDGET_NEAR_LIMIT for %s: %+v", want, rep.Findings)
 		}
@@ -506,7 +508,7 @@ func TestWatchSessionMetaWindowAndBudgets(t *testing.T) {
 			t.Errorf("missing BUDGET_NEAR_LIMIT for audit role %s: %+v", r, rep.Findings)
 		}
 	}
-	for _, noWant := range []string{"worker-builder", "worker-custom", "anon-self", "orphan-unbacked", "orphan-old-sub", "orphan-builder-fresh"} {
+	for _, noWant := range []string{"worker-builder", "anon-self", "orphan-unbacked", "orphan-old-sub", "orphan-builder-fresh"} {
 		if hasWatchFinding(rep, kindBudgetNearLimit, noWant) {
 			t.Errorf("unexpected BUDGET_NEAR_LIMIT for %s: %+v", noWant, rep.Findings)
 		}
@@ -565,4 +567,12 @@ func TestWatchWorkspaceMatchesSymlinkedDir(t *testing.T) {
 	if !cmdMatchesTarget("bash "+filepath.Join(realRepo, "sub"), linkRepo, "") {
 		t.Errorf("cmdMatchesTarget did not resolve symlinked dir %q", linkRepo)
 	}
+}
+
+func TestV910WatchReadOnlyLivenessAndOpenSSH(t *testing.T) {
+	t.Run("readonly_40mb_search_db", testV910ReadOnly40MB)
+	t.Run("readonly_fallback_and_refusal", testV910ReadOnlyFallbackAndRefusal)
+	t.Run("liveness_filters", testV910LivenessFilters)
+	t.Run("aligned_role_caps", testV910AlignedRoleCaps)
+	t.Run("openssh_prompts", testV910OpenSSHPrompts)
 }

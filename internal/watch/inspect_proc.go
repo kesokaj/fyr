@@ -12,11 +12,7 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-func inspectProcs(o Options, customProcs bool) (int, []Finding, error) {
-	procs, err := o.ProcLister()
-	if err != nil {
-		return 0, nil, err
-	}
+func inspectProcsFrom(o Options, customProcs bool, procs []ProcInfo) (int, []Finding) {
 	candidates := filterProcs(procs, customProcs, o.Dir, o.ConvID)
 	var findings []Finding
 	for _, p := range candidates {
@@ -24,7 +20,24 @@ func inspectProcs(o Options, customProcs bool) (int, []Finding, error) {
 			findings = append(findings, f)
 		}
 	}
-	return len(candidates), findings, nil
+	return len(candidates), findings
+}
+
+func procTableLiveness(procs []ProcInfo) (inspectable, hasLiveAgy bool) {
+	if procs == nil {
+		return false, false
+	}
+	for _, p := range procs {
+		if isAgyProcess(p.Cmdline) && isLiveProcState(p.State) {
+			return true, true
+		}
+	}
+	return true, false
+}
+
+func isLiveProcState(state string) bool {
+	s := strings.ToUpper(strings.TrimSpace(state))
+	return !strings.HasPrefix(s, "Z") && !strings.HasPrefix(s, "X")
 }
 
 func filterProcs(procs []ProcInfo, customProcs bool, dir, convID string) []ProcInfo {
