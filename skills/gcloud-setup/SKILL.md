@@ -1,6 +1,6 @@
 ---
 name: gcloud-setup
-description: "Configure gcloud CLI auth, ADC credentials, and per-command --project settings. Not for Terraform HCL or Cloud Run deploys."
+description: "Configure gcloud CLI login, ADC credentials, active profiles, and per-command --project settings."
 ---
 
 # GCloud CLI Setup & Authentication

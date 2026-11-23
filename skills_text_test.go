@@ -5,10 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/kesokaj/fyr/internal/redact"
 )
 
 func readSkill(t *testing.T, path string) string {
@@ -384,4 +387,214 @@ func TestV910SkillTemplatesAndR7Alignment(t *testing.T) {
 			forbid: []string{"no `change` record covers those changes, store one **before** the handoff", "the checkpoint's `change` record, commit and push", "the `change` record, the `handoff` record", "with no `change` record covering it"},
 		},
 	})
+}
+
+var frontmatterStopwords = map[string]bool{
+	"about": true, "after": true, "all": true, "also": true, "and": true, "any": true,
+	"are": true, "before": true, "between": true, "both": true, "but": true, "can": true,
+	"during": true, "each": true, "first": true, "for": true, "from": true, "fyr": true,
+	"has": true, "have": true, "how": true, "into": true, "its": true, "just": true,
+	"load": true, "may": true, "more": true, "most": true, "new": true, "not": true,
+	"off": true, "one": true, "only": true, "other": true, "our": true, "out": true,
+	"over": true, "own": true, "per": true, "run": true, "runs": true, "same": true,
+	"such": true, "than": true, "that": true, "the": true, "then": true, "this": true,
+	"through": true, "too": true, "under": true, "use": true, "using": true, "very": true,
+	"via": true, "what": true, "when": true, "where": true, "which": true, "who": true,
+	"why": true, "with": true, "without": true, "you": true, "your": true,
+}
+
+func skillDescKeywords(desc string) map[string]bool {
+	words := strings.FieldsFunc(strings.ToLower(desc), func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	})
+	out := make(map[string]bool, len(words))
+	for _, w := range words {
+		if len(w) < 3 || frontmatterStopwords[w] {
+			continue
+		}
+		out[w] = true
+	}
+	return out
+}
+
+func findSkillDescOverlaps(descs map[string]string, minShared int) []string {
+	names := make([]string, 0, len(descs))
+	kw := make(map[string]map[string]bool, len(descs))
+	for name, desc := range descs {
+		names = append(names, name)
+		kw[name] = skillDescKeywords(desc)
+	}
+	sort.Strings(names)
+	var pairs []string
+	for i := 0; i < len(names); i++ {
+		for j := i + 1; j < len(names); j++ {
+			a, b := names[i], names[j]
+			var shared []string
+			for tok := range kw[a] {
+				if kw[b][tok] {
+					shared = append(shared, tok)
+				}
+			}
+			if len(shared) >= minShared {
+				sort.Strings(shared)
+				pairs = append(pairs, a+" <-> "+b+" ("+strings.Join(shared, ", ")+")")
+			}
+		}
+	}
+	return pairs
+}
+
+// TestV910SkillDietBudget pins Phase 17 (WS6c: F-041 golang diet, F-044
+// prompt-tax diet for the six >20 KB skills, R7 single-handoff close in
+// fyr-feature, and frontmatter keyword deduplication across all skills).
+func TestV910SkillDietBudget(t *testing.T) {
+	const (
+		maxDietBytes    = 13 * 1024 // 13,312 B per trimmed skill
+		maxGolangBytes  = 12 * 1024 // 12,288 B for golang SKILL.md
+		baselineSix     = 141567    // 26094+25499+23509+23247+22834+20384
+		maxCombinedSix  = 106175    // >= 25% byte reduction from baseline
+		maxOverlapPairs = 5         // down from 23 pairs sharing >= 2 keywords
+	)
+	// Must-fail self-check on the overlap detector itself.
+	sample := map[string]string{
+		"alpha": "React Tailwind web dashboards",
+		"beta":  "Angular UI. Not for React or Tailwind.",
+	}
+	if got := findSkillDescOverlaps(sample, 2); len(got) != 1 {
+		t.Fatalf("overlap detector self-check failed: got %v, want 1 pair", got)
+	}
+
+	dietSkills := []string{
+		"fyr-feature",
+		"frontend-ui-economist",
+		"fyr-preflight",
+		"fyr-review",
+		"frontend-ui-modern",
+		"fyr-retro",
+	}
+	combined := 0
+	for _, name := range dietSkills {
+		p := filepath.Join("skills", name, "SKILL.md")
+		raw := readSkill(t, p)
+		combined += len(raw)
+		if len(raw) > maxDietBytes {
+			t.Errorf("%s is %d B, want <= %d B (13 KB)", p, len(raw), maxDietBytes)
+		}
+		refs, err := filepath.Glob(filepath.Join("skills", name, "references", "*.md"))
+		if err != nil || len(refs) == 0 {
+			t.Errorf("skills/%s/references/*.md missing progressive reference files", name)
+			continue
+		}
+		linkedLocal := false
+		for _, r := range refs {
+			if strings.Contains(raw, "references/"+filepath.Base(r)) {
+				linkedLocal = true
+				break
+			}
+		}
+		if !linkedLocal {
+			t.Errorf("%s must link at least one local references/*.md file", p)
+		}
+	}
+	if combined > maxCombinedSix {
+		t.Errorf("combined 6 core SKILL.md bytes = %d B, want <= %d B (>= 25%% reduction from %d B)", combined, maxCombinedSix, baselineSix)
+	} else {
+		pct := float64(baselineSix-combined) * 100 / float64(baselineSix)
+		t.Logf("6 trimmed skills combined: %d B (%.1f%% reduction from %d B)", combined, pct, baselineSix)
+	}
+
+	goSkill := readSkill(t, "skills/golang/SKILL.md")
+	if len(goSkill) > maxGolangBytes {
+		t.Errorf("skills/golang/SKILL.md is %d B, want <= %d B (12 KB)", len(goSkill), maxGolangBytes)
+	}
+	if !strings.Contains(goSkill, "references/service.md") || !strings.Contains(goSkill, "references/testing.md") {
+		t.Errorf("skills/golang/SKILL.md must link to references/service.md and references/testing.md")
+	}
+
+	// Verify all 7 core skills open with a concise actionable rule digest right below the H1.
+	for _, name := range append(append([]string{}, dietSkills...), "golang") {
+		p := filepath.Join("skills", name, "SKILL.md")
+		raw := readSkill(t, p)
+		_, body, ok := strings.Cut(raw[4:], "\n---\n")
+		if !ok {
+			t.Fatalf("%s: missing closing frontmatter fence", p)
+		}
+		lines := strings.Split(strings.TrimSpace(body), "\n")
+		if len(lines) < 3 || !strings.HasPrefix(lines[0], "# ") {
+			t.Errorf("%s: expected H1 heading at start of body", p)
+			continue
+		}
+		head := strings.TrimSpace(strings.Join(lines[1:min(len(lines), 10)], "\n"))
+		if len(head) < 120 || strings.HasPrefix(head, "```") {
+			t.Errorf("%s: top-600B rule digest below H1 is missing or starts with a fence (%d B)", p, len(head))
+		}
+	}
+
+	// PRD.md R7 / D10: single-handoff close in fyr-feature (`change` optional).
+	assertSkillTextCases(t, []skillTextCase{{
+		name:   "fyr-feature-r7-single-handoff",
+		path:   "skills/fyr-feature/SKILL.md",
+		want:   []string{"`change` optional", "single `handoff` record"},
+		forbid: []string{"Store the `change` record yourself", "store the `change` record for the phase yourself"},
+	}})
+
+	// Frontmatter keyword overlap check across all skills/*/SKILL.md.
+	paths, err := filepath.Glob("skills/*/SKILL.md")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("glob skills/*/SKILL.md: %v (n=%d)", err, len(paths))
+	}
+	descs := make(map[string]string, len(paths))
+	for _, p := range paths {
+		name := filepath.Base(filepath.Dir(p))
+		descs[name] = parseSkillFrontmatterDescription(t, p)
+	}
+	overlaps := findSkillDescOverlaps(descs, 2)
+	if len(overlaps) > maxOverlapPairs {
+		t.Errorf("found %d skill frontmatter pairs sharing >= 2 keywords (want <= %d):\n  %s",
+			len(overlaps), maxOverlapPairs, strings.Join(overlaps, "\n  "))
+	} else {
+		t.Logf("frontmatter keyword overlap pairs (>= 2 shared): %d (limit <= %d)", len(overlaps), maxOverlapPairs)
+	}
+}
+
+// TestV910SkillDietNoSecretPatterns pins Round 2 of Phase 17: no line in the
+// trimmed core skills or the new Phase 17 progressive references/*.md files may
+// trip internal/redact or the PEM private-key header check used by fyr gate.
+func TestV910SkillDietNoSecretPatterns(t *testing.T) {
+	privKeyRe := regexp.MustCompile("-----BEG" + "IN ([A-Z0-9 ]+ )?PRIV" + "ATE KEY-----")
+	hasSecret := func(line string) bool {
+		return line != "" && (redact.Redact(line) != line || privKeyRe.MatchString(line))
+	}
+	// Must-fail self-check on the detector (constructed via concat so the test line itself does not trip diff scanners).
+	if !hasSecret("scan for " + "tok" + "en=examplevalue") {
+		t.Fatal("secret detector self-check failed to flag literal credential assignment")
+	}
+	checked := []string{
+		"skills/fyr-feature/SKILL.md",
+		"skills/fyr-feature/references/plan-template.md",
+		"skills/fyr-feature/references/cold-reader-and-gates.md",
+		"skills/frontend-ui-economist/SKILL.md",
+		"skills/frontend-ui-economist/references/token-blocks.md",
+		"skills/frontend-ui-economist/references/shadcn-mapping.md",
+		"skills/fyr-preflight/SKILL.md",
+		"skills/fyr-preflight/references/verification-and-gates.md",
+		"skills/fyr-preflight/references/ship-procedure.md",
+		"skills/fyr-review/SKILL.md",
+		"skills/fyr-review/references/lens-briefs.md",
+		"skills/fyr-review/references/fix-and-record.md",
+		"skills/frontend-ui-modern/SKILL.md",
+		"skills/frontend-ui-modern/references/theme-quickref.md",
+		"skills/fyr-retro/SKILL.md",
+		"skills/fyr-retro/references/sources-and-harness.md",
+		"skills/fyr-retro/references/record-and-apply.md",
+		"skills/golang/SKILL.md",
+		"skills_text_test.go",
+	}
+	for _, p := range checked {
+		for i, line := range strings.Split(readSkill(t, p), "\n") {
+			if hasSecret(line) {
+				t.Errorf("%s:%d matched secret/redaction pattern: %s", p, i+1, strings.TrimSpace(line))
+			}
+		}
+	}
 }

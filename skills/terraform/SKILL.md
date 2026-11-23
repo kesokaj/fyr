@@ -1,6 +1,6 @@
 ---
 name: terraform
-description: "Google Cloud Terraform/OpenTofu HCL (no CI): Cloud Run v2, IAM, Artifact Registry, Secret Manager, Cloud SQL, GCS state. Not builds."
+description: "GCP Terraform and OpenTofu HCL: IAM bindings, Secret Manager, GCS remote state, serverless infra, managed databases."
 ---
 
 # Terraform for Google Cloud

@@ -1,6 +1,6 @@
 ---
 name: data-gcp
-description: "Cloud SQL Postgres for Go on Cloud Run: pgx socket/connector, golang-migrate jobs, roles, indexes. Not for HCL or compose."
+description: "Postgres via pgx socket/connector, golang-migrate schema migrations, database roles, and SQL indexes."
 ---
 
 # Data on GCP: Cloud SQL Postgres for a Go service

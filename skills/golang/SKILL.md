@@ -1,61 +1,62 @@
 ---
 name: golang
-description: "Go service and testing standards: cmd/<app> + internal/, stdlib first, slog JSON, pgx, table tests with -race. Not HCL or Docker."
+description: "Go conventions: cmd/<app> + internal/ layout, stdlib-first packages, slog structured logs, table-driven -race tests."
 ---
 
 # Golang
 
-The rules below apply to every Go file in this environment; the two references hold the patterns. Read `references/service.md` before the first handler of an HTTP service and `references/testing.md` before its first test; read the matching section when its topic comes up (logging, database, lint, concurrency).
-
-**When NOT to use this skill:** frontend-only work (`frontend-ui-modern`, `frontend-ui-economist`, `typescript`), infrastructure-as-code (`terraform`), container builds (`docker`), the deploy mechanics (`cloud-run-deploy`), shell automation (`bash`).
+- **Layout & wiring:** `cmd/<app>/` + `internal/` (`pkg/` only for cross-module imports); wire dependencies by hand in `main()` (no DI framework, no global mutable state, no `init()` except driver registration).
+- **Errors & guards:** Never `panic()` for recoverable errors; wrap with `fmt.Errorf("...: %w", err)`, match with `errors.Is`/`errors.As`, handle every error, and fail closed when a destructive-action guard errors.
+- **Stdlib, logging & concurrency:** Stdlib first (justify any external module); `log/slog` JSON (`InfoContext`, never log secrets/PII); `context.Context` first; `wg.Go`/`errgroup` + `-race` table tests + `synctest.Test` (no real sleeps); no `toolchain` directive in `go.mod`.
+- **References:** Load `references/service.md` (HTTP, Cloud Logging, pgx, lint, Go versions) and `references/testing.md` (red-first, fakes, `httptest`, `-race`, fuzzing) on demand.
 
 ## Coding standards
 
 ### Errors
-- Never `panic()` for a recoverable error; return it. A panic is for a programming error that cannot continue, and a recovery middleware turns it into a logged 500 with the stack.
-- Wrap with context: `fmt.Errorf("loading config: %w", err)`; match with `errors.Is` / `errors.As`, never by string.
-- Handle every error at the call site; `_ = f()` is accepted only where the comment beside it says why nothing can be done (a response already started, a best-effort close).
-- A guard in front of a destructive action keeps the data when its check ERRORS: `if err != nil { return err }` before the delete, never `if err == nil && somethingToLose { keep } else { delete }`. The test covers the case where the check itself cannot run.
+- Never `panic()` for a recoverable error; return it. A panic is for an unrecoverable bug; recovery middleware turns it into a logged 500 with stack.
+- Wrap with context: `fmt.Errorf("loading config: %w", err)`; match with `errors.Is` / `errors.As`, never by error string.
+- Handle every error at the call site; `_ = f()` is allowed only with an inline comment explaining why nothing can be done (e.g. response already started, best-effort close).
+- Guards before destructive actions preserve data on error: `if err != nil { return err }` before deleting, never `if err == nil && somethingToLose { keep } else { delete }`. Test the guard-error path.
 
 ### Structure and style
-- Layout `cmd/<app>/` + `internal/`; `pkg/` only for code another module imports. One `main` wires dependencies by hand; no DI framework, no global mutable state, no `init()` except a driver registration.
-- `gofmt` and `goimports` always; `go vet` and `staticcheck` (through golangci-lint v2, `references/service.md` § Lint) clean. A vet, lint or test failure is fixed in the source; a `//nolint:<linter> // <reason>` or a `t.Skip` is for a demonstrated false positive or an absent environment and says so.
-- Exported symbols carry a doc comment; comments say why, not what.
-- A path from the user, the home, the environment or a flag is never part of a `filepath.Glob` pattern (`[`, `*`, `?` in it reach other directories): list the parent with `os.ReadDir` and match names; a glob takes literal patterns only.
-- JSON struct tags are lowerCamelCase (`json:"pageSize"`, `json:"createTime"`), the wire shape the `json-api-style` skill defines; `omitzero` (1.24) over `omitempty` for structs and times.
+- Layout `cmd/<app>/` + `internal/`; `pkg/` only for code another module imports. One `main` wires dependencies by hand; no DI framework, no global mutable state, no `init()` except driver registration.
+- Keep `gofmt`, `goimports`, `go vet`, and `staticcheck` (golangci-lint v2, `references/service.md` § Lint) clean. Fix failures in source; `//nolint:<linter> // <reason>` or `t.Skip` requires a demonstrated false positive or absent environment.
+- Exported symbols carry doc comments; comments explain why, not what.
+- Never pass user, home, env, or flag paths into `filepath.Glob` (`[`, `*`, `?` escape directories): read the parent with `os.ReadDir` and match names; `filepath.Glob` takes literal patterns only.
+- JSON struct tags use lowerCamelCase (`json:"pageSize"`, `json:"createTime"`) per `json-api-style`; prefer `omitzero` (Go 1.24+) over `omitempty` for structs and times.
 
 ### Go version
-- Raise the `go` line in `go.mod` before using a newer API: `go vet` and `go test` fail with `requires go1.N or later` otherwise (verified 2026-09-30: `WaitGroup.Go` on a `go 1.24` module). The version table and the supported-release rule are `references/service.md` § Go version. `go.mod` carries no `toolchain` directive (a pin makes the module unbuildable offline).
-- 1.27's `encoding/json` is backed by v2: it rejects duplicate object names and invalid UTF-8, and error messages changed; a test that matches a JSON error string is rewritten to match the type.
+- Raise the `go` line in `go.mod` before using newer stdlib APIs (`go vet`/`go test` fail with `requires go1.N or later` otherwise); the version table and supported-release rule live in `references/service.md` § Go version. `go.mod` carries no `toolchain` directive (pins break offline builds).
+- Go 1.27's `encoding/json` is backed by v2: it rejects duplicate object keys and invalid UTF-8 with new error messages; match errors by type, never message text.
 
 ### Logging
-- `log/slog` with JSON output, in the Cloud Logging shape (`severity`, `message`, `timestamp`, `logging.googleapis.com/trace`) from `references/service.md` § Logging; the same handler locally.
-- Contextual fields on every record (request trace, resource names); `log.InfoContext(ctx, …)` in request handlers so the trace rides along.
-- Never log tokens, passwords, API keys or PII; a query string is logged as its path only unless the operator says otherwise.
+- Use `log/slog` JSON in the Cloud Logging shape (`severity`, `message`, `timestamp`, `logging.googleapis.com/trace`) from `references/service.md` § Logging, locally and in production.
+- Attach contextual fields (request trace, resource names) and use `log.InfoContext(ctx, ...)` in handlers.
+- Never log tokens, passwords, API keys, or PII; log URL paths without query strings unless explicitly requested.
 
 ### Concurrency
-- `context.Context` is the first parameter of anything that waits, and the only way to cancel it.
-- Every goroutine has an owner that stops it and a place its error goes: `wg.Go` (1.25) with a `sync.WaitGroup`, or an `errgroup.Group` when the first error must cancel the rest (that import is justified in the change entry like any other).
-- Channels for hand-off and ownership, a mutex for a small shared state; `-race` on every test run (`references/testing.md`); timing code is tested in a `synctest.Test` bubble, never with real sleeps.
+- `context.Context` is the first parameter of anything that waits and the sole cancellation channel.
+- Every goroutine has an owner that stops it and collects its error: `wg.Go` (Go 1.25+) with `sync.WaitGroup`, or `errgroup.Group` when first-error cancellation is needed (justify the import like any dependency).
+- Channels for hand-off/ownership, mutex for small shared state; run `-race` on every test (`references/testing.md`); test timing inside `synctest.Test`, never real sleeps.
 
 ### Dependencies
-- Standard library first; every external module is justified in the change entry before it is added, naming the stdlib alternative it rejected. The accepted ones for a service here: `github.com/jackc/pgx/v5` (Postgres), `github.com/golang-migrate/migrate/v4` (migrations), `cloud.google.com/go/cloudsqlconn` only for IAM database auth, OpenTelemetry only when spans are needed, `cloud.google.com/go/profiler` when profiling is.
-- No assertion, mock or DI library: `testing`, hand-written fakes, constructors called from `main()`.
+- Standard library first; justify every external module in the handoff/change notes, naming the rejected stdlib alternative. Accepted service defaults: `github.com/jackc/pgx/v5`, `github.com/golang-migrate/migrate/v4`, `cloud.google.com/go/cloudsqlconn` (IAM DB auth only), OpenTelemetry (when spans are needed), `cloud.google.com/go/profiler` (when profiling is needed).
+- No assertion, mock, or DI libraries: use `testing`, hand-written fakes, and explicit constructors from `main()`.
 
 ### Runtime data and code shape
-- A service's own RUNTIME data (a database, an upload directory) is not scratch and not source: its default path comes from a flag or an environment variable with a default outside the repository, and a default inside it that cannot be avoided is gitignored in the same change. A plain `go run` must never dirty the tree.
-- Before claiming done, apply `review-standards` § 8: a guard keeps the data when its check errors, a read-only mode resolves every guard and path the real run does, an embedded artifact is pinned both ways to what git tracks, a verification command is never chained to a commit.
+- Service runtime data (DB files, uploads) is neither scratch nor source: default outside the repo via flag/env, or gitignore unavoidable repo-local defaults in the same change. Plain `go run` must never dirty the tree.
+- Before claiming done, apply `review-standards` § 8: fail-closed guards, dry-run/read-only path parity, two-way embedded artifact pins, and bare verification commands never chained to commit.
 
-## References
+## Progressive references
 
-| Topic | File |
-|---|---|
-| HTTP core (mux, handlers that return errors, JSON helpers, timeouts, shutdown), logging on Cloud Run (the JSON contract, trace correlation, Error Reporting, when OpenTelemetry and Profiler are justified), database (pgxpool over `/cloudsql`, cloudsqlconn for IAM auth, embedded migrations as a Cloud Run Job), golangci-lint v2, deprecated stdlib, the Go version table | `references/service.md` |
-| Tests: what a test proves (red first, must-fail mutations), table tests, fakes by hand, `httptest` (including `NewTestServer`), `t.Context`, `-race`, `synctest.Test`, `b.Loop`, fuzzing, layout | `references/testing.md` |
+| Load when | File | Contents |
+|---|---|---|
+| Writing HTTP handlers, Cloud Logging, DB pools, lint config, or checking Go versions | `references/service.md` | HTTP mux/error handlers/JSON/timeouts/shutdown, Cloud Logging & trace correlation, `pgxpool`/`cloudsqlconn`/embedded migrations, golangci-lint v2, deprecated stdlib, Go version table |
+| Writing tests, fakes, `httptest`, timing tests, benchmarks, or fuzzers | `references/testing.md` | Red-first & must-fail mutations, table tests, hand-written fakes, `httptest`/`t.Context`, `-race`, `synctest.Test`, `b.Loop`, fuzzing, layout |
 
-The container image and the deploy are the `docker` and `cloud-run-deploy` skills; the image's base is `golang:<major.minor of the go.mod go line>` (docker skill; a three-part tag freezes a patch).
+Container builds and deploys live in `docker` (`golang:<major.minor>` base tag) and `cloud-run-deploy`.
 
 ## Further reading
 
-- Go release notes — <https://go.dev/doc/devel/release> (the version facts above come from here)
-- Google Go Style Guide — <https://google.github.io/styleguide/go/> (a reference, not adopted wholesale)
+- Go release notes: <https://go.dev/doc/devel/release>
+- Google Go Style Guide: <https://google.github.io/styleguide/go/>

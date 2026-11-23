@@ -1,6 +1,6 @@
 ---
 name: frontend-slate-ui
-description: "Angular 20 UI with SlateUI directives, ng-primitives, Signals, Tailwind CSS 4, and vendored ThemeService. Not for React or plain HTML."
+description: "Angular 20 components with SlateUI directives, ng-primitives, Signals, utility tokens, and vendored ThemeService."
 ---
 
 # frontend-slate-ui — Angular 20 UI with SlateUI (`slateui.dev`)

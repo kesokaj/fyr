@@ -1,6 +1,6 @@
 ---
 name: fyr-dream
-description: "Interactive memory consolidation (/fyr-dream): assign keep/graduated/stale/merge/promote verdicts on approval. Not fyr memory add."
+description: "Interactive memory consolidation (/fyr-dream): assign keep, graduated, stale, merge, or promote verdicts on approval."
 argument-hint: "[--dry-run]"
 ---
 

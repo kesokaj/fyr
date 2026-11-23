@@ -1,6 +1,6 @@
 ---
 name: fyr-spec
-description: "Author or update surface specs (SPEC-<app>-<topic>) verified by fyr check (/fyr-spec). Not for feature plans, ADRs, or runbooks."
+description: "Author or revise surface specs (SPEC-<app>-<topic>) verified by fyr check (/fyr-spec)."
 argument-hint: "<topic> [--app <cmd dir>]"
 ---
 

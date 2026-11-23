@@ -1,7 +1,7 @@
 ---
 name: fyr-triage
 license: MIT
-description: "Triage GitHub issues/PRs and local fyr queues (/fyr-triage) via PRD/ADR checks into Agent Briefs or /fyr-swarm. Not scoped tasks."
+description: "Triage GitHub issues, PRs, and backlog queues (/fyr-triage) against roadmap constraints into Agent Briefs."
 argument-hint: "[#n | backlog | bugs | proposals | ready]"
 ---
 

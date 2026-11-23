@@ -1,6 +1,6 @@
 ---
 name: docker
-description: "Local container development with Docker and Colima: Dockerfiles, compose services, volumes, networking. Not for Cloud Run or HCL."
+description: "Dockerfiles, Colima containers, compose stacks, bind volumes, and bridge networking on a workstation."
 ---
 
 # Docker & Container Development

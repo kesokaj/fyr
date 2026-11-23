@@ -1,7 +1,7 @@
 ---
 name: fyr-docs
 license: Apache-2.0
-description: "Airy, visual-first docs standard and audit (/fyr-docs): BLUF, short prose, Mermaid diagrams, <details> tables. Not ADRs/changelogs."
+description: "Airy docs authoring and audit (/fyr-docs): BLUF lead, concise prose, architecture visuals, collapsible <details> tables."
 argument-hint: "[file or --audit]"
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: fyr-feedback-log
-description: "Passive correction logger: record operator corrections as global feedback records and procedural memory. Not for editing rules."
+description: "Passive feedback logger: capture user corrections as global feedback entries and procedural habits."
 ---
 
 ## Purpose

@@ -1,6 +1,6 @@
 ---
 name: fyr-requirements
-description: "Elicit, trace, and update PRD.md requirements with enforced by: sites (/fyr-requirements) after approval + ADR. Not feature plans."
+description: "Elicit, trace, and maintain PRD.md requirements with enforced-by sites (/fyr-requirements) after formal approval."
 argument-hint: "[area or question]"
 ---
 

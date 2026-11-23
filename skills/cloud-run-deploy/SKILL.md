@@ -1,6 +1,6 @@
 ---
 name: cloud-run-deploy
-description: "Cloud Run deploy mechanics: local build, Artifact Registry push, gcloud run deploy, rollback. Use /fyr-preflight for releases."
+description: "Container image builds, Artifact Registry push, gcloud run deploy flags, and revision traffic rollout."
 ---
 
 Release pipeline: **local build (Colima) → Artifact Registry → Cloud Run**. Build

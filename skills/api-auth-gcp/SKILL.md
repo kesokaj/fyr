@@ -1,6 +1,6 @@
 ---
 name: api-auth-gcp
-description: "Cloud Run Go API caller auth: IAP, Firebase Auth, and OIDC tokens via Google libraries. Not for deploy flags or gcloud login."
+description: "Go backend caller verification: IAP, Firebase Auth, and OIDC ID tokens using official verifier libraries."
 ---
 
 # API auth on GCP

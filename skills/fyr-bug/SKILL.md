@@ -1,6 +1,6 @@
 ---
 name: fyr-bug
-description: "Bug-fix workflow (/fyr-bug): problem note, goldfish diagnosis, failing test first, smallest fix, review, BUG record. Not features."
+description: "Defect triage (/fyr-bug): problem note, goldfish diagnosis, failing repro test, minimal patch, BUG entry."
 argument-hint: "[symptom, repro, or #issue]"
 ---
 
