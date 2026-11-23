@@ -68,7 +68,9 @@ COPY --from=web /src/web/dist/client ./web/dist/client   # embedded by web/embed
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /app ./cmd/<app>
 
 # Stage 3: the runtime — no shell, no Node, one static binary
-FROM gcr.io/distroless/static-debian12@sha256:<digest>   # rule 1: distroless has no version tag; the digest is the pin
+# Runnable local default; before production deploy, pin by digest via:
+#   docker buildx imagetools inspect gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /app /app
 USER nonroot
 EXPOSE 8080
@@ -76,7 +78,7 @@ CMD ["/app"]
 ```
 
 **Key rules:**
-1. Pin the base images, never `:latest`: the Go stage is `golang:<major.minor of the go.mod go line>` (read `go.mod`: `go 1.27.1` → `golang:1.27`, which tracks the current patch and its stdlib fixes; a three-part tag (major.minor.patch) freezes a patch with known advisories; a minor written in this skill goes stale; `cloud.google.com/go/cloudsqlconn` needs 1.26 or later), the runtime `gcr.io/distroless/static-debian12@sha256:<digest>` — distroless publishes no version tags, so a bare name is an implicit `:latest` and the digest is its only pin (`docker buildx imagetools inspect gcr.io/distroless/static-debian12` prints it; bump it deliberately). When the whole build must be reproducible byte for byte, pin the Go and Node images by digest too.
+1. Pin the base images, never `:latest`: the Go stage is `golang:<major.minor of the go.mod go line>` (read `go.mod`: `go 1.27.1` → `golang:1.27`, which tracks the current patch and its stdlib fixes; a three-part tag (major.minor.patch) freezes a patch with known advisories; a minor written in this skill goes stale; `cloud.google.com/go/cloudsqlconn` needs 1.26 or later), and the runtime uses the runnable `gcr.io/distroless/static-debian12:nonroot` fallback locally — before production deploy, run `docker buildx imagetools inspect gcr.io/distroless/static-debian12:nonroot` to resolve its real `sha256` manifest digest and pin that digest on the `FROM` line (distroless publishes no version tags; bump the digest deliberately). When the whole build must be reproducible byte for byte, pin the Go and Node images by digest too.
 2. `CGO_ENABLED=0` so the binary is static and runs on `distroless/static`; if cgo is
    unavoidable, switch to `distroless/base-debian12` and say why.
 3. Copy `go.mod`/`go.sum` and `go mod download` before the source, so the module layer caches.

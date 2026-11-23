@@ -38,7 +38,7 @@ Do NOT duplicate content that already exists elsewhere. Instead, reference these
 
 | Artifact | Location |
 |---|---|
-| Changelog entries | `change` records (`fyr record list --kind change`) |
+| Changelog entries (optional) | `change` records (`fyr record list --kind change`) |
 | Architecture decisions | `adr` records (`ADR-NNN`) |
 | Specs | `spec` records (`SPEC-<app>-<topic>`) |
 | Implementation plans | `plan` records (`fyr record list --open --kind plan`) |
@@ -58,7 +58,7 @@ List each relevant artifact with a one-line summary of what it contains and why 
 The handoff records the remainder — it is never a substitute for rows already due:
 
 1. Run `date +%F` and use that date everywhere below, and `date +%F-%H%M` for the handoff's draft name (Step 5) — never a date from memory.
-2. If the session changed source files and no `change` record covers those changes, store one **before** the handoff (yourself, citing commit range, `path:start-end (Symbol)`, and agents dispatched).
+2. Closing writes one `handoff` record embedding the verification digest (Step 6, via `fyr close` or `fyr record add handoff`, citing commit range, `path:start-end (Symbol)`, and agents dispatched) rather than a mandatory per-task `change` record; `fyr record add change` is optional (only if a standalone changelog note is requested), while `adr` on structural choices and `bug` on escaped failures remain due before closing.
 3. Bring `TODO.md` current yourself (skipped in worker mode, § The worker-mode Kickoff) (Definition of Done step 2): Now names the active phase (its name, plan ID and goal) and mirrors its boxes, ticked in the commit that ticks the plan, and is empty when no plan is open — on a conflict the plan record wins; Next holds at most three phases, one line each; a deferred idea worth keeping goes to Backlog, one line, dated, with its source. Anything the operator must do — other than a standing procedure the deploy guide already records (Step 4's Next Steps rule) — goes in this handoff's Next Steps, never in `TODO.md`.
 4. Only then write the handoff (Step 4).
 
@@ -129,7 +129,7 @@ agent to start with only when one is genuinely the first move.>
 ```text
 Project: <absolute path>. Run fyr resume (handoff <handoff ID>, plan <plan ID>); do Phase <n> — <name> only.
 Files: <the phase's files: line, verbatim>
-Standing approvals (closed set): the phase's boxes marked who: AI and the tests they name; the checkpoint's `change` record, commit and push; the closing handoff. Never: a who: user box, an Open: row, a release, a deploy, a real-home install, anything outside this repository. Ask only outside the set or on a critical failure.
+Standing approvals (closed set): the phase's boxes marked who: AI and the tests they name; the checkpoint's commit and push; the closing handoff (and any `adr`/`bug` or optional `change` record). Never: a who: user box, an Open: row, a release, a deploy, a real-home install, anything outside this repository. Ask only outside the set or on a critical failure.
 Done when: <the phase's Checkpoint expect, verbatim>. Then write the handoff with the next Kickoff and end the session.
 ```
 ````
@@ -152,7 +152,7 @@ Done when: <the phase's Checkpoint expect, verbatim>. Then write the handoff wit
 
 A coordinator (`fyr-swarm` skill) fills the canonical worker brief defined in `fyr-swarm` § Write-lease brief for each parallel slice (`Files:`, `Model:`, and `Done when:` from `PLAN-*` or the task table; `Project: this clone, the current directory; never another checkout`; full closed-set `Never:` guards and `Never wins` precedence). Do not duplicate a separate copy of that brief template here.
 
-**Worker mode.** When the Kickoff's `Never` line names push and `TODO.md`, this skill skips Step 3.3's `TODO.md` update, Step 6's push, and its `fyr metrics ingest`, and the handoff says so; the Kickoff wins. Step 5's checks read `TODO.md` but never edit it, and Step 7 reports the skipped ingest and gives the handoff's Kickoff as a proposal for the lead, never a paste. Everything else holds: the `change` record, the `handoff` record, the commit on the worker's branch, and `git checkout --detach HEAD` in `share` worktrees.
+**Worker mode.** When the Kickoff's `Never` line names push and `TODO.md`, this skill skips Step 3.3's `TODO.md` update, Step 6's push, and its `fyr metrics ingest`, and the handoff says so; the Kickoff wins. Step 5's checks read `TODO.md` but never edit it, and Step 7 reports the skipped ingest and gives the handoff's Kickoff as a proposal for the lead, never a paste. Everything else holds: the `handoff` record (any `change` record is optional), the commit on the worker's branch, and `git checkout --detach HEAD` in `share` worktrees.
 
 ## Step 5: Cold-Check the Draft
 
@@ -168,7 +168,7 @@ A handoff is done when a fresh reader can resume from it. Run the resume order a
 2. Any named file or record ID that does not exist (`fyr record get` refuses it).
 3. Any contradiction between the handoff, `TODO.md` and the plan.
 4. Any open plan (`fyr record list --open --kind plan`: a plan is open while it holds an unticked box outside its fenced blocks) that `TODO.md` Now does not name.
-5. Any commit since the previous handoff that changed source or doc paths (anything other than an on-demand `.agents/trail.jsonl` export) with no `change` record covering it.
+5. Any commit since the previous handoff that changed source or doc paths (anything other than an on-demand `.agents/trail.jsonl` export) not covered by this handoff's `## Completed` summary (or an optional `change` record).
 6. Anything still left to guess.
 
 Fix what comes back at the source (plan, `TODO.md`, the draft) before locking the immutable record in Step 6.
@@ -204,4 +204,4 @@ Then this session ends (`rules/session-sizing.md`): a new task in a session that
 - The `/fyr-retro` workflow turns corrections into proposals scoped to the project (applied there, recorded as a `retro` record) or to the harness (queued as global `proposal` records)
 - The `dreamer` agent, dispatched by `/fyr-retro`, proposes skills and memory consolidations from memory and the trail in a draft the main thread stores as a `retro` record; the `fyr-dream` skill consolidates the memory itself
 - The `fyr-feedback-log` skill passively stores corrections as global `feedback` records
-- `change` records (written and stored by the main agent) — reference these, don't duplicate them
+- `change` records (optional standalone changelog notes, plus historical `change` records in the store) — reference these, don't duplicate them

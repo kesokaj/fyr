@@ -318,3 +318,70 @@ func TestNoForbiddenStaticCodenamesOrWarningEmoji(t *testing.T) {
 		}
 	}
 }
+
+type skillTextCase struct {
+	name, path, sec string
+	want, forbid    []string
+}
+
+func assertSkillTextCases(t *testing.T, cases []skillTextCase) {
+	t.Helper()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			text := readSkill(t, tc.path)
+			if tc.sec != "" {
+				text = section(t, text, tc.sec)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(text, w) {
+					t.Errorf("%s missing %q", tc.path, w)
+				}
+			}
+			for _, bad := range tc.forbid {
+				if strings.Contains(text, bad) {
+					t.Errorf("%s still contains %q", tc.path, bad)
+				}
+			}
+		})
+	}
+}
+
+// TestV910SkillTemplatesAndR7Alignment pins Phase 16 (F-041, F-015 / D10 / ADR-534):
+// runnable distroless + imagetools inspect in docker, two-stage first-apply bootstrap
+// in terraform, and PRD.md R7 single-handoff close (optional change) across context,
+// fyr-bug, and fyr-handoff.
+func TestV910SkillTemplatesAndR7Alignment(t *testing.T) {
+	assertSkillTextCases(t, []skillTextCase{
+		{
+			name:   "docker-distroless-runnable",
+			path:   "skills/docker/SKILL.md",
+			want:   []string{"gcr.io/distroless/static-debian12:nonroot", "docker buildx imagetools inspect gcr.io/distroless/static-debian12:nonroot"},
+			forbid: []string{"@sha256:<digest>"},
+		},
+		{
+			name:   "terraform-first-apply-bootstrap",
+			path:   "skills/terraform/SKILL.md",
+			want:   []string{"two-stage bootstrap", "placeholder", "ignore_changes = [template[0].containers[0].image]", "var.git_sha"},
+			forbid: []string{"from `var.git_sha`"},
+		},
+		{
+			name:   "context-r7-single-handoff",
+			path:   "context/AGENTS.md",
+			want:   []string{"(`change` optional)", "self-review small diffs in `handoff`", "batch `adr`/`bug`"},
+			forbid: []string{"store `change` and run `/fyr-handoff`", "self-review small diffs in `change`", "batch `change`/`adr`/`bug`"},
+		},
+		{
+			name:   "fyr-bug-r7-single-handoff",
+			path:   "skills/fyr-bug/SKILL.md",
+			sec:    "## Step 5",
+			want:   []string{"single `handoff` record", "optional"},
+			forbid: []string{"Store `change` (`fyr record add change"},
+		},
+		{
+			name:   "fyr-handoff-r7-single-handoff",
+			path:   "skills/fyr-handoff/SKILL.md",
+			want:   []string{"one `handoff` record", "`fyr record add change` is optional"},
+			forbid: []string{"no `change` record covers those changes, store one **before** the handoff", "the checkpoint's `change` record, commit and push", "the `change` record, the `handoff` record", "with no `change` record covering it"},
+		},
+	})
+}
