@@ -1,6 +1,6 @@
 # Deploy — GCP
 
-<!-- Track 1: human-first documentation (docs-ste100-80). No YAML frontmatter. -->
+<!-- Agent-only brain.db record (Telegraphic/Structured Markdown; no YAML frontmatter; keep Caution before destructive commands). -->
 
 Deploy to Cloud Run first (`cloud-run-deploy` skill); use GKE or Compute Engine only when Cloud Run does not fit. GCP is the only cloud target, and nothing here runs unless the operator asks to deploy.
 

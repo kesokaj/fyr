@@ -1,6 +1,6 @@
 # Deploy — local
 
-<!-- Track 1: human-first documentation (docs-ste100-80). No YAML frontmatter. -->
+<!-- Agent-only brain.db record (Telegraphic/Structured Markdown; no YAML frontmatter; keep Caution before destructive commands). -->
 
 Build, configure, and verify this project on your local workstation. `/fyr-init-project` fills this record from setup answers, the Definition of Done docs step keeps it current, and `verifier` follows it for local smoke tests.
 

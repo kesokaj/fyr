@@ -1,6 +1,6 @@
 # Deploy — remote machine
 
-<!-- Track 1: human-first documentation (docs-ste100-80). No YAML frontmatter. -->
+<!-- Agent-only brain.db record (Telegraphic/Structured Markdown; no YAML frontmatter; keep Caution before destructive commands). -->
 
 Deploy this project to a Linux host or VM over SSH only when the operator requests it. Record host aliases here from operator input; never assume, guess, or commit credentials.
 

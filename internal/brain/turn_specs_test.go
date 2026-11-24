@@ -92,7 +92,7 @@ func TestListCurrentSpecsCtxReadOnlyCancelAndSymlink(t *testing.T) {
 		t.Errorf("missing brain.db = (%+v, present=%v, %v), want (nil, false, nil)", emptyRecs, emptyPresent, err)
 	}
 
-	// 6. Existing brain.db with zero current specs returns storePresent=true so callers do not fall back to stale trail.jsonl.
+	// 6. Existing brain.db with zero current specs for this repo scope returns storePresent=true so callers do not fall back to stale trail.jsonl.
 	retiredHome := t.TempDir()
 	if _, err := Add(Options{Home: retiredHome, Dir: dir}, AddInput{
 		Kind: "spec", ID: "SPEC-retired", Status: "retired", Title: "Retired only",
@@ -103,5 +103,12 @@ func TestListCurrentSpecsCtxReadOnlyCancelAndSymlink(t *testing.T) {
 	noneRecs, nonePresent, err := ListCurrentSpecsCtx(context.Background(), Options{Home: retiredHome, Dir: dir})
 	if err != nil || !nonePresent || len(noneRecs) != 0 {
 		t.Errorf("retired-only brain.db = (%+v, present=%v, %v), want (nil, true, nil)", noneRecs, nonePresent, err)
+	}
+
+	// 7. Existing brain.db holding only another project's rows returns storePresent=false for an unsynced repo scope (ADR-536).
+	otherDir := repo(t)
+	otherRecs, otherPresent, err := ListCurrentSpecsCtx(context.Background(), Options{Home: retiredHome, Dir: otherDir})
+	if err != nil || otherPresent || len(otherRecs) != 0 {
+		t.Errorf("other-project-only brain.db = (%+v, present=%v, %v), want (nil, false, nil)", otherRecs, otherPresent, err)
 	}
 }

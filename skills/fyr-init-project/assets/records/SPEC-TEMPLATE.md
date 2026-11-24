@@ -2,7 +2,7 @@
 
 Status: draft
 
-<!-- Track 3: shared human + agent surface contract (machine-projectable). No YAML frontmatter.
+<!-- 100% agent-only brain.db surface contract (Track 3 machine-projectable contract). No YAML frontmatter.
      Status: draft (being written) | agreed (the user approved this text). Record status is current;
      retire superseded or obsolete specs (`fyr record edit <ID> --status retired`).
      One topic per record: an integration, storage format, CLI surface, or protocol.

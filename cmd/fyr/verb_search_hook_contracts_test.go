@@ -271,4 +271,21 @@ func TestContractsDirectorySpecPrecisionAndNoStaleTrailFallback(t *testing.T) {
 	if len(fallbackRecs) != 1 || fallbackRecs[0].ID != "SPEC-retired-now" {
 		t.Errorf("missing brain.db trail fallback = %+v, want SPEC-retired-now", fallbackRecs)
 	}
+
+	// Unsynced clone when brain.db already exists for a DIFFERENT repo must still fall back to tracked trail.jsonl (ADR-536).
+	otherRepo := recordRepo(t)
+	sharedHome := t.TempDir()
+	if _, err := brain.Add(brain.Options{Home: sharedHome, Dir: otherRepo}, brain.AddInput{
+		Kind: "spec", ID: "SPEC-other-repo", Status: "current", Title: "Other repo spec",
+		Body: strings.NewReader("## Purpose\nOther.\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	unsyncedRecs, err := loadCurrentSpecsFromStoreCtx(context.Background(), dir, sharedHome)
+	if err != nil {
+		t.Fatalf("loadCurrentSpecsFromStoreCtx unsynced clone: %v", err)
+	}
+	if len(unsyncedRecs) != 1 || unsyncedRecs[0].ID != "SPEC-retired-now" {
+		t.Errorf("unsynced clone trail fallback = %+v, want SPEC-retired-now", unsyncedRecs)
+	}
 }

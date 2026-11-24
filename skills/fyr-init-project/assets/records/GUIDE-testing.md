@@ -1,6 +1,6 @@
 # Testing guide — <project>
 
-<!-- Track 1: human-first documentation (docs-ste100-80). No YAML frontmatter.
+<!-- Agent-only brain.db record (Telegraphic/Structured Markdown; no YAML frontmatter; keep Caution before destructive commands).
      The one guide per project. /fyr-init-project copies this template; `fyr verify` runs § 1 formatting,
      vet, race tests, and `fyr check`; the `verifier` fills/runs live e2e and smoke tiers; `documentation`
      maintains it when behaviour or interfaces change. The tiers and when each is owed live in testing-strategy. -->

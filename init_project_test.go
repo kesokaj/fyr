@@ -126,10 +126,12 @@ func assertDocContains(t *testing.T, path string, want, forbid []string) string 
 	return text
 }
 
-// TestInitProjectAudienceSplit pins Phase 2 of PLAN-2026-11-24-1704 (ADR-535):
-// Track 1 human docs (README, GUIDE-testing, DEPLOY-*), Track 2 100% agent-read
-// AGENTS.md (<= 4,500 B, Telegraphic Markdown), and Track 3 shared contracts
-// (TODO.md, SPEC-TEMPLATE.md with 5 required headings + 4-column Failure modes table).
+// TestInitProjectAudienceSplit pins ADR-535 and ADR-536:
+// Track 1 git-tracked human docs (README.md, SDD.md, TDD.md), Track 2 100%
+// agent-read files and SQLite databases (AGENTS.md <= 4,500 B Telegraphic
+// Markdown, plus brain.db GUIDE-testing / DEPLOY-* / SPEC-* records with
+// agent-safety Caution/no-frontmatter guards), and Track 3 git shared contracts
+// (PRD.md, TODO.md) plus machine-projectable SPEC-TEMPLATE.md.
 func TestInitProjectAudienceSplit(t *testing.T) {
 	const dir = "skills/fyr-init-project/assets/"
 
@@ -144,8 +146,10 @@ func TestInitProjectAudienceSplit(t *testing.T) {
 			"## Setup commands",
 			"## Deploy",
 			"--contracts",
+			"brain.db",
+			"agent-only",
 		},
-		[]string{"e.g.", "i.e."},
+		[]string{"e.g.", "i.e.", "Human docs (Track 1): `README.md`, `SDD.md`, `TDD.md`, `GUIDE-testing`, `DEPLOY-*`"},
 	)
 	if len(agents) > 4500 {
 		t.Errorf("%sAGENTS.md is %d B, want <= 4500 B", dir, len(agents))
@@ -173,6 +177,8 @@ func TestInitProjectAudienceSplit(t *testing.T) {
 
 	spec := assertDocContains(t, dir+"records/SPEC-TEMPLATE.md",
 		[]string{
+			"agent-only",
+			"brain.db",
 			"## Purpose",
 			"## Interfaces",
 			"## Data",
@@ -188,16 +194,18 @@ func TestInitProjectAudienceSplit(t *testing.T) {
 		t.Errorf("%srecords/SPEC-TEMPLATE.md missing exact 4-column Failure modes table header", dir)
 	}
 
-	checkInitProjectTrack1Records(t, dir+"records/")
+	checkInitProjectAgentDBRecords(t, dir+"records/")
 }
 
-func checkInitProjectTrack1Records(t *testing.T, recDir string) {
+func checkInitProjectAgentDBRecords(t *testing.T, recDir string) {
 	t.Helper()
-	banned := []string{"e.g.", "i.e.", "etc.", "seamless", "foundational", "zero-ops"}
 	for _, name := range []string{"GUIDE-testing.md", "DEPLOY-local.md", "DEPLOY-remote.md", "DEPLOY-gcp.md"} {
-		assertDocContains(t, recDir+name, nil, banned)
+		assertDocContains(t, recDir+name,
+			[]string{"agent-only", "brain.db"},
+			[]string{"Track 1: human-first", "docs-ste100-80"},
+		)
 	}
-	// Destructive / traffic-shifting commands must be preceded by a Caution safety callout.
+	// Destructive / traffic-shifting commands must still be preceded by a Caution safety callout.
 	for name, cmd := range map[string]string{
 		"DEPLOY-local.md":  "docker compose down -v",
 		"DEPLOY-remote.md": "sudo systemctl restart",

@@ -55,7 +55,7 @@ func isTrack1File(p string) bool {
 	return isTrack1RootDoc(p) || strings.HasPrefix(p, "docs/") || strings.HasPrefix(p, "features/")
 }
 
-func (k *checker) collectTrack1Docs(docsFiles []string, living []brain.Record) []track1Doc {
+func (k *checker) collectTrack1Docs(docsFiles []string) []track1Doc {
 	var docs []track1Doc
 	for _, p := range docsFiles {
 		if !isTrack1File(p) {
@@ -65,23 +65,27 @@ func (k *checker) collectTrack1Docs(docsFiles []string, living []brain.Record) [
 			docs = append(docs, track1Doc{p, string(data), isTrack1RootDoc(p)})
 		}
 	}
+	return docs
+}
+
+func collectAgentDBSafetyDocs(living []brain.Record) []brain.Record {
+	var docs []brain.Record
 	for _, r := range living {
 		if r.Kind == "guide" || r.Kind == "deploy" {
-			docs = append(docs, track1Doc{r.ID, r.Body, true})
+			docs = append(docs, r)
 		}
 	}
 	return docs
 }
 
-// docsStyleRule runs deterministic Track 1 docs-ste100-80 checks (ADR-535):
-// five hard findings under "docs-style" and advisory notes under "docs-style-note".
+// docsStyleRule runs Track 1 git human-doc style checks (ADR-535) and
+// agent-only brain.db guide/deploy safety checks (ADR-536).
 func (k *checker) docsStyleRule(docsFiles []string, living []brain.Record) (findings []Finding, notes []string) {
-	docs := k.collectTrack1Docs(docsFiles, living)
 	glossary, gNote := k.loadGlossary()
 	if gNote != "" {
 		notes = append(notes, gNote)
 	}
-	for _, d := range docs {
+	for _, d := range k.collectTrack1Docs(docsFiles) {
 		rawLines := splitNormalizedLines(d.text)
 		fenced, blocks := scanFences(rawLines)
 		findings = append(findings, mermaidFindings(d.where, blocks)...)
@@ -97,6 +101,14 @@ func (k *checker) docsStyleRule(docsFiles []string, living []brain.Record) (find
 			notes = append(notes, note)
 		}
 		notes = append(notes, glossaryNotes(d.where, d.text, glossary)...)
+	}
+	for _, r := range collectAgentDBSafetyDocs(living) {
+		rawLines := splitNormalizedLines(r.Body)
+		fenced, blocks := scanFences(rawLines)
+		if f, ok := yamlFrontmatterFinding(r.ID, rawLines); ok {
+			findings = append(findings, f)
+		}
+		findings = append(findings, destructiveFenceFindings(r.ID, rawLines, fenced, blocks)...)
 	}
 	return findings, notes
 }

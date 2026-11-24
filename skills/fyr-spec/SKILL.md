@@ -6,7 +6,7 @@ argument-hint: "<topic> [--app <cmd dir>]"
 
 # Spec
 
-One surface, one record, one machine-projectable shape (Track 3 — shared human + agent contract). A spec defines what a surface looks like from outside and how a reader or checker proves the code matches; the plan says how it gets built, and the ADR says why it was decided this way.
+One surface, one machine-projectable record in 100% agent-only `brain.db` (Track 3 surface contract; projected on demand by `fyr search --contracts` and relayed to humans via agent summaries). A spec defines what a surface looks like from outside and how a reader or checker proves the code matches; the plan says how it gets built, and the ADR says why it was decided this way.
 
 **Trail:** `~/.gemini/config/skills/fyr-init-project/references/trail.md`; dates from `date +%F`. `<app>` is the single `cmd/<app>` directory (`ls -d cmd/*/` printing exactly one); a repository with several binaries gets one `SPEC-<app>-…` set per binary; with none, the binary or service the project's `AGENTS.md` names, else the repository directory's own name — the `documentation` agent's rule for the single-binary and no-binary cases, extended with one directory per binary when there are several.
 
@@ -30,7 +30,7 @@ One surface, one record, one machine-projectable shape (Track 3 — shared human
 
 ## Step 2: Fill every section, in order
 
-Follow the `docs-ste100-80` skill for prose clarity: open `## Purpose` as a crisp BLUF (Bottom Line Up Front), keep prose short and active, include a `<= 12`-node Mermaid diagram (`mermaid-syntax` skill) in `## Interfaces` or `## Data` whenever the surface spans multiple components, actors, or states, and fold supplementary or `> 12`-row flag/schema tables inside `<details>`. Derive interfaces, status codes, and failure modes statically from source and existing unit tests (`go test`); never build or start live servers, background processes, or `curl` probes while writing a spec. A section that does not apply keeps its heading with one line saying why, never the template's comment.
+Write concise, structured, agent-only Markdown (no YAML frontmatter; include a Mermaid diagram via `mermaid-syntax` when the surface spans multiple components, actors, or states). Derive interfaces, status codes, and failure modes statically from source and existing unit tests (`go test`); never build or start live servers, background processes, or `curl` probes while writing a spec. A section that does not apply keeps its heading with one line saying why, never the template's comment.
 
 Every `SPEC-*` MUST include the five required headings (`## Purpose`, `## Interfaces`, `## Data`, `## Failure modes`, `## Verification`) in a structured, machine-projectable shape enforced by `fyr check` (`spec-structure`) and projected on demand by `fyr search --contracts` (and bounded `<= 600 B` digests in `--slice` and `[FYR_WORKER_CAPSULE]`):
 
@@ -58,5 +58,5 @@ A spec on its own is a docs change: a `change` record (or the feature's names it
 - `fyr-feature` — the plan; its Interfaces point here when a spec exists; its § Decisions holds the ADR shape.
 - `fyr-research` — writes a spec through the same template when it settles on a shape.
 - `json-api-style` — the JSON shapes an Interfaces section uses.
-- `docs-ste100-80` — ASD-STE100 (~80%) documentation rules (short active prose, direct steps, safety callouts, BLUF, diagrams, `<details>` folding).
+- `docs-ste100-80` — ASD-STE100 (~80%) rules for git-tracked Track 1 human docs (`brain.db` specs use concise agent-only structured Markdown instead).
 - `documentation` agent — owns the spec after the first write.

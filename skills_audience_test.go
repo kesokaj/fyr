@@ -2,11 +2,11 @@ package fyr_test
 
 import "testing"
 
-// TestSkillsAudienceSplit pins Phases 2 & 4b of PLAN-2026-11-24-1704 (ADR-535):
-// the 5-track audience split across docs-ste100-80, fyr-init-project, fyr-spec,
-// SPEC-TEMPLATE.md, agents/documentation, and context/AGENTS.md, including
-// landed fyr search --contracts, glossary.json, and fyr check deterministic
-// docs-style / budget / spec-structure rules.
+// TestSkillsAudienceSplit pins ADR-535 and ADR-536:
+// the 5-track audience split (git human docs vs 100% agent-only SQLite
+// databases brain.db, search.db, metrics.db) across docs-ste100-80,
+// fyr-init-project, fyr-spec, fyr-review, SPEC-TEMPLATE.md,
+// agents/documentation, and context/AGENTS.md.
 func TestSkillsAudienceSplit(t *testing.T) {
 	assertSkillTextCases(t, []skillTextCase{
 		{
@@ -15,6 +15,7 @@ func TestSkillsAudienceSplit(t *testing.T) {
 			want: []string{
 				"Track 1", "Human Docs", "Workflow.md", "features/**/*.md",
 				"Track 2", "100% agent-read", "Telegraphic Markdown", "4,500 B",
+				"brain.db", "search.db", "metrics.db", "agent-only",
 				"Track 3", "Shared Contracts",
 				"Track 4", "Ephemeral", "fyr search --slice", "--contracts", "--skeleton",
 				"Track 5", "Immutable Trail",
@@ -26,6 +27,7 @@ func TestSkillsAudienceSplit(t *testing.T) {
 			forbid: []string{
 				"not enforced by `fyr check`",
 				"`.agents/glossary.json`",
+				"`features/**/*.md`, `GUIDE-*`, `DEPLOY-*`",
 			},
 		},
 		{
@@ -34,15 +36,20 @@ func TestSkillsAudienceSplit(t *testing.T) {
 			want: []string{
 				"Track 1", "README.md",
 				"Track 2", "100% agent-read", "Telegraphic Markdown", "4,500 B",
+				"brain.db", "agent-only",
 				"Track 3", "TODO.md", "PRD.md", "SPEC-*",
 			},
-			forbid: []string{"fill the sections (`docs-ste100-80` BLUF openings)"},
+			forbid: []string{
+				"fill the sections (`docs-ste100-80` BLUF openings)",
+				"Human docs (`README.md`, `SDD.md`, `TDD.md`, `GUIDE-*`, `DEPLOY-*`)",
+				"follows Track 1 `docs-ste100-80`",
+			},
 		},
 		{
 			name: "fyr-spec-machine-projectable",
 			path: "skills/fyr-spec/SKILL.md",
 			want: []string{
-				"Track 3",
+				"brain.db", "agent-only",
 				"## Purpose", "## Interfaces", "## Data", "## Failure modes", "## Verification",
 				"| Trigger | Observable result | Retry | Action |",
 				"fenced", "invariant",
@@ -51,12 +58,14 @@ func TestSkillsAudienceSplit(t *testing.T) {
 			},
 			forbid: []string{
 				"not enforced yet",
+				"Follow the `docs-ste100-80` skill for prose clarity",
 			},
 		},
 		{
 			name: "spec-template-machine-projectable",
 			path: "skills/fyr-init-project/assets/records/SPEC-TEMPLATE.md",
 			want: []string{
+				"agent-only", "brain.db",
 				"## Purpose", "## Interfaces", "## Data", "## Failure modes", "## Verification",
 				"| Trigger | Observable result | Retry | Action |",
 				"fyr search --contracts",
@@ -72,12 +81,23 @@ func TestSkillsAudienceSplit(t *testing.T) {
 			want: []string{
 				"Track 1", "docs-ste100-80",
 				"Track 2", "Telegraphic Markdown", "4,500 B",
-				"Track 3", "| Trigger | Observable result | Retry | Action |",
+				"brain.db", "agent-only",
+				"| Trigger | Observable result | Retry | Action |",
 				"Track 5", "immutable",
 				"fyr search --contracts",
 				"spec-structure",
 			},
 			forbid: []string{"not enforced yet"},
+		},
+		{
+			name: "fyr-review-docs-lens-db-split",
+			path: "skills/fyr-review/references/lens-briefs.md",
+			want: []string{
+				"docs-ste100-80", "brain.db", "agent-only", "Caution",
+			},
+			forbid: []string{
+				"(`README.md`, `SDD.md`, `TDD.md`, `SPEC-*`, `GUIDE-*`, `DEPLOY-*`, `docs/*.md`)",
+			},
 		},
 		{
 			name: "context-agents-audience-and-contracts",

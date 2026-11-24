@@ -39,6 +39,7 @@ Local only: `fyr record get DEPLOY-local` (remote: `DEPLOY-remote`; GCP defaults
 
 ## Pointers
 
-- Contracts (Track 3): `PRD.md` (requirements), `TODO.md` (active queue), `fyr record list --kind spec` (`SPEC-*`).
-- Human docs (Track 1): `README.md`, `SDD.md`, `TDD.md`, `GUIDE-testing`, `DEPLOY-*`.
+- Contracts (Track 3): `PRD.md` (requirements), `TODO.md` (active queue), `fyr record list --kind spec` (`SPEC-*` in agent-only `brain.db`).
+- Human docs (Track 1, git): `README.md`, `SDD.md`, `TDD.md`.
+- Agent-only DB records (`brain.db`): `GUIDE-testing`, `DEPLOY-local`, `DEPLOY-remote`, `DEPLOY-gcp` (no YAML frontmatter; `Caution` before destructive commands).
 - Trail & code discovery: `fyr record list --kind adr`, `fyr search --slice` / `--contracts` / `--skeleton` / `--refs`; scratch under `.agents/scratch/` (never `/tmp`).

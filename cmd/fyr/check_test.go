@@ -386,9 +386,22 @@ func TestCheckDocsStyleBudgetAndSpecStructureCLI(t *testing.T) {
 	t.Run("advisory_notes_exit_0_text_and_json", func(t *testing.T) {
 		specBody := "Code `internal/a.go`.\n## Purpose\nx\n## Interfaces\nx\n## Data\nx\n## Failure modes\nProse only.\n## Verification\nx\n"
 		longLine := "This prose sentence intentionally exceeds twenty five words by adding many extra words and clauses to trigger the advisory style note without causing a hard error.\n"
+		recJSON := func(id, kind, body string) string {
+			b, err := json.Marshal(map[string]string{
+				"date": "2026-11-24", "id": id, "kind": kind, "status": "current",
+				"title": id, "updated": "2026-11-24T10:00:00Z", "body": body,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return string(b) + "\n"
+		}
 		checkRepo(t, map[string]string{
 			"internal/a.go": "package a\n", "README.md": longLine + "Use whitelist here.\n",
-			".agents/glossary.json": `{"whitelist":"allowlist"}`, ".agents/trail.jsonl": specJSON("SPEC-ok", specBody),
+			".agents/glossary.json": `{"whitelist":"allowlist"}`,
+			".agents/trail.jsonl": specJSON("SPEC-ok", specBody) +
+				recJSON("GUIDE-agent", "guide", longLine+"Seamless e.g. whitelist.\n") +
+				recJSON("DEPLOY-agent", "deploy", longLine+"Zero-ops etc.\n"),
 		})
 		out, errOut, code := checkCmd(t, "--home", home)
 		if code != 0 || errOut != "" || !strings.Contains(out, "check: 0 findings (docs 0, specs 0, requirements 0, traces 0);") {
@@ -399,10 +412,31 @@ func TestCheckDocsStyleBudgetAndSpecStructureCLI(t *testing.T) {
 				t.Errorf("advisory text output missing %q:\n%s", want, out)
 			}
 		}
+		for _, forbid := range []string{"GUIDE-agent", "DEPLOY-agent"} {
+			if strings.Contains(out, forbid) {
+				t.Errorf("agent-only DB record %s must not emit docs-style findings or notes:\n%s", forbid, out)
+			}
+		}
 		jout, jerr, jcode := checkCmd(t, "--json", "--home", home)
 		var rep checkReportJSON
 		if jcode != 0 || jerr != "" || json.Unmarshal([]byte(jout), &rep) != nil || !rep.OK || rep.Counts.Total != 0 || len(rep.Notes) < 3 {
 			t.Fatalf("advisory json: exit %d, stderr %q, rep=%+v\n%s", jcode, jerr, rep, jout)
+		}
+	})
+
+	t.Run("agent_db_safety_guards_still_fail", func(t *testing.T) {
+		deployBad, err := json.Marshal(map[string]string{
+			"date": "2026-11-24", "id": "DEPLOY-bad", "kind": "deploy", "status": "current",
+			"title": "DEPLOY-bad", "updated": "2026-11-24T10:00:00Z",
+			"body": "---\ntitle: bad\n---\n\n```bash\nrm -rf ./state\n```\n",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		checkRepo(t, map[string]string{".agents/trail.jsonl": string(deployBad) + "\n"})
+		out, errOut, code := checkCmd(t, "--home", home)
+		if code != 1 || errOut != "" || !strings.Contains(out, "DEPLOY-bad:1  docs-style") || !strings.Contains(out, "DEPLOY-bad:6  docs-style") {
+			t.Fatalf("agent db safety guard check: exit %d, stderr %q, out:\n%s", code, errOut, out)
 		}
 	})
 }

@@ -26,17 +26,17 @@ View `~/.gemini/config/skills/fyr-init-project/references/trail.md` and `~/.gemi
 Respect the 5-track audience boundary on every edit:
 
 ```
-Track 1 — Human Docs (`docs-ste100-80`, no YAML frontmatter):
+Track 1 — Git Human Docs (`docs-ste100-80`, no YAML frontmatter):
   README.md                                # human-first quick start, architecture, config, deploy
   SDD.md, TDD.md                           # system components (M#, R->M trace) and technical design (T#, M->T->test trace)
-  GUIDE-testing                            # verification procedure (shared with `verifier` for missing/changed e2e steps)
-  DEPLOY-local, DEPLOY-remote, DEPLOY-gcp  # build/run/deploy guides with `## Operator steps`
-  GUIDE-onboarding                         # existing onboarding guide when present (never create new)
 
-Track 2 — Agent-Read (Telegraphic Markdown, <= 4,500 B total):
-  AGENTS.md                                # Setup commands and Deploy sections only (no onboarding prose or tree dumps)
+Track 2 — Agent-Read & 100% Agent-Only SQLite DBs (Telegraphic/Structured Markdown, no YAML frontmatter):
+  AGENTS.md                                # Setup commands and Deploy sections only (<= 4,500 B; no onboarding prose or tree dumps)
+  GUIDE-testing                            # brain.db verification procedure (shared with `verifier`; keep Caution before destructive cmds)
+  DEPLOY-local, DEPLOY-remote, DEPLOY-gcp  # brain.db build/run/deploy guides with `## Operator steps` (keep Caution before destructive cmds)
+  GUIDE-onboarding                         # existing brain.db onboarding guide when present (never create new)
 
-Track 3 — Shared Contracts (machine-projectable):
+Track 3 — Machine-Projectable Contracts (100% agent-only `brain.db`):
   SPEC-<app>-<topic>                       # live specs, one per topic (`fyr-spec` / `fyr-research`)
 ```
 
@@ -47,9 +47,9 @@ Track 3 — Shared Contracts (machine-projectable):
 ## Rules
 
 1. **Read before writing:** inspect the code, existing docs, and every record/file named in the dispatch's `fyr search` output.
-2. **Track 1 human docs (`docs-ste100-80`):** write short active prose (~20-word procedures, ~25-word explanations), direct imperative steps, `Caution`/`Note` safety callouts before destructive commands, short BLUF openings, `<= 12`-node Mermaid diagrams (`mermaid-syntax`) for multi-step flows/architectures, and `<details>` folding for `> 12`-row tables.
-3. **Track 2 agent-read (`AGENTS.md`):** edit Setup commands and Deploy sections only in concise **Telegraphic Markdown** (`<= 4,500 B` total file size). Never rewrite `AGENTS.md` into human onboarding prose or paste directory-tree dumps.
-4. **Track 3 specs (`SPEC-*`):** match exact flags, APIs, and schemas, and keep all five required sections (`Purpose`, `Interfaces`, `Data`, `Failure modes`, `Verification`) enforced by `fyr check` (`spec-structure`) and projected by `fyr search --contracts`: fenced signatures in `Interfaces`, invariant bullets in `Data`, and the 4-column `| Trigger | Observable result | Retry | Action |` table in `Failure modes`.
+2. **Track 1 git human docs (`docs-ste100-80`):** on git-tracked human Markdown (`README.md`, `SDD.md`, `TDD.md`), write short active prose (~20-word procedures, ~25-word explanations), direct imperative steps, `Caution`/`Note` safety callouts before destructive commands, short BLUF openings, `<= 12`-node Mermaid diagrams (`mermaid-syntax`) for multi-step flows/architectures, and `<details>` folding for `> 12`-row tables.
+3. **Track 2 agent-read (`AGENTS.md` & `brain.db` `GUIDE-*`/`DEPLOY-*`):** edit `AGENTS.md` Setup commands and Deploy sections only in concise **Telegraphic Markdown** (`<= 4,500 B` total; never human onboarding prose or directory-tree dumps). Author `brain.db` `GUIDE-*` and `DEPLOY-*` records as 100% agent-only Telegraphic/Structured Markdown with no YAML frontmatter and a `Caution` callout before destructive commands (never STE human narrative prose).
+4. **Track 3 specs (`SPEC-*` in agent-only `brain.db`):** match exact flags, APIs, and schemas, and keep all five required sections (`Purpose`, `Interfaces`, `Data`, `Failure modes`, `Verification`) enforced by `fyr check` (`spec-structure`) and projected by `fyr search --contracts`: fenced signatures in `Interfaces`, invariant bullets in `Data`, and the 4-column `| Trigger | Observable result | Retry | Action |` table in `Failure modes`.
 5. **Copy-pasteable `README.md` & live `DEPLOY-*`:** match `AGENTS.md` § Setup commands verbatim (ask in your reply if a command is missing), and keep `DEPLOY-*` commands current (`Not applicable yet` when a target is unused).
 6. **`SDD.md` and `TDD.md` summarise and link** to `SPEC-*` and `ADR-*` without restating them; keep traces aligned with real tests.
 7. **No frontmatter & absolute dates:** never add YAML frontmatter to records or root docs (`README.md`, `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`, `AGENTS.md`); convert relative dates to absolute.

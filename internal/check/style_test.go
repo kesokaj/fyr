@@ -13,6 +13,7 @@ const validSpecSections = "\n\n## Purpose\n\nOk.\n\n## Interfaces\n\nOk.\n\n## D
 
 func TestDocsStyleAndAgentsBudget(t *testing.T) {
 	t.Run("track1_scope_and_exclusions", testStyleTrack1Scope)
+	t.Run("agent_only_db_safety_only", testStyleAgentDBSafetyOnly)
 	t.Run("mermaid_node_cap", testStyleMermaidCap)
 	t.Run("unfolded_table_row_cap", testStyleTableCap)
 	t.Run("destructive_tokens_callout", testStyleDestructiveCallout)
@@ -50,13 +51,38 @@ func testStyleTrack1Scope(t *testing.T) {
 	})
 	rep := run(t, dir)
 	same(t, rep.Findings,
-		"DEPLOY-live:1 docs-style", "GUIDE-live:1 docs-style", "README.md:1 docs-style",
-		"SDD.md:1 docs-style", "TDD.md:1 docs-style", "Workflow.md:1 docs-style",
-		"docs/guide.md:1 docs-style", "docs/sub/deep.md:1 docs-style", "features/f.md:1 docs-style",
+		"README.md:1 docs-style", "SDD.md:1 docs-style", "TDD.md:1 docs-style",
+		"Workflow.md:1 docs-style", "docs/guide.md:1 docs-style", "docs/sub/deep.md:1 docs-style",
+		"features/f.md:1 docs-style",
 	)
-	if d, s, r, tr := Counts(rep.Findings); d != 9 || s != 0 || r != 0 || tr != 0 {
-		t.Errorf("Counts = (%d,%d,%d,%d), want (9,0,0,0)", d, s, r, tr)
+	if d, s, r, tr := Counts(rep.Findings); d != 7 || s != 0 || r != 0 || tr != 0 {
+		t.Errorf("Counts = (%d,%d,%d,%d), want (7,0,0,0)", d, s, r, tr)
 	}
+}
+
+func testStyleAgentDBSafetyOnly(t *testing.T) {
+	bigMermaid := "```mermaid\nflowchart LR\n  n1 --> n2\n  n2 --> n3\n  n3 --> n4\n  n4 --> n5\n  n5 --> n6\n  n6 --> n7\n  n7 --> n8\n  n8 --> n9\n  n9 --> n10\n  n10 --> n11\n  n11 --> n12\n  n12 --> n13\n```\n"
+	longSentence := "This single agent-only database sentence intentionally exceeds twenty five words by adding extra descriptive clauses and seamless foundational zero-ops e.g. whitelist prose so only safety checks should apply.\n"
+	safeDBBody := "# Agent DB Record\n\n" + longSentence + "\n" + bigMermaid + "\n" + makeTable(14) + "\n> [!CAUTION]\n> Deletes scratch.\n\n```bash\nrm -rf ./scratch\n```\n"
+	trailSafe := trailLine(t, "GUIDE-agent", "guide", "current", safeDBBody) +
+		trailLine(t, "DEPLOY-agent", "deploy", "current", safeDBBody)
+	repSafe := run(t, repo(t, map[string]string{
+		".agents/glossary.json": `{"whitelist":"allowlist"}`,
+		".agents/trail.jsonl":   trailSafe,
+	}))
+	same(t, repSafe.Findings)
+	if n := notes(repSafe); strings.Contains(n, "GUIDE-agent") || strings.Contains(n, "DEPLOY-agent") || strings.Contains(n, "docs-style-note") {
+		t.Errorf("agent-only brain.db records must emit 0 docs-style-note lines, got: %q", n)
+	}
+
+	// Must-fail: YAML frontmatter and unguarded destructive commands still fail docs-style on current guide/deploy records,
+	// while retired guide/deploy records remain untouched.
+	trailBad := trailLine(t, "GUIDE-fm", "guide", "current", "---\ntitle: bad\n---\n\n# Guide\n") +
+		trailLine(t, "DEPLOY-rm", "deploy", "current", "# Deploy\n\n```bash\nrm -rf ./data\n```\n") +
+		trailLine(t, "GUIDE-sql", "guide", "current", "# Guide\n\n```sql\nDROP TABLE sessions;\n```\n") +
+		trailLine(t, "DEPLOY-retired", "deploy", "retired", "---\ntitle: old\n---\n\n```bash\ngit push --force\n```\n")
+	repBad := run(t, repo(t, map[string]string{".agents/trail.jsonl": trailBad}))
+	same(t, repBad.Findings, "DEPLOY-rm:4 docs-style", "GUIDE-fm:1 docs-style", "GUIDE-sql:4 docs-style")
 }
 
 func testStyleMermaidCap(t *testing.T) {
