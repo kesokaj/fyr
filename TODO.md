@@ -7,13 +7,13 @@
 
 ## Now
 
-- `PLAN-2026-11-24-1704-plan-deterministic-dual-track-docs-harness-contr` — Wave 1:
-  - [ ] Phase 1 — Pure-Go deterministic `docs-ste100-80` linter, `AGENTS.md` budget guard & `SPEC-*` structure check
-  - [ ] Phase 2 — Explicit audience split across skills, project templates, documentation agent & global context
+- `PLAN-2026-11-24-1704-plan-deterministic-dual-track-docs-harness-contr` — Wave 2:
+  - [x] Phase 1 — Pure-Go deterministic `docs-ste100-80` linter, `AGENTS.md` budget guard & `SPEC-*` structure check (`1625b732`)
+  - [x] Phase 2 — Explicit audience split across skills, project templates, documentation agent & global context (`2123ff95`)
+  - [ ] Phase 3 — Pure-Go `fyr search --contracts` projector & bounded hook/slice spec enrichment
 
 ## Next
 
-- `PLAN-2026-11-24-1704-plan-deterministic-dual-track-docs-harness-contr` — Wave 2 / Phase 3 — Pure-Go `fyr search --contracts` projector & bounded hook/slice spec enrichment
 - `PLAN-2026-11-24-1704-plan-deterministic-dual-track-docs-harness-contr` — Wave 3 / Phase 4 — Pilot on `fyr`, `SPEC-fyr-docs-harness`, repo docs, whole-diff review & A/B verification
 
 ## Backlog
