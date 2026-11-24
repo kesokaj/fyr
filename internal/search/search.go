@@ -38,6 +38,7 @@ type Options struct {
 	Affected            string                                                                               // --affected file path or symbol
 	Map                 bool                                                                                 // --map repo summary
 	IncludeDocs         bool                                                                                 // --include-docs opt-in for AST maps, slices and graphs
+	Contracts           string                                                                               // --contracts target path, dir or symbol
 	Vet                 string                                                                               // --vet prompt
 	Hook                string                                                                               // --hook event: session-start, pre-invocation, pre-tool-use or stop
 	HookIn              io.Reader                                                                            // optional stdin reader for --hook
@@ -47,6 +48,7 @@ type Options struct {
 	BrainReprime        func(dir, home string) string                                                        // optional callback for compaction re-prime
 	BrainTurnContext    func(dir, home, prompt string, files []string) TurnBrainContext                      // optional callback for --vet and --hook
 	BrainTurnContextCtx func(ctx context.Context, dir, home, prompt string, files []string) TurnBrainContext // optional context-aware callback for --hook
+	BrainSpecBodies     func(dir, home string, paths []string) []SpecContractSource                          // optional callback returning current SPEC-* and accepted ADR-* sources
 	SkillCatalog        func(home string) []SkillMeta                                                        // optional callback for --vet and --hook
 	hookDeadline        time.Duration
 	hookDispatch        func(context.Context, Options, string, string, HookInput, io.Writer) error
@@ -116,16 +118,16 @@ func validateSearchModes(o *Options) error {
 		o.Words = nil
 	}
 	modes := 0
-	for _, set := range []bool{len(o.Words) > 0, o.Refs != "", o.Open, o.Slice != "", o.Skeleton != "", o.Path != "", o.Affected != "", o.Map, o.Vet != "", o.Hook != ""} {
+	for _, set := range []bool{len(o.Words) > 0, o.Refs != "", o.Open, o.Slice != "", o.Skeleton != "", o.Path != "", o.Affected != "", o.Map, o.Vet != "", o.Hook != "", o.Contracts != ""} {
 		if set {
 			modes++
 		}
 	}
 	switch {
 	case modes > 1:
-		return usageError{"search: words, --refs, --open, --slice, --skeleton, --path, --affected, --map, --vet and --hook exclude each other; see fyr help search"}
+		return usageError{"search: words, --refs, --open, --slice, --contracts, --skeleton, --path, --affected, --map, --vet and --hook exclude each other; see fyr help search"}
 	case modes == 0:
-		return usageError{"search: give words, --refs <BUG-NNN|ADR-NNN|path>, --open, --slice, --skeleton, --path, --affected, --map, --vet or --hook; see fyr help search"}
+		return usageError{"search: give words, --refs <BUG-NNN|ADR-NNN|path>, --open, --slice, --contracts, --skeleton, --path, --affected, --map, --vet or --hook; see fyr help search"}
 	}
 	if o.Hook != "" && normalizeHookEvent(o.Hook) == "" {
 		return usageError{"search: --hook must be one of: session-start pre-invocation pre-tool-use post-tool-use stop; see fyr help search"}
@@ -140,12 +142,19 @@ func validateSearchModes(o *Options) error {
 		return usageError{"search: --hops must be between 0 and 6; see fyr help search"}
 	}
 	if o.Budget == 0 {
-		o.Budget = defaultSliceBudget
+		o.Budget = defaultBudgetForMode(o)
 	}
 	if o.Budget < 50 {
 		return usageError{"search: --budget must be at least 50 tokens; see fyr help search"}
 	}
 	return nil
+}
+
+func defaultBudgetForMode(o *Options) int {
+	if o.Contracts != "" {
+		return defaultContractsBudget
+	}
+	return defaultSliceBudget
 }
 
 // Index reconciles the index (or rebuilds it) and prints its counts.
@@ -198,6 +207,8 @@ func Search(o Options, out io.Writer) error {
 	switch {
 	case o.Slice != "":
 		return sc.buildContextSlice(o, out)
+	case o.Contracts != "":
+		return sc.buildContractsProjection(o, out)
 	case o.Skeleton != "":
 		return sc.buildFileSkeleton(o.Skeleton, out)
 	case o.Path != "":

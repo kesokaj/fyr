@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -30,7 +31,7 @@ func (sc *scope) renderSliceCapsule(o Options, g *symGraph, tiers sliceTiers, ma
 	}
 	var extrasBuf bytes.Buffer
 	extrasCap := min(max(0, maxBytes-buf.Len()), max(360, maxBytes/2))
-	sc.appendSliceExtras(&extrasBuf, paths, o.BrainRefs, extrasCap)
+	sc.appendSliceExtras(&extrasBuf, o, paths, extrasCap)
 	symMax := max(buf.Len(), maxBytes-extrasBuf.Len())
 	hop0Cap, hop1Cap := symMax, symMax
 	if len(tiers.hop1) > 0 && len(tiers.hop2) > 0 {
@@ -63,8 +64,8 @@ func (sc *scope) appendWithinBudget(buf *bytes.Buffer, block string, capBytes in
 	}
 }
 
-func (sc *scope) appendSliceExtras(buf *bytes.Buffer, paths map[string]bool, brainRefs func(string) []LinkedRecord, maxBytes int) {
-	recs := sc.activeLinkedRecords(paths, brainRefs)
+func (sc *scope) appendSliceExtras(buf *bytes.Buffer, o Options, paths map[string]bool, maxBytes int) {
+	recs := sc.activeLinkedRecords(paths, o.BrainRefs)
 	if len(recs) > 0 {
 		wroteHdr := false
 		for _, r := range recs {
@@ -93,6 +94,39 @@ func (sc *scope) appendSliceExtras(buf *bytes.Buffer, paths map[string]bool, bra
 			}
 			sc.appendWithinBudget(buf, line, maxBytes)
 		}
+	}
+	sc.appendSliceContracts(buf, o, paths, maxBytes)
+}
+
+func (sc *scope) appendSliceContracts(buf *bytes.Buffer, o Options, paths map[string]bool, maxBytes int) {
+	if o.BrainSpecBodies == nil || len(paths) == 0 {
+		return
+	}
+	const hdr = "spec_contracts:\n"
+	capB := min(defaultContractDigestBytes, maxBytes-buf.Len())
+	if capB-len(hdr) < 24 {
+		return
+	}
+	pathList := make([]string, 0, len(paths))
+	for p := range paths {
+		pathList = append(pathList, p)
+	}
+	sort.Strings(pathList)
+	digest := FormatContractDigest(o.BrainSpecBodies(o.Dir, o.Home, pathList), capB-len(hdr))
+	if digest == "" {
+		return
+	}
+	var blk strings.Builder
+	blk.WriteString(hdr)
+	for _, line := range strings.Split(digest, "\n") {
+		row := "  " + line + "\n"
+		if blk.Len()+len(row) > capB {
+			break
+		}
+		blk.WriteString(row)
+	}
+	if blk.Len() > len(hdr) {
+		buf.WriteString(blk.String())
 	}
 }
 

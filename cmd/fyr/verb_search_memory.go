@@ -7,7 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
+	"path/filepath"
+	"regexp"
 	"slices"
+	"sort"
+	"strings"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/search"
@@ -147,17 +152,23 @@ func runSearch(c *ctx) error {
 		return err
 	}
 	cache := newTurnBrainCache(c.home, c.global)
+	budget := c.sliceBudget
+	if c.contractsTarget != "" && budget == 0 {
+		budget = 1500
+	}
 	o := search.Options{
 		Dir: wd, Home: c.home, Words: c.fs.Args(), Refs: c.refs, Open: c.openRecords,
 		Kind: c.kind, Limit: c.limit, Global: c.global, Rebuild: c.rebuild,
-		Slice: c.sliceQuery, Hops: c.sliceHops, Budget: c.sliceBudget, Session: c.sliceSession,
-		Skeleton: c.skeletonPath, Path: c.pathFrom, To: c.pathTo, Affected: c.affectedTarget, Map: c.repoMap,
+		Slice: c.sliceQuery, Hops: c.sliceHops, Budget: budget, Session: c.sliceSession,
+		Contracts: c.contractsTarget,
+		Skeleton:  c.skeletonPath, Path: c.pathFrom, To: c.pathTo, Affected: c.affectedTarget, Map: c.repoMap,
 		IncludeDocs: c.searchIncludeDocs, Vet: c.vetPrompt, Hook: c.hookEvent, HookIn: stdin,
 		BrainRefs:           makeBrainRefs(cache, wd),
 		BrainRefsForDir:     makeBrainRefsForDir(cache),
 		BrainReprime:        makeBrainReprime(),
 		BrainTurnContext:    makeBrainTurnContext(cache),
 		BrainTurnContextCtx: makeBrainTurnContextCtx(cache),
+		BrainSpecBodies:     makeBrainSpecBodies(cache),
 		SkillCatalog:        makeSkillCatalog(),
 	}
 	if c.cmd == "index" && c.register {
@@ -203,7 +214,7 @@ func (c *ctx) execSearch(o search.Options) error {
 }
 
 func isGraphSearchMode(o search.Options) bool {
-	return o.Slice != "" || o.Skeleton != "" || o.Path != "" || o.Affected != "" || o.Map || o.Vet != "" || o.Hook != ""
+	return o.Slice != "" || o.Contracts != "" || o.Skeleton != "" || o.Path != "" || o.Affected != "" || o.Map || o.Vet != "" || o.Hook != ""
 }
 
 // stdin is where `memory add` reads the body; a test replaces it.
@@ -223,4 +234,85 @@ func memoryFinish(err error, text string, out io.Writer) error {
 	}
 	fmt.Fprint(out, text)
 	return nil
+}
+
+var specADRCiteRe = regexp.MustCompile(`\bADR-\d{3}[a-z]?\b`)
+
+func buildSpecContractSources(specs, turnRecs []brain.Record, paths []string) []search.SpecContractSource {
+	tokens := expandSpecPathTokens(paths)
+	if len(tokens) == 0 {
+		return nil
+	}
+	cited := map[string]bool{}
+	var out []search.SpecContractSource
+	for _, sp := range specs {
+		if sp.Kind == "spec" && sp.Status == "current" && recordMatchesAnyToken(sp, tokens) {
+			for _, id := range specADRCiteRe.FindAllString(sp.Body, -1) {
+				cited[strings.ToUpper(id)] = true
+			}
+			out = append(out, search.SpecContractSource{ID: sp.ID, Kind: "spec", Status: sp.Status, Title: sp.Title, Body: sp.Body})
+		}
+	}
+	for _, r := range turnRecs {
+		if r.Kind == "adr" && r.Status == "accepted" && (cited[strings.ToUpper(r.ID)] || recordMatchesAnyToken(r, tokens)) {
+			out = append(out, search.SpecContractSource{ID: r.ID, Kind: "adr", Status: r.Status, Title: r.Title})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+func expandSpecPathTokens(paths []string) []string {
+	seen, out := map[string]bool{}, []string(nil)
+	add := func(t string) {
+		if t = strings.ToLower(strings.TrimSpace(t)); t != "" && !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	for _, raw := range paths {
+		n := strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(raw)), "./")
+		if n == "" || n == "." {
+			continue
+		}
+		trimmed := strings.TrimSuffix(n, "/")
+		add(n)
+		add(trimmed)
+		if dir := path.Dir(trimmed); dir != "." && dir != "/" {
+			add(dir + "/")
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func recordMatchesAnyToken(r brain.Record, tokens []string) bool {
+	hay := strings.ToLower(r.ID + "\n" + r.Title + "\n" + r.Body)
+	for _, tok := range tokens {
+		if containsPathBoundary(hay, tok) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsPathBoundary(hay, tok string) bool {
+	for start := 0; tok != ""; {
+		idx := strings.Index(hay[start:], tok)
+		if idx < 0 {
+			return false
+		}
+		pos, end := start+idx, start+idx+len(tok)
+		prevOK := pos == 0 || !isPathWordByte(hay[pos-1])
+		nextOK := strings.HasSuffix(tok, "/") || end == len(hay) || !isPathWordByte(hay[end])
+		if prevOK && nextOK {
+			return true
+		}
+		start = pos + 1
+	}
+	return false
+}
+
+func isPathWordByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_' || b == '-'
 }

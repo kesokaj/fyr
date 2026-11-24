@@ -12,7 +12,10 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-var brainTurnQueryBudget = search.DefaultHookBrainBudget()
+var (
+	brainTurnQueryBudget = search.DefaultHookBrainBudget()
+	loadSpecRecordsHook  = loadCurrentSpecsFromStoreCtx
+)
 
 type cachedTurnData struct {
 	recs []brain.Record
@@ -28,6 +31,7 @@ type turnBrainCache struct {
 	home        string
 	global      bool
 	byDir       map[string][]brain.Record
+	specsByDir  map[string][]brain.Record
 	turnByQuery map[string]cachedTurnData
 	ftsByQuery  map[string]map[string]bool
 	loadCount   int
@@ -38,6 +42,7 @@ func newTurnBrainCache(home string, global bool) *turnBrainCache {
 		home:        home,
 		global:      global,
 		byDir:       map[string][]brain.Record{},
+		specsByDir:  map[string][]brain.Record{},
 		turnByQuery: map[string]cachedTurnData{},
 		ftsByQuery:  map[string]map[string]bool{},
 	}
@@ -426,4 +431,103 @@ func makeBrainRefs(tc *turnBrainCache, dir string) func(string) []search.LinkedR
 	return func(target string) []search.LinkedRecord {
 		return filterCachedBrainRefs(tc.records(dir, ""), target)
 	}
+}
+
+func makeBrainSpecBodies(tc *turnBrainCache) func(dir, home string, paths []string) []search.SpecContractSource {
+	return func(dir, home string, paths []string) []search.SpecContractSource {
+		if dir == "" || len(paths) == 0 {
+			return nil
+		}
+		specs, ok := tc.currentSpecs(dir, home)
+		if !ok {
+			return nil
+		}
+		return buildSpecContractSources(specs, tc.turnOrLoadedRecords(dir, home), paths)
+	}
+}
+
+func (tc *turnBrainCache) turnOrLoadedRecords(dir, homeOverride string) []brain.Record {
+	key := canonicalCacheDir(dir) + "|" + tc.resolveHome(homeOverride)
+	tc.mu.Lock()
+	if recs, ok := tc.byDir[key]; ok {
+		tc.mu.Unlock()
+		return recs
+	}
+	var bestKey string
+	var bestRecs []brain.Record
+	for qk, cd := range tc.turnByQuery {
+		if strings.HasPrefix(qk, key+"|") && (bestKey == "" || qk < bestKey) {
+			bestKey, bestRecs = qk, cd.recs
+		}
+	}
+	tc.mu.Unlock()
+	if bestKey != "" {
+		return bestRecs
+	}
+	return tc.records(dir, homeOverride)
+}
+
+func (tc *turnBrainCache) currentSpecs(dir, homeOverride string) ([]brain.Record, bool) {
+	home := tc.resolveHome(homeOverride)
+	key := canonicalCacheDir(dir) + "|" + home
+	tc.mu.Lock()
+	if cached, ok := tc.specsByDir[key]; ok {
+		tc.mu.Unlock()
+		return cached, true
+	}
+	tc.mu.Unlock()
+	qctx, cancel := boundedBrainQueryCtx(context.Background())
+	defer cancel()
+	recs, err := loadSpecRecordsHook(qctx, dir, home)
+	if qctx.Err() != nil || err != nil {
+		return nil, false
+	}
+	tc.mu.Lock()
+	tc.specsByDir[key] = recs
+	tc.mu.Unlock()
+	return recs, true
+}
+
+func loadCurrentSpecsFromStoreCtx(ctx context.Context, dir, home string) ([]brain.Record, error) {
+	if ctx != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if home != "" {
+		if st, err := os.Stat(brain.Path(home)); err == nil && st.Mode().IsRegular() {
+			type specRes struct {
+				recs []brain.Record
+				err  error
+			}
+			ch := make(chan specRes, 1)
+			go func() {
+				recs, err := brain.List(brain.Options{Home: home, Dir: dir}, brain.ListFilter{Kind: "spec", Open: true})
+				ch <- specRes{recs: recs, err: err}
+			}()
+			select {
+			case res := <-ch:
+				if res.err == nil && len(res.recs) > 0 {
+					return filterCurrentSpecs(res.recs), nil
+				}
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if trailRecs, ok, err := brain.ReadTrail(dir); err == nil && ok {
+		return filterCurrentSpecs(trailRecs), nil
+	}
+	return nil, nil
+}
+
+func filterCurrentSpecs(recs []brain.Record) []brain.Record {
+	var out []brain.Record
+	for _, r := range recs {
+		if r.Kind == "spec" && r.Status == "current" {
+			out = append(out, r)
+		}
+	}
+	return out
 }

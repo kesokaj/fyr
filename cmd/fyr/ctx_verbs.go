@@ -50,7 +50,8 @@ type ctx struct {
 	modelsPick, modelsTier, modelsExplain                                                             string
 	modelsRefresh                                                                                     bool
 	limit, sliceHops, sliceBudget                                                                     int
-	sliceQuery, sliceSession, skeletonPath, pathFrom, pathTo, affectedTarget, vetPrompt, hookEvent    string
+	sliceQuery, sliceSession, contractsTarget, skeletonPath, pathFrom, pathTo, affectedTarget         string
+	vetPrompt, hookEvent                                                                              string
 	repoMap, register, searchIncludeDocs                                                              bool
 	graphOut, graphListen                                                                             string
 	graphDot, graphMD, graphJSON, graphWeb, graphIncludeTests, graphIncludeDocs                       bool
@@ -179,8 +180,9 @@ var verbs = map[string]verb{
 		c.fs.BoolVar(&c.global, "global", false, "also the global records and every project registered with index --register, from the brain store")
 		c.fs.BoolVar(&c.jsonOut, "json", false, "print hits or query results as JSON")
 		c.fs.StringVar(&c.sliceQuery, "slice", "", "0/1/2-hop context capsule for `QUERY` ranked by PageRank")
+		c.fs.StringVar(&c.contractsTarget, "contracts", "", "deterministic AST signatures, linked SPEC-* contracts and ADR guardrails for `TARGET`")
 		c.fs.IntVar(&c.sliceHops, "hops", 0, "slice: maximum graph hops `N`, 0-6 (default 2)")
-		c.fs.IntVar(&c.sliceBudget, "budget", 0, "slice: token budget `N` estimated as chars/4 (default 2000)")
+		c.fs.IntVar(&c.sliceBudget, "budget", 0, "slice, contracts: token budget `N` estimated as chars/4 (default 2000; 1500 for --contracts)")
 		c.fs.StringVar(&c.sliceSession, "session", "", "slice: conversation `ID` whose read files get the 50x boost")
 		c.fs.StringVar(&c.skeletonPath, "skeleton", "", "declaration-only start-end signature lines for `FILE`")
 		c.fs.StringVar(&c.pathFrom, "path", "", "shortest call/type/interface path from `SYM` (<= 6 hops)")

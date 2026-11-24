@@ -8,13 +8,21 @@ import (
 	"strings"
 )
 
-func lookupWorkerCapsuleContext(o Options, explicitRoot, explicitDir, rawPrompt string, headerFiles []string) ([]string, []string, []MatchedRecord, *SkillMeta) {
+func lookupWorkerCapsuleContext(o Options, explicitRoot, explicitDir, rawPrompt string, headerFiles []string) ([]string, []string, []MatchedRecord, *SkillMeta, string) {
 	promptFiles := extractPromptAndSliceFiles(rawPrompt, headerFiles)
 	astLines, astFiles := lookupWorkerHop0AST(explicitRoot, rawPrompt, promptFiles)
 	allFiles := extractPromptAndSliceFiles(rawPrompt, append(append([]string{}, promptFiles...), astFiles...))
 	recs := lookupWorkerRecords(o, explicitDir, rawPrompt, allFiles)
 	skill := lookupWorkerTopSkill(o, rawPrompt, allFiles, len(astLines))
-	return astLines, allFiles, recs, skill
+	contracts := lookupWorkerContractDigest(o, explicitDir, allFiles)
+	return astLines, allFiles, recs, skill, contracts
+}
+
+func lookupWorkerContractDigest(o Options, explicitDir string, files []string) string {
+	if explicitDir == "" || o.BrainSpecBodies == nil || len(files) == 0 {
+		return ""
+	}
+	return FormatContractDigest(o.BrainSpecBodies(explicitDir, o.Home, files), defaultContractDigestBytes)
 }
 
 func lookupWorkerHop0AST(explicitRoot, prompt string, files []string) ([]string, []string) {
@@ -200,8 +208,8 @@ func capLineUTF8(s string, maxB int) string {
 	return truncateBytesUTF8(strings.Join(strings.Fields(printable(s)), " "), maxB)
 }
 
-func gatherWorkerFenceTexts(rawPrompt string, inferred []string, recs []MatchedRecord, skill *SkillMeta, astLines []string) []string {
-	texts := make([]string, 0, 2+len(inferred)+len(recs)*3+len(astLines))
+func gatherWorkerFenceTexts(rawPrompt string, inferred []string, recs []MatchedRecord, skill *SkillMeta, astLines []string, contractDigest string) []string {
+	texts := make([]string, 0, 3+len(inferred)+len(recs)*3+len(astLines))
 	texts = append(texts, rawPrompt)
 	texts = append(texts, inferred...)
 	for _, r := range recs {
@@ -209,6 +217,9 @@ func gatherWorkerFenceTexts(rawPrompt string, inferred []string, recs []MatchedR
 	}
 	if skill != nil {
 		texts = append(texts, skill.Name, skill.Digest, skill.Description)
+	}
+	if contractDigest != "" {
+		texts = append(texts, contractDigest)
 	}
 	return append(texts, astLines...)
 }
