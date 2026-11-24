@@ -6,12 +6,18 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
 	defaultContractsBudget     = 1500
 	defaultContractDigestBytes = 600
 	faultsTSVThreshold         = 15
+	contractSpecCapPct         = 60
+	contractSigFloorPct        = 35
+	contractGuardCapPct        = 25
+	codeSignaturesHeader       = "\n[CODE_SIGNATURES]\n"
 )
 
 // SpecADRRef carries one linked accepted ADR entry for contract guardrails.
@@ -83,7 +89,7 @@ func isExportedContractSymbol(s RankedSymbol) bool {
 	if !s.Exported || !isContractCodePath(s.Path) {
 		return false
 	}
-	if strings.EqualFold(path.Ext(s.Path), ".go") && s.Kind == "interface_method" && isUnexportedIdent(s.Recv) {
+	if strings.EqualFold(path.Ext(s.Path), ".go") && s.Recv != "" && isUnexportedIdent(s.Recv) {
 		return false
 	}
 	return true
@@ -97,8 +103,27 @@ func isContractCodePath(p string) bool {
 	return false
 }
 
+func isContractTestPath(p string) bool {
+	base := strings.ToLower(path.Base(p))
+	for _, suf := range []string{
+		"_test.go",
+		".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx",
+		".test.js", ".test.jsx", ".test.mjs", ".spec.js", ".spec.jsx", ".spec.mjs",
+	} {
+		if strings.HasSuffix(base, suf) {
+			return true
+		}
+	}
+	return false
+}
+
 func isUnexportedIdent(name string) bool {
-	return name != "" && name[0] >= 'a' && name[0] <= 'z'
+	name = strings.TrimLeft(strings.TrimSpace(name), "*")
+	if name == "" {
+		return false
+	}
+	r, _ := utf8.DecodeRuneInString(name)
+	return !unicode.IsUpper(r)
 }
 
 func matchContractSymbols(exported []RankedSymbol, raw, norm, dirPrefix string) []RankedSymbol {
@@ -107,12 +132,23 @@ func matchContractSymbols(exported []RankedSymbol, raw, norm, dirPrefix string) 
 			return exact
 		}
 	}
+	prod := filterNonTestSyms(exported)
 	if dirPrefix != "" {
-		if dirSyms := filterSymsByPath(exported, dirPrefix+"/", true); len(dirSyms) > 0 {
+		if dirSyms := filterSymsByPath(prod, dirPrefix+"/", true); len(dirSyms) > 0 {
 			return dirSyms
 		}
 	}
-	return matchSymsByName(exported, raw)
+	return matchSymsByName(prod, raw)
+}
+
+func filterNonTestSyms(syms []RankedSymbol) []RankedSymbol {
+	out := make([]RankedSymbol, 0, len(syms))
+	for _, s := range syms {
+		if !isContractTestPath(s.Path) {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func filterSymsByPath(syms []RankedSymbol, target string, prefix bool) []RankedSymbol {
@@ -291,28 +327,178 @@ func mergeBrainRefADRs(existing []SpecADRRef, paths []string, brainRefs func(str
 }
 
 func renderContractsDocument(target string, budget int, syms []RankedSymbol, specs []SpecContractSource, adrs []SpecADRRef) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "# contracts: %s (budget: %d tokens)\n", printable(target), budget)
-	if len(syms) > 0 {
-		b.WriteString("\n[CODE_SIGNATURES]\n")
-		for _, s := range syms {
-			sig := strings.TrimSpace(s.Sig)
-			if sig == "" {
-				sig = s.Kind + " " + s.QualName()
-			}
-			fmt.Fprintf(&b, "%s:%d-%d  %s\n", printable(s.Path), s.StartLine, s.EndLine, sanitizeCodeLine(sig))
+	header := fmt.Sprintf("# contracts: %s (budget: %d tokens)\n", printable(target), budget)
+	maxBytes := max(200, budget*4)
+	remaining := maxBytes - len(header)
+	if remaining <= 0 {
+		return header
+	}
+	specTail := renderSpecADRTail(specs, adrs)
+	if len(syms) == 0 {
+		return header + clipSpecTail(specs, adrs, specTail, remaining)
+	}
+	if specTail == "" {
+		return header + renderCodeSignatures(syms, remaining)
+	}
+	return header + renderBalancedSections(syms, specs, adrs, specTail, maxBytes, remaining)
+}
+
+func renderBalancedSections(syms []RankedSymbol, specs []SpecContractSource, adrs []SpecADRRef, specTail string, maxBytes, remaining int) string {
+	lines, fullSigBytes := formatContractSigLines(syms)
+	if fullSigBytes+len(specTail) <= remaining {
+		return joinContractSigLines(lines, fullSigBytes) + specTail
+	}
+	minSigBytes := min(remaining, maxBytes*contractSigFloorPct/100)
+	maxSpecBytes := min(remaining*contractSpecCapPct/100, remaining-minSigBytes)
+	if maxSpecBytes < 0 {
+		maxSpecBytes = 0
+	}
+	specLimit := maxSpecBytes
+	if fullSigBytes < remaining-specLimit {
+		specLimit = remaining - fullSigBytes
+	}
+	cappedTail := clipSpecTail(specs, adrs, specTail, specLimit)
+	sigBudget := remaining - len(cappedTail)
+	return renderContractSigLines(lines, fullSigBytes, sigBudget) + cappedTail
+}
+
+func renderCodeSignatures(syms []RankedSymbol, maxBytes int) string {
+	lines, fullBytes := formatContractSigLines(syms)
+	return renderContractSigLines(lines, fullBytes, maxBytes)
+}
+
+func formatContractSigLines(syms []RankedSymbol) ([]string, int) {
+	lines := make([]string, len(syms))
+	total := len(codeSignaturesHeader)
+	for i, s := range syms {
+		sig := strings.TrimSpace(s.Sig)
+		if sig == "" {
+			sig = s.Kind + " " + s.QualName()
 		}
+		lines[i] = fmt.Sprintf("%s:%d-%d  %s\n", printable(s.Path), s.StartLine, s.EndLine, sanitizeCodeLine(sig))
+		total += len(lines[i])
 	}
-	for _, sp := range specs {
-		writeSpecProjection(&b, sp)
+	return lines, total
+}
+
+func joinContractSigLines(lines []string, total int) string {
+	var b strings.Builder
+	b.Grow(total)
+	b.WriteString(codeSignaturesHeader)
+	for _, line := range lines {
+		b.WriteString(line)
 	}
-	if len(adrs) > 0 {
-		b.WriteString("\n[GUARDRAILS]\n")
-		for _, a := range adrs {
-			fmt.Fprintf(&b, "- %s: %s\n", printable(a.ID), printable(strings.Join(strings.Fields(a.Title), " ")))
+	return b.String()
+}
+
+func renderContractSigLines(lines []string, fullBytes, maxBytes int) string {
+	if len(lines) == 0 || maxBytes <= len(codeSignaturesHeader) {
+		return ""
+	}
+	if fullBytes <= maxBytes {
+		return joinContractSigLines(lines, fullBytes)
+	}
+	var b strings.Builder
+	b.WriteString(codeSignaturesHeader)
+	kept := 0
+	for i, line := range lines {
+		omittedAfter := len(lines) - (i + 1)
+		footerLen := 0
+		if omittedAfter > 0 {
+			footerLen = len(fmt.Sprintf("... (+%d more signatures omitted)\n", omittedAfter))
+		}
+		if b.Len()+len(line)+footerLen > maxBytes {
+			break
+		}
+		b.WriteString(line)
+		kept++
+	}
+	if omitted := len(lines) - kept; omitted > 0 {
+		footer := fmt.Sprintf("... (+%d more signatures omitted)\n", omitted)
+		if b.Len()+len(footer) <= maxBytes {
+			b.WriteString(footer)
+		} else if kept == 0 {
+			return ""
 		}
 	}
 	return b.String()
+}
+
+func renderSpecADRTail(specs []SpecContractSource, adrs []SpecADRRef) string {
+	return renderSpecsBody(specs) + renderGuardrailsSection(adrs)
+}
+
+func renderSpecsBody(specs []SpecContractSource) string {
+	var b strings.Builder
+	for _, sp := range specs {
+		writeSpecProjection(&b, sp)
+	}
+	return b.String()
+}
+
+func renderGuardrailsSection(adrs []SpecADRRef) string {
+	if len(adrs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n[GUARDRAILS]\n")
+	for _, a := range adrs {
+		fmt.Fprintf(&b, "- %s: %s\n", printable(a.ID), printable(strings.Join(strings.Fields(a.Title), " ")))
+	}
+	return b.String()
+}
+
+func clipSpecTail(specs []SpecContractSource, adrs []SpecADRRef, specTail string, limit int) string {
+	if limit <= 0 || specTail == "" {
+		return ""
+	}
+	if len(specTail) <= limit {
+		return specTail
+	}
+	guard := renderGuardrailsSection(adrs)
+	specBody := renderSpecsBody(specs)
+	if guard == "" || specBody == "" {
+		return clipUTF8Block(specTail, limit)
+	}
+	guardBudget := min(len(guard), max(limit*contractGuardCapPct/100, limit-len(specBody)))
+	clippedGuard := clipLinesUTF8(guard, guardBudget)
+	if !strings.Contains(clippedGuard, "\n- ") {
+		return clipUTF8Block(specTail, limit)
+	}
+	return clipUTF8Block(specBody, limit-len(clippedGuard)) + clippedGuard
+}
+
+func clipLinesUTF8(s string, maxB int) string {
+	if maxB <= 0 || s == "" {
+		return ""
+	}
+	if len(s) <= maxB {
+		return s
+	}
+	var b strings.Builder
+	for _, line := range strings.SplitAfter(s, "\n") {
+		if line == "" {
+			continue
+		}
+		if b.Len()+len(line) > maxB {
+			break
+		}
+		b.WriteString(line)
+	}
+	return b.String()
+}
+
+func clipUTF8Block(s string, maxB int) string {
+	if maxB <= 0 || s == "" {
+		return ""
+	}
+	if len(s) <= maxB {
+		return s
+	}
+	if maxB == 1 {
+		return "\n"
+	}
+	return truncateMultilineUTF8(s, maxB-1) + "\n"
 }
 
 func writeSpecProjection(b *strings.Builder, sp SpecContractSource) {
