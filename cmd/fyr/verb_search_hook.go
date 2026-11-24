@@ -59,9 +59,13 @@ func boundedBrainQueryCtx(ctx context.Context) (context.Context, context.CancelF
 }
 
 func (tc *turnBrainCache) records(dir, homeOverride string) []brain.Record {
+	return tc.recordsCtx(context.Background(), dir, homeOverride)
+}
+
+func (tc *turnBrainCache) recordsCtx(ctx context.Context, dir, homeOverride string) []brain.Record {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	return tc.recordsLockedCtx(context.Background(), dir, homeOverride)
+	return tc.recordsLockedCtx(ctx, dir, homeOverride)
 }
 
 func (tc *turnBrainCache) recordsLockedCtx(ctx context.Context, dir, homeOverride string) []brain.Record {
@@ -438,15 +442,17 @@ func makeBrainSpecBodies(tc *turnBrainCache) func(dir, home string, paths []stri
 		if dir == "" || len(paths) == 0 {
 			return nil
 		}
-		specs, ok := tc.currentSpecs(dir, home)
+		qctx, cancel := boundedBrainQueryCtx(context.Background())
+		defer cancel()
+		specs, ok := tc.currentSpecsCtx(qctx, dir, home)
 		if !ok {
 			return nil
 		}
-		return buildSpecContractSources(specs, tc.records(dir, home), paths)
+		return buildSpecContractSources(specs, tc.recordsCtx(qctx, dir, home), paths)
 	}
 }
 
-func (tc *turnBrainCache) currentSpecs(dir, homeOverride string) ([]brain.Record, bool) {
+func (tc *turnBrainCache) currentSpecsCtx(ctx context.Context, dir, homeOverride string) ([]brain.Record, bool) {
 	home := tc.resolveHome(homeOverride)
 	key := canonicalCacheDir(dir) + "|" + home
 	tc.mu.Lock()
@@ -455,7 +461,7 @@ func (tc *turnBrainCache) currentSpecs(dir, homeOverride string) ([]brain.Record
 		return cached, true
 	}
 	tc.mu.Unlock()
-	qctx, cancel := boundedBrainQueryCtx(context.Background())
+	qctx, cancel := boundedBrainQueryCtx(ctx)
 	defer cancel()
 	recs, err := loadSpecRecordsHook(qctx, dir, home)
 	if qctx.Err() != nil || err != nil {
@@ -472,11 +478,11 @@ func loadCurrentSpecsFromStoreCtx(ctx context.Context, dir, home string) ([]brai
 		return nil, ctx.Err()
 	}
 	if home != "" {
-		recs, err := brain.ListCurrentSpecsCtx(ctx, brain.Options{Home: home, Dir: dir})
+		recs, storePresent, err := brain.ListCurrentSpecsCtx(ctx, brain.Options{Home: home, Dir: dir})
 		if err != nil {
 			return nil, err
 		}
-		if len(recs) > 0 {
+		if storePresent {
 			return recs, nil
 		}
 	}

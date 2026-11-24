@@ -207,3 +207,68 @@ func TestMakeBrainSpecBodiesHydratesOlderADRAfterPartialTurnLoad(t *testing.T) {
 		t.Fatalf("makeBrainSpecBodies missed older ADR %s after partial turn load; got %+v", oldestADR, sources)
 	}
 }
+
+func TestContractsDirectorySpecPrecisionAndNoStaleTrailFallback(t *testing.T) {
+	// 1. Directory target must NOT broaden to parent directory ("internal/") and over-link sibling specs/ADRs.
+	specs := []brain.Record{
+		{ID: "SPEC-search", Kind: "spec", Status: "current", Title: "Search spec", Body: "Covers `internal/search/contracts.go`."},
+		{ID: "SPEC-record", Kind: "spec", Status: "current", Title: "Record spec", Body: "Covers `internal/brain/store.go` and `internal/brain/`."},
+		{ID: "SPEC-eval", Kind: "spec", Status: "current", Title: "Eval spec", Body: "Covers `internal/eval/run.go`."},
+	}
+	turnRecs := []brain.Record{
+		{ID: "ADR-001", Kind: "adr", Status: "accepted", Title: "Search contract ADR", Body: "Applies to `internal/search/`."},
+		{ID: "ADR-002", Kind: "adr", Status: "accepted", Title: "Brain store ADR", Body: "Applies to `internal/brain/store.go`."},
+	}
+	for _, paths := range [][]string{
+		{"internal/search/contracts.go", "internal/search", "internal/search/"},
+		{"internal/search"},
+		{"internal/search/"},
+	} {
+		sources := buildSpecContractSources(specs, turnRecs, paths)
+		got := map[string]bool{}
+		for _, s := range sources {
+			got[s.ID] = true
+		}
+		if !got["SPEC-search"] || !got["ADR-001"] {
+			t.Errorf("paths=%v missed expected SPEC-search/ADR-001; got %+v", paths, got)
+		}
+		for _, bad := range []string{"SPEC-record", "SPEC-eval", "ADR-002"} {
+			if got[bad] {
+				t.Errorf("paths=%v over-matched sibling record %s via parent directory; got %+v", paths, bad, got)
+			}
+		}
+	}
+
+	// 2. When brain.db exists with zero current specs, loadCurrentSpecsFromStoreCtx must NOT resurrect stale trail.jsonl specs.
+	dir := recordRepo(t)
+	home := t.TempDir()
+	bo := brain.Options{Home: home, Dir: dir}
+	if _, err := brain.Add(bo, brain.AddInput{
+		Kind: "spec", ID: "SPEC-retired-now", Status: "current", Title: "Soon retired",
+		Body: strings.NewReader("## Purpose\nOld.\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := brain.Export(bo); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	retired := "retired"
+	if err := brain.Edit(bo, brain.EditInput{ID: "SPEC-retired-now", Status: &retired}); err != nil {
+		t.Fatalf("Edit retire: %v", err)
+	}
+	recs, err := loadCurrentSpecsFromStoreCtx(context.Background(), dir, home)
+	if err != nil {
+		t.Fatalf("loadCurrentSpecsFromStoreCtx: %v", err)
+	}
+	if len(recs) != 0 {
+		t.Errorf("expected 0 current specs from brain.db without stale trail fallback, got %+v", recs)
+	}
+	// Missing brain.db still falls back to trail.jsonl.
+	fallbackRecs, err := loadCurrentSpecsFromStoreCtx(context.Background(), dir, t.TempDir())
+	if err != nil {
+		t.Fatalf("loadCurrentSpecsFromStoreCtx fallback: %v", err)
+	}
+	if len(fallbackRecs) != 1 || fallbackRecs[0].ID != "SPEC-retired-now" {
+		t.Errorf("missing brain.db trail fallback = %+v, want SPEC-retired-now", fallbackRecs)
+	}
+}

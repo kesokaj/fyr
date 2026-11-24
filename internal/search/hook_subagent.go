@@ -215,11 +215,17 @@ func appendWorkerSkill(out *strings.Builder, rem *int, f Fence, skill *SkillMeta
 	}
 }
 
+const (
+	workerCapsuleASTReserveThreshold = 380 // min remaining bytes before reserving space for spec_contracts
+	workerCapsuleSpecReserveBytes    = 280 // bytes held back from ast_slice so spec_contracts fits
+	workerCapsuleASTMinBytes         = 120 // floor kept for ast_slice after reserving spec_contracts
+)
+
 func appendWorkerAST(out *strings.Builder, rem *int, f Fence, astLines []string, reserveContracts bool) {
 	overhead := 1 + len(f.Data("ast_slice", "repo", "")) + 1
 	avail := *rem - overhead
-	if reserveContracts && avail > 380 {
-		avail = max(120, avail-280)
+	if reserveContracts && avail > workerCapsuleASTReserveThreshold {
+		avail = max(workerCapsuleASTMinBytes, avail-workerCapsuleSpecReserveBytes)
 	}
 	bodyCap := min(600, avail)
 	if len(astLines) == 0 || bodyCap < 24 {

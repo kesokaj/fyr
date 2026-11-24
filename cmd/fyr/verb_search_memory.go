@@ -152,14 +152,10 @@ func runSearch(c *ctx) error {
 		return err
 	}
 	cache := newTurnBrainCache(c.home, c.global)
-	budget := c.sliceBudget
-	if c.contractsTarget != "" && budget == 0 {
-		budget = 1500
-	}
 	o := search.Options{
 		Dir: wd, Home: c.home, Words: c.fs.Args(), Refs: c.refs, Open: c.openRecords,
 		Kind: c.kind, Limit: c.limit, Global: c.global, Rebuild: c.rebuild,
-		Slice: c.sliceQuery, Hops: c.sliceHops, Budget: budget, Session: c.sliceSession,
+		Slice: c.sliceQuery, Hops: c.sliceHops, Budget: c.sliceBudget, Session: c.sliceSession,
 		Contracts: c.contractsTarget,
 		Skeleton:  c.skeletonPath, Path: c.pathFrom, To: c.pathTo, Affected: c.affectedTarget, Map: c.repoMap,
 		IncludeDocs: c.searchIncludeDocs, Vet: c.vetPrompt, Hook: c.hookEvent, HookIn: stdin,
@@ -278,6 +274,12 @@ func expandSpecPathTokens(paths []string) []string {
 		trimmed := strings.TrimSuffix(n, "/")
 		add(n)
 		add(trimmed)
+		if strings.HasSuffix(n, "/") || path.Ext(trimmed) == "" {
+			if strings.Contains(trimmed, "/") {
+				add(trimmed + "/")
+			}
+			continue
+		}
 		if dir := path.Dir(trimmed); dir != "." && dir != "/" {
 			add(dir + "/")
 		}

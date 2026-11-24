@@ -34,9 +34,9 @@ func TestListCurrentSpecsCtxReadOnlyCancelAndSymlink(t *testing.T) {
 	}
 
 	// 1. Returns only current specs for this repo scope.
-	recs, err := ListCurrentSpecsCtx(context.Background(), bo)
-	if err != nil {
-		t.Fatalf("ListCurrentSpecsCtx: %v", err)
+	recs, present, err := ListCurrentSpecsCtx(context.Background(), bo)
+	if err != nil || !present {
+		t.Fatalf("ListCurrentSpecsCtx: present=%v err=%v", present, err)
 	}
 	if len(recs) != 1 || recs[0].ID != "SPEC-live" || recs[0].Status != "current" || !strings.Contains(recs[0].Body, "Live.") {
 		t.Fatalf("got %+v, want only SPEC-live with hydrated body", recs)
@@ -58,9 +58,9 @@ func TestListCurrentSpecsCtxReadOnlyCancelAndSymlink(t *testing.T) {
 		_ = os.Chmod(dbDir, 0o755)
 		_ = os.Chmod(dbPath, 0o644)
 	})
-	roRecs, err := ListCurrentSpecsCtx(context.Background(), bo)
-	if err != nil {
-		t.Fatalf("ListCurrentSpecsCtx on read-only DB/dir: %v", err)
+	roRecs, roPresent, err := ListCurrentSpecsCtx(context.Background(), bo)
+	if err != nil || !roPresent {
+		t.Fatalf("ListCurrentSpecsCtx on read-only DB/dir: present=%v err=%v", roPresent, err)
 	}
 	if len(roRecs) != 1 || roRecs[0].ID != "SPEC-live" {
 		t.Fatalf("read-only ListCurrentSpecsCtx = %+v, want SPEC-live", roRecs)
@@ -69,7 +69,7 @@ func TestListCurrentSpecsCtxReadOnlyCancelAndSymlink(t *testing.T) {
 	// 3. Respects cancelled context immediately.
 	cctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := ListCurrentSpecsCtx(cctx, bo); !errors.Is(err, context.Canceled) {
+	if _, _, err := ListCurrentSpecsCtx(cctx, bo); !errors.Is(err, context.Canceled) {
 		t.Errorf("cancelled ctx err = %v, want context.Canceled", err)
 	}
 
@@ -82,13 +82,26 @@ func TestListCurrentSpecsCtxReadOnlyCancelAndSymlink(t *testing.T) {
 	if err := os.Symlink(dbPath, linkDB); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ListCurrentSpecsCtx(context.Background(), Options{Home: linkHome, Dir: dir}); err == nil || !IsRefusal(err) {
+	if _, _, err := ListCurrentSpecsCtx(context.Background(), Options{Home: linkHome, Dir: dir}); err == nil || !IsRefusal(err) {
 		t.Errorf("symlink brain.db err = %v (IsRefusal=%v), want refusal", err, IsRefusal(err))
 	}
 
-	// 5. Missing brain.db returns nil, nil cleanly.
-	emptyRecs, err := ListCurrentSpecsCtx(context.Background(), Options{Home: t.TempDir(), Dir: dir})
-	if err != nil || len(emptyRecs) != 0 {
-		t.Errorf("missing brain.db = (%+v, %v), want (nil, nil)", emptyRecs, err)
+	// 5. Missing brain.db returns nil, false, nil cleanly.
+	emptyRecs, emptyPresent, err := ListCurrentSpecsCtx(context.Background(), Options{Home: t.TempDir(), Dir: dir})
+	if err != nil || emptyPresent || len(emptyRecs) != 0 {
+		t.Errorf("missing brain.db = (%+v, present=%v, %v), want (nil, false, nil)", emptyRecs, emptyPresent, err)
+	}
+
+	// 6. Existing brain.db with zero current specs returns storePresent=true so callers do not fall back to stale trail.jsonl.
+	retiredHome := t.TempDir()
+	if _, err := Add(Options{Home: retiredHome, Dir: dir}, AddInput{
+		Kind: "spec", ID: "SPEC-retired", Status: "retired", Title: "Retired only",
+		Body: strings.NewReader("## Purpose\nRetired.\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	noneRecs, nonePresent, err := ListCurrentSpecsCtx(context.Background(), Options{Home: retiredHome, Dir: dir})
+	if err != nil || !nonePresent || len(noneRecs) != 0 {
+		t.Errorf("retired-only brain.db = (%+v, present=%v, %v), want (nil, true, nil)", noneRecs, nonePresent, err)
 	}
 }
