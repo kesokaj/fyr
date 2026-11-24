@@ -5,7 +5,7 @@ Status: draft · Last updated: YYYY-MM-DD · Requirements: [PRD.md](PRD.md) · D
 
 <!-- The technical design: one section T1… per component M… of SDD.md — its interfaces, data, errors, configuration
      and dependencies — each a summary that points at the SPEC record holding the detail (`fyr record get SPEC-…`),
-     never a copy of it. Follow fyr-docs: open every ## section with a 1-3 sentence BLUF, draw <= 12-node Mermaid
+     never a copy of it. Follow docs-ste100-80: short active prose, open every ## section with a short BLUF, draw <= 12-node Mermaid
      diagrams for multi-module boundaries, and fold > 12-row tables in <details>. TODO.md tasks name the section they
      build (→ T1). Kept current by the session that changes the code, in the same commit. -->
 

@@ -503,10 +503,10 @@ func testV910DriftM8(t *testing.T) {
 	}
 	t.Run("local-fork-in-vendored-still-linted", func(t *testing.T) {
 		dir := repo(t, map[string]string{
-			"skills/VENDORED.md":       "| Skill | Publisher |\n|---|---|\n| fyr-docs | Google |\n",
-			"skills/fyr-docs/SKILL.md": "---\nname: fyr-docs\ndescription: \"" + strings.Repeat("a", 178) + "\"\n---\nbody\n",
+			"skills/VENDORED.md":         "| Skill | Publisher |\n|---|---|\n| fyr-triage | Matt Pocock |\n",
+			"skills/fyr-triage/SKILL.md": "---\nname: fyr-triage\ndescription: \"" + strings.Repeat("a", 178) + "\"\n---\nbody\n",
 		})
-		same(t, run(t, dir).Findings, "skills/fyr-docs/SKILL.md:0 frontmatter")
+		same(t, run(t, dir).Findings, "skills/fyr-triage/SKILL.md:0 frontmatter")
 	})
 }
 

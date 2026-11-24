@@ -146,11 +146,11 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 			want:   "/fyr-triage",
 		},
 		{
-			name:   "docs skill routes to fyr-docs and fyr check",
+			name:   "docs skill routes to docs-ste100-80 and fyr check",
 			prompt: "Audit README.md and SDD.md documentation structure",
 			intent: IntentTask,
-			skills: []SkillMeta{{Name: "fyr-docs"}},
-			want:   "fyr-docs + fyr check",
+			skills: []SkillMeta{{Name: "docs-ste100-80"}},
+			want:   "docs-ste100-80 + fyr check",
 		},
 		{
 			name:   "handoff skill routes to fyr-handoff",

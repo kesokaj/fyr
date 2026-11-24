@@ -30,7 +30,7 @@ At each phase Checkpoint, session end, or on a `TokenKnee` warning / compaction 
 | 2+ slices / phases | `/fyr-swarm` (`Files:` leases, `fyr gate` -> `fyr land`) |
 | Model pick | `fyr models --pick <role> [--tier pro\|flash]` |
 | Bug / queue | `/fyr-bug` · `/fyr-triage` -> `/fyr-swarm` |
-| Review / docs / eval | `reviewer`/`security`/`verifier` (`--judge`) · `fyr-docs` + `fyr check` · `fyr eval <row>` |
+| Review / docs / eval | `reviewer`/`security`/`verifier` (`--judge`) · `docs-ste100-80` + `fyr check` · `fyr eval <row>` |
 
 - **Classify:** Trivial (`<= 10`-line docs/typo/config) -> act + DoD 2-3. Task (1 sitting, no design) -> 3-line plan + execute + DoD.
 - **Wait & progress:** End the turn to await a subagent or background command; only a print-mode run (`agy -p`) stays in the turn (check via `manage_subagents`, `ls`, or `fyr watch`, never shell `for`/`while`/`read`/`sleep` loops). Post 1-line updates every ~5 min across long loops/waves.

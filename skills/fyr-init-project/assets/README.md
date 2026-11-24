@@ -2,7 +2,7 @@
 
 <one line: what it does and for whom — the project overview the user gave /fyr-init-project>
 
-<!-- Follow fyr-docs: open every ## section with a 1-3 sentence BLUF, use <= 12-node Mermaid diagrams for 3+ component flows, and fold > 12-row tables inside <details>. -->
+<!-- Follow docs-ste100-80: short active prose, direct steps, open every ## section with a short BLUF, use <= 12-node Mermaid diagrams for 3+ component flows, and fold > 12-row tables inside <details>. -->
 
 ## Quick start
 

@@ -17,7 +17,7 @@ In: … / Out: … / Follow-ups noted, not built: …
 <files and path:start-end (Symbol) citations, packages, routes, tables, external services; the recon brief when Step 1 dispatched one, or that the repository has no source yet>
 
 ## Interfaces
-<function signatures and path:start-end (Symbol) citations, request/response shapes, schema changes, config keys — concrete enough that two implementers converge; include a Mermaid diagram (`mermaid-syntax`, `fyr-docs`) when phases connect multiple components, stores, or states; when a spec exists (`fyr-spec` skill), its record ID (`SPEC-<app>-<topic>`) instead of a restatement; for a changed shape, who consumes it today and whether the change is additive>
+<function signatures and path:start-end (Symbol) citations, request/response shapes, schema changes, config keys — concrete enough that two implementers converge; include a Mermaid diagram (`mermaid-syntax`, `docs-ste100-80`) when phases connect multiple components, stores, or states; when a spec exists (`fyr-spec` skill), its record ID (`SPEC-<app>-<topic>`) instead of a restatement; for a changed shape, who consumes it today and whether the change is additive>
 
 ## Failure modes
 <what the user sees when each part fails; what the API returns>

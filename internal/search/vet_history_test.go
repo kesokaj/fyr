@@ -345,16 +345,20 @@ func TestMatchSkillsBashVsGolangAndDiagnosticMentions(t *testing.T) {
 	}
 }
 
-func TestMatchSkillsFyrDocsTriageAndBashWizard(t *testing.T) {
+func TestMatchSkillsDocsSte100TriageAndBashWizard(t *testing.T) {
 	cat := loadInstalledRepoSkillCatalog(t)
-	// 1. fyr-docs triggers on docset audit, BLUF, and README/documentation authoring.
+	// 1. docs-ste100-80 triggers on ASD-STE100, BLUF, and README/documentation authoring.
 	skillsAudit, _ := MatchSkills("Audit the documentation in README.md and SDD.md for BLUF and collapsible details", IntentTask, []string{"README.md", "SDD.md"}, cat)
-	if len(skillsAudit) == 0 || skillsAudit[0].Name != "fyr-docs" {
-		t.Errorf("expected fyr-docs first on doc audit/BLUF prompt, got %+v", skillsAudit)
+	if len(skillsAudit) == 0 || skillsAudit[0].Name != "docs-ste100-80" {
+		t.Errorf("expected docs-ste100-80 first on doc audit/BLUF prompt, got %+v", skillsAudit)
 	}
 	skillsWriteDocs, _ := MatchSkills("Write documentation for the new CLI flags in README.md", IntentTask, []string{"README.md"}, cat)
-	if len(skillsWriteDocs) == 0 || skillsWriteDocs[0].Name != "fyr-docs" {
-		t.Errorf("expected fyr-docs on README documentation prompt, got %+v", skillsWriteDocs)
+	if len(skillsWriteDocs) == 0 || skillsWriteDocs[0].Name != "docs-ste100-80" {
+		t.Errorf("expected docs-ste100-80 on README documentation prompt, got %+v", skillsWriteDocs)
+	}
+	skillsSTE, _ := MatchSkills("Write documentation as ASD-STE100 at 80% with safety callouts", IntentTask, nil, cat)
+	if len(skillsSTE) == 0 || skillsSTE[0].Name != "docs-ste100-80" {
+		t.Errorf("expected docs-ste100-80 on ASD-STE100 prompt, got %+v", skillsSTE)
 	}
 
 	// 2. fyr-triage triggers on issue/PR/backlog triage and Agent Brief requests.

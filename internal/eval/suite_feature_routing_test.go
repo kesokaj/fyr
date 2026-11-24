@@ -73,7 +73,7 @@ var wantFeatureRoutingRows = []featureRoutingRowSpec{
 	{"Queue of issues, PRs, or Backlog", "`/fyr-triage`", "Ad-hoc cherry-picking"},
 	{"Review or judgement needed", "`reviewer` / `security` / `verifier` (`--judge` cross-family)", "Unchecked self-review"},
 	{"Skill, rule, or agent changed", "`fyr eval <row>`", "Untested behavioural claims"},
-	{"Docs written or audited", "`fyr-docs` + `fyr check`", "Dense prose walls"},
+	{"Docs written or audited", "`docs-ste100-80` + `fyr check`", "Dense prose walls"},
 	{"Phase or session end", "`/fyr-handoff`", "Ending silently"},
 	{"Idle consolidation or usage audit", "`fyr report --md`", "Leaving telemetry unread"},
 }

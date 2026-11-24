@@ -368,7 +368,7 @@ func TestAllConversationsRatedWithoutRegistration(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(rec, "global.json"), []byte(agyResult(`{"ratings":[{"conversation_id":"conv-global-fallback","outcome_score":2,"token`+
-		`_efficiency":4,"plan_alignment":"partial","skill_action":"rewrite-skill","target_skill":"skills/fyr-docs/SKILL.md","summary":"global fallback test"}]}`, false)), 0o600); err != nil {
+		`_efficiency":4,"plan_alignment":"partial","skill_action":"rewrite-skill","target_skill":"skills/docs-ste100-80/SKILL.md","summary":"global fallback test"}]}`, false)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t3 := t2.Add(time.Hour)

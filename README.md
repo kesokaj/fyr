@@ -345,11 +345,11 @@ Use these ten commands in daily workflows, and expand the full reference below f
 | Group | Skills |
 |---|---|
 | **Work protocols** | `fyr-feature` (phased plan, cold-reader check, checkpoints), `fyr-swarm` (native parallel swarm routing, `Files:` leases, and `fyr gate`/`fyr land`), `fyr-bug` (diagnose, red-first test, smallest fix, bug record), `fyr-triage` (GitHub issue/PR and local queue triage into Agent Briefs or `/fyr-swarm` Kickoffs), `fyr-review` (`--code --security --simplify --docs --prompts --tests --all --resume --judge --fix`), `review-standards`, `fyr-preflight` (release gate & publisher), `fyr-harness-audit`, `fyr-auto` (worker contract for `fyr auto`) |
-| **Project shape & specs** | `fyr-init-project` (full scaffold + trail + index), `fyr-docs` (BLUF, airy prose, Mermaid diagrams & `<details>` doc standard + docset audit), `fyr-requirements`, `fyr-spec`, `testing-strategy`, `fyr-research`, `fyr-handoff` (session checkpoint + Kickoff block) |
+| **Project shape & specs** | `fyr-init-project` (full scaffold + trail + index), `docs-ste100-80` (ASD-STE100 ~80% Markdown/HTML docs: active prose, direct steps, safety callouts, BLUF, diagrams & `<details>`), `fyr-requirements`, `fyr-spec`, `testing-strategy`, `fyr-research`, `fyr-handoff` (session checkpoint + Kickoff block) |
 | **Learning loop** | `fyr-feedback-log`, `fyr-project-memory`, `fyr-retro`, `fyr-dream` |
 | **Code & UI** | `golang`, `typescript`, `frontend-ui-modern` (shadcn/ui + Tailwind + React), `frontend-ui-economist` (editorial HTML/CSS/SVG), `frontend-slate-ui` (Angular 20 SlateUI components), `bash` (incl. interactive setup wizards), `json-api-style`, `docker`, `mermaid-syntax` |
 | **Google Cloud** | `gcloud-setup`, `cloud-run-deploy`, `terraform`, `operate-gcp`, `data-gcp`, `api-auth-gcp` |
-| **Vendored & forks** | `fyr-docs` (forked from `docs-writer`), `fyr-triage` (forked from `triage`), `frontend-slate-ui`, `bash` wizard; provenance in `skills/VENDORED.md` |
+| **Vendored & forks** | `fyr-triage` (forked from `triage`), `frontend-slate-ui`, `bash` wizard; provenance in `skills/VENDORED.md` |
 
 ### Subagents (7)
 

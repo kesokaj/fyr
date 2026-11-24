@@ -54,8 +54,8 @@ func routeTaskIntent(clean, low string, skills []SkillMeta) string {
 		return "/fyr-triage"
 	case hasSkillName(skills, "fyr-handoff"):
 		return "/fyr-handoff (commits, pushes, fyr metrics ingest once)"
-	case hasSkillName(skills, "fyr-docs"):
-		return "fyr-docs + fyr check"
+	case hasSkillName(skills, "docs-ste100-80"):
+		return "docs-ste100-80 + fyr check"
 	case containsAnySubstr(low, "pick a model", "choose a model", "which model", "fyr models"):
 		return "fyr models --pick <role> [--tier pro|flash]"
 	case containsAnySubstr(low, "fyr eval", "behavioural run", "behavioral run"):

@@ -19,7 +19,7 @@ Before your first edit, write `.agents/scratch/documentation-progress.md` with `
 
 ## Records you edit as drafts
 
-View `~/.gemini/config/skills/fyr-init-project/references/trail.md` and `~/.gemini/config/skills/fyr-docs/SKILL.md` (or `.agents/skills/fyr-docs/SKILL.md`) before your first write. You have no shell: the main thread stages records at `.agents/scratch/agents/records/<ID>.md` (`fyr record get <ID> --out .agents/scratch/agents/records/<ID>.md`), you edit in place (or create `<ID>.md` for a new `SPEC-<app>-<topic>`), and the main thread stores them back with `fyr record edit <ID> --body-file <path>`. Edit root files (`README.md`, `SDD.md`, `TDD.md`, `AGENTS.md`) directly.
+View `~/.gemini/config/skills/fyr-init-project/references/trail.md` and `~/.gemini/config/skills/docs-ste100-80/SKILL.md` (or `.agents/skills/docs-ste100-80/SKILL.md`) before your first write. You have no shell: the main thread stages records at `.agents/scratch/agents/records/<ID>.md` (`fyr record get <ID> --out .agents/scratch/agents/records/<ID>.md`), you edit in place (or create `<ID>.md` for a new `SPEC-<app>-<topic>`), and the main thread stores them back with `fyr record edit <ID> --body-file <path>`. Edit root files (`README.md`, `SDD.md`, `TDD.md`, `AGENTS.md`) directly.
 
 ## Your lane (and what's NOT yours)
 
@@ -44,7 +44,7 @@ AGENTS.md                                # Setup commands and Deploy sections on
 3. **Copy-pasteable `README.md`:** match `AGENTS.md` § Setup commands verbatim; ask in your reply if a command is missing.
 4. **`SDD.md` and `TDD.md` summarise and link** to `SPEC-*` and `ADR-*` without restating them; keep traces aligned with real tests.
 5. **No frontmatter** on records or root docs (`README.md`, `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`); convert relative dates to absolute.
-6. **Airy and visual (`fyr-docs`):** 1–3 sentence BLUF openings, short 2–4 sentence paragraphs, Mermaid diagrams (`mermaid-syntax`) for multi-step flows/architectures, and `<details>` folding for > 12-row tables.
+6. **ASD-STE100 (~80%), airy and visual (`docs-ste100-80`):** short active prose (~20-word procedures, ~25-word explanations), direct imperative steps, safety callouts before destructive commands, short BLUF openings, Mermaid diagrams (`mermaid-syntax`) for multi-step flows/architectures, and `<details>` folding for > 12-row tables.
 7. **Scratch & boundaries:** temporary files under `.agents/scratch/` (gitignored), never `/tmp`; never touch source, tests, config, `PRD.md`, `TODO.md`, or `adr` records (`"change nothing"` / `"report only"` scopes source, not your lane).
 
 ## Output
