@@ -1284,3 +1284,95 @@ printf '%s\n' '` + tc.agyOut + `'`
 		}
 	})
 }
+
+func TestWorkflowPhaseLoopPreservesTrailingSlashDirectoryLease(t *testing.T) {
+	binDir, workDir, homeDir := t.TempDir(), t.TempDir(), t.TempDir()
+	logFile := filepath.Join(workDir, "fyr.log")
+	fakeFyr := `echo "$*" >> ` + logFile + `
+case "$1" in
+  gate) printf '{"ok":true,"findings":[]}\n' ;;
+  land) printf '{"ok":true,"branch":"%s","landCommit":"deadbeef"}\n' "$2" ;;
+  verify) printf '{"ok":true}\n' ;;
+  metrics) printf '{"id":"ok"}\n' ;;
+  *) echo "unexpected cmd: $*" >&2; exit 2 ;;
+esac`
+	writeFakeBin(t, binDir, "fyr", fakeFyr)
+
+	res := runWorkflowScriptWithOpts(t, "workflows/phase_loop.py", map[string]any{
+		"phase_name": "Trailing Slash Lease",
+		"exec_cli":   true,
+		"slices": []map[string]any{
+			{"id": "s1", "goal": "g1", "files": []string{"internal/alpha/", "internal/beta//"}, "branch": "work/s1"},
+		},
+	}, workflowExecOpts{
+		workDir: workDir, pathPrefix: binDir, homeDir: homeDir,
+		rawMocks: map[string]any{
+			"builder:s1": map[string]any{
+				"status": "DONE", "branch": "work/s1", "commit": "111aaaa",
+				"files_changed": []string{"internal/alpha/a.go", "internal/beta/sub/b.go"}, "verify_ok": true,
+			},
+		},
+	})
+	if res.Output["status"] != "PASS" {
+		t.Fatalf("status = %v, want PASS (%+v)", res.Output["status"], res.Output)
+	}
+	rawLog, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("read fyr log: %v", err)
+	}
+	logText := string(rawLog)
+	for _, want := range []string{"gate work/s1", "land work/s1"} {
+		found := false
+		for _, ln := range strings.Split(strings.TrimSpace(logText), "\n") {
+			if strings.HasPrefix(ln, want) {
+				found = true
+				if !strings.Contains(ln, "--lease internal/alpha/") || !strings.Contains(ln, "--lease internal/beta/") {
+					t.Errorf("%s dropped trailing slash on directory lease:\n%s", want, ln)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("missing %q line in log:\n%s", want, logText)
+		}
+	}
+
+	// Must-fail: sibling prefix outside trailing-slash dir escalates immediately.
+	badRes := runWorkflowScriptWithOpts(t, "workflows/phase_loop.py", map[string]any{
+		"phase_name": "Trailing Slash Escape",
+		"slices": []map[string]any{
+			{"id": "s1", "goal": "g1", "files": []string{"internal/alpha/"}, "branch": "work/s1"},
+		},
+	}, workflowExecOpts{
+		rawMocks: map[string]any{
+			"builder:s1": map[string]any{
+				"status": "DONE", "branch": "work/s1", "commit": "111aaaa",
+				"files_changed": []string{"internal/alpha2/a.go"}, "verify_ok": true,
+			},
+		},
+	})
+	if badRes.Output["status"] != "ESCALATE" || len(badRes.Calls) != 1 {
+		t.Fatalf("sibling prefix must ESCALATE in 1 turn, got status=%v calls=%d", badRes.Output["status"], len(badRes.Calls))
+	}
+
+	// Overlap detection for trailing-slash dirs vs nested files and disjoint siblings.
+	errOut := runWorkflowScriptExpectError(t, "workflows/phase_loop.py", map[string]any{
+		"dry_run": true,
+		"slices": []map[string]any{
+			{"id": "s1", "goal": "g1", "files": []string{"internal/alpha/"}},
+			{"id": "s2", "goal": "g2", "files": []string{"internal/alpha/sub.go"}},
+		},
+	})
+	if !strings.Contains(errOut, "overlapping files lease") {
+		t.Fatalf("expected overlapping files lease for trailing-slash dir vs nested file, got:\n%s", errOut)
+	}
+	disjoint := runWorkflowScript(t, "workflows/phase_loop.py", map[string]any{
+		"dry_run": true,
+		"slices": []map[string]any{
+			{"id": "s1", "goal": "g1", "files": []string{"internal/alpha/"}},
+			{"id": "s2", "goal": "g2", "files": []string{"internal/alpha2/"}},
+		},
+	})
+	if disjoint.Output["status"] != "DRY_RUN" {
+		t.Fatalf("disjoint trailing-slash dirs failed dry_run: %+v", disjoint.Output)
+	}
+}

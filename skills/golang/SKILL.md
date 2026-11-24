@@ -47,6 +47,10 @@ description: "Go conventions: cmd/<app> + internal/ layout, stdlib-first package
 - Service runtime data (DB files, uploads) is neither scratch nor source: default outside the repo via flag/env, or gitignore unavoidable repo-local defaults in the same change. Plain `go run` must never dirty the tree.
 - Before claiming done, apply `review-standards` § 8: fail-closed guards, dry-run/read-only path parity, two-way embedded artifact pins, and bare verification commands never chained to commit.
 
+### Testing HTTP shutdown and OS-specific symbols
+- **HTTP server shutdown tests:** Against local `http.Server` instances closed via `Server.Shutdown(ctx)`, use a custom `http.Client` with `Transport: &http.Transport{DisableKeepAlives: true}` and drain response bodies (`io.Copy(io.Discard, resp.Body); resp.Body.Close()`); open keep-alive sockets or unread bodies block `Shutdown` until context deadline.
+- **OS-specific test symbols:** Isolate tests referencing OS-specific declarations (such as `*_linux.go`) in build-tagged files (`*_linux_test.go` or `//go:build linux`), never behind `if runtime.GOOS == "linux"` in unconstrained `*_test.go`, so cross-OS checks (`GOOS=darwin go vet ./...`) compile cleanly.
+
 ## Progressive references
 
 | Load when | File | Contents |

@@ -85,7 +85,7 @@ Auto is meant to reach only these. On the host runner nothing enforces it, so it
 
 ## Drafts
 
-Your way out is `.agents/scratch/agents/auto-drafts.jsonl` in the clone: one JSON object per line, each under 4 KiB. `fyr` reads it after your session, validates every line, and writes the records itself. A line that fails is dropped and reported, and a line holding a secret's shape is refused, so never copy a credential into one. Never run `fyr record add` or `fyr memory add` for these.
+Your way out is `.agents/scratch/agents/auto-drafts.jsonl` in the clone: one JSON object per line, each under 4 KiB (omit `ArtifactMetadata` on `write_file`/`edit_file` because `.agents/scratch/` is a workspace path, not `<appDataDir>/brain/<conversation-id>`). `fyr` reads it after your session, validates every line, and writes the records itself. A line that fails is dropped and reported, and a line holding a secret's shape is refused, so never copy a credential into one. Never run `fyr record add` or `fyr memory add` for these.
 
 ```json
 {"kind": "finding", "body": "what you saw and where", "quote": "the planted or surprising text, word for word"}

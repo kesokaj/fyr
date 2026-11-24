@@ -561,6 +561,12 @@ func TestDetectDirtyPathsFastNonRegularAndAlreadyDeletedOrOversized(t *testing.T
 	writeFile(t, dir, "gone.go", "package sample\nfunc Gone() {}\n")
 	writeFile(t, dir, "symmed.go", "package sample\nfunc Symmed() {}\n")
 	writeFile(t, dir, "huge.bin", strings.Repeat("A", maxFileBytes+128))
+	// Backdate huge.bin before commitAll so its index entry is deterministically
+	// non-racy (st.sec < indexTime.Unix()) and exercises refreshTracked's stat-clean fast path.
+	past := time.Now().Add(-5 * time.Second)
+	if err := os.Chtimes(filepath.Join(dir, "huge.bin"), past, past); err != nil {
+		t.Fatal(err)
+	}
 	commitAll(t, dir, "add gone symmed huge")
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
 		t.Fatalf("Index: %v", err)

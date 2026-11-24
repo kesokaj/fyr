@@ -31,6 +31,8 @@ Concrete checks for Go diffs. Idiom authority: the `golang` skill. Cite file:lin
 - [ ] Exported symbols have doc comments; anything exported without an external caller belongs in `internal/`.
 - [ ] No package-level mutable state; dependencies passed explicitly (struct fields or parameters).
 - [ ] `cmd/` stays thin — flag business logic in `main.go`.
+- [ ] Sort comparators (`sort.Slice`, `sort.SliceStable`, `slices.SortFunc`) satisfy strict weak ordering (irreflexive, asymmetric, transitive equivalence — no asymmetric conditional guards on tie-breakers).
+- [ ] RFC3339 / RFC3339Nano timestamps are parsed into `time.Time` and compared with `.Before()`/`.After()` or UnixNano (never lexicographically, where `.` sorts before `Z`), and normalized with `.UTC()` before formatting date keys.
 
 ## Cloud & ops (GCP)
 

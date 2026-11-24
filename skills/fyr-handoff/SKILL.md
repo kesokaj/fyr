@@ -138,6 +138,7 @@ Done when: <the phase's Checkpoint expect, verbatim>. Then write the handoff wit
 
 - **The Kickoff is fixed text with the blanks filled** (`rules/session-sizing.md`: the next session starts from it, and nothing else):
   - `Project:` is the absolute path (other paths are repo-relative). `<handoff ID>` is `HANDOFF-<stamp>-<slug>` (`<stamp>` from `date +%F-%H%M`, `<slug>` lowercase `[a-z0-9-]`), chosen before writing the Kickoff and passed to `--id` so the Kickoff names the stored ID.
+  - Before drafting the Kickoff, run `git describe --tags --abbrev=0` and check open-plan box dates live — update any stale open-plan phase heading (such as an already-shipped release tag) before copying it verbatim into `Kickoff`.
   - Phase name, `Files:` (`files:` verbatim, omitted when absent), and `Done when:` (`Checkpoint` expect) come from the plan verbatim. The by-hand Kickoff omits `Model:`: the operator picks the model when starting that session.
   - For a queued Task with no plan, the first line ends `; do: <the ask in one sentence>` and `Done when:` is the Definition of Done. Never add to `Standing approvals`; when nothing is queued, write `Nothing queued; start the next task in a fresh conversation.` In an unscaffolded project (no `AGENTS.md`, no `.agents/`), print the same block in chat only.
 - **Be concise.** Include only what a fresh agent needs to resume without rereading the session.

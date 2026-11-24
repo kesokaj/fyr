@@ -120,7 +120,7 @@ func TestVendoredRowsCarryAPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pin := regexp.MustCompile(`\b[0-9a-f]{7,40}\b|sha256:[0-9a-f]{6,}`)
+	pin := regexp.MustCompile(`\b[0-9a-f]{40}\b|sha256:[0-9a-f]{6,}`)
 	vendored := vendoredSkills(t, repo)
 	seen := map[string]bool{}
 	for _, line := range strings.Split(string(data), "\n") {

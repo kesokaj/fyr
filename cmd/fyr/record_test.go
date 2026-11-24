@@ -363,6 +363,15 @@ func TestRecordStdinHeadersJSONAndLimit(t *testing.T) {
 		t.Fatalf("record add via stdin headers: %q %v", out, err)
 	}
 
+	// --json-in on record edit (performed before adding BUG-011 so BUG-011 is
+	// always monotonically >= BUG-010 in (date, updated, id) across second ticks).
+	if out, err = recordCmd(t, `{"status":"fixed","title":"Header bug one fixed","body":"Symptom: a.\nRule: b2.\n"}`, "record", "edit", "BUG-010", "--json-in", "--home", home); err != nil {
+		t.Fatalf("record edit --json-in: %q %v", out, err)
+	}
+	if out, err = recordCmd(t, `{"bogus":"x"}`, "record", "edit", "BUG-010", "--json-in", "--home", home); exitOf(err) != 2 {
+		t.Errorf("record edit --json-in unknown field: exit %d, want 2 (%q)", exitOf(err), out)
+	}
+
 	// --json-in on record add.
 	out, err = recordCmd(t, `{"title":"JSON bug two","status":"fixed","id":"BUG-011","body":"Symptom: c.\nRule: d.\n"}`, "record", "add", "bug", "--json-in", "--home", home)
 	if err != nil || out != "BUG-011\n" {
@@ -372,14 +381,6 @@ func TestRecordStdinHeadersJSONAndLimit(t *testing.T) {
 	// Must-fail: --json-in unknown field exits 2.
 	if out, err = recordCmd(t, `{"title":"bad","unknown":1}`, "record", "add", "bug", "--json-in", "--home", home); exitOf(err) != 2 {
 		t.Errorf("record add --json-in unknown field: exit %d, want 2 (%q)", exitOf(err), out)
-	}
-
-	// --json-in on record edit.
-	if out, err = recordCmd(t, `{"status":"fixed","title":"Header bug one fixed","body":"Symptom: a.\nRule: b2.\n"}`, "record", "edit", "BUG-010", "--json-in", "--home", home); err != nil {
-		t.Fatalf("record edit --json-in: %q %v", out, err)
-	}
-	if out, err = recordCmd(t, `{"bogus":"x"}`, "record", "edit", "BUG-010", "--json-in", "--home", home); exitOf(err) != 2 {
-		t.Errorf("record edit --json-in unknown field: exit %d, want 2 (%q)", exitOf(err), out)
 	}
 
 	// record list --limit N and --json.

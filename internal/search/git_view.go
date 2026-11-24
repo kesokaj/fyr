@@ -181,7 +181,8 @@ func refreshTracked(root string, fsRoot *os.Root, order []string, view map[strin
 		// fsRoot, which refuses a path that leaves the checkout.
 		if st, ok := stats[p]; ok {
 			if fi, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p))); err == nil && fi.Mode().IsRegular() &&
-				fi.Size() == st.size && fi.ModTime().Unix() == st.sec && int64(fi.ModTime().Nanosecond()) == st.nsec &&
+				fi.Size() <= maxFileBytes && fi.Size() == st.size &&
+				fi.ModTime().Unix() == st.sec && int64(fi.ModTime().Nanosecond()) == st.nsec &&
 				st.sec < indexTime.Unix() {
 				continue // unchanged: the index's blob stands
 			}

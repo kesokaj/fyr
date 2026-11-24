@@ -97,12 +97,14 @@ def _norm_lease_path(raw):
     p = str(raw or "").strip().replace("\\", "/")
     while p.startswith("./"):
         p = p[2:]
-    p = p.rstrip("/")
-    if not p or p.startswith("/") or ".." in p.split("/"):
+    had_slash = p.endswith("/")
+    stripped = p.rstrip("/")
+    if not stripped or stripped.startswith("/") or ".." in stripped.split("/"):
         raise ValueError(f"invalid lease path: {raw!r}")
-    if p == "." or _match_lease(p, _FORBIDDEN_TRAIL_PATH):
+    norm = (stripped + "/") if (had_slash and not _has_glob(stripped)) else stripped
+    if stripped == "." or stripped == ".agents" or _match_lease(norm, _FORBIDDEN_TRAIL_PATH):
         raise ValueError(f"lease pattern {raw!r} may not match {_FORBIDDEN_TRAIL_PATH}")
-    return p
+    return norm
 
 def _normalize_files(raw_files):
     items = [p.strip() for p in raw_files.split(",") if p.strip()] if isinstance(raw_files, str) else (
@@ -167,10 +169,12 @@ def _glob_to_regex(pat):
 def _match_lease(pat, rel):
     if pat == "**":
         return True
+    if pat.endswith("/"):
+        return rel == pat[:-1] or rel.startswith(pat)
     if pat.endswith("/**"):
         return rel == pat[:-3] or rel.startswith(pat[:-3] + "/")
     if not _has_glob(pat):
-        return rel == pat or rel.startswith(pat + "/")
+        return rel == pat
     return bool(_glob_to_regex(pat).match(rel))
 
 def _expand_class(inner):
@@ -245,7 +249,11 @@ def _segs_overlap(sa, sb):
     return dp(0, 0)
 
 def _patterns_overlap(pat_a, pat_b):
-    forms = lambda p: [p.split("/")] if _has_glob(p) else [p.split("/"), p.split("/") + ["**"]]
+    def forms(p):
+        if p.endswith("/"):
+            base = p[:-1].split("/")
+            return [base, base + ["**"]]
+        return [p.split("/")] if _has_glob(p) else [p.split("/"), p.split("/") + ["**"]]
     return any(_segs_overlap(fa, fb) for fa in forms(pat_a) for fb in forms(pat_b))
 
 def _validate_slices(raw_slices, phase_slug, default_base, default_max_lines):
