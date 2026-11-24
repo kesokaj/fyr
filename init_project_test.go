@@ -178,8 +178,10 @@ func TestInitProjectAudienceSplit(t *testing.T) {
 			"## Failure modes",
 			"## Verification",
 			"| Trigger | Observable result | Retry | Action |",
+			"fyr search --contracts",
+			"spec-structure",
 		},
-		[]string{"--contracts", "e.g.", "i.e."},
+		[]string{"e.g.", "i.e."},
 	)
 	if !strings.Contains(spec, "| Trigger | Observable result | Retry | Action |") {
 		t.Errorf("%srecords/SPEC-TEMPLATE.md missing exact 4-column Failure modes table header", dir)

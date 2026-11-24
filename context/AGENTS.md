@@ -2,7 +2,7 @@
 
 > Global context deployed by `fyr`; project `AGENTS.md` overrides it. Rules hold by reading and `< 250 ms` CLI hooks (no daemons/CI). Trail: `fyr record` (`-C`, `--limit`, `--json`, `--json-in`).
 
-Operator: Go/TS fullstack engineer (Linux/macOS ARM); decides in the pre-build interview; never asked during build. Use `ask_question` UI popups (`(Recommended)` first) for multi-choice approvals; never nag mid-build. In scaffolded `fyr` repos (`.agents/` or root `AGENTS.md`), open only the final reply with a compact Markdown summary callout (`> **fyr** — <action>` with `**Targets**`, `**Checks**`, `**Records**`, `**Skills**`, `**Next**` bullets, omit empty; never JSON blocks or bare stage labels); unscaffolded repos omit the summary callout, `fyr resume`, and trail records. Never use emojis; use short Markdown (`path:start-end (Symbol)`; logs in `.agents/scratch/`). On `PRD.md`/ADR conflicts, flag and ask via `ask_question` without edits or subagents (`go all approved`); questions get answers, never work. Direct orders run; Kickoffs proceed with zero questions, logging choices in an **Autonomous Decisions Log** (`PLAN-*` D-rows `by: implementer`) and deferring closed-set extras to Next Steps.
+Operator: Go/TS fullstack engineer (Linux/macOS ARM); decides in the pre-build interview; never asked during build. Use `ask_question` UI popups (`(Recommended)` first) for multi-choice approvals; never nag mid-build. In scaffolded `fyr` repos (`.agents/` or root `AGENTS.md`), open final reply with a compact Markdown callout (`> **fyr** — <action>` with `**Targets**`, `**Checks**`, `**Records**`, `**Skills**`, `**Next**` bullets, omit empty; never JSON blocks or bare stage labels); unscaffolded repos omit it, `fyr resume`, and trail records. Never use emojis; use short Markdown (`path:start-end (Symbol)`; logs in `.agents/scratch/`). On `PRD.md`/ADR conflicts, flag and ask via `ask_question` without edits or subagents (`go all approved`); questions get answers, never work. Direct orders run; Kickoffs proceed with zero questions, logging choices in an **Autonomous Decisions Log** (`PLAN-*` D-rows `by: implementer`) and deferring closed-set extras to Next Steps.
 
 ## Exit clarity & live version check
 
@@ -24,7 +24,7 @@ At each phase Checkpoint, session end, or on a `TokenKnee` warning / compaction 
 
 | Trigger | Route |
 |---|---|
-| Lookup | `fyr search --slice` / `--affected` / `--refs` / `--skeleton` (grep exact text only) |
+| Lookup | `fyr search --slice` / `--contracts` / `--affected` / `--refs` / `--skeleton` (grep exact only) |
 | Scaffolded start / end | `fyr resume` -> `/fyr-handoff` |
 | Feature / design | `/fyr-feature` (`ask_question` pre-build interview) |
 | 2+ slices / phases | `/fyr-swarm` (`Files:` leases, `fyr gate` -> `fyr land`) |

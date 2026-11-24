@@ -599,10 +599,11 @@ func TestV910SkillDietNoSecretPatterns(t *testing.T) {
 	}
 }
 
-// TestSkillsAudienceSplit pins Phase 2 of PLAN-2026-11-24-1704 (ADR-535):
+// TestSkillsAudienceSplit pins Phases 2 & 4b of PLAN-2026-11-24-1704 (ADR-535):
 // the 5-track audience split across docs-ste100-80, fyr-init-project, fyr-spec,
-// agents/documentation, and context/AGENTS.md, while keeping literal --contracts
-// absent until Wave 2 (D7).
+// SPEC-TEMPLATE.md, agents/documentation, and context/AGENTS.md, including
+// landed fyr search --contracts, glossary.json, and fyr check deterministic
+// docs-style / budget / spec-structure rules.
 func TestSkillsAudienceSplit(t *testing.T) {
 	assertSkillTextCases(t, []skillTextCase{
 		{
@@ -612,20 +613,16 @@ func TestSkillsAudienceSplit(t *testing.T) {
 				"Track 1", "Human Docs",
 				"Track 2", "100% agent-read", "Telegraphic Markdown", "4,500 B",
 				"Track 3", "Shared Contracts",
-				"Track 4", "Ephemeral", "fyr search --slice", "--skeleton",
+				"Track 4", "Ephemeral", "fyr search --slice", "--contracts", "--skeleton",
 				"Track 5", "Immutable Trail",
 				"Never rewrite Track 2",
-				"Drift check (`fyr check`)",
-				"not enforced by `fyr check`",
+				"docs-style", "budget", "spec-structure", "docs-style-note",
+				"glossary.json",
 				">= 80%",
 			},
 			forbid: []string{
-				"--contracts",
-				"Hard structural checks (`fyr check`)",
-				"Quick Check & Deterministic Rules (`fyr check`)",
-				"Advisory STE score",
-				"glossary.json",
-				"contract projection (`fyr search",
+				"not enforced by `fyr check`",
+				"`.agents/glossary.json`",
 			},
 		},
 		{
@@ -646,23 +643,24 @@ func TestSkillsAudienceSplit(t *testing.T) {
 				"## Purpose", "## Interfaces", "## Data", "## Failure modes", "## Verification",
 				"| Trigger | Observable result | Retry | Action |",
 				"fenced", "invariant",
+				"fyr search --contracts",
+				"spec-structure",
 			},
 			forbid: []string{
-				"--contracts",
-				"deterministic checks and on-demand contract projection",
+				"not enforced yet",
 			},
 		},
 		{
-			name: "spec-template-no-unimplemented-tool-claims",
+			name: "spec-template-machine-projectable",
 			path: "skills/fyr-init-project/assets/records/SPEC-TEMPLATE.md",
 			want: []string{
 				"## Purpose", "## Interfaces", "## Data", "## Failure modes", "## Verification",
 				"| Trigger | Observable result | Retry | Action |",
+				"fyr search --contracts",
+				"spec-structure",
 			},
 			forbid: []string{
-				"--contracts",
-				"deterministic checking and contract projection",
-				"so tooling can project failure contracts deterministically",
+				"not enforced yet",
 			},
 		},
 		{
@@ -673,14 +671,15 @@ func TestSkillsAudienceSplit(t *testing.T) {
 				"Track 2", "Telegraphic Markdown", "4,500 B",
 				"Track 3", "| Trigger | Observable result | Retry | Action |",
 				"Track 5", "immutable",
+				"fyr search --contracts",
+				"spec-structure",
 			},
-			forbid: []string{"--contracts", "AST/contract projections"},
+			forbid: []string{"not enforced yet"},
 		},
 		{
-			name:   "context-agents-audience-and-no-contracts-flag",
-			path:   "context/AGENTS.md",
-			want:   []string{"docs-ste100-80", "agent-read", "SPEC-*"},
-			forbid: []string{"--contracts"},
+			name: "context-agents-audience-and-contracts",
+			path: "context/AGENTS.md",
+			want: []string{"docs-ste100-80", "agent-read", "SPEC-*", "--contracts"},
 		},
 	})
 	if got := len(readSkill(t, "context/AGENTS.md")); got > 6300 {

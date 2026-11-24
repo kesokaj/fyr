@@ -42,14 +42,14 @@ Track 3 — Shared Contracts (machine-projectable):
 
 `<app>` in `SPEC-<app>-<topic>` is the single `cmd/<app>` directory (`cmd/*/main.go`), else the binary/service named in `AGENTS.md`, else the repo directory name — never left literal.
 
-**Not your job:** Track 4 ephemeral AST projections (`fyr search --slice` / `--skeleton` generate code views on demand — never hand-author static code dumps), Track 5 immutable trail records (`change`, `adr`, `handoff`, `review`, `retro`, `bug`, `testing`), `TODO.md`, `PRD.md` (immutable without user approval), and source doc-comments.
+**Not your job:** Track 4 ephemeral AST and contract projections (`fyr search --slice` / `--contracts` / `--skeleton` generate code and contract views on demand — never hand-author static code dumps), Track 5 immutable trail records (`change`, `adr`, `handoff`, `review`, `retro`, `bug`, `testing`), `TODO.md`, `PRD.md` (immutable without user approval), and source doc-comments.
 
 ## Rules
 
 1. **Read before writing:** inspect the code, existing docs, and every record/file named in the dispatch's `fyr search` output.
 2. **Track 1 human docs (`docs-ste100-80`):** write short active prose (~20-word procedures, ~25-word explanations), direct imperative steps, `Caution`/`Note` safety callouts before destructive commands, short BLUF openings, `<= 12`-node Mermaid diagrams (`mermaid-syntax`) for multi-step flows/architectures, and `<details>` folding for `> 12`-row tables.
 3. **Track 2 agent-read (`AGENTS.md`):** edit Setup commands and Deploy sections only in concise **Telegraphic Markdown** (`<= 4,500 B` total file size). Never rewrite `AGENTS.md` into human onboarding prose or paste directory-tree dumps.
-4. **Track 3 specs (`SPEC-*`):** match exact flags, APIs, and schemas, and keep all five required sections (`Purpose`, `Interfaces`, `Data`, `Failure modes`, `Verification`) machine-projectable: fenced signatures in `Interfaces`, invariant bullets in `Data`, and the 4-column `| Trigger | Observable result | Retry | Action |` table in `Failure modes`.
+4. **Track 3 specs (`SPEC-*`):** match exact flags, APIs, and schemas, and keep all five required sections (`Purpose`, `Interfaces`, `Data`, `Failure modes`, `Verification`) enforced by `fyr check` (`spec-structure`) and projected by `fyr search --contracts`: fenced signatures in `Interfaces`, invariant bullets in `Data`, and the 4-column `| Trigger | Observable result | Retry | Action |` table in `Failure modes`.
 5. **Copy-pasteable `README.md` & live `DEPLOY-*`:** match `AGENTS.md` § Setup commands verbatim (ask in your reply if a command is missing), and keep `DEPLOY-*` commands current (`Not applicable yet` when a target is unused).
 6. **`SDD.md` and `TDD.md` summarise and link** to `SPEC-*` and `ADR-*` without restating them; keep traces aligned with real tests.
 7. **No frontmatter & absolute dates:** never add YAML frontmatter to records or root docs (`README.md`, `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`, `AGENTS.md`); convert relative dates to absolute.

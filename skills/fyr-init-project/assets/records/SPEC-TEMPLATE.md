@@ -6,7 +6,7 @@ Status: draft
      Status: draft (being written) | agreed (the user approved this text). Record status is current;
      retire superseded or obsolete specs (`fyr record edit <ID> --status retired`).
      One topic per record: an integration, storage format, CLI surface, or protocol.
-     Required headings for consistent review and structured tooling:
+     Required headings enforced by fyr check (spec-structure) and projected by fyr search --contracts:
      Purpose, Interfaces, Data, Failure modes (4-column table), Verification. -->
 
 ## Purpose
@@ -34,7 +34,7 @@ Status: draft
 
 ## Failure modes
 
-<!-- What callers observe on each failure. Keep the 4-column header below so reviewers and structured tooling read failure contracts consistently. -->
+<!-- What callers observe on each failure. Keep the 4-column header below so fyr check (spec-structure) and fyr search --contracts project failure contracts deterministically. -->
 
 | Trigger | Observable result | Retry | Action |
 |---|---|---|---|

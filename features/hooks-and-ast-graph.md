@@ -1,10 +1,10 @@
 # CLI Hooks, Prompt Vetting & AST Graph
 
-`fyr` operates as a zero-daemon second brain inside Antigravity CLI sessions through `< 250 ms` fail-open hooks (`~/.gemini/config/hooks.json`) backed by a derived SQLite FTS5 + pure-Go AST symbol graph in `.agents/scratch/search.db`. Every turn receives architectural context, compaction-deduplicated skill digests, subtask slices, Coordinator write guards, and `[FYR_WORKER_CAPSULE]` worker enrichment without background servers or CGo dependencies.
+`fyr` runs a zero-daemon second brain inside Antigravity CLI sessions via `< 250 ms` fail-open hooks (`~/.gemini/config/hooks.json`). A derived SQLite FTS5 and pure-Go AST symbol graph in `.agents/scratch/search.db` backs every query. Each turn gets architectural slices, contract digests, deduplicated skill digests, subtask splits, Coordinator write guards, and `[FYR_WORKER_CAPSULE]` worker enrichment without daemons or CGo.
 
 ## Hook lifecycle across a turn
 
-Antigravity invokes `fyr search --hook` across five active lifecycle events (`session-start`, `pre-invocation`, `pre-tool-use`, `post-tool-use`, and `stop`) under the `< 250 ms` fail-open contract (`PRD.md` R3, `internal/search/hook.go`, `internal/search/hook_deadline.go`). Every hook runs inside a hard `200 ms` internal deadline (`defaultHookDeadline`) and fails open with an `allow` decision or `{}` response if a store is locked, unavailable, or disabled via a regular `~/.config/fyr/no-hooks` or `.agents/scratch/no-hooks` marker (`hooksDisabledForHome` verifies regular files with `os.Lstat` and ignores repo-local `.agents/scratch/no-hooks` under `FYR_RELAY=1`).
+Antigravity calls `fyr search --hook` across five events (`session-start`, `pre-invocation`, `pre-tool-use`, `post-tool-use`, `stop`) under `< 250 ms` (`PRD.md` R3, `internal/search/hook.go`, `internal/search/hook_deadline.go`). Every hook runs inside a `200 ms` internal deadline (`defaultHookDeadline`) and fails open when stores are locked or missing. Regular marker files at `~/.config/fyr/no-hooks` or `.agents/scratch/no-hooks` disable hooks (`hooksDisabledForHome` uses `os.Lstat` and ignores repo-local markers under `FYR_RELAY=1`).
 
 ```mermaid
 sequenceDiagram
@@ -29,13 +29,13 @@ sequenceDiagram
     Hook-->>Agy: allow or once-per-tree-hash [VERIFY_STAMP] nudge
 ```
 
-At `session-start`, `handleSessionStart` (`internal/search/hook_session_start.go`) skips spawning `git` binaries and walks the git index directly (`internal/search/hook_git_index.go`) to deliver a `<= 1,500`-byte `SESSION_START` capsule containing the date, active plan title, `TODO.md` `Now` items, and dirty Go file count.
+At `session-start`, `handleSessionStart` (`internal/search/hook_session_start.go`) skips spawning `git` and walks the git index directly (`internal/search/hook_git_index.go`). It emits a `<= 1,500`-byte `SESSION_START` capsule containing the date, active plan title, `TODO.md` `Now` items, and dirty Go file count.
 
 ## Pure-Go AST and Markdown symbol graph
 
-`fyr index` builds a derived cache in `.agents/scratch/search.db` (`schemaVersion = "12"`, plus `< 80 ms` warm `PreInvocation` / `< 15 ms` mid-turn dedup via `git_warm_sig.go`, incremental `applyDirtyPaths` for `<= 3` dirty files in `internal/search/reconcile.go`, append-only `CHECKPOINT` compaction detection via `scanTranscriptCheckpoint` in `internal/search/hook_guard.go`, parallel `buildVetSliceCtx` `<= 120 ms` inner deadline in `hook_pre_invocation_fast.go`, lightweight subagent fast path in `hook_pre_invocation_subagent.go`, timeout fallback stamp in `hook_deadline.go`, and `records_fts` `brain.Search` precision) using Go's stdlib `go/ast` parser, a TypeScript/TSX scanner (`internal/search/symbols_ts.go`), and a Markdown ATX-heading extractor (`internal/search/symbols_go.go`, `internal/search/symbols_md.go`). In-place migrations (`migrateV9ToV10Tx`, `migrateV10ToV11Tx`, and `migrateV11ToV12Tx` in `internal/search/store_migrate.go`) upgrade `v9 -> v10 -> v11 -> v12` (adding `session_meta.{last_invocation_num, last_checkpoint_offset}` in v12 atop v11 `vet_history.{duration_ms, timed_out, injected_bytes}` and v10 `blobs.line_count`) while preserving `projects`, `co_activity`, `read_ledger`, `read_ledger_stats`, `session_meta`, `vet_history`, and `watchdog_ring`; schemas older than `"9"` still return `staleSchemaError` and rebuild cleanly (`PRD.md` R4).
+`fyr index` builds a derived cache in `.agents/scratch/search.db` (`schemaVersion = "12"`). Warm `PreInvocation` stays under `80 ms` and mid-turn dedup under `15 ms` via `git_warm_sig.go` and incremental `applyDirtyPaths` (`internal/search/reconcile.go`). Compaction detection (`scanTranscriptCheckpoint` in `internal/search/hook_guard.go`), parallel `buildVetSliceCtx` (`<= 120 ms` in `hook_pre_invocation_fast.go`), lightweight subagent routing (`hook_pre_invocation_subagent.go`), and timeout fallback stamps (`hook_deadline.go`) protect latency. Go `go/ast`, a TypeScript/TSX scanner (`internal/search/symbols_ts.go`), and a Markdown ATX-heading extractor (`internal/search/symbols_go.go`, `internal/search/symbols_md.go`) populate symbols. In-place migrations (`migrateV9ToV10Tx` through `migrateV11ToV12Tx` in `internal/search/store_migrate.go`) preserve all six behavioral tables while older schemas rebuild cleanly (`PRD.md` R4).
 
-The indexer resolves Go `go.mod` and `*/go.mod` module aliases (`loadGoModulesFromDB`, `resolveGoImportTarget`, and `resolveCrossPkgGoMethods` without phantom fallthrough to local directories), parses relative TS/TSX imports while suppressing unexported `const` noise (`parseTSImports`, `resolveTSRelativeSpec`, `extractTSSymbols`), and normalizes repo-relative package paths (`canonicalPkgDir`, `topLevelLayer` in `internal/search/pkg_paths.go`) so multiple `package main` directories never collide. Default exclusions skip generated Go files and non-code paths (`isExcludedASTPath`, `isGeneratedGoText`), and `.md`/`.mdx` doc files stay out of graph queries unless `--include-docs` is set. Over production `import | call | type_ref` edges (excluding `iface_call` and `implements`), `fyr` computes Tarjan strongly connected components (`TarjanSCC`, `TarjanPackageSCCs` in `internal/search/graph_tarjan.go`), deterministic Louvain communities (`LouvainCommunities` with `1 + math.Log1p(rawW)` weights and `louvainGamma = 1.35` in `internal/search/graph_louvain.go`), and read-only structural/co-activity feeds (`ReadStructuralSignals`, `ReadHiddenCouplingHints` in `internal/search/structural_signals.go`, and `LoadGraphSnapshot` in `internal/search/graph_export.go`).
+The indexer resolves Go `go.mod` aliases (`loadGoModulesFromDB`, `resolveGoImportTarget`, `resolveCrossPkgGoMethods`) and relative TS/TSX imports while suppressing unexported `const` noise. Normalized package paths (`canonicalPkgDir`, `topLevelLayer` in `internal/search/pkg_paths.go`) prevent multiple `package main` directories from colliding. Default rules skip generated Go files and `.md`/`.mdx` docs unless `--include-docs` is set. Over `import | call | type_ref` edges, `fyr` computes Tarjan SCCs (`internal/search/graph_tarjan.go`), Louvain communities (`internal/search/graph_louvain.go`), and structural signals (`internal/search/structural_signals.go`, `internal/search/graph_export.go`).
 
 ```mermaid
 flowchart LR
@@ -45,21 +45,22 @@ flowchart LR
     ftsIndex --> queryEngine["fyr search / PreInvocation"]
     astGraph --> queryEngine
     astGraph --> graphCmd["fyr graph\n(internal/graph & internal/webpreview)"]
-    queryEngine --> sliceOut["--slice (PageRank capsule, --include-docs)"]
-    queryEngine --> skelOut["--skeleton (signatures without bodies)"]
-    queryEngine --> pathOut["--path / --affected / --map (--include-docs)"]
+    queryEngine --> sliceOut["--slice (PageRank + <= 600 B specs)"]
+    queryEngine --> contractsOut["--contracts (sigs, specs, ADRs)"]
+    queryEngine --> skelOut["--skeleton / --path / --affected / --map"]
 ```
 
-You can query the graph directly from the terminal or inside subagent reconnaissance:
+You can query the graph and linked contracts directly from the terminal or inside subagent reconnaissance:
 
-- **`fyr search --slice <query>`:** Computes a Personalized PageRank slice (`0`/`1`/`2` hops, default budget `2,000` tokens) combining Hop-0 symbol pivots, 1-hop skeleton neighbors, and linked `brain.db` records, falling back to FTS5 hits when a natural-language query has zero symbol pivots (`internal/search/hook_fts_fallback.go`); pass `--include-docs` to include `.md`/`.mdx` files and `doc_ref` edges.
-- **`fyr search --skeleton <file>`:** Returns declaration start–end line ranges and signatures (or Markdown headings) so you only read the line slice you need.
-- **`fyr search --affected <target>` & `--path <from> --to <to>`:** Traces reverse-BFS blast radius (`<= 2` hops) or shortest call/import paths (`<= 6` hops) across files and packages.
-- **`fyr search --map`:** Surfaces the top-10 God Nodes by PageRank, package import dependencies, and elementary dependency cycles (pass `--include-docs` to include doc references).
+- **`fyr search --slice <query>`:** Builds a PageRank slice (`0`/`1`/`2` hops, default `2,000` tokens) with linked records and FTS5 fallback (`internal/search/hook_fts_fallback.go`). It appends a bounded `<= 600 B` `[SPEC_CONTRACTS]` (`spec_contracts:`) digest via `internal/search/slice_render.go`; pass `--include-docs` to include docs.
+- **`fyr search --contracts <target>`:** Projects exported Go/TS signatures (`[CODE_SIGNATURES]`), linked `SPEC-*` contracts, and accepted `ADR-*` `[GUARDRAILS]` (`internal/search/contracts.go`, `internal/search/contracts_parse.go`). It extracts fenced `[SPEC_CONTRACTS]` interfaces, `[INVARIANTS]` bullets, and `[FAULTS]` tables (TSV at `>= 15` rows) under `--budget` (`1,500` tokens) or `--json`.
+- **`fyr search --skeleton <file>`:** Prints declaration line ranges and signatures (or Markdown headings) so you read only needed lines.
+- **`fyr search --affected <target>` & `--path <from> --to <to>`:** Traces reverse-BFS blast radius (`<= 2` hops) or shortest call/import paths (`<= 6` hops).
+- **`fyr search --map`:** Prints the top-10 God Nodes by PageRank, package import dependencies, and dependency cycles (`--include-docs` includes docs).
 
 ## Stateful prompt vetting, directives, and decomposition
 
-On `pre-invocation`, `VetPrompt` (`internal/search/vet.go`) classifies every turn in under `25 ms`, evaluates six completeness anchors, detects `PRD.md` / `ADR-*` conflicts, and decomposes multi-part requests into disjoint subtasks before wrapping untrusted reference data inside a per-turn cryptographic fence (`=====<18-hex>=====`, `internal/search/fence.go`). The hook emits a single fenced `text` `PreInvocationBanner` card (`Metadata == nil`, `internal/search/telemetry_json.go`, `internal/search/telemetry_render.go`) carrying `ImprovedPrompt`, compaction-deduplicated `SkillDigests`, and `Subtasks` for the Coordinator session.
+On `pre-invocation`, `VetPrompt` (`internal/search/vet.go`) classifies every turn in under `25 ms` and scores six completeness anchors. It detects `PRD.md` or `ADR-*` conflicts and splits multi-part prompts into disjoint subtasks. It wraps untrusted reference data in a cryptographic fence (`=====<18-hex>=====`, `internal/search/fence.go`). The hook emits one fenced `text` `PreInvocationBanner` card (`Metadata == nil`, `internal/search/telemetry_json.go`, `internal/search/telemetry_render.go`).
 
 ```mermaid
 flowchart TD
@@ -76,12 +77,12 @@ flowchart TD
 
 Six deterministic mechanics keep enriched turns concise and Coordinator-aligned:
 
-1. **Nine intent modes & conflict-only `VET_FIRST`:** Classifies prompts into `APPROVAL`, `CORRECTION`, `QUESTION`, `TRIVIAL`, `TASK`, `BUG`, `FEATURE`, `REVIEW`, or `RELEASE` (`IntentQuestion` never forces `SecurityRequired`), and scores `target`, `goal`, `scope`, `inputs_outputs`, `constraints`, and `verification` (`0..100` `VetScore`), carrying forward prior anchors from `vet_history` across follow-up turns. `decideVetGate` (`internal/search/vet.go`) fires `VET_FIRST` only on detected `PRD.md`/`ADR-*` conflicts or ultra-vague zero-hit `<= 6`-word `FEATURE`/`BUG` prompts (`isUltraVagueZeroHit`).
-2. **Directive precedence (`preInvocationDirective`):** Emits `PASS_THROUGH` (`GatePassThrough`) > `VET_FIRST` (`GateVetFirst`) > `COORDINATE_SUBTASKS` (`len(res.Subtasks) >= 2`, setting `route` to `"/fyr-swarm (isolated subtasks; zero shared memory)"`) > `ANSWER_ONLY` (`IntentQuestion`) / `CORRECTION` (`IntentCorrection`) > `EXECUTE_IMPROVED_PROMPT` (non-empty `ImprovedPrompt`) > `ENRICH_AND_PROCEED`.
-3. **`ImprovedPrompt:` & progressive memory:** Populates `ImprovedPrompt:` (`[VET_IMPROVED_PROMPT]`) on `ENRICH_AND_PROCEED` turns (`45 <= score < 80`, `VET_FIRST` follow-ups, conflicts, or `len(subtasks) >= 2`; omitted for questions and corrections), and injects up to `4` matched memories (`validity >= 0.40`) inside the `6`-record cap.
-4. **Dynamic BM25F skill prefetcher & compaction-scoped `SkillDigests:` dedup:** `MatchSkills` (`internal/search/vet_skills.go`, `vet_skills_catalog.go`, `cmd/fyr/verb_search_skills.go`) scores the live installed skill catalog via frontmatter BM25F (`minSkillBM25Score = 3.2`, negative-scope filtering) plus file-extension weights, returning at most `3` skills and zero phantom skills on an empty catalog. `vetPromptCoreWithHistory` (`internal/search/vet.go`) then runs `filterSuggestedSkills` (`internal/search/vet_history.go`, dropping skills suggested in the last 3 turns unless a new file surface appears), and `buildHookEnvelopeWithModelTimed` (`internal/search/process_artifact.go`) runs `filterSessionDedupTurn` (`internal/search/hook_dedup.go`), stamping `__vet_skill__:<name>` in `read_ledger` (`start_line = -4`) per `generation_id` so skills re-prime automatically when compaction increments `generation_id`.
-5. **Deterministic subtask decomposition (`DecomposeSubtasks`):** Splits multi-clause prompts (`1. ... 2. ...` or `;`-separated action clauses, ignoring backticked `;` and constraint clauses) or single-clause explicit-target multi-package edit prompts (`extractExplicitPromptTargets` resolving `>= 2` disjoint Go/top-level directories ordered by Hop-0 rank then lexicographically while skipping `isDiagnosticReadOnlyPrompt`) into up to `6` `SubtaskSlice` entries (`internal/search/vet_decompose.go`, `internal/search/vet_decompose_pkg.go`, `internal/search/vet_route.go`). When `len(order) > maxSubtaskSlices` (`6`), `partitionPackageGroups` calls `coalesceOverflowByCommunity` (`internal/search/vet_decompose_pkg.go`) using deterministic Louvain communities (`internal/search/graph_louvain.go`) before falling back to `partitionOverflowTail`. Greedy assignment keeps `Files` pairwise disjoint (fileless clauses stay `nil`), infers `Role` (`reviewer`, `security`, `documentation`, `explorer`, `builder`), picks up to `2` `Skills`, and suggests `Verify`; skips `PassThrough`, `!`-bypass, `APPROVAL`, `TRIVIAL`, `QUESTION`, `CORRECTION`, diagnostic read-only prompts, and `isWorkerBriefPrompt`.
-6. **Structured text card & model resolution:** Emits one fenced `text` `PreInvocationBanner` card (`Metadata == nil`, `internal/search/telemetry_render.go`) with exact `agy` `model` ID, unmodified `modelDisplay`, and `thinking` effort resolved via `internal/search/telemetry_model.go`.
+1. **Nine intent modes & conflict-only `VET_FIRST`:** Classifies prompts into `APPROVAL`, `CORRECTION`, `QUESTION`, `TRIVIAL`, `TASK`, `BUG`, `FEATURE`, `REVIEW`, or `RELEASE`. It scores six anchors (`0..100` `VetScore`) with `vet_history` carry-forward. `decideVetGate` fires `VET_FIRST` only on `PRD.md`/`ADR-*` conflicts or ultra-vague zero-hit `<= 6`-word `FEATURE`/`BUG` prompts (`isUltraVagueZeroHit`).
+2. **Directive precedence (`preInvocationDirective`):** Orders `PASS_THROUGH` > `VET_FIRST` > `COORDINATE_SUBTASKS` > `ANSWER_ONLY` / `CORRECTION` > `EXECUTE_IMPROVED_PROMPT` > `ENRICH_AND_PROCEED`. When `len(subtasks) >= 2`, it sets `route` to `"/fyr-swarm (isolated subtasks; zero shared memory)"`.
+3. **`ImprovedPrompt:` & progressive memory:** Populates `ImprovedPrompt:` on `ENRICH_AND_PROCEED` (`45 <= score < 80`), conflicts, follow-ups, or multi-subtask turns. It omits `ImprovedPrompt:` for questions and corrections, and injects up to `4` memories (`validity >= 0.40`) within `6` records.
+4. **BM25F skill prefetcher & generation dedup:** `MatchSkills` (`internal/search/vet_skills.go`, `vet_skills_catalog.go`) scores installed skills (`minSkillBM25Score = 3.2`) and returns at most `3` skills. `filterSuggestedSkills` drops skills shown in the last `3` turns unless a new file surface appears. `filterSessionDedupTurn` stamps `__vet_skill__:<name>` at `start_line = -4` per `generation_id` so compaction re-primes skills automatically.
+5. **Deterministic subtask decomposition (`DecomposeSubtasks`):** Splits multi-clause prompts or explicit multi-package edits (`extractExplicitPromptTargets`) into up to `6` disjoint `SubtaskSlice` items. Overflow packages coalesce via Louvain communities (`coalesceOverflowByCommunity` in `internal/search/vet_decompose_pkg.go`) before tail partitioning. It skips diagnostic read-only prompts, `PASS_THROUGH`, `!`-bypass, questions, corrections, and `isWorkerBriefPrompt`.
+6. **Structured text card & model resolution:** Emits one fenced `text` `PreInvocationBanner` card (`Metadata == nil`, `internal/search/telemetry_render.go`). It resolves exact `agy` `model` ID, `modelDisplay`, and `thinking` effort via `internal/search/telemetry_model.go`.
 
 <details>
 <summary>Example PRE_INVOCATION text card (`COORDINATE_SUBTASKS`) and schema v12 `vet_history` / `session_meta` fields</summary>
@@ -105,13 +106,13 @@ Subtasks:
   - subtask-1 [builder] Update Alpha in internal/alpha/a.go | files: internal/alpha/a.go | skills: golang | verify: go test -race ./internal/alpha/...
 ```
 
-- `vet_history` & `session_meta` (`schemaVersion = "12"` in `internal/search/store.go`): `vet_history` persists `(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at)` plus `duration_ms`, `timed_out`, and `injected_bytes` on every non-empty `PreInvocation` turn (with `vet_history_store.go` / `process_artifact.go` short approval dedup and `[CONTEXT_KNEE_WARNING]` / `TokenKnee:` injection preserving the `/fyr-handoff` fresh-conversation cue)—including `PASS_THROUGH` and `!`-bypass turns—while `session_meta` tracks `last_invocation_num` and `last_checkpoint_offset` for append-only `CHECKPOINT` compaction re-priming (`hook_guard.go`).
+- `vet_history` & `session_meta` (`schemaVersion = "12"` in `internal/search/store.go`): `vet_history` logs intent, gate, score, anchors, skills, subtasks, `duration_ms`, `timed_out`, and `injected_bytes`. It records `PASS_THROUGH` and `!`-bypass turns plus `[CONTEXT_KNEE_WARNING]` dedup (`vet_history_store.go`, `process_artifact.go`). `session_meta` tracks `last_invocation_num` and `last_checkpoint_offset` for `CHECKPOINT` compaction re-priming (`hook_guard.go`).
 
 </details>
 
 ## Read deduplication and file clamping
 
-On `pre-tool-use`, `fyr` prevents full-file bloat and duplicate reads using dual-gate skeleton clamping and a persistent SHA-256 read ledger (`internal/search/hook_clamp.go`, `internal/search/read_ledger.go`, `internal/search/read_ledger_edit.go`, `internal/search/hook_guard.go`).
+On `pre-tool-use`, `fyr` prevents full-file bloat and duplicate reads with dual-gate skeleton clamping and a SHA-256 read ledger (`internal/search/hook_clamp.go`, `internal/search/read_ledger.go`, `internal/search/read_ledger_edit.go`, `internal/search/hook_guard.go`).
 
 ```mermaid
 stateDiagram-v2
@@ -128,13 +129,13 @@ stateDiagram-v2
     AllowedRead --> [*]: Record clamped 800-line / 46,080 B window
 ```
 
-- **Dual-gate skeleton-first read clamping (`internal/search/hook_clamp.go`):** First-time unranged reads of files `>= 400` lines OR `>= 16,384` bytes (`clampSkeletonMinLines = 400`, `clampSkeletonMinBytes = 16384`) receive a `[CLAMPED]` denial containing the AST skeleton (up to `60` lines) and SHA-256 digest while stamping `start_line = -5` (`clampOnceSentinelLine` in `internal/search/read_ledger_edit.go`); an immediate ranged read or an explicit second unranged retry succeeds without deadlock.
-- **Out-of-root/unindexed `read_file` bypass (`hook_pretool.go`, `hook_clamp.go`):** `PreToolUse` `read_file` passes through immediately on paths outside the workspace root or unindexed repositories/directories without blocking.
-- **Persistent hash-keyed read ledger (`read_ledger`):** Tracks every line range read per conversation generation, modeling `read_file`'s `800`-line / `46,080`-byte window, and enforces `[CLAMPED]` / `[UNCHANGED]` across 18 Bash file-read patterns, multi-line `&&`/`;`/newline chains, benign env prefixes, `cd` tracking, and strictly read-only pipes via `ParseBashFileReads` (`read_ledger_bash.go`, `read_ledger_bash_chain.go`, `read_ledger_bash_pipe.go`, `read_ledger_bash_filter.go`, `read_ledger_bash_sed.go`, rejecting mutating pipes/redirects/substitutions). The `start_line = -5` `[CLAMPED]` sentinel is preserved across same-generation edits (`recordResolvedReadTx` deletes only `start_line >= 0`; edit invalidation touches only `start_line > 0` or `start_line = -6`), while editing a file (`replace_file_content`, `write_to_file`, `edit_file`, `write_file`) invalidates overlapping spans and requires a prior read when modifying existing files (`internal/search/hook_guard.go`).
+- **Dual-gate skeleton clamping (`internal/search/hook_clamp.go`):** First unranged reads of `>= 400` lines or `>= 16,384` bytes receive a `[CLAMPED]` denial with a `60`-line skeleton. It stamps `start_line = -5` (`clampOnceSentinelLine` in `internal/search/read_ledger_edit.go`), allowing ranged reads or an explicit second retry.
+- **Out-of-root/unindexed bypass (`hook_pretool.go`, `hook_clamp.go`):** `PreToolUse` `read_file` passes through immediately for paths outside the workspace root or unindexed directories.
+- **Hash-keyed read ledger (`read_ledger`):** Tracks line spans per generation using `read_file`'s `800`-line / `46,080`-byte window. `ParseBashFileReads` (`read_ledger_bash.go`, `read_ledger_bash_chain.go`, `read_ledger_bash_pipe.go`) enforces `[CLAMPED]` and `[UNCHANGED]` across 18 Bash read patterns and read-only pipes. Edits preserve `start_line = -5` sentinels, invalidate overlapping spans, and require a prior read before modifying existing files (`internal/search/hook_guard.go`).
 
 ## Coordinator write guard and worker JIT capsules
 
-Because isolated subagents and swarm workers share zero parent conversation memory (`PRD.md` R0), `PreToolUse` guards direct Coordinator source edits on multi-subtask turns and enriches dispatched worker briefs with `[FYR_WORKER_CAPSULE]` context (`internal/search/hook.go`, `internal/search/hook_coordinator.go`, `internal/search/hook_worker_capsule.go`, `internal/search/hook_subagent.go`, `internal/search/hook_workflow.go`). `dispatchHookEvent` passes full `Options` (`Home`, `Dir`, `BrainTurnContext`, `SkillCatalog`, `BrainRefsForDir`) into `handlePreToolUse` inside the same `200 ms` budget.
+Isolated subagents and swarm workers share zero parent conversation memory (`PRD.md` R0). `PreToolUse` guards direct Coordinator edits on multi-subtask turns and injects `[FYR_WORKER_CAPSULE]` context into worker briefs (`internal/search/hook.go`, `internal/search/hook_coordinator.go`, `internal/search/hook_worker_capsule.go`, `internal/search/hook_subagent.go`, `internal/search/hook_workflow.go`). `dispatchHookEvent` passes full `Options` (`Home`, `Dir`, `BrainTurnContext`, `SkillCatalog`, `BrainRefsForDir`, `BrainSpecBodies`) into `handlePreToolUse` within `200 ms`.
 
 ```mermaid
 flowchart LR
@@ -150,22 +151,21 @@ flowchart LR
     wfCall --> wfCheck["Enforce model=pro on guarded\nagent() calls; literals untouched"]
 ```
 
-- **`[COORDINATOR_GUARD]` write guard (`handlePreToolWrite` in `internal/search/hook.go`, `checkCoordinatorWriteGuard` in `internal/search/hook_coordinator.go`):**
-  - Denies direct `write_or_edit` calls (`decision: "deny"`, `[COORDINATOR_GUARD]`) when the latest `vet_history` row for `conversationId` records `Directive == "COORDINATE_SUBTASKS"` (emitting `"active COORDINATE_SUBTASKS turn"` guard text) or `SubtaskCount >= 2` (emitting multi-subtask guard text), OR when a regular `coordinator-only` marker file exists at `<root>/.agents/scratch/coordinator-only` or `<o.Home>/.config/fyr/coordinator-only` (resolved strictly via `Options.Home`, `PRD.md` R6).
+- **`[COORDINATOR_GUARD]` write guard (`internal/search/hook_coordinator.go`):** Denies direct source edits when the active turn records `COORDINATE_SUBTASKS` or `SubtaskCount >= 2`. It also triggers on a regular `coordinator-only` marker in `<root>/.agents/scratch/` or `<o.Home>/.config/fyr/` (`PRD.md` R6).
   - Always allows writes matching any of these exemptions:
-    1. `.agents/scratch/**` (unless `.agents/scratch` or any target segment under it is a symlink, leaving only `TODO.md`) and `TODO.md` (`isCoordinatorWriteExemptPath`).
-    2. Linked git worktrees (`commonDir != filepath.Join(root, ".git")` via `findGitRootFast`), allowing `workspace="share"` `swarm` and `run_workflow` workers to edit source freely.
-    3. `!`-prefixed bypasses (`in.LastUserInput` or `vet_history.RawPrompt` starting with `!`).
-    4. Worker brief sessions (`isWorkerBriefPrompt` matching `in.LastUserInput` or `vet_history.RawPrompt` anchored at top header lines `Files:`, `Project: this clone`, `Standing approvals:` / `Standing approvals (closed set):`, line-0 `"This is a Kickoff written by fyr auto."`, or a trailing multi-line `[FYR_WORKER_CAPSULE]\ntrust:` section).
-- **`[FYR_WORKER_CAPSULE]` JIT overwrite (`handlePreToolSubagent` & `handlePreToolSwarm` in `internal/search/hook_subagent.go`):**
-  - **Deny-first model routing + S4 inheritance (`hook_subagent_models.go`, `internal/models`):** Denies forbidden model overrides on guarded subagents (`reviewer`, `verifier`, `security`, `dreamer`) and weak models on `swarm` `judge` prefixes, inherits/resolves session models via `resolveHookSessionModelForHome` (`hook_subagent.go`, `hook_workflow.go`, recognizing `neon`), upgrades fast session models or routes `swarm` prefixes via `internal/models` using `~/.config/fyr/models.json` with `30%` 5h / `20%` weekly Anthropic quota fallback (emitting `[CROSS_FAMILY_NOTICE]` when `invoke_subagent` tier enums cannot pin concrete cross-family IDs), and then runs `enrichWorkerPromptArgs` across **all** allowed `invoke_subagent` (`Prompt`/`prompt`) and `swarm(action="add")` (`brief`/`Brief`) calls, merging model and prompt into one `Overwrite` map.
-  - **`AND` gating & idempotency:** Skips prompts that already contain `[FYR_WORKER_CAPSULE]`. Otherwise activates only when **(1)** the prompt/brief names file/symbol tokens or `Files:` paths OR `workspacePaths`/`cwd`/`--dir` explicitly resolves a checkout (no `os.Getwd()` fallback), **AND (2)** context lookup produces non-empty context (`Hop-0` AST signatures, `>= 1` matched record or `validity >= 0.40` memory, or `>= 1` matched skill digest) — OR when `coordinator-only` mode is active (injecting at least the minimal `[FYR_WORKER_CAPSULE]` worker tag). Generic targetless prompts without an explicit checkout keep `Overwrite == nil` (or model-only `Overwrite`).
-  - **Priority truncation (`<= 1,200 B`):** Keeps existing `Files:` headers verbatim at the top (never duplicated inside `[FYR_WORKER_CAPSULE]`; emits `inferred_files:` only when no `Files:` line existed) and packs cryptographic `New` (`=====<18-hex>=====`, `internal/search/fence.go`) blocks within `<= 1,200 B` in priority order: (1) `Files:` / `inferred_files:`, (2) `<= 3` matched records/memories (`140 B` note cap), (3) top `1` skill digest (`<= 400 B`), (4) `Hop-0` AST slice (`<= 600 B`, line-trimmed from bottom).
-- **`run_workflow` dual-root allowlist & literal safety (`internal/search/hook_workflow.go`):** `handlePreToolWorkflow` restricts `ScriptPath` via `resolveAllowedWorkflowRoot` to workspace-contained files or installed regular `.py` scripts (`<= 1 MiB`) under `~/.gemini/config/workflows/` (refusing `..`, symlinks, and external paths) and inspects Python `agent(...)` calls to enforce `model="pro"` on guarded subagents (`[AUTO_MODEL_UPGRADE]`) while skipping Python string literals and comments (`skipPythonTrivia`), never mutating prompt strings inside scripts.
+    1. `.agents/scratch/**` (unless any path segment is a symlink) and `TODO.md` (`isCoordinatorWriteExemptPath`).
+    2. Linked git worktrees (`commonDir != filepath.Join(root, ".git")`), allowing `workspace="share"` workers to edit freely.
+    3. `!`-prefixed bypasses in `in.LastUserInput` or `vet_history.RawPrompt`.
+    4. Worker brief sessions (`isWorkerBriefPrompt` matching `Files:`, `Project: this clone`, `Standing approvals:`, or `[FYR_WORKER_CAPSULE]`).
+- **`[FYR_WORKER_CAPSULE]` JIT overwrite (`internal/search/hook_subagent.go`, `hook_worker_capsule.go`):**
+  - **Deny-first model routing (`hook_subagent_models.go`, `internal/models`):** Denies weak overrides on guarded roles (`reviewer`, `verifier`, `security`, `dreamer`) and `swarm` `judge` prefixes. It resolves session models via `resolveHookSessionModelForHome`, applies `30%` 5h / `20%` week fallback, and merges model plus prompt `Overwrite` keys.
+  - **`AND` gating & idempotency:** Skips prompts already containing `[FYR_WORKER_CAPSULE]`. It activates only when a target path or explicit checkout exists AND context lookup returns non-empty data (or `coordinator-only` is active).
+  - **Priority truncation (`<= 1,200 B`) & `[SPEC_CONTRACTS]`:** Keeps existing `Files:` lines verbatim and packs cryptographic fenced blocks (`internal/search/fence.go`) within `<= 1,200 B`. Priority order is: `Files:`/`inferred_files:`, `<= 3` records (`140 B` cap), top `1` skill (`<= 400 B`), `Hop-0` AST slice, and bounded `<= 600 B` fenced `spec_contracts` digests (`FormatContractDigest`, `appendWorkerContracts`).
+- **`run_workflow` dual-root allowlist (`internal/search/hook_workflow.go`):** Restricts `ScriptPath` via `resolveAllowedWorkflowRoot` to workspace files or `~/.gemini/config/workflows/*.py` (`<= 1 MiB`), rejecting `..` and symlinks. It enforces `model="pro"` on guarded Python `agent(...)` calls while skipping string literals and comments (`skipPythonTrivia`).
 
 ## Watchdog breakers, bash stdin guard, and PostToolUse
 
-`PreToolUse` and `PostToolUse` share a two-layer Watchdog and interactive bash guard inside the same `200 ms` fail-open budget (`internal/search/hook.go`, `internal/search/hook_watchdog.go`, `internal/search/hook_watchdog_ring.go`, `internal/search/hook_bash_guard.go`). Recent tool outcomes persist in `.agents/scratch/search.db` (`schemaVersion = "12"`) via `watchdog_ring` and `session_meta` so loops and budget overruns break deterministically before burning context.
+`PreToolUse` and `PostToolUse` share a two-layer Watchdog and interactive bash guard inside the `200 ms` fail-open budget (`internal/search/hook_watchdog.go`, `internal/search/hook_watchdog_ring.go`, `internal/search/hook_bash_guard.go`). Recent tool outcomes persist in `.agents/scratch/search.db` (`schemaVersion = "12"`) via `watchdog_ring` and `session_meta`. Loops and budget overruns break deterministically before burning context.
 
 ```mermaid
 flowchart LR
@@ -190,11 +190,11 @@ flowchart LR
 
 ## Stop verification nudge and co-activity
 
-When a turn ends normally, `handleStopHook` (`internal/search/hook_stop_stamp.go`) records passive file `co_activity` pairs to improve future `--slice` ranking and writes live session progress to `<appDataDir>/brain/<conv-id>/fyr-process.md` (`internal/search/telemetry_process.go`). If the current session modified Go source or module files (`*.go`, `go.mod`, `go.sum`) and `.agents/scratch/verify.stamp` is missing or mismatches the current Go tree SHA-256, the `Stop` hook emits a once-per-tree-hash `[VERIFY_STAMP]` continuation nudge asking the agent to run `fyr verify`—without ever invoking `go test` inside the hook itself.
+When a turn ends normally, `handleStopHook` (`internal/search/hook_stop_stamp.go`) records passive `co_activity` pairs to improve future `--slice` ranking. It writes live progress to `<appDataDir>/brain/<conv-id>/fyr-process.md` (`internal/search/telemetry_process.go`). If the session edited Go files without a matching `.agents/scratch/verify.stamp`, `Stop` emits one `[VERIFY_STAMP]` nudge without running `go test`.
 
 ## Repository constellation and web preview (`fyr graph`)
 
-`fyr graph` (`cmd/fyr/verb_graph.go`, `internal/graph/`, `internal/webpreview/`) projects the indexed repository symbol graph alongside read-only `brain.db` record links (`brain.IndexRecordLinks` in `internal/brain/refs_index.go`) into an interactive offline HTML constellation, JSON/DOT/Markdown exports, or a localhost preview server. Both `internal/graph` and `internal/webpreview` stay completely free of SQLite imports.
+`fyr graph` (`cmd/fyr/verb_graph.go`, `internal/graph/`, `internal/webpreview/`) renders the repository symbol graph with read-only `brain.db` record links (`brain.IndexRecordLinks` in `internal/brain/refs_index.go`). It outputs an offline HTML constellation, JSON/DOT/Markdown exports, or a localhost preview server. Both `internal/graph` and `internal/webpreview` stay completely free of SQLite imports.
 
 ```mermaid
 flowchart LR
@@ -205,9 +205,9 @@ flowchart LR
     build --> webSrv["webpreview.Serve\n(127.0.0.1:0, 128-bit token)"]
 ```
 
-- **Outputs & file safety:** Without format flags, `fyr graph` writes `.agents/scratch/graph.html` (`0600`, `O_NOFOLLOW`, refusing overwrites unless `--force` is passed); `--dot`, `--md`, and `--json` print to stdout or write `--out FILE`.
-- **Localhost web preview (`--web [--listen ADDR]`):** Binds `127.0.0.1:0` by default behind a 128-bit `crypto/rand` `/<token>/...` path checked with `subtle.ConstantTimeCompare`, serving `GET`/`HEAD` only (`404`/`405` on mismatch or unsupported methods) with `DefaultHTMLCSP` offline CSP headers.
-- **Interactive `<canvas>` constellation & XSS safety:** Switches granularity (`Packages`, `Files`, `Symbols`), overlays (`Community`, `Layer`, `In-Degree Heat`, `Agent Read Churn`), `Hidden Co-Activity`, and `BrainLinks`, embedding payloads via `sanitizeEmbeddedJSON` with zero `innerHTML` or `eval` sinks.
+- **Outputs & file safety:** By default, `fyr graph` writes `.agents/scratch/graph.html` (`0600`, `O_NOFOLLOW`, refusing overwrites unless `--force` is passed). `--dot`, `--md`, and `--json` print to stdout or write `--out FILE`.
+- **Localhost web preview (`--web [--listen ADDR]`):** Binds `127.0.0.1:0` behind a 128-bit `crypto/rand` `/<token>/...` path verified via `subtle.ConstantTimeCompare`. It allows `GET`/`HEAD` only (`404`/`405` otherwise) with `DefaultHTMLCSP` offline headers.
+- **Interactive `<canvas>` constellation & XSS safety:** Switches granularity (`Packages`, `Files`, `Symbols`) and overlays (`Community`, `Layer`, `In-Degree Heat`, `Agent Read Churn`). It embeds payloads via `sanitizeEmbeddedJSON` with zero `innerHTML` or `eval` sinks.
 
 <details>
 <summary>Search, AST graph, index, and hook CLI flag reference</summary>
@@ -222,9 +222,10 @@ flowchart LR
 | `--open` | `false` | List open plans, open bugs, current specs/guides/deploys, and queued proposals |
 | `--global` | `false` | Include global records and every project opted in with `fyr index --register` |
 | `--json` | `false` | Emit structured JSON output |
-| `--slice QUERY` | `""` | Build a tiered PageRank AST context capsule for `QUERY` |
+| `--slice QUERY` | `""` | Build a tiered PageRank AST context capsule for `QUERY` (with bounded `<= 600 B` `spec_contracts` digest) |
+| `--contracts TARGET` | `""` | Project exported Go/TS signatures, linked `SPEC-*` contracts/invariants/faults, and accepted `ADR-*` guardrails for `TARGET` (`SPEC-fyr-docs-harness`) |
 | `--hops N` | `2` | Maximum graph traversal hops for `--slice` (`0`–`6`) |
-| `--budget N` | `2000` | Approximate token budget (`chars / 4`) for `--slice` |
+| `--budget N` | `2000` (`1500` for `--contracts`) | Approximate token budget (`chars / 4`) for `--slice` or `--contracts` |
 | `--session ID` | `""` | Boost files read in conversation `ID` by `50x` during `--slice` ranking |
 | `--include-docs` | `false` | Include `.md`/`.mdx` doc files and `doc_ref` edges in `--slice` and `--map` |
 | `--skeleton FILE` | `""` | Print declaration/heading line ranges without bodies for `FILE` |
@@ -265,5 +266,5 @@ flowchart LR
 
 Explore how brain records feed `PreInvocation` or inspect your repository's symbol graph directly:
 
-- Check [Brain Store, Trail & Memory](brain-and-memory.md) to see how matched `brain.db` records and `validity >= 0.40` memories feed `PreInvocation` and `fyr resume`.
-- Run `fyr search --map` or `fyr graph --web` inside any indexed checkout to inspect God Nodes, dependency cycles, and the interactive constellation.
+- Check [Brain Store, Trail & Memory](brain-and-memory.md) to see how matched records feed `PreInvocation` and `fyr resume`.
+- Run `fyr search --map`, `fyr search --contracts`, or `fyr graph --web` to inspect symbols and contracts.
