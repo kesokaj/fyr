@@ -149,7 +149,7 @@ Ensure `~/.local/bin` is on your `PATH` and the Antigravity CLI (`agy`) is insta
    ```bash
    export PATH="$HOME/.local/bin:/usr/local/go/bin:$PATH"
    ```
-2. **Linux `systemd --user` daemon subshells (e.g., `antigravity-cli-daemon`):** User services and headless subshells launched by `systemd --user` do not source `~/.bashrc`. Add `~/.config/environment.d/10-local-bin.conf` (`$HOME` and `$PATH` expand per `environment.d(5)`; `%h` is only for unit files), then run `systemctl --user daemon-reload` and restart the user service:
+2. **Linux `systemd --user` daemon subshells (such as `antigravity-cli-daemon`):** User services and headless subshells launched by `systemd --user` do not source `~/.bashrc`. Add `~/.config/environment.d/10-local-bin.conf` (`$HOME` and `$PATH` expand per `environment.d(5)`; `%h` is only for unit files), then run `systemctl --user daemon-reload` and restart the user service:
    ```ini
    PATH=$HOME/.local/bin:$PATH
    ```

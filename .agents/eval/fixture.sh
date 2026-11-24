@@ -498,7 +498,7 @@ mock_cloud_worker_trail() {
     rec adr --id ADR-001 --status accepted --title "Postgres-only queue without Redis"
   printf 'Symptom: `NextDelay` in `internal/processor/retry.go` returns negative duration for `attempt > 30`.\nPrevention: cap `attempt` before bit-shifting and test high retry counts.\n' |
     rec bug --id BUG-001 --status open --title "NextDelay overflows when attempt > 30"
-  printf '`POST /v1/events` dispatches jobs via `internal/processor/dispatch.go` and computes backoff in `internal/processor/retry.go` (`NextDelay(attempt int) time.Duration`).\n' |
+  printf '## Purpose\n\nDispatch `/v1/events` jobs and compute retry backoff.\n\n## Interfaces\n\n`POST /v1/events` dispatches jobs via `internal/processor/dispatch.go` and computes backoff in `internal/processor/retry.go` (`NextDelay(attempt int) time.Duration`).\n\n## Data\n\n- Queue state lives in PostgreSQL (`SKIP LOCKED`).\n\n## Failure modes\n\n| Trigger | Observable result | Retry | Action |\n|---|---|---|---| \n| High attempt count | Backoff capped | 0 | Cap attempt before bit shift |\n\n## Verification\n\nRun `go test ./...`.\n' |
     rec spec --id SPEC-worker-api --status current --title "Worker retry and event contract"
   "$FYR" record export --home "$SB" >/dev/null
   sed 's/"updated":"[^"]*"/"updated":"2026-11-01T00:00:00Z"/g' .agents/trail.jsonl >.agents/trail.tmp && mv .agents/trail.tmp .agents/trail.jsonl

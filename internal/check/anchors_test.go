@@ -105,7 +105,7 @@ func TestSectionRefsC50AndMatching(t *testing.T) {
 	otherSkill := "---\nname: other\ndescription: other skill\n---\n# Other\n\n## Dockerfile: Go multi-stage\n\n### 4. Smoke test\n"
 	otherRef := "# Ref\n\n## Database: Postgres\n\n### 4. Pooling\n"
 	dockerSetup := "# Setup\n\nSee `SKILL.md` § Dockerfile rule 4 points here, and `SKILL.md` §4.\n"
-	trail := trailLine(t, "SPEC-live", "spec", "current", "Code `internal/a.go`, `TDD.md` § T6, [bad](#missing-in-spec), [ok](#spec-head).\n\n## Spec head\n")
+	trail := trailLine(t, "SPEC-live", "spec", "current", "Code `internal/a.go`, `TDD.md` § T6, [bad](#missing-in-spec), [ok](#spec-head).\n\n## Spec head\n"+validSpecSections)
 	dir := repo(t, map[string]string{
 		"internal/a.go":     "package a\n",
 		"AGENTS.md":         rootAgents,

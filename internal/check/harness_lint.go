@@ -16,6 +16,10 @@ const (
 	// plus all rules/*.md (always-on and model_decision) before Antigravity
 	// silently truncates (matching internal/harness/size_test.go).
 	maxRulesBlockBytes = 24000
+	// maxProjectAgentsBytes is ADR-535's ceiling on a tracked project root AGENTS.md.
+	maxProjectAgentsBytes = 4500
+	// maxAgentsTreeLines is the max contiguous box-drawing tree block in AGENTS.md.
+	maxAgentsTreeLines = 15
 )
 
 // contextRulesBudgetRule enforces context/*.md <= 15,000 B and combined
@@ -88,5 +92,55 @@ func (k *checker) skillFrontmatterRule() []Finding {
 			out = append(out, Finding{Where: p, Rule: "frontmatter", Text: err.Error()})
 		}
 	}
+	return out
+}
+
+// projectAgentsBudgetRule enforces ADR-535's size and directory-tree bounds on
+// a tracked root AGENTS.md: <= 4500 bytes and no > 15-line box-drawing tree block.
+func (k *checker) projectAgentsBudgetRule() []Finding {
+	if !k.topFiles["AGENTS.md"] || k.noIndexed()(".") {
+		return nil
+	}
+	data, err := k.readFile("AGENTS.md")
+	if err != nil {
+		return nil
+	}
+	var out []Finding
+	if len(data) > maxProjectAgentsBytes {
+		out = append(out, Finding{
+			Where: "AGENTS.md",
+			Rule:  "budget",
+			Text:  fmt.Sprintf("AGENTS.md is %d bytes, over the %d-byte ceiling", len(data), maxProjectAgentsBytes),
+		})
+	}
+	out = append(out, agentsTreeBlockFindings(string(data))...)
+	return out
+}
+
+func agentsTreeBlockFindings(text string) []Finding {
+	var out []Finding
+	runStart, runLen := 0, 0
+	flush := func() {
+		if runLen > maxAgentsTreeLines {
+			out = append(out, Finding{
+				Where: "AGENTS.md",
+				Line:  runStart,
+				Rule:  "budget",
+				Text:  fmt.Sprintf("AGENTS.md contains a %d-line directory tree block (max %d lines)", runLen, maxAgentsTreeLines),
+			})
+		}
+		runStart, runLen = 0, 0
+	}
+	for i, l := range splitNormalizedLines(text) {
+		if strings.Contains(l, "├──") || strings.Contains(l, "└──") {
+			if runLen == 0 {
+				runStart = i + 1
+			}
+			runLen++
+			continue
+		}
+		flush()
+	}
+	flush()
 	return out
 }

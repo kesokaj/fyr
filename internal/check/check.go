@@ -35,7 +35,7 @@ type Vocabulary map[string]VerbSpec
 type Finding struct {
 	Where string // repo-relative path or record ID
 	Line  int    // 1-based; 0 when the rule has none
-	Rule  string // verb subverb flag path line anchor spec-stale spec-unlinked requirement trace
+	Rule  string // verb subverb flag flag-undoc path line anchor budget frontmatter test-ref docs-style spec-stale spec-unlinked spec-structure requirement trace
 	Text  string
 }
 
@@ -106,21 +106,7 @@ func Run(dir string, v Vocabulary, home ...string) (Report, error) {
 	}
 	living, specs := livingAndSpecs(recs)
 	docsFiles := k.docsFiles()
-	sc := k.scanCMDFyrFlags()
-	effVocab := k.effectiveVocabulary(v, sc)
-	rep.Findings = k.docsRule(docsFiles, living, effVocab)
-	rep.Findings = append(rep.Findings, k.undocumentedFlagsRule(docsFiles, living, effVocab, v, sc)...)
-	rep.Findings = append(rep.Findings, k.contextRulesBudgetRule()...)
-	rep.Findings = append(rep.Findings, k.skillFrontmatterRule()...)
-	rep.Findings = append(rep.Findings, k.testAttributionRule(docsFiles)...)
-	rep.Findings = append(rep.Findings, k.verificationFindings(specs)...)
-	if note := k.historyNote(); note != "" {
-		rep.Notes = append(rep.Notes, note)
-	} else {
-		fs, notes := k.specsRule(specs)
-		rep.Findings = append(rep.Findings, fs...)
-		rep.Notes = append(rep.Notes, notes...)
-	}
+	k.runDocsAndSpecRules(&rep, docsFiles, living, specs, v)
 	k.rootDocsRules(&rep, recs, ok)
 	// A drift check that read fewer files than it names says so: a clean
 	// result is otherwise no sign (IN53 of the 2026-10-27 audit).
@@ -129,6 +115,31 @@ func Run(dir string, v Vocabulary, home ...string) (Report, error) {
 	}
 	sortFindings(rep.Findings)
 	return rep, nil
+}
+
+func (k *checker) runDocsAndSpecRules(rep *Report, docsFiles []string, living, specs []brain.Record, v Vocabulary) {
+	sc := k.scanCMDFyrFlags()
+	effVocab := k.effectiveVocabulary(v, sc)
+	rep.Findings = k.docsRule(docsFiles, living, effVocab)
+	rep.Findings = append(rep.Findings, k.undocumentedFlagsRule(docsFiles, living, effVocab, v, sc)...)
+	rep.Findings = append(rep.Findings, k.contextRulesBudgetRule()...)
+	rep.Findings = append(rep.Findings, k.projectAgentsBudgetRule()...)
+	rep.Findings = append(rep.Findings, k.skillFrontmatterRule()...)
+	rep.Findings = append(rep.Findings, k.testAttributionRule(docsFiles)...)
+	styleFindings, styleNotes := k.docsStyleRule(docsFiles, living)
+	rep.Findings = append(rep.Findings, styleFindings...)
+	rep.Notes = append(rep.Notes, styleNotes...)
+	rep.Findings = append(rep.Findings, k.verificationFindings(specs)...)
+	specStruct, specNotes := specStructureFindings(specs)
+	rep.Findings = append(rep.Findings, specStruct...)
+	rep.Notes = append(rep.Notes, specNotes...)
+	if note := k.historyNote(); note != "" {
+		rep.Notes = append(rep.Notes, note)
+	} else {
+		fs, notes := k.specsRule(specs)
+		rep.Findings = append(rep.Findings, fs...)
+		rep.Notes = append(rep.Notes, notes...)
+	}
 }
 
 func firstString(s []string) string {
@@ -252,8 +263,8 @@ func (k *checker) docsRule(files []string, living []brain.Record, v Vocabulary) 
 // ruleOrder puts rule (a)'s findings first, then (b)'s, (c)'s and (d)'s.
 var ruleOrder = map[string]int{
 	"verb": 0, "subverb": 0, "flag": 0, "flag-undoc": 0,
-	"path": 0, "line": 0, "anchor": 0, "budget": 0, "frontmatter": 0, "test-ref": 0,
-	"spec-stale": 1, "spec-unlinked": 1, "requirement": 2, "trace": 3,
+	"path": 0, "line": 0, "anchor": 0, "budget": 0, "frontmatter": 0, "test-ref": 0, "docs-style": 0,
+	"spec-stale": 1, "spec-unlinked": 1, "spec-structure": 1, "requirement": 2, "trace": 3,
 }
 
 func sortFindings(fs []Finding) {

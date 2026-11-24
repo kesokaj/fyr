@@ -31,6 +31,17 @@ func TestVerificationFileNames(t *testing.T) {
 		"## After",
 		"",
 		"`gone_test.go`",
+		"",
+		"## Purpose",
+		"x",
+		"## Interfaces",
+		"x",
+		"## Data",
+		"x",
+		"## Failure modes",
+		"| M | T | O | R |",
+		"|---|---|---|---|",
+		"| a | b | c | d |",
 	}, "\n")
 	trail := trailLine(t, "SPEC-a", "spec", "current", body) +
 		trailLine(t, "SPEC-old", "spec", "retired", "## Verification\n\n`never_test.go`")

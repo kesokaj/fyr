@@ -26,6 +26,9 @@ func commit(t *testing.T, dir string, files map[string]string) {
 // specTrail is a trail holding one current spec, stamped updated.
 func specTrail(t *testing.T, id, updated, body string) string {
 	t.Helper()
+	if !strings.Contains(body, "## Purpose") {
+		body += validSpecSections
+	}
 	l := trailLine(t, id, "spec", "current", body)
 	return strings.Replace(l, `"updated":"2026-10-25T10:00:00Z"`, `"updated":"`+updated+`"`, 1)
 }

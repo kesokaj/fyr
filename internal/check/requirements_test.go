@@ -229,7 +229,7 @@ func TestRequirementsRuleFencedAndEmptyAndRetired(t *testing.T) {
 	}, "\n")
 	trail := trailLine(t, "SPEC-retired", "spec", "retired", "`internal/a.go`") +
 		trailLine(t, "ADR-002", "adr", "superseded:ADR-001", "x") +
-		trailLine(t, "SPEC-current", "spec", "current", "`internal/a.go`") +
+		trailLine(t, "SPEC-current", "spec", "current", "`internal/a.go`"+validSpecSections) +
 		trailLine(t, "ADR-001", "adr", "accepted", "x")
 	dir := repo(t, map[string]string{
 		"PRD.md":              prd,

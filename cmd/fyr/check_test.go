@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"os"
 	"os/exec"
@@ -330,4 +331,78 @@ func TestVocabularyMetricsRecordRunFlags(t *testing.T) {
 			t.Errorf("metrics flag --%s is not mapped to any metrics subverb", f)
 		}
 	}
+}
+
+func TestCheckDocsStyleBudgetAndSpecStructureCLI(t *testing.T) {
+	home := t.TempDir()
+	specJSON := func(id, body string) string {
+		b, err := json.Marshal(map[string]string{
+			"date": "2026-11-24", "id": id, "kind": "spec", "status": "current",
+			"title": id, "updated": "2026-11-24T10:00:00Z", "body": body,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b) + "\n"
+	}
+
+	t.Run("findings_text_and_json", func(t *testing.T) {
+		checkRepo(t, map[string]string{
+			"internal/a.go": "package a\n", "README.md": "A seamless workflow.\n",
+			"AGENTS.md": strings.Repeat("a", 4501), ".agents/trail.jsonl": specJSON("SPEC-bad", "Code `internal/a.go`.\n"),
+		})
+		out, errOut, code := checkCmd(t, "--home", home)
+		if code != 1 || errOut != "" {
+			t.Fatalf("text check: exit %d, stderr %q, out:\n%s", code, errOut, out)
+		}
+		for _, want := range []string{
+			"AGENTS.md  budget  AGENTS.md is 4501 bytes, over the 4500-byte ceiling",
+			"README.md:1  docs-style  ", "SPEC-bad  spec-structure  ",
+			"check: 3 findings (docs 2, specs 1, requirements 0, traces 0);",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("text output missing %q:\n%s", want, out)
+			}
+		}
+		jout, jerr, jcode := checkCmd(t, "--json", "--home", home)
+		var rep checkReportJSON
+		if jcode != 1 || jerr != "" || json.Unmarshal([]byte(jout), &rep) != nil {
+			t.Fatalf("json check: exit %d, stderr %q, out:\n%s", jcode, jerr, jout)
+		}
+		if rep.OK || rep.Counts.Total != 3 || rep.Counts.Docs != 2 || rep.Counts.Specs != 1 {
+			t.Errorf("json counts = %+v (ok=%v), want total=3 docs=2 specs=1", rep.Counts, rep.OK)
+		}
+		rules := map[string]bool{}
+		for _, f := range rep.Findings {
+			rules[f.Rule] = true
+		}
+		for _, want := range []string{"docs-style", "budget", "spec-structure"} {
+			if !rules[want] {
+				t.Errorf("json findings missing rule %q: %+v", want, rep.Findings)
+			}
+		}
+	})
+
+	t.Run("advisory_notes_exit_0_text_and_json", func(t *testing.T) {
+		specBody := "Code `internal/a.go`.\n## Purpose\nx\n## Interfaces\nx\n## Data\nx\n## Failure modes\nProse only.\n## Verification\nx\n"
+		longLine := "This prose sentence intentionally exceeds twenty five words by adding many extra words and clauses to trigger the advisory style note without causing a hard error.\n"
+		checkRepo(t, map[string]string{
+			"internal/a.go": "package a\n", "README.md": longLine + "Use whitelist here.\n",
+			".agents/glossary.json": `{"whitelist":"allowlist"}`, ".agents/trail.jsonl": specJSON("SPEC-ok", specBody),
+		})
+		out, errOut, code := checkCmd(t, "--home", home)
+		if code != 0 || errOut != "" || !strings.Contains(out, "check: 0 findings (docs 0, specs 0, requirements 0, traces 0);") {
+			t.Fatalf("advisory text check: exit %d, stderr %q, out:\n%s", code, errOut, out)
+		}
+		for _, want := range []string{"note: docs-style-note:", "allowlist", "4-column"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("advisory text output missing %q:\n%s", want, out)
+			}
+		}
+		jout, jerr, jcode := checkCmd(t, "--json", "--home", home)
+		var rep checkReportJSON
+		if jcode != 0 || jerr != "" || json.Unmarshal([]byte(jout), &rep) != nil || !rep.OK || rep.Counts.Total != 0 || len(rep.Notes) < 3 {
+			t.Fatalf("advisory json: exit %d, stderr %q, rep=%+v\n%s", jcode, jerr, rep, jout)
+		}
+	})
 }

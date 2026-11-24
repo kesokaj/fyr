@@ -329,7 +329,7 @@ func verifyWorkerTurn3AndSandbox(t *testing.T, proj, home string) {
 	}
 	replaceInFile(t, filepath.Join(proj, "PRD.md"), "TestNextDelay, internal/processor/retry.go::NextDelay", "TestBackoffDuration, internal/processor/retry.go::BackoffDuration")
 	replaceInFile(t, filepath.Join(proj, "TDD.md"), "TestNextDelay", "TestBackoffDuration")
-	if _, errOut, code := fyrCLI(t, "Status: current\n\n`POST /v1/events` uses `internal/processor/retry.go` (`BackoffDuration(attempt int) time.Duration`).\n", "record", "edit", "SPEC-worker-api", "--body", "-C", proj, "--home", home); code != 0 {
+	if _, errOut, code := fyrCLI(t, "Status: current\n\n## Purpose\n\nDispatch `/v1/events` jobs and compute retry backoff.\n\n## Interfaces\n\n`POST /v1/events` uses `internal/processor/retry.go` (`BackoffDuration(attempt int) time.Duration`).\n\n## Data\n\n- Queue state lives in PostgreSQL (`SKIP LOCKED`).\n\n## Failure modes\n\n| Trigger | Observable result | Retry | Action |\n|---|---|---|---|\n| Attempt over 10 | Backoff capped at 1024ms | 0 | Clamp attempt to 10 |\n\n## Verification\n\nRun `go test ./...`.\n", "record", "edit", "SPEC-worker-api", "--body", "-C", proj, "--home", home); code != 0 {
 		t.Fatalf("record edit SPEC-worker-api: %s", errOut)
 	}
 	if _, errOut, code := fyrCLI(t, "", "record", "export", "-C", proj, "--home", home); code != 0 {

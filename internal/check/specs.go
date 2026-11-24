@@ -159,3 +159,68 @@ func lineSpecRefs(l string) []string {
 func isSpecIDChar(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_' || b == '-'
 }
+
+var requiredSpecHeadings = []string{"Purpose", "Interfaces", "Data", "Failure modes", "Verification"}
+
+// specStructureFindings checks every current SPEC-* record (even on shallow
+// clones) for required ATX ## headings and emits an advisory note when
+// ## Failure modes exists without a 4-column Markdown table (ADR-535).
+func specStructureFindings(specs []brain.Record) (out []Finding, notes []string) {
+	for _, r := range specs {
+		missing, failFrom, failTo := inspectSpecStructure(r.Body)
+		if len(missing) > 0 {
+			out = append(out, Finding{
+				Where: r.ID,
+				Rule:  "spec-structure",
+				Text:  "missing required ## headings: " + strings.Join(missing, ", "),
+			})
+		}
+		if failFrom > 0 && !hasFourColTable(r.Body, failFrom, failTo) {
+			notes = append(notes, fmt.Sprintf("%s: ## Failure modes lacks a 4-column Markdown table", r.ID))
+		}
+	}
+	return out, notes
+}
+
+func inspectSpecStructure(body string) (missing []string, failFrom, failTo int) {
+	seen := map[string]bool{}
+	failTo = 1 << 30
+	unfenced(body, func(n int, l string) bool {
+		m := atxHeadingRe.FindStringSubmatch(l)
+		if m == nil || len(m[1]) != 2 {
+			return true
+		}
+		title := strings.ToLower(stripTrailingHashes(strings.TrimSpace(m[2])))
+		seen[title] = true
+		switch {
+		case failFrom == 0 && title == "failure modes":
+			failFrom = n + 1
+		case failFrom > 0 && failTo == 1<<30:
+			failTo = n
+		}
+		return true
+	})
+	for _, h := range requiredSpecHeadings {
+		if !seen[strings.ToLower(h)] {
+			missing = append(missing, h)
+		}
+	}
+	if failFrom == 0 {
+		failTo = 0
+	}
+	return missing, failFrom, failTo
+}
+
+func hasFourColTable(body string, from, to int) bool {
+	rawLines := splitNormalizedLines(body)
+	fenced, _ := scanFences(rawLines)
+	for i := from - 1; i+1 < len(rawLines) && i+2 < to; i++ {
+		if fenced[i] || fenced[i+1] {
+			continue
+		}
+		if tableColCount(rawLines[i]) == 4 && isTableSeparator(rawLines[i+1]) && tableColCount(rawLines[i+1]) == 4 {
+			return true
+		}
+	}
+	return false
+}
