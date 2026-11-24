@@ -60,7 +60,7 @@ func (k *checker) readFile(name string) ([]byte, error) {
 // the name: what was swapped in after readFile's Lstat is refused unless it
 // is a regular file of at most maxLineRead bytes.
 func (k *checker) openRegular(name string) (*os.File, error) {
-	f, err := k.root.OpenFile(name, os.O_RDONLY|nonBlock, 0)
+	f, err := k.root.OpenFile(name, os.O_RDONLY|nonBlock|noFollow, 0)
 	if err != nil {
 		return nil, err
 	}

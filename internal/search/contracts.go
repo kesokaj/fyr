@@ -127,6 +127,9 @@ func isUnexportedIdent(name string) bool {
 }
 
 func matchContractSymbols(exported []RankedSymbol, raw, norm, dirPrefix string) []RankedSymbol {
+	if raw == "." || raw == "./" || norm == "." {
+		return filterNonTestSyms(exported)
+	}
 	if norm != "" && !strings.HasSuffix(norm, "/") {
 		if exact := filterSymsByPath(exported, norm, false); len(exact) > 0 {
 			return exact

@@ -2,6 +2,9 @@
 
 package check
 
-// nonBlock is no flag where O_NONBLOCK does not exist; the release targets
-// are unix (DEPLOY-remote § Releases).
-const nonBlock = 0
+// nonBlock and noFollow are zero where O_NONBLOCK/O_NOFOLLOW do not exist;
+// the release targets are unix (DEPLOY-remote § Releases).
+const (
+	nonBlock = 0
+	noFollow = 0
+)

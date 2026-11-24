@@ -16,10 +16,12 @@ import (
 )
 
 const (
-	steProseWordLimit = 25
-	steListWordLimit  = 20
-	stePassTargetPct  = 80
-	maxGlossaryBytes  = 64 << 10
+	steProseWordLimit       = 25
+	steListWordLimit        = 20
+	stePassTargetPct        = 80
+	maxGlossaryBytes        = 64 << 10
+	maxGlossaryEntries      = 512
+	maxGlossaryNotesPerFile = 50
 )
 
 var (
@@ -31,7 +33,7 @@ var (
 	ruleLineRe   = regexp.MustCompile(`^\s*(?:[-*_]\s*){3,}$`)
 )
 
-type glossaryEntry struct{ forbidden, preferred string }
+type glossaryEntry struct{ forbidden, forbiddenLow, preferred string }
 
 func steSentenceNote(where string, rawLines []string, fenced []bool) string {
 	pass, total := scoreSTEFile(rawLines, fenced)
@@ -179,11 +181,15 @@ func (k *checker) loadGlossary() ([]glossaryEntry, string) {
 	}
 	entries := make([]glossaryEntry, 0, len(raw))
 	for forbidden, preferred := range raw {
-		if strings.TrimSpace(forbidden) != "" {
-			entries = append(entries, glossaryEntry{forbidden, preferred})
+		if norm := strings.ToLower(strings.TrimSpace(forbidden)); norm != "" {
+			entries = append(entries, glossaryEntry{forbidden, norm, preferred})
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].forbidden < entries[j].forbidden })
+	if len(entries) > maxGlossaryEntries {
+		note := fmt.Sprintf("docs-style-note: .agents/glossary.json has %d entries; checking first %d only", len(entries), maxGlossaryEntries)
+		return entries[:maxGlossaryEntries], note
+	}
 	return entries, ""
 }
 
@@ -216,7 +222,7 @@ func (k *checker) readGlossaryBytes() ([]byte, bool, string) {
 }
 
 func (k *checker) openAndReadGlossary(rel string) ([]byte, bool, string) {
-	f, err := k.root.OpenFile(rel, os.O_RDONLY|nonBlock, 0)
+	f, err := k.root.OpenFile(rel, os.O_RDONLY|nonBlock|noFollow, 0)
 	if err != nil {
 		return nil, true, err.Error()
 	}
@@ -244,9 +250,13 @@ func glossaryNotes(where, text string, entries []glossaryEntry) []string {
 	}
 	var out []string
 	unfenced(text, func(n int, l string) bool {
-		masked := maskProseLine(l)
+		low := strings.ToLower(maskProseLine(l))
 		for _, e := range entries {
-			if hasWordTerm(masked, e.forbidden) {
+			if hasWordTermLower(low, e.forbiddenLow) {
+				if len(out) >= maxGlossaryNotesPerFile {
+					out = append(out, fmt.Sprintf("docs-style-note: %s: glossary notes capped at %d", where, maxGlossaryNotesPerFile))
+					return false
+				}
 				out = append(out, fmt.Sprintf("docs-style-note: %s:%d: glossary prefers %q over %q", where, n, e.preferred, e.forbidden))
 			}
 		}

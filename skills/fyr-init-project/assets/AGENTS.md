@@ -41,4 +41,4 @@ Local only: `fyr record get DEPLOY-local` (remote: `DEPLOY-remote`; GCP defaults
 
 - Contracts (Track 3): `PRD.md` (requirements), `TODO.md` (active queue), `fyr record list --kind spec` (`SPEC-*`).
 - Human docs (Track 1): `README.md`, `SDD.md`, `TDD.md`, `GUIDE-testing`, `DEPLOY-*`.
-- Trail & code discovery: `fyr record list --kind adr`, `fyr search --slice` / `--skeleton` / `--refs`; scratch under `.agents/scratch/` (never `/tmp`).
+- Trail & code discovery: `fyr record list --kind adr`, `fyr search --slice` / `--contracts` / `--skeleton` / `--refs`; scratch under `.agents/scratch/` (never `/tmp`).

@@ -115,12 +115,15 @@ func yamlFrontmatterFinding(where string, rawLines []string) (Finding, bool) {
 
 func unfoldedTableFindings(where string, rawLines []string, fenced []bool) []Finding {
 	var out []Finding
-	detailsDepth := 0
+	detailsDepth, inComment := 0, false
 	for i := 0; i < len(rawLines); i++ {
 		if fenced[i] {
 			continue
 		}
-		detailsDepth = updateDetailsDepth(rawLines[i], detailsDepth)
+		masked, _ := lineCodeSpans(rawLines[i])
+		var clean string
+		clean, inComment = stripHTMLComments(masked, inComment)
+		detailsDepth = updateDetailsDepth(clean, detailsDepth)
 		if i+1 >= len(rawLines) || fenced[i+1] || tableColCount(rawLines[i]) == 0 || !isTableSeparator(rawLines[i+1]) {
 			continue
 		}
@@ -137,9 +140,31 @@ func unfoldedTableFindings(where string, rawLines []string, fenced []bool) []Fin
 	return out
 }
 
-func updateDetailsDepth(line string, depth int) int {
-	masked, _ := lineCodeSpans(line)
-	low := strings.ToLower(masked)
+func stripHTMLComments(line string, inComment bool) (string, bool) {
+	var b strings.Builder
+	for i := 0; i < len(line); {
+		if inComment {
+			if end := strings.Index(line[i:], "-->"); end >= 0 {
+				i += end + 3
+				inComment = false
+				continue
+			}
+			return b.String(), true
+		}
+		if start := strings.Index(line[i:], "<!--"); start >= 0 {
+			b.WriteString(line[i : i+start])
+			i += start + 4
+			inComment = true
+			continue
+		}
+		b.WriteString(line[i:])
+		break
+	}
+	return b.String(), inComment
+}
+
+func updateDetailsDepth(clean string, depth int) int {
+	low := strings.ToLower(clean)
 	for i := 0; i < len(low); i++ {
 		if low[i] != '<' {
 			continue
@@ -264,9 +289,9 @@ func hasRecentCautionCallout(lines []string, fenced []bool, openIdx int) bool {
 func bannedWordFindings(where, text string) []Finding {
 	var out []Finding
 	unfenced(text, func(n int, l string) bool {
-		masked := maskProseLine(l)
+		low := strings.ToLower(maskProseLine(l))
 		for _, term := range bannedFluffTerms {
-			if hasWordTerm(masked, term) {
+			if hasWordTermLower(low, term) {
 				out = append(out, Finding{where, n, "docs-style", fmt.Sprintf("banned fluff or Latin abbreviation %q in Track 1 prose", term)})
 			}
 		}
@@ -296,8 +321,7 @@ func maskProseLine(l string) string {
 	return string(buf)
 }
 
-func hasWordTerm(masked, term string) bool {
-	low, needle := strings.ToLower(masked), strings.ToLower(strings.TrimSpace(term))
+func hasWordTermLower(low, needle string) bool {
 	if needle == "" {
 		return false
 	}

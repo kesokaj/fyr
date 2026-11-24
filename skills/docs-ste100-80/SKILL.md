@@ -12,7 +12,7 @@ Use ASD-STE100 as a pragmatic target (~80% adherence) for human-facing docs (Tra
 
 | Track | Audience & files | Style & contract |
 |---|---|---|
-| Track 1 — Human Docs | Humans: `README.md`, `SDD.md`, `TDD.md`, `docs/**/*.md`, `GUIDE-*`, `DEPLOY-*` | ASD-STE100 (~80%): short active prose, BLUF, safety callouts, visual caps (`<= 12` Mermaid nodes, `<details>` for `> 12` rows), no YAML frontmatter |
+| Track 1 — Human Docs | Humans: `README.md`, `SDD.md`, `TDD.md`, `Workflow.md`, `docs/**/*.md`, `features/**/*.md`, `GUIDE-*`, `DEPLOY-*` | ASD-STE100 (~80%): short active prose, BLUF, safety callouts, visual caps (`<= 12` Mermaid nodes, `<details>` for `> 12` rows), no YAML frontmatter |
 | Track 2 — Agent-Read | 100% agent-read: `AGENTS.md`, `context/*.md`, `rules/*.md`, `skills/*/SKILL.md`, `agents/*/agent.md` | Telegraphic Markdown (`<= 4,500 B` for project `AGENTS.md`); non-discoverable operational commands and boundaries only; no human onboarding prose or directory-tree dumps |
 | Track 3 — Shared Contracts | Human + agent: `PRD.md`, `TODO.md`, `SPEC-*`, `PLAN-*` | Structured Markdown + machine-projectable `SPEC-*` sections (`Purpose`, `Interfaces`, `Data`, `Failure modes`, `Verification`); never edit `PRD.md` without explicit operator approval |
 | Track 4 — Ephemeral Deterministic Projections | On-demand agent capsules (not committed) | On-demand AST & contract projections (`fyr search --slice` / `--contracts` / `--skeleton`); never hand-maintained as static prose |
@@ -36,7 +36,7 @@ Use ASD-STE100 as a pragmatic target (~80% adherence) for human-facing docs (Tra
 
 ## Auditing a Docset (`--audit`)
 
-- **Scope Track 1 living docs and Track 3 spec structure only:** Audit `README.md`, `SDD.md`, `TDD.md`, `docs/**/*.md`, and current `guide`, `deploy`, and `spec` records (`fyr record list --kind <kind>`). Exclude Track 2 agent files from human-prose STE rewriting (check `AGENTS.md` for `<= 4,500 B` budget and Setup/Deploy command parity only). Never edit `PRD.md` without explicit operator approval or audit Track 5 immutable trail records (`change`, `adr`, `handoff`, `review`, `retro`, `bug`, `testing`).
+- **Scope Track 1 living docs and Track 3 spec structure only:** Audit `README.md`, `SDD.md`, `TDD.md`, `Workflow.md`, `docs/**/*.md`, `features/**/*.md`, and current `guide`, `deploy`, and `spec` records (`fyr record list --kind <kind>`). Exclude Track 2 agent files from human-prose STE rewriting (check `AGENTS.md` for `<= 4,500 B` budget and Setup/Deploy command parity only). Never edit `PRD.md` without explicit operator approval or audit Track 5 immutable trail records (`change`, `adr`, `handoff`, `review`, `retro`, `bug`, `testing`).
 - **Log findings in scratch:** Write findings (`path:line`, category, fix) to `.agents/scratch/docs-audit-<YYYY-MM-DD>.md` (date via `date +%F`; never `/tmp`).
 - **Stage `brain.db` records cleanly:** Export each living record (`fyr record get <ID> --out .agents/scratch/<ID>.md`), edit in place without YAML frontmatter, and save back (`fyr record edit <ID> --body-file .agents/scratch/<ID>.md`).
 

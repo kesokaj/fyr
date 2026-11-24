@@ -143,8 +143,9 @@ func TestInitProjectAudienceSplit(t *testing.T) {
 			"README.md",
 			"## Setup commands",
 			"## Deploy",
+			"--contracts",
 		},
-		[]string{"--contracts", "e.g.", "i.e."},
+		[]string{"e.g.", "i.e."},
 	)
 	if len(agents) > 4500 {
 		t.Errorf("%sAGENTS.md is %d B, want <= 4500 B", dir, len(agents))
@@ -162,12 +163,12 @@ func TestInitProjectAudienceSplit(t *testing.T) {
 			"> 12",
 			"AGENTS.md",
 		},
-		[]string{"--contracts", "e.g.", "i.e.", "etc.", "seamless", "foundational", "zero-ops"},
+		[]string{"e.g.", "i.e.", "etc.", "seamless", "foundational", "zero-ops"},
 	)
 
 	assertDocContains(t, dir+"TODO.md",
 		[]string{"Track 3", "shared", "human", "agent"},
-		[]string{"--contracts"},
+		nil,
 	)
 
 	spec := assertDocContains(t, dir+"records/SPEC-TEMPLATE.md",
@@ -192,7 +193,7 @@ func TestInitProjectAudienceSplit(t *testing.T) {
 
 func checkInitProjectTrack1Records(t *testing.T, recDir string) {
 	t.Helper()
-	banned := []string{"e.g.", "i.e.", "etc.", "seamless", "foundational", "zero-ops", "--contracts"}
+	banned := []string{"e.g.", "i.e.", "etc.", "seamless", "foundational", "zero-ops"}
 	for _, name := range []string{"GUIDE-testing.md", "DEPLOY-local.md", "DEPLOY-remote.md", "DEPLOY-gcp.md"} {
 		assertDocContains(t, recDir+name, nil, banned)
 	}

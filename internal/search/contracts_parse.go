@@ -163,7 +163,9 @@ func splitPipeCells(line string) []string {
 		return nil
 	}
 	t = strings.TrimPrefix(t, "|")
-	t = strings.TrimSuffix(t, "|")
+	if strings.HasSuffix(t, "|") && !hasTrailingOddBackslashes(t[:len(t)-1]) {
+		t = t[:len(t)-1]
+	}
 	var cells []string
 	var cur strings.Builder
 	for i := 0; i < len(t); i++ {
@@ -181,6 +183,14 @@ func splitPipeCells(line string) []string {
 	}
 	cells = append(cells, strings.TrimSpace(cur.String()))
 	return cells
+}
+
+func hasTrailingOddBackslashes(s string) bool {
+	n := 0
+	for i := len(s) - 1; i >= 0 && s[i] == '\\'; i-- {
+		n++
+	}
+	return n%2 == 1
 }
 
 func isPipeTableSeparator(line string, cols int) bool {

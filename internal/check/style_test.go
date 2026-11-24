@@ -1,10 +1,12 @@
 package check
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const validSpecSections = "\n\n## Purpose\n\nOk.\n\n## Interfaces\n\nOk.\n\n## Data\n\nOk.\n\n## Failure modes\n\n| Mode | Trigger | Behavior | Recovery |\n|---|---|---|---|\n| err | bad | fail | retry |\n\n## Verification\n\nOk.\n"
@@ -87,6 +89,53 @@ func testStyleMermaidCap(t *testing.T) {
 		t.Fatal("could not locate README.md delivery map section")
 	}
 	same(t, run(t, repo(t, map[string]string{"README.md": txt[s:e]})).Findings)
+
+	// Non-flowchart Mermaid diagrams (erDiagram, classDiagram, xychart-beta, pie, gantt)
+	// with > 12 alphanumeric tokens must not be parsed as flowcharts or hard-fail docs-style.
+	otherMermaid := strings.Join([]string{
+		"```mermaid",
+		"erDiagram",
+		"  ORDER ||--o{ LINE_ITEM : contains",
+		"  ORDER {",
+		"    string id",
+		"    string customer_id",
+		"    string status",
+		"    int total_cents",
+		"    string currency",
+		"    string created_at",
+		"    string updated_at",
+		"    string shipped_at",
+		"  }",
+		"```",
+		"```mermaid",
+		"classDiagram",
+		"  class Engine {",
+		"    +string id",
+		"    +string name",
+		"    +int retries",
+		"    +Start() error",
+		"    +Stop() error",
+		"    +Status() string",
+		"    +Reload() error",
+		"  }",
+		"```",
+		"```mermaid",
+		"pie title Share of Tokens",
+		"  \"A1\" : 10", "\"B2\" : 10", "\"C3\" : 10", "\"D4\" : 10", "\"E5\" : 10", "\"F6\" : 10", "\"G7\" : 10",
+		"```",
+	}, "\n") + "\n"
+	same(t, run(t, repo(t, map[string]string{"README.md": otherMermaid})).Findings)
+
+	// Adversarial repeated "-- " tokens without a closer must scan in linear O(N) time.
+	advLine := "  A " + strings.Repeat("-- ", 40000) + "B"
+	start := time.Now()
+	got := countMermaidNodes([]string{"flowchart LR", advLine})
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Errorf("countMermaidNodes on 40k unclosed '-- ' tokens took %v (quadratic regression)", elapsed)
+	}
+	if got != 2 {
+		t.Errorf("countMermaidNodes adversarial line = %d, want 2", got)
+	}
 }
 
 func makeTable(rows int) string {
@@ -98,6 +147,8 @@ func testStyleTableCap(t *testing.T) {
 	same(t, run(t, repo(t, map[string]string{"README.md": "# Doc\n\n<details>\n<summary>Big</summary>\n\n" + makeTable(15) + "\n</details>\n"})).Findings)
 	same(t, run(t, repo(t, map[string]string{"README.md": "# Doc\n\n" + makeTable(13)})).Findings, "README.md:3 docs-style")
 	same(t, run(t, repo(t, map[string]string{"README.md": "# Doc\n\nUse `<details>` around large tables.\n\n" + makeTable(13)})).Findings, "README.md:5 docs-style")
+	same(t, run(t, repo(t, map[string]string{"README.md": "# Doc\n\n<!-- <details> -->\n\n" + makeTable(13)})).Findings, "README.md:5 docs-style")
+	same(t, run(t, repo(t, map[string]string{"README.md": "# Doc\n\n<!-- comment\n<details>\n-->\n\n" + makeTable(13)})).Findings, "README.md:7 docs-style")
 }
 
 func testStyleDestructiveCallout(t *testing.T) {
@@ -216,6 +267,30 @@ func testStyleGlossaryJSON(t *testing.T) {
 		if n := notes(r); !strings.Contains(n, "docs-style-note") || !strings.Contains(n, "symlink") || strings.Contains(n, "allowlist") {
 			t.Errorf("%s: unexpected notes: %q", name, n)
 		}
+	}
+
+	// Entry cap (> 512 entries) and per-file note cap (> 50 matches) bound CPU and output.
+	var gBuf strings.Builder
+	gBuf.WriteString("{")
+	for i := 0; i < 600; i++ {
+		if i > 0 {
+			gBuf.WriteString(",")
+		}
+		fmt.Fprintf(&gBuf, "\"term%04d\":\"pref%04d\"", i, i)
+	}
+	gBuf.WriteString("}")
+	var docBuf strings.Builder
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&docBuf, "Use term%04d here.\n", i)
+	}
+	capped := run(t, repo(t, map[string]string{".agents/glossary.json": gBuf.String(), "README.md": docBuf.String()}))
+	same(t, capped.Findings)
+	cappedNotes := notes(capped)
+	if !strings.Contains(cappedNotes, "checking first 512 only") || !strings.Contains(cappedNotes, "glossary notes capped at 50") {
+		t.Errorf("expected entry and note cap warnings, got: %q", cappedNotes)
+	}
+	if len(capped.Notes) > 55 {
+		t.Errorf("expected bounded notes, got %d", len(capped.Notes))
 	}
 }
 

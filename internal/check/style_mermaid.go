@@ -49,8 +49,10 @@ func countMermaidNodes(lines []string) int {
 		return countSequenceNodes(lines)
 	case strings.HasPrefix(kind, "statediagram"):
 		return countStateNodes(lines)
-	default:
+	case strings.HasPrefix(kind, "flowchart") || kind == "graph":
 		return countFlowchartNodes(lines)
+	default:
+		return 0
 	}
 }
 
@@ -181,10 +183,11 @@ func countFlowchartNodes(lines []string) int {
 }
 
 func scanFlowchartNodes(l string, nodes map[string]bool) {
+	var noClose map[string]bool
 	for i := 0; i < len(l); {
 		if l[i] == ' ' || l[i] == '\t' || l[i] == ';' || l[i] == '&' {
 			i++
-		} else if next := skipFlowchartEdge(l, i); next > i {
+		} else if next := skipFlowchartEdge(l, i, &noClose); next > i {
 			i = next
 		} else if end := readNodeID(l, i); end > i {
 			if id := l[i:end]; !mermaidSkipKeywords[strings.ToLower(id)] {
@@ -252,7 +255,7 @@ func skipBalancedShape(s string, i int, open, closeCh byte) int {
 	return len(s)
 }
 
-func skipFlowchartEdge(s string, i int) int {
+func skipFlowchartEdge(s string, i int, noClose *map[string]bool) int {
 	if s[i] == '|' {
 		if end := strings.IndexByte(s[i+1:], '|'); end >= 0 {
 			return i + end + 2
@@ -284,13 +287,20 @@ func skipFlowchartEdge(s string, i int) int {
 			return j + end + 2
 		}
 	}
-	if cls := edgeClosers[s[i:j]]; len(cls) > 0 && j < len(s) && (s[j] == ' ' || s[j] == '\t') {
-		return findEdgeTextClose(s, j, cls)
+	tok := s[i:j]
+	if cls := edgeClosers[tok]; len(cls) > 0 && j < len(s) && (s[j] == ' ' || s[j] == '\t') && !(*noClose)[tok] {
+		if end, ok := findEdgeTextClose(s, j, cls); ok {
+			return end
+		}
+		if *noClose == nil {
+			*noClose = make(map[string]bool, len(edgeClosers))
+		}
+		(*noClose)[tok] = true
 	}
 	return j
 }
 
-func findEdgeTextClose(s string, start int, closers []string) int {
+func findEdgeTextClose(s string, start int, closers []string) (int, bool) {
 	inQuote := false
 	for i := start; i < len(s); i++ {
 		if s[i] == '"' {
@@ -298,10 +308,10 @@ func findEdgeTextClose(s string, start int, closers []string) int {
 		} else if !inQuote {
 			for _, cl := range closers {
 				if strings.HasPrefix(s[i:], cl) {
-					return i + len(cl)
+					return i + len(cl), true
 				}
 			}
 		}
 	}
-	return start
+	return start, false
 }

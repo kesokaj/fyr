@@ -442,29 +442,8 @@ func makeBrainSpecBodies(tc *turnBrainCache) func(dir, home string, paths []stri
 		if !ok {
 			return nil
 		}
-		return buildSpecContractSources(specs, tc.turnOrLoadedRecords(dir, home), paths)
+		return buildSpecContractSources(specs, tc.records(dir, home), paths)
 	}
-}
-
-func (tc *turnBrainCache) turnOrLoadedRecords(dir, homeOverride string) []brain.Record {
-	key := canonicalCacheDir(dir) + "|" + tc.resolveHome(homeOverride)
-	tc.mu.Lock()
-	if recs, ok := tc.byDir[key]; ok {
-		tc.mu.Unlock()
-		return recs
-	}
-	var bestKey string
-	var bestRecs []brain.Record
-	for qk, cd := range tc.turnByQuery {
-		if strings.HasPrefix(qk, key+"|") && (bestKey == "" || qk < bestKey) {
-			bestKey, bestRecs = qk, cd.recs
-		}
-	}
-	tc.mu.Unlock()
-	if bestKey != "" {
-		return bestRecs
-	}
-	return tc.records(dir, homeOverride)
 }
 
 func (tc *turnBrainCache) currentSpecs(dir, homeOverride string) ([]brain.Record, bool) {
@@ -493,24 +472,12 @@ func loadCurrentSpecsFromStoreCtx(ctx context.Context, dir, home string) ([]brai
 		return nil, ctx.Err()
 	}
 	if home != "" {
-		if st, err := os.Stat(brain.Path(home)); err == nil && st.Mode().IsRegular() {
-			type specRes struct {
-				recs []brain.Record
-				err  error
-			}
-			ch := make(chan specRes, 1)
-			go func() {
-				recs, err := brain.List(brain.Options{Home: home, Dir: dir}, brain.ListFilter{Kind: "spec", Open: true})
-				ch <- specRes{recs: recs, err: err}
-			}()
-			select {
-			case res := <-ch:
-				if res.err == nil && len(res.recs) > 0 {
-					return filterCurrentSpecs(res.recs), nil
-				}
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
+		recs, err := brain.ListCurrentSpecsCtx(ctx, brain.Options{Home: home, Dir: dir})
+		if err != nil {
+			return nil, err
+		}
+		if len(recs) > 0 {
+			return recs, nil
 		}
 	}
 	if ctx != nil && ctx.Err() != nil {
