@@ -2,37 +2,53 @@
 
 Status: draft
 
-<!-- Status: draft (being written) | agreed (the user said yes to this text). The record's own status is current; a spec no longer true is retired (`fyr record edit <ID> --status retired`). -->
-<!-- One topic per file: an integration, a storage format, a CLI surface, a protocol. Keep it to what a reader needs to build or check the thing; the plan holds the phases, the ADR holds the why. -->
+<!-- Track 3: shared human + agent surface contract (machine-projectable). No YAML frontmatter.
+     Status: draft (being written) | agreed (the user approved this text). Record status is current;
+     retire superseded or obsolete specs (`fyr record edit <ID> --status retired`).
+     One topic per record: an integration, storage format, CLI surface, or protocol.
+     Required headings for consistent review and structured tooling:
+     Purpose, Interfaces, Data, Failure modes (4-column table), Verification. -->
 
 ## Purpose
 
-<!-- Two or three sentences: who uses this surface, for what, and what it is not. -->
+<!-- BLUF (1-3 active sentences): who calls this surface, what it does, and what it is not. -->
 
 ## Interfaces
 
-<!-- Request and response shapes, flags, config keys, environment variables — concrete enough that two implementers converge. One fenced block per shape; a table for flags and keys (name, type, default, meaning). -->
+<!-- Concrete shapes, signatures, flags, config keys, or environment variables so two implementers converge.
+     Put each signature or wire shape in its own fenced block; use a Markdown table for flags/keys (fold > 12 rows in <details>). -->
+
+```text
+<signature, command, or wire shape>
+```
 
 ## Compatibility
 
-<!-- Who consumes this surface today, and whether a change to it is additive; a breaking change names its migration. -->
+<!-- Who consumes this surface today, whether changes are additive, and the migration path for any breaking change. -->
 
 ## Data
 
-<!-- Schemas, tables, files, and the invariants that must hold (uniqueness, ordering, what is immutable). Name the migration or the writer that owns each. -->
+<!-- Schemas, tables, files, and invariants as concise bullets (uniqueness, ordering, immutability, owning writer/migration). -->
+
+- `<store or schema>`: <invariant and owning writer>
 
 ## Failure modes
 
-<!-- What the caller sees when each part fails: status, error body, exit code, log line. Each row names the trigger and the observable result. -->
+<!-- What callers observe on each failure. Keep the 4-column header below so reviewers and structured tooling read failure contracts consistently. -->
+
+| Trigger | Observable result | Retry | Action |
+|---|---|---|---|
+| `<failure condition>` | `<HTTP status / exit code / error body / log line>` | `<yes / no / backoff>` | `<caller or operator recovery step>` |
 
 ## Non-goals
 
-<!-- What this surface deliberately does not do, so a later reader does not add it by accident. -->
+<!-- What this surface deliberately excludes so later readers do not add it by accident. -->
 
 ## Open questions
 
-<!-- Each as a line ending in the default the implementer takes until the user answers; delete the line when it is settled and record the answer where it belongs (Interfaces, Data, or an ADR). -->
+<!-- One line per open gap ending in the default taken until answered; delete once settled and move the answer to Interfaces, Data, or an ADR. -->
 
 ## Verification
 
-<!-- How a reader checks this spec against the code: the test files that pin each interface, the command that exercises each failure mode, the fixture the data invariants are checked on. A section the code cannot be checked against is design, not spec. -->
+<!-- Test files, test names, fixtures, and commands that pin every interface, data invariant, and failure mode.
+     A section nothing can verify is design, not spec: move it to a plan or ADR. -->

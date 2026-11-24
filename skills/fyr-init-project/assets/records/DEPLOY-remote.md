@@ -1,10 +1,14 @@
 # Deploy — remote machine
 
-A Linux box or VM reached over SSH, used only on the user's explicit request. Access details (host, user, key) come from the user and are never assumed, guessed, or committed; record aliases here, never credentials.
+<!-- Track 1: human-first documentation (docs-ste100-80). No YAML frontmatter. -->
+
+Deploy this project to a Linux host or VM over SSH only when the operator requests it. Record host aliases here from operator input; never assume, guess, or commit credentials.
 
 **Not applicable yet:** this project has no remote target. Delete this line and fill the sections when it gets one.
 
 ## Target
+
+Record the remote host parameters confirmed by the operator.
 
 | Item | Value |
 |---|---|
@@ -15,12 +19,15 @@ A Linux box or VM reached over SSH, used only on the user's explicit request. Ac
 
 ## Prerequisites on the target
 
-<!-- Runtime, service manager (systemd unit name), firewall ports, log location. -->
+<!-- Runtime, service manager (systemd unit name), firewall ports, and log location. -->
 
 ## Procedure
 
-<!-- Build locally for the target's architecture, copy the artifact, install, restart, in the exact commands. -->
-<!-- Container/compose or static SPA option: replace the Go scp block below with `docker compose pull && docker compose up -d` over SSH, or build (`npm run build`) and sync `dist/` assets to the target host/object store. -->
+Build the Linux artifact locally, copy it to the target host, and swap it into place.
+
+<!-- Container/compose or static SPA option: replace the Go scp block below with `docker compose pull && docker compose up -d` over SSH, or build (`npm run build`) and sync `dist/` assets to the target host or object store. -->
+
+> **Caution:** Moving the binary and running `sudo systemctl restart <unit>` replaces the live executable and interrupts active connections until the restarted service passes health checks. Keep a copy of the previous binary before restarting.
 
 ```bash
 GOOS=linux GOARCH=amd64 go build -o dist/server ./cmd/server
@@ -30,29 +37,31 @@ ssh <host> 'mv <install path>/server.new <install path>/server && sudo systemctl
 
 ## Verify
 
-<!-- Health check from outside, the log line that proves the new build is serving, the version it reports. -->
+<!-- External health check, startup log line proving the new build serves traffic, and reported version. -->
 
 ## Dependency cadence
 
-<!-- `govulncheck ./...`, `npm audit --omit=dev`, and the base image when there is one: before every release and monthly; the last run's date. -->
+<!-- Run `govulncheck ./...`, `npm audit --omit=dev`, and base-image checks before every release and monthly; record the last run date. -->
 
 ## Operator steps
 
-<!-- What the operator does by hand on this target: standing procedures, never pending items (those live in the newest handoff). -->
+<!-- Standing manual procedures on this target, never pending tasks (those live in the newest handoff). -->
 
 ## Rollback
 
-<!-- Keep the previous artifact; the exact commands that put it back. -->
+> **Caution:** Restoring the previous binary and restarting `<unit>` reverts production traffic immediately. Read all `change` records since the previous release before rolling back a security fix or schema migration.
+
+<!-- Keep the previous artifact; list the exact commands that restore and restart it. -->
 
 ## Operate
 
-Restore service to the previous known-good artifact first, then inspect host logs, resource metrics, and health probes, and capture every production incident as a `BUG-*` record.
+Restore service to the previous known-good artifact first. Then inspect host logs, resource metrics, and health probes, and capture every production incident as a `BUG-*` record.
 
 | Row | Procedure / Command |
 |---|---|
-| Rollback first | Restore the previous artifact/unit (`mv <install path>/server.prev <install path>/server && sudo systemctl restart <unit>`), record the change via `fyr record add change`, then inspect logs |
-| Service status & metrics | `ssh <host> 'systemctl status <unit> --no-pager'`; host health via `ss -tlnp`, `df -h`, `free -m` |
+| Rollback first | Restore the previous artifact (`mv <install path>/server.prev <install path>/server && sudo systemctl restart <unit>`), record the change with `fyr record add change`, then inspect logs |
+| Service status & metrics | `ssh <host> 'systemctl status <unit> --no-pager'`; check host health with `ss -tlnp`, `df -h`, `free -m` |
 | Logs | `ssh <host> 'journalctl -u <unit> -p err -n 100 --no-pager'` (`--since "1 hour ago"` or `-f` while triaging) |
-| Uptime & alerting | External HTTP health check on `/healthz` (or systemd `OnFailure=` unit alert) + notification target |
+| Uptime & alerting | External HTTP health check on `/healthz` (or systemd `OnFailure=` unit alert) and notification target |
 | Dependency cadence | `govulncheck ./...` / `npm audit --omit=dev` and OS security patches before every release and monthly; last run date |
-| Incidents | Open `BUG-*` (`fyr record add bug`), fix via `/fyr-bug`, and mark `--status graduated` once covered by a regression test or probe/alert |
+| Incidents | Open `BUG-*` (`fyr record add bug`), fix with `/fyr-bug`, and mark `--status graduated` once covered by a regression test or probe/alert |

@@ -6,7 +6,7 @@ argument-hint: "<topic> [--app <cmd dir>]"
 
 # Spec
 
-One surface, one file, one shape. A spec says what a thing looks like from outside and how a reader proves the code matches; the plan says how it gets built, the ADR says why it was decided this way.
+One surface, one record, one machine-projectable shape (Track 3 — shared human + agent contract). A spec defines what a surface looks like from outside and how a reader or checker proves the code matches; the plan says how it gets built, and the ADR says why it was decided this way.
 
 **Trail:** `~/.gemini/config/skills/fyr-init-project/references/trail.md`; dates from `date +%F`. `<app>` is the single `cmd/<app>` directory (`ls -d cmd/*/` printing exactly one); a repository with several binaries gets one `SPEC-<app>-…` set per binary; with none, the binary or service the project's `AGENTS.md` names, else the repository directory's own name — the `documentation` agent's rule for the single-binary and no-binary cases, extended with one directory per binary when there are several.
 
@@ -26,20 +26,22 @@ One surface, one file, one shape. A spec says what a thing looks like from outsi
 
 ## Step 1: Find or create the file
 
-`fyr search <topic words> --kind spec` first: an existing spec on the topic is updated, never duplicated. Otherwise read the template — `~/.gemini/config/skills/fyr-init-project/assets/records/SPEC-TEMPLATE.md` (or `.agents/skills/fyr-init-project/assets/records/SPEC-TEMPLATE.md`, as the `fyr-init-project` skill's Step 2 locates `assets`) — write `.agents/scratch/SPEC-<app>-<topic>.md` (`<app>` and `<topic>` lowercase `[a-z0-9-]`) with its `Status: draft` line filled, and store it: `fyr record add spec --id SPEC-<app>-<topic> --title "Spec — <app>: <topic>" --body-file .agents/scratch/SPEC-<app>-<topic>.md`. An existing spec is edited the same way: `fyr record get <ID> --out <file>`, edit, `fyr record edit <ID> --body-file <file>`; a spec no longer true gets `--status retired`.
+`fyr search <topic words> --kind spec` first: an existing spec on the topic is updated, never duplicated. Otherwise read the template — `~/.gemini/config/skills/fyr-init-project/assets/records/SPEC-TEMPLATE.md` (or `.agents/skills/fyr-init-project/assets/records/SPEC-TEMPLATE.md`, as the `fyr-init-project` skill's Step 2 locates `assets`) — write `.agents/scratch/SPEC-<app>-<topic>.md` (`<app>` and `<topic>` lowercase `[a-z0-9-]`, no YAML frontmatter) with its `Status: draft` line filled, and store it: `fyr record add spec --id SPEC-<app>-<topic> --title "Spec — <app>: <topic>" --body-file .agents/scratch/SPEC-<app>-<topic>.md`. An existing spec is edited the same way: `fyr record get <ID> --out <file>`, edit, `fyr record edit <ID> --body-file <file>`; a spec no longer true gets `--status retired`.
 
 ## Step 2: Fill every section, in order
 
-Follow the `docs-ste100-80` skill throughout: open **Purpose** as a crisp BLUF (Bottom Line Up Front), keep prose short and active, include a Mermaid diagram (`mermaid-syntax` skill) in **Interfaces** or **Data** whenever the surface spans multiple components, actors, or states, and fold supplementary or > 12-row flag/schema tables inside `<details>`. Derive interfaces, status codes and failure modes statically from the source and existing unit tests (`go test`); never build or start live servers, background processes or `curl` probes while writing a spec. A section that does not apply to this surface keeps its heading with one line saying why, never the template's comment.
+Follow the `docs-ste100-80` skill for prose clarity: open `## Purpose` as a crisp BLUF (Bottom Line Up Front), keep prose short and active, include a `<= 12`-node Mermaid diagram (`mermaid-syntax` skill) in `## Interfaces` or `## Data` whenever the surface spans multiple components, actors, or states, and fold supplementary or `> 12`-row flag/schema tables inside `<details>`. Derive interfaces, status codes, and failure modes statically from source and existing unit tests (`go test`); never build or start live servers, background processes, or `curl` probes while writing a spec. A section that does not apply keeps its heading with one line saying why, never the template's comment.
 
-1. **Purpose** — two or three sentences; who calls it, for what, what it is not.
-2. **Interfaces** — every shape as a fenced block (JSON per the `json-api-style` skill, Go signatures, a flag table). Settle each ambiguity with ONE shape; alternatives go to Open questions, never into the spec as a second shape.
-3. **Compatibility** — who consumes this surface today, and whether a change is additive; a breaking change names its migration.
-4. **Data** — schemas and the invariants that hold; which writer owns each.
-5. **Failure modes** — trigger → what the caller observes (status and error body, exit code, log line).
-6. **Non-goals** — what the surface will not do.
-7. **Open questions** — one line each, ending in the default taken until answered.
-8. **Verification** — the test or command that pins each interface and failure mode. A section that nothing can check is design, not spec: move it to the plan or an ADR.
+Every `SPEC-*` MUST include the five required headings (`## Purpose`, `## Interfaces`, `## Data`, `## Failure modes`, `## Verification`) in a structured, machine-projectable shape so reviewers and structured tooling parse them reliably:
+
+1. **`## Purpose` (required)** — two or three active sentences (BLUF): who calls it, for what, and what it is not.
+2. **`## Interfaces` (required, machine-projectable)** — every signature, endpoint, CLI verb, or wire shape in its own fenced block (JSON per the `json-api-style` skill, Go signatures, command blocks) plus a Markdown table for flags/keys. Settle each ambiguity with ONE shape; alternatives go to Open questions, never into the spec as a second shape.
+3. **`## Compatibility`** — who consumes this surface today, and whether a change is additive; a breaking change names its migration.
+4. **`## Data` (required, machine-projectable)** — schemas and invariants as concise invariant bullets naming which writer or migration owns each.
+5. **`## Failure modes` (required, machine-projectable)** — mandatory 4-column Markdown table with exact header `| Trigger | Observable result | Retry | Action |` (status/error body/exit code/log line, retry policy, and recovery action).
+6. **`## Non-goals`** — what the surface will not do.
+7. **`## Open questions`** — one line each, ending in the default taken until answered.
+8. **`## Verification` (required)** — the test files, test names, fixtures, or commands that pin each interface, data invariant, and failure mode. A section that nothing can check is design, not spec: move it to the plan or an ADR.
 
 Open gaps: when the request leaves things open (who calls it, what the error looks like, a limit), ask them in chat as a numbered list or a compact table (never force a 1-row table) — `#`, the gap in one line, your recommended answer — per the global context, and write the answers in; an unanswered gap stays an Open question with its default.
 

@@ -1,65 +1,44 @@
 # AGENTS.md
 
-## Project Overview
+<!-- Track 2: 100% agent-read (Telegraphic Markdown, <= 4,500 B). Humans: read README.md.
+     Keep non-discoverable operational commands, constraints, and pointers only.
+     Forbidden here: human onboarding prose, directory-tree dumps, and restating source layout. -->
 
-<!-- Brief description: what this project does, who it serves, and why it exists. -->
+> Audience: 100% agent-read (Track 2, Telegraphic Markdown, <= 4,500 B). Humans: see `README.md`.
 
-## Setup Commands
+## Scope
 
-<!-- The few commands a contributor runs before claiming something works — build, run, test.
-     Keep it to those: coverage runs, e2e scripts and container smoke tests belong in
-     the GUIDE-testing record, which this section points at once it exists. -->
+<!-- One line: what this repo builds/serves and non-obvious domain boundary. Never write human onboarding prose. -->
+
+## Setup commands
+
+<!-- Non-discoverable build, run, test, and verify commands only. Delete unconfirmed lines.
+     Extended tiers/e2e live in GUIDE-testing (`fyr record get GUIDE-testing`). -->
 
 ```bash
-# Install dependencies
-go mod download
-
-# Build
-go build ./cmd/...
-
-# Run
-go run ./cmd/server/
-
-# Test
-go test -race ./...
-
-# Lint & Verify (Go: gofmt, go vet, go test -race, fyr check -> .agents/scratch/verify.stamp)
-go vet ./...
-fyr verify
+go mod download          # deps
+go build ./cmd/...       # build
+go run ./cmd/server/     # run
+go test -race ./...      # test
+go vet ./...             # static analysis
+fyr verify               # format, vet, race test, fyr check -> .agents/scratch/verify.stamp
 ```
 
-<!-- Standalone CLI / non-Go script / TS app: replace cmd/server/ with cmd/<app>/ (or script/app entry point) and omit unused server steps. Non-Go projects run their own test/lint commands above and close tasks with `fyr record add handoff` instead of `fyr close` (which checks a Go verify.stamp). -->
+<!-- Standalone CLI / non-Go / TS app: swap in native entry point and test/lint commands; close tasks with `fyr record add handoff` (`fyr close` requires Go verify.stamp). -->
 
-## Architecture
+## Boundaries & overrides
 
-<!-- Project-specific architecture notes. -->
-<!-- For ADRs: fyr record list --kind adr -->
-
-## Project-Specific Standards
-
-<!-- Only list standards that DIFFER from the global context (~/.gemini/config/rules/AGENTS.md). -->
-<!-- If nothing differs, delete this section. -->
-
-## Testing
-
-<!-- Project-specific testing instructions: the verification tiers the plan names and the commands behind them; the standing procedure is the GUIDE-testing record. -->
-<!-- For detailed guides: fyr record list --kind guide -->
+<!-- Only rules that DIFFER from global context (`~/.gemini/config/rules/AGENTS.md`). Delete if none.
+     Never duplicate global rules, write human onboarding prose, or paste directory-tree dumps. -->
 
 ## Deploy
 
-<!-- One line per target that exists. The procedures live in the DEPLOY-local, DEPLOY-remote and DEPLOY-gcp records; GCP defaults are recorded in DEPLOY-gcp, never invented. For non-GCP hosts (AWS, Fly, VPS, or self-hosted compose), record the procedure in DEPLOY-remote and leave DEPLOY-gcp as Not applicable yet. -->
+<!-- One line per active target; procedures live in DEPLOY-local, DEPLOY-remote, DEPLOY-gcp. -->
 
-Local only — see `DEPLOY-local` (`fyr record get DEPLOY-local`).
+Local only: `fyr record get DEPLOY-local` (remote: `DEPLOY-remote`; GCP defaults: `DEPLOY-gcp`).
 
-## Key Files
+## Pointers
 
-<!-- Help agents navigate this codebase quickly. -->
-
-| Path | Purpose |
-|------|---------|
-| `cmd/<app>/main.go` | Application entry point (or `<script>` / entry point for a Standalone CLI) |
-| `PRD.md` | What and why: problem, goals, the non-negotiable requirements |
-| `SDD.md` | How the parts fit: components, flows, decisions |
-| `TDD.md` | How each part is built and tested |
-| `TODO.md` | The active phase's tasks, the next phases, the backlog |
-| `.agents/` | Project customizations and `scratch/` (trail records live in `fyr`'s brain store; `fyr record export` writes `.agents/trail.jsonl` on demand) |
+- Contracts (Track 3): `PRD.md` (requirements), `TODO.md` (active queue), `fyr record list --kind spec` (`SPEC-*`).
+- Human docs (Track 1): `README.md`, `SDD.md`, `TDD.md`, `GUIDE-testing`, `DEPLOY-*`.
+- Trail & code discovery: `fyr record list --kind adr`, `fyr search --slice` / `--skeleton` / `--refs`; scratch under `.agents/scratch/` (never `/tmp`).

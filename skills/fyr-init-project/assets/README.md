@@ -1,33 +1,40 @@
 # <project>
 
-<one line: what it does and for whom — the project overview the user gave /fyr-init-project>
+<!-- Track 1: human-first documentation (docs-ste100-80). No YAML frontmatter.
+     Write short active prose with a 1-3 sentence BLUF per ## section, place Note/Caution
+     safety callouts before destructive commands, cap Mermaid diagrams at <= 12 nodes, and
+     fold tables with > 12 rows inside <details>. Agents: read AGENTS.md. -->
 
-<!-- Follow docs-ste100-80: short active prose, direct steps, open every ## section with a short BLUF, use <= 12-node Mermaid diagrams for 3+ component flows, and fold > 12-row tables inside <details>. -->
+<one line: what this project does and for whom — the project overview from /fyr-init-project>
+
+> **Note:** This README is human-first documentation (Track 1, `docs-ste100-80`). Agents read `AGENTS.md` for operational commands and boundaries.
 
 ## Quick start
 
-```bash
-<build command>      # e.g. go build ./...
-<run command>        # e.g. go run ./cmd/<app>
-<test command>       # e.g. fyr verify (Go: gofmt, go vet, go test -race, fyr check) or go test -race ./...
-```
+Run the commands below to build, start, and verify the project locally. The same commands appear in `AGENTS.md` § Setup commands, and `GUIDE-testing` (`fyr record get GUIDE-testing`) documents the full test tiers.
 
-The same commands are the contract in `AGENTS.md` § Setup commands; the `GUIDE-testing` record (`fyr record get GUIDE-testing`) has the tiers behind them.
+```bash
+<build command>      # build: go build ./...
+<run command>        # run: go run ./cmd/<app>
+<test command>       # verify: fyr verify or go test -race ./...
+```
 
 ## Architecture
 
-<two or three sentences: the entry point, what it talks to, where state lives>
+<two or three active sentences: the entry point, external dependencies, and where runtime state lives; replace dense text with a <= 12-node Mermaid diagram when three or more components interact>
 
 ```
-cmd/<app>/        # the binary: flags, wiring, listener
-internal/         # the packages, one responsibility each
-web/              # the TanStack Start frontend, when there is one (built into the binary)
-.agents/          # project customizations and scratch/ (trail records live in fyr's brain store, read with fyr record)
+cmd/<app>/        # entry point: flags, wiring, listener
+internal/         # packages, one responsibility each
+web/              # frontend assets, when present
+.agents/          # project rules and gitignored scratch/ (trail records live in fyr's brain store)
 ```
 
 ## Configuration
 
-Flags and environment variables, with their defaults; a runtime data path (a database file, an upload directory) defaults to a location OUTSIDE the repository, never beside the source. A secret-bearing setting's row says `Secret Manager: <name>` and has no default: a credential is never a code default.
+Set flags and environment variables below before starting the service. Runtime data paths default outside the repository, and secrets reference Secret Manager names with no code default.
+
+<!-- Fold tables with > 12 rows inside <details>. -->
 
 | Setting | Flag / env | Default |
 |---|---|---|
@@ -35,8 +42,12 @@ Flags and environment variables, with their defaults; a runtime data path (a dat
 
 ## Deploy
 
-How it runs here, on a remote box and on GCP is the `DEPLOY-local`, `DEPLOY-remote` and `DEPLOY-gcp` records; a release goes through `/fyr-preflight`.
+Follow the deploy guides for local, remote, and GCP targets (`DEPLOY-local`, `DEPLOY-remote`, `DEPLOY-gcp`). Place a `Caution` safety callout before any destructive or traffic-shifting command. Run releases through `/fyr-preflight`.
 
 ## Where things are
 
-Decisions: `fyr record list --kind adr`. What changed: `--kind change`. What went wrong and the rule that came out of it: `--kind bug`. The next session starts from the newest handoff, `fyr record list --kind handoff`.
+Use `fyr record list` to inspect project history and `AGENTS.md` for agent rules.
+
+- Architecture decisions: `fyr record list --kind adr`
+- Changes and bug preventions: `fyr record list --kind change` and `--kind bug`
+- Latest session handoff: `fyr record list --kind handoff`

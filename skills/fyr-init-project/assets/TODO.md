@@ -1,6 +1,7 @@
 # TODO
 
-<!-- Now is the active phase and mirrors its plan record's boxes, updated in the commit that ticks them; on a
+<!-- Track 3: shared human + agent contract (execution queue). No YAML frontmatter.
+     Now is the active phase and mirrors its plan record's boxes, updated in the commit that ticks them; on a
      conflict the plan record wins. Next holds at most three phases, one line each. Backlog holds unscheduled
      ideas, one line each, dated, with their source. An action only the operator can take goes in the newest
      handoff's Next Steps. -->

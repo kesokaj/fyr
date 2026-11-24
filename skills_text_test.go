@@ -598,3 +598,92 @@ func TestV910SkillDietNoSecretPatterns(t *testing.T) {
 		}
 	}
 }
+
+// TestSkillsAudienceSplit pins Phase 2 of PLAN-2026-11-24-1704 (ADR-535):
+// the 5-track audience split across docs-ste100-80, fyr-init-project, fyr-spec,
+// agents/documentation, and context/AGENTS.md, while keeping literal --contracts
+// absent until Wave 2 (D7).
+func TestSkillsAudienceSplit(t *testing.T) {
+	assertSkillTextCases(t, []skillTextCase{
+		{
+			name: "docs-ste100-80-5-track-matrix",
+			path: "skills/docs-ste100-80/SKILL.md",
+			want: []string{
+				"Track 1", "Human Docs",
+				"Track 2", "100% agent-read", "Telegraphic Markdown", "4,500 B",
+				"Track 3", "Shared Contracts",
+				"Track 4", "Ephemeral", "fyr search --slice", "--skeleton",
+				"Track 5", "Immutable Trail",
+				"Never rewrite Track 2",
+				"Drift check (`fyr check`)",
+				"not enforced by `fyr check`",
+				">= 80%",
+			},
+			forbid: []string{
+				"--contracts",
+				"Hard structural checks (`fyr check`)",
+				"Quick Check & Deterministic Rules (`fyr check`)",
+				"Advisory STE score",
+				"glossary.json",
+				"contract projection (`fyr search",
+			},
+		},
+		{
+			name: "fyr-init-project-audience-split",
+			path: "skills/fyr-init-project/SKILL.md",
+			want: []string{
+				"Track 1", "README.md",
+				"Track 2", "100% agent-read", "Telegraphic Markdown", "4,500 B",
+				"Track 3", "TODO.md", "PRD.md", "SPEC-*",
+			},
+			forbid: []string{"--contracts", "fill the sections (`docs-ste100-80` BLUF openings)"},
+		},
+		{
+			name: "fyr-spec-machine-projectable",
+			path: "skills/fyr-spec/SKILL.md",
+			want: []string{
+				"Track 3",
+				"## Purpose", "## Interfaces", "## Data", "## Failure modes", "## Verification",
+				"| Trigger | Observable result | Retry | Action |",
+				"fenced", "invariant",
+			},
+			forbid: []string{
+				"--contracts",
+				"deterministic checks and on-demand contract projection",
+			},
+		},
+		{
+			name: "spec-template-no-unimplemented-tool-claims",
+			path: "skills/fyr-init-project/assets/records/SPEC-TEMPLATE.md",
+			want: []string{
+				"## Purpose", "## Interfaces", "## Data", "## Failure modes", "## Verification",
+				"| Trigger | Observable result | Retry | Action |",
+			},
+			forbid: []string{
+				"--contracts",
+				"deterministic checking and contract projection",
+				"so tooling can project failure contracts deterministically",
+			},
+		},
+		{
+			name: "documentation-agent-5-track",
+			path: "agents/documentation/agent.md",
+			want: []string{
+				"Track 1", "docs-ste100-80",
+				"Track 2", "Telegraphic Markdown", "4,500 B",
+				"Track 3", "| Trigger | Observable result | Retry | Action |",
+				"Track 5", "immutable",
+			},
+			forbid: []string{"--contracts", "AST/contract projections"},
+		},
+		{
+			name:   "context-agents-audience-and-no-contracts-flag",
+			path:   "context/AGENTS.md",
+			want:   []string{"docs-ste100-80", "agent-read", "SPEC-*"},
+			forbid: []string{"--contracts"},
+		},
+	})
+	if got := len(readSkill(t, "context/AGENTS.md")); got > 6300 {
+		t.Errorf("context/AGENTS.md grew to %d B, want <= 6300 B (net-neutral or smaller)", got)
+	}
+}

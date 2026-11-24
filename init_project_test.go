@@ -101,3 +101,116 @@ func TestProjectIndexingLifecycleSkills(t *testing.T) {
 		}
 	}
 }
+
+func assertDocContains(t *testing.T, path string, want, forbid []string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	text := string(b)
+	if strings.HasPrefix(text, "---\n") {
+		t.Errorf("%s must not carry YAML frontmatter", path)
+	}
+	low := strings.ToLower(text)
+	for _, w := range want {
+		if !strings.Contains(low, strings.ToLower(w)) {
+			t.Errorf("%s missing %q", path, w)
+		}
+	}
+	for _, bad := range forbid {
+		if strings.Contains(low, strings.ToLower(bad)) {
+			t.Errorf("%s contains forbidden token %q", path, bad)
+		}
+	}
+	return text
+}
+
+// TestInitProjectAudienceSplit pins Phase 2 of PLAN-2026-11-24-1704 (ADR-535):
+// Track 1 human docs (README, GUIDE-testing, DEPLOY-*), Track 2 100% agent-read
+// AGENTS.md (<= 4,500 B, Telegraphic Markdown), and Track 3 shared contracts
+// (TODO.md, SPEC-TEMPLATE.md with 5 required headings + 4-column Failure modes table).
+func TestInitProjectAudienceSplit(t *testing.T) {
+	const dir = "skills/fyr-init-project/assets/"
+
+	agents := assertDocContains(t, dir+"AGENTS.md",
+		[]string{
+			"100% agent-read",
+			"Telegraphic Markdown",
+			"4,500 B",
+			"onboarding prose",
+			"directory-tree dump",
+			"README.md",
+			"## Setup commands",
+			"## Deploy",
+		},
+		[]string{"--contracts", "e.g.", "i.e."},
+	)
+	if len(agents) > 4500 {
+		t.Errorf("%sAGENTS.md is %d B, want <= 4500 B", dir, len(agents))
+	}
+
+	assertDocContains(t, dir+"README.md",
+		[]string{
+			"Track 1",
+			"human-first",
+			"docs-ste100-80",
+			"No YAML frontmatter",
+			"BLUF",
+			"safety callout",
+			"<= 12",
+			"> 12",
+			"AGENTS.md",
+		},
+		[]string{"--contracts", "e.g.", "i.e.", "etc.", "seamless", "foundational", "zero-ops"},
+	)
+
+	assertDocContains(t, dir+"TODO.md",
+		[]string{"Track 3", "shared", "human", "agent"},
+		[]string{"--contracts"},
+	)
+
+	spec := assertDocContains(t, dir+"records/SPEC-TEMPLATE.md",
+		[]string{
+			"## Purpose",
+			"## Interfaces",
+			"## Data",
+			"## Failure modes",
+			"## Verification",
+			"| Trigger | Observable result | Retry | Action |",
+		},
+		[]string{"--contracts", "e.g.", "i.e."},
+	)
+	if !strings.Contains(spec, "| Trigger | Observable result | Retry | Action |") {
+		t.Errorf("%srecords/SPEC-TEMPLATE.md missing exact 4-column Failure modes table header", dir)
+	}
+
+	checkInitProjectTrack1Records(t, dir+"records/")
+}
+
+func checkInitProjectTrack1Records(t *testing.T, recDir string) {
+	t.Helper()
+	banned := []string{"e.g.", "i.e.", "etc.", "seamless", "foundational", "zero-ops", "--contracts"}
+	for _, name := range []string{"GUIDE-testing.md", "DEPLOY-local.md", "DEPLOY-remote.md", "DEPLOY-gcp.md"} {
+		assertDocContains(t, recDir+name, nil, banned)
+	}
+	// Destructive / traffic-shifting commands must be preceded by a Caution safety callout.
+	for name, cmd := range map[string]string{
+		"DEPLOY-local.md":  "docker compose down -v",
+		"DEPLOY-remote.md": "sudo systemctl restart",
+		"DEPLOY-gcp.md":    "gcloud run services update-traffic",
+	} {
+		b, err := os.ReadFile(recDir + name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		text := string(b)
+		cmdIdx := strings.Index(text, cmd)
+		cautionIdx := strings.Index(strings.ToLower(text), "caution")
+		if cmdIdx < 0 {
+			t.Errorf("%s missing expected command %q", name, cmd)
+		} else if cautionIdx < 0 || cautionIdx > cmdIdx {
+			t.Errorf("%s must place a Caution safety callout before %q (caution=%d, cmd=%d)", name, cmd, cautionIdx, cmdIdx)
+		}
+	}
+}

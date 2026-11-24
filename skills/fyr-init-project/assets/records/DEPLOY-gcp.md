@@ -1,12 +1,14 @@
 # Deploy — GCP
 
-Cloud Run first (`cloud-run-deploy` skill); GKE or Compute Engine only when Cloud Run does not fit. GCP is the only cloud. Nothing here runs unless the user says to deploy.
+<!-- Track 1: human-first documentation (docs-ste100-80). No YAML frontmatter. -->
 
-**Not applicable yet:** this project has no GCP target. Delete this line and fill the defaults when the user asks for one.
+Deploy to Cloud Run first (`cloud-run-deploy` skill); use GKE or Compute Engine only when Cloud Run does not fit. GCP is the only cloud target, and nothing here runs unless the operator asks to deploy.
+
+**Not applicable yet:** this project has no GCP target. Delete this line and fill the defaults when the operator asks for one.
 
 ## Recorded defaults
 
-Asked once, per the global context, never invented or copied from another project. `AGENTS.md` points here; the next session reads this table instead of asking again.
+Ask the operator once per the global context, and never invent or copy defaults from another project. `AGENTS.md` points here so future sessions read this table instead of asking again.
 
 | Setting | Value |
 |---|---|
@@ -19,11 +21,11 @@ Asked once, per the global context, never invented or copied from another projec
 
 ## Image
 
-`${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/${SERVICE}:${GIT_SHA}` — built with `docker buildx build --platform linux/amd64 --load`, tagged with the short SHA and nothing else: the repository enforces immutable tags (`--immutable-tags` / `immutable_tags = true`), so a moving `latest` alias cannot exist.
+Build `${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/${SERVICE}:${GIT_SHA}` with `docker buildx build --platform linux/amd64 --load` and tag it with the short Git SHA only. Artifact Registry enforces immutable tags (`--immutable-tags` / `immutable_tags = true`), so no moving `latest` alias exists.
 
 ## Rollout and network
 
-Decided once, each with its reason; the `cloud-run-deploy` skill reads the first five rows (its § What `DEPLOY-gcp` records) and the `terraform` skill the last; a row not yet decided stays empty, never guessed.
+Record each rollout and network choice once with its reason. `cloud-run-deploy` reads the first five rows (its § What `DEPLOY-gcp` records) and `terraform` reads the Terraform state row; leave undecided rows empty.
 
 | Row | Value |
 |---|---|
@@ -37,40 +39,40 @@ Decided once, each with its reason; the `cloud-run-deploy` skill reads the first
 
 ## Procedure
 
-Follow the `cloud-run-deploy` skill with the defaults and rows above: local test build and smoke run, amd64 build, push, `gcloud run deploy`, canary when the Rollout row says so, verify. The reason for every project-specific flag goes in the table above, not here. For a standalone static SPA without a Go backend, either serve `dist/` from a minimal static/Node container on Cloud Run or sync `dist/` assets to a GCS bucket behind Cloud CDN/Load Balancing.
+Follow `cloud-run-deploy` with the defaults and rows above: run the local build and smoke test, build for `linux/amd64`, push, run `gcloud run deploy`, verify canary traffic when configured, and promote. Record the reason for every project-specific flag in the table above. For a standalone static SPA without a Go backend, serve `dist/` from a minimal container on Cloud Run or sync `dist/` assets to GCS behind Cloud CDN and Load Balancing.
 
 ## Secrets and configuration
 
-<!-- Every secret via Secret Manager and `--set-secrets`, never `--set-env-vars`. List the names, not the values. -->
+<!-- Inject every secret through Secret Manager and `--set-secrets`, never `--set-env-vars`. List secret names, never values. -->
 
 ## Verify
 
-<!-- `gcloud run services describe`, the health URL, the log query that shows the new revision serving. -->
+<!-- Record `gcloud run services describe`, the health URL, and the log query proving the new revision serves traffic. -->
 
 ## Rollback
+
+> **Caution:** Shifting 100% of Cloud Run traffic reverts live production requests immediately. Read all `change` records between the target revision and the serving revision before rolling back; a security fix, service-account change, or secret rotation requires operator sign-off, and rotated secret versions stay disabled (`operate-gcp` skill).
 
 ```bash
 gcloud run services update-traffic ${SERVICE} --region ${REGION} --to-revisions <previous>=100
 ```
 
-Before any rollback, read the `change` records between the target revision and the serving one: a security fix, a service-account change or a secret rotation in between is the operator's call, and a rotated secret version stays disabled (`operate-gcp` skill).
-
 ## Infrastructure
 
-<!-- When it is more than one service: the Terraform module path and how to plan/apply (`terraform` skill). -->
+<!-- For multi-service setups: record the Terraform module path and plan/apply commands (`terraform` skill). -->
 
 ## Operator steps
 
-The standing by-hand procedures for this target (the one-time `gcloud-setup` login and ADC; the one-time database steps the `data-gcp` skill names — the `postgres` password, the owner's grant; the monthly dependency and base-image check from § Operate); never pending items — those live in the newest handoff's Next Steps.
+Record standing manual procedures here: one-time `gcloud-setup` login and ADC, one-time database grants (`data-gcp` skill — `postgres` password and owner grant), and the monthly dependency and base-image check from § Operate. Never store pending tasks here; put those in the newest handoff's Next Steps.
 
 ## Operate
 
-The runbook, filled once the service is live (`operate-gcp` skill); every value below is read, never guessed.
+Maintain this runbook once the service is live (`operate-gcp` skill); read every value from GCP rather than guessing.
 
 | Row | Value |
 |---|---|
 | Last good revision | updated by the `/fyr-preflight` deploy row after every release |
-| Rollback | `gcloud run services update-traffic SERVICE --region REGION --to-revisions GOOD=100` (`cloud-run-deploy` § Rollback), then `--remove-tags canary` if set; after reading the `change` records between GOOD and the serving revision (a security fix, SA change or secret rotation in between is the operator's call) |
+| Rollback | `gcloud run services update-traffic SERVICE --region REGION --to-revisions GOOD=100` (`cloud-run-deploy` § Rollback), then `--remove-tags canary` if set; read `change` records between GOOD and the serving revision first (operator call on security, SA, or secret changes) |
 | Logs | `gcloud run services logs read SERVICE --region REGION --limit 50 --log-filter 'severity>=ERROR' --freshness 1h` |
 | Uptime check | name, path (`/healthz`), or "none: IAM-gated service, alert on metrics" |
 | Notification channel | `projects/P/notificationChannels/ID` (created once with `gcloud beta monitoring channels create`) |

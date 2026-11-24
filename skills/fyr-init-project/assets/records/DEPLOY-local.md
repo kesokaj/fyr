@@ -1,10 +1,12 @@
 # Deploy — local
 
-How to build, configure, and run this project on the machine in front of you. `/fyr-init-project` fills it from the setup answers; the Definition of Done's docs step keeps it current (step 2) whenever the build, run, or configuration path changes. The `verifier` follows it when its dispatch names a local smoke test.
+<!-- Track 1: human-first documentation (docs-ste100-80). No YAML frontmatter. -->
+
+Build, configure, and verify this project on your local workstation. `/fyr-init-project` fills this record from setup answers, the Definition of Done docs step keeps it current, and `verifier` follows it for local smoke tests.
 
 ## Prerequisites
 
-<!-- Toolchain and versions (Go 1.24+, Node …), Colima/Docker if there is a Dockerfile, anything installed once per machine. -->
+<!-- Toolchain and versions (Go 1.24+, Node …), Colima/Docker if a Dockerfile exists, and one-time machine tools. -->
 
 ## Build
 
@@ -14,7 +16,7 @@ How to build, configure, and run this project on the machine in front of you. `/
 
 ## Configure
 
-<!-- Environment variables with defaults, config files, ports. No secrets: name the variable, say where its value comes from. -->
+Set runtime environment variables below before starting the app. Never store secrets in code defaults; name where each secret comes from.
 
 <!-- One row per setting the code reads. No code yet, or no settings: delete the placeholder row and keep the empty table. -->
 
@@ -36,26 +38,32 @@ How to build, configure, and run this project on the machine in front of you. `/
 
 ## Verify
 
-<!-- The smoke check that proves it is up: a health endpoint, a CLI call, a log line — the real command with the real port, written when the endpoint exists, never before. -->
+<!-- Smoke check proving the process works: health endpoint, CLI call, or startup log line with real ports and flags once implemented. -->
 
 ## Container (when there is a Dockerfile)
 
-<!-- `colima status || colima start`, native-arch build and run for local testing; the amd64 build belongs in gcp.md. -->
+<!-- Start Colima (`colima status || colima start`), then build and run natively for local testing; keep linux/amd64 release builds in DEPLOY-gcp. -->
 
 ## Database & migrations
 
-<!-- Local Postgres / compose service (delete this comment and fill when the project uses a database; otherwise keep "No database yet."). -->
-<!-- Start: `docker compose up -d db` (`docker/references/setup.md` § Step 2); check health: `docker compose ps` -->
-<!-- Migrate: run migrations before starting the app (e.g. `DATABASE_URL=postgres://localhost:5432/app?sslmode=disable go run ./cmd/<app> migrate` or `golang-migrate`); reset volume with `docker compose down -v`. -->
+<!-- Local Postgres / compose service (delete these comments and fill when the project uses a database; otherwise keep "No database yet."). -->
+<!-- Start: `docker compose up -d db` (`docker/references/setup.md` § Step 2); check health: `docker compose ps`. -->
+<!-- Migrate: run migrations before starting the app, for example `DATABASE_URL=postgres://localhost:5432/app?sslmode=disable go run ./cmd/<app> migrate` or `golang-migrate`. -->
 
 ## Dependency cadence
 
-<!-- `govulncheck ./...`, `npm audit --omit=dev`, and the base image when there is one: before every release and monthly; the last run's date. -->
+<!-- Run `govulncheck ./...`, `npm audit --omit=dev`, and base-image checks before every release and monthly; record the last run date. -->
 
 ## Operator steps
 
-<!-- What the operator does by hand on this target: standing procedures, never pending items (those live in the newest handoff). A standing root-step permission ("the agent may run `sudo -n systemctl start docker` here when asked") is recorded here, the vendor-neutral home the global context reads. -->
+<!-- Standing manual procedures on this workstation, never pending tasks (those live in the newest handoff). Record any standing root-step permission ("the agent may run `sudo -n systemctl start docker` here when asked") here. -->
 
 ## Stop and clean up
 
-<!-- How to stop it and what it leaves behind (data dirs, containers, volumes). -->
+Stop local processes and remove temporary containers when finished.
+
+> **Caution:** Running `docker compose down -v` permanently deletes local database volumes and all local test data. Run it only when you intend to reset local state.
+
+```bash
+docker compose down -v
+```

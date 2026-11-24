@@ -6,7 +6,19 @@ argument-hint: "[file or --audit]"
 
 # Documentation as ASD-STE100 (up to 80%)
 
-Use ASD-STE100 as a pragmatic target (~80% adherence), not a rigid 100% standard. Take the high-value clarity habits and stop whenever strict compliance makes engineering prose sound unnatural or robotic.
+Use ASD-STE100 as a pragmatic target (~80% adherence) for human-facing docs (Track 1), not a rigid 100% standard. Take the high-value clarity habits and stop whenever strict compliance makes engineering prose sound unnatural or robotic.
+
+## 5-Track Audience Matrix
+
+| Track | Audience & files | Style & contract |
+|---|---|---|
+| Track 1 — Human Docs | Humans: `README.md`, `SDD.md`, `TDD.md`, `docs/**/*.md`, `GUIDE-*`, `DEPLOY-*` | ASD-STE100 (~80%): short active prose, BLUF, safety callouts, visual caps (`<= 12` Mermaid nodes, `<details>` for `> 12` rows), no YAML frontmatter |
+| Track 2 — Agent-Read | 100% agent-read: `AGENTS.md`, `context/*.md`, `rules/*.md`, `skills/*/SKILL.md`, `agents/*/agent.md` | Telegraphic Markdown (`<= 4,500 B` for project `AGENTS.md`); non-discoverable operational commands and boundaries only; no human onboarding prose or directory-tree dumps |
+| Track 3 — Shared Contracts | Human + agent: `PRD.md`, `TODO.md`, `SPEC-*`, `PLAN-*` | Structured Markdown + machine-projectable `SPEC-*` sections (`Purpose`, `Interfaces`, `Data`, `Failure modes`, `Verification`); never edit `PRD.md` without explicit operator approval |
+| Track 4 — Ephemeral Deterministic Projections | On-demand agent capsules (not committed) | On-demand AST projections (`fyr search --slice` / `--skeleton`); never hand-maintained as static prose |
+| Track 5 — Immutable Trail | Append-only history: `change`, `adr`, `handoff`, `review`, `retro`, `bug`, `testing` records | Immutable audit log; never edited or rewritten by `--audit` |
+
+- **Strict exclusion boundary:** Apply human-prose STE (~80%) rewriting to Track 1 living docs (and prose clarity in Track 3 `SPEC-*` Purpose/Compatibility sections) only. Never rewrite Track 2 (`AGENTS.md`, `context/`, `rules/`, `skills/`, `agents/`) into human narrative prose, never hand-author Track 4 projections as checked-in summaries, and never rewrite Track 5 immutable trail records.
 
 ## Follow (~80%)
 
@@ -24,11 +36,13 @@ Use ASD-STE100 as a pragmatic target (~80% adherence), not a rigid 100% standard
 
 ## Auditing a Docset (`--audit`)
 
-- **Scope living docs only:** Audit `README.md`, `SDD.md`, `TDD.md`, `AGENTS.md` (Setup/Deploy), `docs/**/*.md`, and open `spec`, `guide`, and `deploy` records (`fyr record list --kind <kind>`). Never edit `PRD.md` without explicit operator approval or audit immutable trail records (`change`, `adr`, `handoff`, `review`, `retro`, `bug`, `testing`).
+- **Scope Track 1 living docs and Track 3 spec structure only:** Audit `README.md`, `SDD.md`, `TDD.md`, `docs/**/*.md`, and current `guide`, `deploy`, and `spec` records (`fyr record list --kind <kind>`). Exclude Track 2 agent files from human-prose STE rewriting (check `AGENTS.md` for `<= 4,500 B` budget and Setup/Deploy command parity only). Never edit `PRD.md` without explicit operator approval or audit Track 5 immutable trail records (`change`, `adr`, `handoff`, `review`, `retro`, `bug`, `testing`).
 - **Log findings in scratch:** Write findings (`path:line`, category, fix) to `.agents/scratch/docs-audit-<YYYY-MM-DD>.md` (date via `date +%F`; never `/tmp`).
 - **Stage `brain.db` records cleanly:** Export each living record (`fyr record get <ID> --out .agents/scratch/<ID>.md`), edit in place without YAML frontmatter, and save back (`fyr record edit <ID> --body-file .agents/scratch/<ID>.md`).
 
 ## Quick Check
 
-- Confirm commands, counts, flags, and defaults match the codebase; run `fyr check`.
-- For HTML: run `node ~/.gemini/config/skills/frontend-ui-economist/scripts/check_theme.js <css>` (or `.agents/skills/frontend-ui-economist/scripts/check_theme.js`; 0 fails), `node -c` on JS, and check desktop (`1280px`) and mobile (`400px`) renders for clipping or overflow.
+- **Drift check (`fyr check`):** Run `fyr check` to verify commands, flags, paths, anchors, `SPEC-*` code freshness/links, `PRD.md`/`SDD.md`/`TDD.md` traces, context/rules budgets, and skill frontmatter against the codebase.
+- **Authoring & `--audit` checklist (not enforced by `fyr check`):** Check these structural rules manually during authoring and `--audit`: no YAML frontmatter on Track 1 docs/records, `Note`/`Caution` safety callouts before destructive commands, `<= 12` Mermaid nodes, `<details>` folding for `> 12`-row tables, `AGENTS.md <= 4,500 B`, and `SPEC-*` required headings (`Purpose`, `Interfaces`, `Data`, `Failure modes` 4-column table, `Verification`).
+- **Advisory STE target (`>= 80%`):** During authoring and `--audit`, check Track 1 prose for short sentences (~20–25 words), banned marketing fluff, contractions, and Latin abbreviations, keeping project-specific domain terms consistent.
+- **HTML checks:** Run `node ~/.gemini/config/skills/frontend-ui-economist/scripts/check_theme.js <css>` (or `.agents/skills/frontend-ui-economist/scripts/check_theme.js`; 0 fails), `node -c` on JS, and check desktop (`1280px`) and mobile (`400px`) renders for clipping or overflow.

@@ -23,29 +23,37 @@ View `~/.gemini/config/skills/fyr-init-project/references/trail.md` and `~/.gemi
 
 ## Your lane (and what's NOT yours)
 
+Respect the 5-track audience boundary on every edit:
+
 ```
-SPEC-<app>-<topic>                       # live specs, one per topic (`fyr-spec` / `fyr-research`)
-GUIDE-testing                            # verification procedure (shared with `verifier` for missing/changed e2e steps)
-DEPLOY-local, DEPLOY-remote, DEPLOY-gcp  # build/run/deploy guides with `## Operator steps`
-GUIDE-onboarding                         # existing onboarding guide when present (never create new)
-README.md                                # human-first quick start, architecture, config, deploy
-SDD.md, TDD.md                           # system components (M#, R->M trace) and technical design (T#, M->T->test trace)
-AGENTS.md                                # Setup commands and Deploy sections only
+Track 1 — Human Docs (`docs-ste100-80`, no YAML frontmatter):
+  README.md                                # human-first quick start, architecture, config, deploy
+  SDD.md, TDD.md                           # system components (M#, R->M trace) and technical design (T#, M->T->test trace)
+  GUIDE-testing                            # verification procedure (shared with `verifier` for missing/changed e2e steps)
+  DEPLOY-local, DEPLOY-remote, DEPLOY-gcp  # build/run/deploy guides with `## Operator steps`
+  GUIDE-onboarding                         # existing onboarding guide when present (never create new)
+
+Track 2 — Agent-Read (Telegraphic Markdown, <= 4,500 B total):
+  AGENTS.md                                # Setup commands and Deploy sections only (no onboarding prose or tree dumps)
+
+Track 3 — Shared Contracts (machine-projectable):
+  SPEC-<app>-<topic>                       # live specs, one per topic (`fyr-spec` / `fyr-research`)
 ```
 
 `<app>` in `SPEC-<app>-<topic>` is the single `cmd/<app>` directory (`cmd/*/main.go`), else the binary/service named in `AGENTS.md`, else the repo directory name — never left literal.
 
-**Not your job:** `change` records, `adr` records, `TODO.md`, `PRD.md` (immutable without user approval), and source doc-comments.
+**Not your job:** Track 4 ephemeral AST projections (`fyr search --slice` / `--skeleton` generate code views on demand — never hand-author static code dumps), Track 5 immutable trail records (`change`, `adr`, `handoff`, `review`, `retro`, `bug`, `testing`), `TODO.md`, `PRD.md` (immutable without user approval), and source doc-comments.
 
 ## Rules
 
 1. **Read before writing:** inspect the code, existing docs, and every record/file named in the dispatch's `fyr search` output.
-2. **Specs & deploy guides stay live:** match exact flags, APIs, schemas, and `DEPLOY-*` commands (`Not applicable yet` when a target is unused).
-3. **Copy-pasteable `README.md`:** match `AGENTS.md` § Setup commands verbatim; ask in your reply if a command is missing.
-4. **`SDD.md` and `TDD.md` summarise and link** to `SPEC-*` and `ADR-*` without restating them; keep traces aligned with real tests.
-5. **No frontmatter** on records or root docs (`README.md`, `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`); convert relative dates to absolute.
-6. **ASD-STE100 (~80%), airy and visual (`docs-ste100-80`):** short active prose (~20-word procedures, ~25-word explanations), direct imperative steps, safety callouts before destructive commands, short BLUF openings, Mermaid diagrams (`mermaid-syntax`) for multi-step flows/architectures, and `<details>` folding for > 12-row tables.
-7. **Scratch & boundaries:** temporary files under `.agents/scratch/` (gitignored), never `/tmp`; never touch source, tests, config, `PRD.md`, `TODO.md`, or `adr` records (`"change nothing"` / `"report only"` scopes source, not your lane).
+2. **Track 1 human docs (`docs-ste100-80`):** write short active prose (~20-word procedures, ~25-word explanations), direct imperative steps, `Caution`/`Note` safety callouts before destructive commands, short BLUF openings, `<= 12`-node Mermaid diagrams (`mermaid-syntax`) for multi-step flows/architectures, and `<details>` folding for `> 12`-row tables.
+3. **Track 2 agent-read (`AGENTS.md`):** edit Setup commands and Deploy sections only in concise **Telegraphic Markdown** (`<= 4,500 B` total file size). Never rewrite `AGENTS.md` into human onboarding prose or paste directory-tree dumps.
+4. **Track 3 specs (`SPEC-*`):** match exact flags, APIs, and schemas, and keep all five required sections (`Purpose`, `Interfaces`, `Data`, `Failure modes`, `Verification`) machine-projectable: fenced signatures in `Interfaces`, invariant bullets in `Data`, and the 4-column `| Trigger | Observable result | Retry | Action |` table in `Failure modes`.
+5. **Copy-pasteable `README.md` & live `DEPLOY-*`:** match `AGENTS.md` § Setup commands verbatim (ask in your reply if a command is missing), and keep `DEPLOY-*` commands current (`Not applicable yet` when a target is unused).
+6. **`SDD.md` and `TDD.md` summarise and link** to `SPEC-*` and `ADR-*` without restating them; keep traces aligned with real tests.
+7. **No frontmatter & absolute dates:** never add YAML frontmatter to records or root docs (`README.md`, `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`, `AGENTS.md`); convert relative dates to absolute.
+8. **Scratch & boundaries:** temporary files under `.agents/scratch/` (gitignored), never `/tmp`; never touch source, tests, config, `PRD.md`, `TODO.md`, or Track 5 immutable trail records (`"change nothing"` / `"report only"` scopes source, not your lane).
 
 ## Output
 
