@@ -103,8 +103,8 @@ func (sc *scope) appendSliceContracts(buf *bytes.Buffer, o Options, paths map[st
 		return
 	}
 	const hdr = "spec_contracts:\n"
-	capB := min(defaultContractDigestBytes, maxBytes-buf.Len())
-	if capB-len(hdr) < 24 {
+	avail := maxBytes - buf.Len()
+	if avail-len(hdr) < 24 {
 		return
 	}
 	pathList := make([]string, 0, len(paths))
@@ -112,6 +112,17 @@ func (sc *scope) appendSliceContracts(buf *bytes.Buffer, o Options, paths map[st
 		pathList = append(pathList, p)
 	}
 	sort.Strings(pathList)
+	if o.Hook != "" {
+		digest := FormatContractDigest(o.BrainSpecBodies(o.Dir, o.Home, pathList), min(defaultContractDigestBytes, avail-len(hdr)))
+		if digest == "" {
+			return
+		}
+		if block := formatFencedSliceContracts(hdr, digest, avail); block != "" {
+			buf.WriteString(block)
+		}
+		return
+	}
+	capB := min(defaultContractDigestBytes, avail)
 	digest := FormatContractDigest(o.BrainSpecBodies(o.Dir, o.Home, pathList), capB-len(hdr))
 	if digest == "" {
 		return
@@ -128,6 +139,53 @@ func (sc *scope) appendSliceContracts(buf *bytes.Buffer, o Options, paths map[st
 	if blk.Len() > len(hdr) {
 		buf.WriteString(blk.String())
 	}
+}
+
+func formatFencedSliceContracts(hdr, digest string, avail int) string {
+	f := New(digest)
+	overhead := len(hdr) + len(indentBlockLines(f.Data("spec_contracts", "trail", "")))
+	bodyBudget := avail - overhead
+	if bodyBudget < 24 {
+		return ""
+	}
+	var kept []string
+	used := 0
+	for _, line := range strings.Split(strings.TrimRight(digest, "\n"), "\n") {
+		rowLen := 2 + len(line) + 1
+		if used+rowLen <= bodyBudget {
+			kept = append(kept, line)
+			used += rowLen
+			continue
+		}
+		if len(kept) == 0 && bodyBudget-3 >= 16 {
+			if clipped := truncateBytesUTF8(line, bodyBudget-3); clipped != "" {
+				kept = append(kept, clipped)
+			}
+		}
+		break
+	}
+	for len(kept) > 0 {
+		body := strings.Join(kept, "\n")
+		if strings.TrimSpace(body) == "" {
+			return ""
+		}
+		block := hdr + indentBlockLines(f.Data("spec_contracts", "trail", body))
+		if len(block) <= avail {
+			return block
+		}
+		kept = kept[:len(kept)-1]
+	}
+	return ""
+}
+
+func indentBlockLines(text string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(text, "\n") {
+		b.WriteString("  ")
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 func (sc *scope) formatHop0Symbol(cache sliceLineCache, s RankedSymbol, remBytes int) string {

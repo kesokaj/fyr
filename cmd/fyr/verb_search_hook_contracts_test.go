@@ -288,4 +288,20 @@ func TestContractsDirectorySpecPrecisionAndNoStaleTrailFallback(t *testing.T) {
 	if len(unsyncedRecs) != 1 || unsyncedRecs[0].ID != "SPEC-retired-now" {
 		t.Errorf("unsynced clone trail fallback = %+v, want SPEC-retired-now", unsyncedRecs)
 	}
+
+	// Unsynced clone that already wrote a non-spec record for dir into brain.db before `fyr record sync` must still fall back to tracked trail.jsonl specs.
+	nonSpecHome := t.TempDir()
+	if _, err := brain.Add(brain.Options{Home: nonSpecHome, Dir: dir}, brain.AddInput{
+		Kind: "plan", Title: "Pre-sync plan",
+		Body: strings.NewReader("- [ ] Sync trail later.\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	nonSpecFallbackRecs, err := loadCurrentSpecsFromStoreCtx(context.Background(), dir, nonSpecHome)
+	if err != nil {
+		t.Fatalf("loadCurrentSpecsFromStoreCtx non-spec brain.db: %v", err)
+	}
+	if len(nonSpecFallbackRecs) != 1 || nonSpecFallbackRecs[0].ID != "SPEC-retired-now" {
+		t.Errorf("non-spec brain.db trail fallback = %+v, want SPEC-retired-now", nonSpecFallbackRecs)
+	}
 }

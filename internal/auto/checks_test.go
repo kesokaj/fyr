@@ -28,13 +28,15 @@ func TestChecksTrail(t *testing.T) {
 		{Kind: "bug", ID: "BUG-2", Status: "open", Body: "no rule, see BUG-1 and BUG-1"},
 		{Kind: "bug", ID: "BUG-3", Status: "open", Body: "Prevention. BUG-1. BUG-10."},
 		{Kind: "bug", ID: "BUG-4", Status: "graduated", Body: "prevention. BUG-1"},
+		{Kind: "bug", ID: "BUG-5", Status: "graduated", Body: "enforced in unit tests; no keyword"},
+		{Kind: "bug", ID: "BUG-6", Status: "fixed", Body: "patched without rule"},
 		{Kind: "bug", ID: "BUG-10", Status: "fixed", Body: "prevention. BUG-10 BUG-10 BUG-10"},
 		{Kind: "plan", ID: "PLAN-1", Body: "BUG-1"},
 	}
 	got := rules(trailFindings(recs))
-	want := "trail/bug-repeats BUG-1\ntrail/bug-no-prevention BUG-2"
+	want := "trail/bug-repeats BUG-1\ntrail/bug-no-prevention BUG-2\ntrail/bug-no-prevention BUG-6"
 	if got != want {
-		t.Errorf("%s", got)
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
 

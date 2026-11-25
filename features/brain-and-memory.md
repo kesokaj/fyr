@@ -17,12 +17,13 @@ flowchart TD
     projHistory -. "fyr record export / sync" .-> trailFile
 ```
 
-Three core boundaries keep the store clean and reliable:
+Five core boundaries keep the store clean and reliable:
 
 1. **Global-only separation:** `feedback` and `proposal` records are allowed only with `--global` (`R8`) so local machine corrections and background asks never leak into project checkouts.
 2. **Unexported local kinds:** `memory`, `feedback`, and `proposal` rows never reach `.agents/trail.jsonl` when you run `fyr record export` (`R4`, `R7`).
 3. **One-call writes & file-era detection:** Both `fyr record add` and `fyr memory add` accept leading `Title:` / `Status:` / `ID:` / `Project:` (or `Type:` / `Name:` / `Description:` / `Provenance:`) headers on `stdin`, `--body-file FILE`, or `--json-in` (`internal/brain/stdin_doc.go`) so writes require a single command without temporary shell files, and `unmigratedDocsDir` (`internal/brain/brain_session.go`) flags a legacy project docs tree only when actual file-era trail records (`PLAN-*`, `ADR-*`, `BUG-*`, `CHANGE-*`, `HANDOFF-*`) exist without `.agents/trail.jsonl` (avoiding false refusals on ordinary `docs/` folders). Under PRD R7, single-handoff closes treat `change` records as optional.
 4. **Canonical `repo_id`, portable memory & isolated SIM ledger (`brain.db` v5):** Records carry normalized `repo_id` (`NormalizeRepoID`, v4) for project scoping, migration 5 (`ADR-533`, `SPEC-fyr-sim`) adds the global optimizer SIM ledger (`sim_problems`, `sim_aliases`, `sim_attempts`, `sim_fts`, strictly isolated from `fyr resume`, `fyr memory show`, hooks, and `.agents/trail.jsonl`), and `fyr state export|import --include-memory` (`ADR-531`, `ADR-533`, `ADR-534`) optionally bundles `memory` records and `sim_ledger.ndjson` across hosts.
+5. **Per-scope read-only spec reads (`ADR-536`):** `ListCurrentSpecsCtx` (`internal/brain/turn_specs.go`) reads current `SPEC-*` rows read-only per repository scope. It falls back to tracked `.agents/trail.jsonl` only when `brain.db` holds no `spec` rows for that scope.
 
 ## Seven-step session resume
 

@@ -21,6 +21,7 @@ func TestSkillsAudienceSplit(t *testing.T) {
 				"Track 5", "Immutable Trail",
 				"Never rewrite Track 2",
 				"docs-style", "budget", "spec-structure", "docs-style-note",
+				"and `spec-structure` (5 required `##` headings: `Purpose`, `Interfaces`, `Data`, `Failure modes`, `Verification`; plus an advisory note when `## Failure modes` lacks a 4-column table)",
 				"glossary.json",
 				">= 80%",
 			},
@@ -28,6 +29,7 @@ func TestSkillsAudienceSplit(t *testing.T) {
 				"not enforced by `fyr check`",
 				"`.agents/glossary.json`",
 				"`features/**/*.md`, `GUIDE-*`, `DEPLOY-*`",
+				", or when `SPEC-*` `## Failure modes` lacks a 4-column table",
 			},
 		},
 		{
@@ -94,9 +96,12 @@ func TestSkillsAudienceSplit(t *testing.T) {
 			path: "skills/fyr-review/references/lens-briefs.md",
 			want: []string{
 				"docs-ste100-80", "brain.db", "agent-only", "Caution",
+				"check `guide`/`deploy` records for accuracy, no YAML frontmatter, and `Caution`/`Warning` callouts before destructive commands only",
+				"check `SPEC-*` records for accuracy and `spec-structure`",
 			},
 			forbid: []string{
 				"(`README.md`, `SDD.md`, `TDD.md`, `SPEC-*`, `GUIDE-*`, `DEPLOY-*`, `docs/*.md`)",
+				"check accuracy, no YAML frontmatter",
 			},
 		},
 		{

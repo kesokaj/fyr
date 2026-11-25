@@ -189,7 +189,7 @@ func trailFindings(recs []brain.Record) []Finding {
 		if rec.Kind != "bug" {
 			continue
 		}
-		if !strings.Contains(strings.ToLower(rec.Body), "prevention") {
+		if rec.Status != "graduated" && !strings.Contains(strings.ToLower(rec.Body), "prevention") {
 			fs = append(fs, Finding{"trail", "bug-no-prevention", rec.ID, "a bug with no prevention rule"})
 		}
 		if rec.Status == "fixed" && cited[rec.ID] >= repeatsToRaise {

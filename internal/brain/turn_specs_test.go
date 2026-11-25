@@ -111,4 +111,17 @@ func TestListCurrentSpecsCtxReadOnlyCancelAndSymlink(t *testing.T) {
 	if err != nil || otherPresent || len(otherRecs) != 0 {
 		t.Errorf("other-project-only brain.db = (%+v, present=%v, %v), want (nil, false, nil)", otherRecs, otherPresent, err)
 	}
+
+	// 8. Existing brain.db holding only a non-spec record for this repo scope returns storePresent=false so unsynced clones still read trail specs.
+	nonSpecHome := t.TempDir()
+	if _, err := Add(Options{Home: nonSpecHome, Dir: dir}, AddInput{
+		Kind: "plan", Title: "Unsynced clone plan",
+		Body: strings.NewReader("- [ ] Sync trail specs later.\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	nonSpecRecs, nonSpecPresent, err := ListCurrentSpecsCtx(context.Background(), Options{Home: nonSpecHome, Dir: dir})
+	if err != nil || nonSpecPresent || nonSpecRecs != nil {
+		t.Errorf("non-spec-only brain.db = (%+v, present=%v, %v), want (nil, false, nil)", nonSpecRecs, nonSpecPresent, err)
+	}
 }
