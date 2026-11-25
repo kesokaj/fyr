@@ -247,10 +247,13 @@ func (k *checker) docsRule(files []string, living []brain.Record, v Vocabulary) 
 	var ps []string
 	for _, c := range cands {
 		ps = append(ps, c.p)
+		if strings.HasSuffix(c.token, "/") {
+			ps = append(ps, c.p+"/")
+		}
 	}
 	ign := k.ignored(ps)
 	for _, c := range cands {
-		if ign[c.p] {
+		if ign[c.p] || (strings.HasSuffix(c.token, "/") && ign[c.p+"/"]) {
 			continue
 		}
 		if f, ok := k.checkPath(c); ok {

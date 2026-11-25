@@ -174,19 +174,20 @@ var (
 	// the dream's log, lock and state, and the directories it writes
 	storeNames = []string{"dream.log", "dream.lock", "dream-state.json", "dream-failed", "dream-work", "proposals"}
 	// os.MkdirTemp's and WriteAtomic's names: a writer's prefix, then digits
-	storeTemps = regexp.MustCompile(`^(dream-agy-home-|dream-agy-|dream-projects-|dream-metrics-|dream-brain-|metrics-agy-)[0-9]+$`)
+	storeTemps = regexp.MustCompile(`^(dream-agy-home-|dream-agy-|dream-projects-|dream-metrics-|dream-brain-|dream-coupling-|metrics-agy-)[0-9]+$`)
 	atomicTemp = regexp.MustCompile(`^\.fyr-[0-9]+$`)
 )
 
 // storeEntry reports whether rel, relative to the state directory, is one
 // of the entries SkipStores leaves out: top-level names only, regular
-// models.json refreshes (BUG-543), and WriteAtomic's temporary names as files only.
+// models.json refreshes (BUG-543), the top-level reports/ directory (metrics
+// daily digest), and WriteAtomic's temporary names as files only.
 func storeEntry(rel string, mode fs.FileMode) bool {
 	if strings.ContainsRune(rel, filepath.Separator) {
 		return false
 	}
 	dir := mode.IsDir()
-	return storeFile.MatchString(rel) || slices.Contains(storeNames, rel) || storeTemps.MatchString(rel) || (mode.IsRegular() && rel == "models.json") || (!dir && atomicTemp.MatchString(rel))
+	return storeFile.MatchString(rel) || slices.Contains(storeNames, rel) || storeTemps.MatchString(rel) || (mode.IsRegular() && rel == "models.json") || (dir && rel == "reports") || (!dir && atomicTemp.MatchString(rel))
 }
 
 // fingerprintWith is safety check c (preamble :85-117, BUG-107, 123, 158):

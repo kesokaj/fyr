@@ -300,6 +300,26 @@ func TestDocsRuleIgnoreSurvivesASymlinkedParent(t *testing.T) {
 	same(t, run(t, dir).Findings, "README.md:1 path")
 }
 
+// A trailing-slash gitignore directory rule (`.agents/scratch/`) must ignore
+// backticked `.agents/scratch/` even when the directory does not exist on disk
+// yet (fresh git clone), while an unignored missing directory still reports a
+// path finding.
+func TestCheckIgnoredDirectoryMissingOnFreshClone(t *testing.T) {
+	dir := repo(t, map[string]string{
+		".gitignore":             ".agents/scratch/\n",
+		".agents/rules/.gitkeep": "",
+		"AGENTS.md":              "# AGENTS\n\nScratch dir: `.agents/scratch/`\nMissing dir: `.agents/missing/`\n",
+	})
+	if _, err := os.Stat(filepath.Join(dir, ".agents", "scratch")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected .agents/scratch to be absent on disk, got err=%v", err)
+	}
+	rep := run(t, dir)
+	same(t, rep.Findings, "AGENTS.md:4 path")
+	if len(rep.Findings) == 1 && !strings.Contains(rep.Findings[0].Text, ".agents/missing") {
+		t.Errorf("expected finding for .agents/missing, got %+v", rep.Findings[0])
+	}
+}
+
 // A tracked doc the check cannot read (a link, here) is named in a note,
 // not skipped in silence (IN53 of the 2026-10-27 audit).
 func TestSkippedDocIsNoted(t *testing.T) {

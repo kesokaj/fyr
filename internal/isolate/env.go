@@ -34,6 +34,10 @@ func baseSandboxEnv(pathVal, scratchHome, tmpDir string) []string {
 		"SHELL=/bin/bash",
 		"HOME=" + scratchHome,
 		"TMPDIR=" + tmpDir,
+		// Keep Node 22+/26+ from writing npm's built-in PEM private-key help
+		// docstring into $TMPDIR/node-compile-cache so fail-closed credential
+		// scans stay clean without weakening creds.go.
+		"NODE_DISABLE_COMPILE_CACHE=1",
 	}
 }
 

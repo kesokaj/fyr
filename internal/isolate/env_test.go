@@ -27,6 +27,33 @@ func TestAgyEnvZone(t *testing.T) {
 	}
 }
 
+func TestBaseSandboxEnvDisablesNodeCompileCache(t *testing.T) {
+	// Even if the host environment disables the guard, sandbox envs must emit =1.
+	t.Setenv("NODE_DISABLE_COMPILE_CACHE", "0")
+	byPrefix := func(env []string, pfx string) []string {
+		return slices.DeleteFunc(slices.Clone(env), func(kv string) bool { return !strings.HasPrefix(kv, pfx) })
+	}
+	want := []string{"NODE_DISABLE_COMPILE_CACHE=1"}
+
+	b := New(Config{Dir: "/w/s1/w1"})
+	if got := byPrefix(b.agyEnv(), "NODE_DISABLE_COMPILE_CACHE="); !slices.Equal(got, want) {
+		t.Errorf("agyEnv NODE_DISABLE_COMPILE_CACHE = %q, want %q", got, want)
+	}
+
+	tmp := t.TempDir()
+	for _, unconfined := range []bool{false, true} {
+		cmdEnv, _, _ := buildCommandEnv(CommandOpts{
+			Dir:         tmp,
+			ScratchHome: filepath.Join(tmp, "home"),
+			TmpDir:      filepath.Join(tmp, "tmp"),
+			Unconfined:  unconfined,
+		})
+		if got := byPrefix(cmdEnv, "NODE_DISABLE_COMPILE_CACHE="); !slices.Equal(got, want) {
+			t.Errorf("buildCommandEnv(Unconfined=%v) NODE_DISABLE_COMPILE_CACHE = %q, want %q", unconfined, got, want)
+		}
+	}
+}
+
 func TestAgyEnvPATHFiltering(t *testing.T) {
 	base := t.TempDir()
 	osTmp := filepath.Join(base, "ostmp")

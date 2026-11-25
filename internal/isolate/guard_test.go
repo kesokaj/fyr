@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -273,5 +274,52 @@ func TestGuardFingerprintSkipsSandboxRoots(t *testing.T) {
 		if got := changedPaths(before, fingerprintWith(real, false, nil)); (len(got) > 0) != c.changes {
 			t.Errorf("a write at %s: changed paths %v, want a change %v", c.rel, got, c.changes)
 		}
+	}
+}
+
+func TestGuardSkipStoresDreamCouplingAndReports(t *testing.T) {
+	tmp := outsideTemp(t)
+	cases := []struct {
+		name       string
+		rel        string
+		skipStores bool
+		wantChange bool
+	}{
+		{"skip dream-coupling temp dir", "dream-coupling-3750218557/x", true, false},
+		{"skip reports daily digest", "reports/latest-daily-digest.json", true, false},
+		{"watch dream-coupling without SkipStores", "dream-coupling-3750218557/x", false, true},
+		{"watch reports without SkipStores", "reports/latest-daily-digest.json", false, true},
+		{"watch regular file named reports", "reports", true, true},
+		{"watch non-digit dream-coupling dir", "dream-coupling-abc/x", true, true},
+		{"watch auto.json under SkipStores", "auto.json", true, true},
+		{"watch nested reports dir", "sub/reports/latest-daily-digest.json", true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			real := filepath.Join(tmp, strings.ReplaceAll(tc.name, " ", "_"))
+			fyr := filepath.Join(real, harness.StateDir)
+			if err := os.MkdirAll(fyr, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			before := fingerprintWith(real, tc.skipStores, nil)
+			target := filepath.Join(fyr, filepath.FromSlash(tc.rel))
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(target, []byte("payload"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got := changedPaths(before, fingerprintWith(real, tc.skipStores, nil))
+			wantKey := filepath.FromSlash(harness.StateDir + "/" + tc.rel)
+			if !tc.wantChange {
+				if len(got) != 0 {
+					t.Errorf("write %s (SkipStores=%v): changed paths %v, want none", tc.rel, tc.skipStores, got)
+				}
+				return
+			}
+			if !slices.Contains(got, wantKey) {
+				t.Errorf("write %s (SkipStores=%v): changed paths %v, want %q", tc.rel, tc.skipStores, got, wantKey)
+			}
+		})
 	}
 }
