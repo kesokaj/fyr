@@ -52,7 +52,7 @@ flowchart LR
 
 You can query the graph and linked contracts directly from the terminal or inside subagent reconnaissance:
 
-- **`fyr search --slice <query>`:** Builds a PageRank slice (`0`/`1`/`2` hops, default `2,000` tokens) with linked records and FTS5 fallback (`internal/search/hook_fts_fallback.go`). It appends a bounded `<= 600 B` `[SPEC_CONTRACTS]` (`spec_contracts:`) digest via `internal/search/slice_render.go`; pass `--include-docs` to include docs.
+- **`fyr search --slice <query>`:** Builds a PageRank slice (`0`/`1`/`2` hops, default `2,000` tokens) with linked records and FTS5 fallback (`internal/search/hook_fts_fallback.go`). CLI `--slice` emits a clean `<= 600 B` `spec_contracts:` digest via `internal/search/slice_render.go`. Hook mode and `PreInvocation` `AstSlice` wrap the `<= 600 B` digest in a `crypto/rand` `BEGIN DATA spec_contracts` fence within the remaining slice budget. Pass `--include-docs` to include docs.
 - **`fyr search --contracts <target>`:** Projects exported Go/TS signatures (`[CODE_SIGNATURES]`), linked `SPEC-*` contracts, and accepted `ADR-*` `[GUARDRAILS]` (`internal/search/contracts.go`, `internal/search/contracts_parse.go`). It reads per-scope `brain.db` specs via `brain.ListCurrentSpecsCtx` (`internal/brain/turn_specs.go`, `ADR-536`) with `.agents/trail.jsonl` fallback on unsynced clones. It extracts `[SPEC_CONTRACTS]`, `[INVARIANTS]`, and `[FAULTS]` (TSV at `>= 15` rows) under `--budget` (`1,500` tokens) or `--json`.
 - **`fyr search --skeleton <file>`:** Prints declaration line ranges and signatures (or Markdown headings) so you read only needed lines.
 - **`fyr search --affected <target>` & `--path <from> --to <to>`:** Traces reverse-BFS blast radius (`<= 2` hops) or shortest call/import paths (`<= 6` hops).
@@ -222,7 +222,7 @@ flowchart LR
 | `--open` | `false` | List open plans, open bugs, current specs/guides/deploys, and queued proposals |
 | `--global` | `false` | Include global records and every project opted in with `fyr index --register` |
 | `--json` | `false` | Emit structured JSON output |
-| `--slice QUERY` | `""` | Build a tiered PageRank AST context capsule for `QUERY` (with bounded `<= 600 B` `spec_contracts` digest) |
+| `--slice QUERY` | `""` | Build a tiered PageRank AST context capsule for `QUERY` (clean `<= 600 B` `spec_contracts:` digest on CLI; `crypto/rand` `BEGIN DATA spec_contracts` fence in hook mode and `PreInvocation` `AstSlice` within the remaining slice budget) |
 | `--contracts TARGET` | `""` | Project exported Go/TS signatures, linked `SPEC-*` contracts/invariants/faults, and accepted `ADR-*` guardrails for `TARGET` (`SPEC-fyr-docs-harness`) |
 | `--hops N` | `2` | Maximum graph traversal hops for `--slice` (`0`–`6`) |
 | `--budget N` | `2000` (`1500` for `--contracts`) | Approximate token budget (`chars / 4`) for `--slice` or `--contracts` |

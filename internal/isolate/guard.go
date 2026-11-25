@@ -157,15 +157,18 @@ var watched = []string{harness.StateDir, harness.OldStateDir, ".gemini/config", 
 // auto.json, beside auto/, is not one of them and stays watched.
 var sandboxDirs = []string{"eval", "work", "sandbox", "dev", "auto"}
 
-// storeFile, storeNames, storeTemps and atomicTemp are the state
-// directory's top-level entries the operator's own sessions, the metrics
-// ingest and the dream write, which Config.SkipStores leaves out (D45 of PLAN-2026-10-29-workers,
-// as D64 and D70 amend it, and ADR-506 for eval, where Config.BrainWatch
-// still watches brain.db by mode and per-scope digest): a worker or eval
-// trial that runs beside those writers would otherwise fail check c falsely.
-// Each is a writer's exact
-// name, never a bare prefix, so a file added later under a similar name is
-// still watched (the Phase 3 security review, finding 4). state.json is not
+// storeFile, storeNames, storeTemps, atomicTemp, reportHTMLFile and
+// reportTempFile are the state directory's entries the operator's own
+// sessions, the metrics ingest/report writers and the dream write, which
+// Config.SkipStores leaves out (D45 of PLAN-2026-10-29-workers, as D64 and
+// D70 amend it, and ADR-506 for eval, where Config.BrainWatch still watches
+// brain.db by mode and per-scope digest): a worker or eval trial that runs
+// beside those writers would otherwise fail check c falsely. Each is a
+// writer's exact name, never a bare prefix or whole reports/ subtree, so
+// unknown files, subdirectories or symlinks (including inside reports/) stay
+// watched (the Phase 3 security review, finding 4). Under reports/, only
+// regular files matching latest-daily-digest.json, YYYY-MM-DD(-HHMM|-daily)-metrics.html
+// or .fyr-<digits> (WriteAtomic temp files) are skipped. state.json is not
 // one of them: only an install writes it, and the lead installs nothing while
 // workers run.
 var (
@@ -176,27 +179,43 @@ var (
 	// os.MkdirTemp's and WriteAtomic's names: a writer's prefix, then digits
 	storeTemps = regexp.MustCompile(`^(dream-agy-home-|dream-agy-|dream-projects-|dream-metrics-|dream-brain-|dream-coupling-|metrics-agy-)[0-9]+$`)
 	atomicTemp = regexp.MustCompile(`^\.fyr-[0-9]+$`)
+	// metrics HTML reports and WriteAtomic temp files inside reports/
+	reportHTMLFile = regexp.MustCompile(`^reports/[0-9]{4}-[0-9]{2}-[0-9]{2}(?:-[0-9]{4}|-daily)-metrics\.html$`)
+	reportTempFile = regexp.MustCompile(`^reports/\.fyr-[0-9]+$`)
 )
 
 // storeEntry reports whether rel, relative to the state directory, is one
-// of the entries SkipStores leaves out: top-level names only, regular
-// models.json refreshes (BUG-543), the top-level reports/ directory (metrics
-// daily digest), and WriteAtomic's temporary names as files only.
+// of the top-level entries SkipStores leaves out: SQLite stores, dream state
+// and temp dirs, regular models.json refreshes (BUG-543), and WriteAtomic's
+// temporary names as files only. Exact regular files under reports/ are
+// matched separately by reportStoreEntry so unknown children stay watched.
 func storeEntry(rel string, mode fs.FileMode) bool {
 	if strings.ContainsRune(rel, filepath.Separator) {
 		return false
 	}
 	dir := mode.IsDir()
-	return storeFile.MatchString(rel) || slices.Contains(storeNames, rel) || storeTemps.MatchString(rel) || (mode.IsRegular() && rel == "models.json") || (dir && rel == "reports") || (!dir && atomicTemp.MatchString(rel))
+	return storeFile.MatchString(rel) || slices.Contains(storeNames, rel) || storeTemps.MatchString(rel) || (mode.IsRegular() && rel == "models.json") || (!dir && atomicTemp.MatchString(rel))
+}
+
+// reportStoreEntry reports whether slash-normalized rel, relative to the state
+// directory, is a regular file written by metrics report/digest writers under
+// reports/: latest-daily-digest.json, stamped/daily metrics HTML reports, or
+// WriteAtomic temp files. Unknown files, subdirectories, and symlinks stay watched.
+func reportStoreEntry(rel string, mode fs.FileMode) bool {
+	if !mode.IsRegular() {
+		return false
+	}
+	return rel == "reports/latest-daily-digest.json" || reportHTMLFile.MatchString(rel) || reportTempFile.MatchString(rel)
 }
 
 // fingerprintWith is safety check c (preamble :85-117, BUG-107, 123, 158):
 // every entry under the watched paths, as path relative to the home → type,
 // mode, size and a SHA-256 of a file's content or a link's target. A link to
 // a regular file is read through; no link is walked. A path that does not
-// exist is no entry (BUG-158). skipStores leaves out every storeEntry, and
-// with it a non-nil brainWatch still watches brain.db by mode and per-scope
-// digest (fingerprintBrainFile, ADR-506).
+// exist is no entry (BUG-158). skipStores leaves out every storeEntry plus
+// the reports/ dir node and every reportStoreEntry, and with it a non-nil
+// brainWatch still watches brain.db by mode and per-scope digest
+// (fingerprintBrainFile, ADR-506).
 func fingerprintWith(realHome string, skipStores bool, brainWatch func(string) (string, bool)) map[string]string {
 	fp := map[string]string{}
 	for _, dir := range watched {
@@ -221,14 +240,20 @@ func fingerprintWith(realHome string, skipStores bool, brainWatch func(string) (
 				}
 				return filepath.SkipDir
 			}
-			if dir == harness.StateDir && skipStores && storeEntry(rel, d.Type()) {
-				if brainWatch != nil && strings.HasPrefix(rel, "brain.db") {
-					fingerprintBrainFile(p, d, rel, key, brainWatch, fp)
+			if dir == harness.StateDir && skipStores {
+				if storeEntry(rel, d.Type()) {
+					if brainWatch != nil && strings.HasPrefix(rel, "brain.db") {
+						fingerprintBrainFile(p, d, rel, key, brainWatch, fp)
+					}
+					if d.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
 				}
-				if d.IsDir() {
-					return filepath.SkipDir
+				// Skip reports/ dir node without SkipDir so WalkDir still checks every child.
+				if (d.IsDir() && rel == "reports") || reportStoreEntry(filepath.ToSlash(rel), d.Type()) {
+					return nil
 				}
-				return nil
 			}
 			fp[key] = entryPrint(p, d)
 			return nil

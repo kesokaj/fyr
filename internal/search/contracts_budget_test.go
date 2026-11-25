@@ -410,7 +410,7 @@ func TestSliceContractsHookFenceVsCleanCLI(t *testing.T) {
 		t.Errorf("hook slice expected 1 BEGIN DATA spec_contracts:\n%s", hookOut)
 	}
 
-	// Tiny budget in hook mode must stay within budget and never emit an empty fence.
+	// Tiny budget in hook mode (200 B max, smaller than fence framing + header) must omit both header and fence.
 	var tinyBuf bytes.Buffer
 	if err := BuildContextSlice(Options{
 		Dir: root, Home: home, Slice: "VerifyToken", Budget: 50,
@@ -423,9 +423,24 @@ func TestSliceContractsHookFenceVsCleanCLI(t *testing.T) {
 	if len(tinyOut) > 200 || !utf8.ValidString(tinyOut) {
 		t.Errorf("tiny hook slice exceeded 200 B or invalid UTF-8: len=%d\n%s", len(tinyOut), tinyOut)
 	}
-	if strings.Contains(tinyOut, "BEGIN DATA spec_contracts") {
-		assertAuthenticSpecContractsFence(t, "tiny hook slice", tinyOut, spoofTok, "SPEC-auth")
+	if strings.Contains(tinyOut, "BEGIN DATA spec_contracts") || strings.Contains(tinyOut, "spec_contracts:") {
+		t.Errorf("tiny hook slice must omit spec_contracts when body cannot fit:\n%s", tinyOut)
 	}
+
+	// Tight-fit budget in hook mode (Budget: 95 = 380 B max) must fit and emit an authentic fence unconditionally.
+	var tightBuf bytes.Buffer
+	if err := BuildContextSlice(Options{
+		Dir: root, Home: home, Slice: "VerifyToken", Budget: 95,
+		Hook:            "pre-invocation",
+		BrainSpecBodies: specBodies,
+	}, &tightBuf); err != nil {
+		t.Fatalf("BuildContextSlice tight-fit hook: %v", err)
+	}
+	tightOut := tightBuf.String()
+	if len(tightOut) > 380 || !utf8.ValidString(tightOut) {
+		t.Errorf("tight-fit hook slice exceeded 380 B or invalid UTF-8: len=%d\n%s", len(tightOut), tightOut)
+	}
+	assertAuthenticSpecContractsFence(t, "tight-fit hook slice", tightOut, spoofTok, "SPEC-auth")
 
 	makeVet := func() VetResult {
 		return VetResult{Intent: IntentBug, Gate: GateEnrichAndProceed, Score: 85}

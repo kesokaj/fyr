@@ -279,20 +279,31 @@ func TestGuardFingerprintSkipsSandboxRoots(t *testing.T) {
 
 func TestGuardSkipStoresDreamCouplingAndReports(t *testing.T) {
 	tmp := outsideTemp(t)
+	linkTarget := filepath.Join(tmp, "symlink-target")
+	if err := os.WriteFile(linkTarget, []byte("linked"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
 		name       string
 		rel        string
 		skipStores bool
 		wantChange bool
+		symlink    bool
 	}{
-		{"skip dream-coupling temp dir", "dream-coupling-3750218557/x", true, false},
-		{"skip reports daily digest", "reports/latest-daily-digest.json", true, false},
-		{"watch dream-coupling without SkipStores", "dream-coupling-3750218557/x", false, true},
-		{"watch reports without SkipStores", "reports/latest-daily-digest.json", false, true},
-		{"watch regular file named reports", "reports", true, true},
-		{"watch non-digit dream-coupling dir", "dream-coupling-abc/x", true, true},
-		{"watch auto.json under SkipStores", "auto.json", true, true},
-		{"watch nested reports dir", "sub/reports/latest-daily-digest.json", true, true},
+		{"skip dream-coupling temp dir", "dream-coupling-3750218557/x", true, false, false},
+		{"skip reports daily digest", "reports/latest-daily-digest.json", true, false, false},
+		{"skip reports daily html", "reports/2026-11-25-daily-metrics.html", true, false, false},
+		{"skip reports minute html", "reports/2026-11-25-1430-metrics.html", true, false, false},
+		{"skip reports atomic temp", "reports/.fyr-987654", true, false, false},
+		{"watch reports unknown file", "reports/other.json", true, true, false},
+		{"watch reports nested subdir", "reports/sub/latest-daily-digest.json", true, true, false},
+		{"watch reports digest symlink", "reports/latest-daily-digest.json", true, true, true},
+		{"watch dream-coupling without SkipStores", "dream-coupling-3750218557/x", false, true, false},
+		{"watch reports without SkipStores", "reports/latest-daily-digest.json", false, true, false},
+		{"watch regular file named reports", "reports", true, true, false},
+		{"watch non-digit dream-coupling dir", "dream-coupling-abc/x", true, true, false},
+		{"watch auto.json under SkipStores", "auto.json", true, true, false},
+		{"watch nested reports dir", "sub/reports/latest-daily-digest.json", true, true, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -306,7 +317,11 @@ func TestGuardSkipStoresDreamCouplingAndReports(t *testing.T) {
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(target, []byte("payload"), 0o600); err != nil {
+			if tc.symlink {
+				if err := os.Symlink(linkTarget, target); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(target, []byte("payload"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			got := changedPaths(before, fingerprintWith(real, tc.skipStores, nil))
