@@ -44,13 +44,20 @@ type draftLine struct {
 	hasOtherField     bool
 }
 
-// processDraftLines validates each JSONL line from a worker's auto-drafts.jsonl
-// and writes valid memory, feedback and proposal records with provenance
-// "derived" (§ Drafts, D8, D39). Invalid lines become report findings and are
-// never stored. At most one valid sim_manifest is returned for eval-gate runs.
-func (r *run) processDraftLines(root, class string, data []byte) ([]Finding, *simManifest) {
+type draftStats struct {
+	valid   int
+	invalid int
+}
+
+// processDraftLinesStats validates each JSONL line from a worker's
+// auto-drafts.jsonl and writes valid memory, feedback and proposal records with
+// provenance "derived" (§ Drafts, D8, D39). Invalid lines become report
+// findings and are never stored. At most one valid sim_manifest and the
+// valid/invalid line counts are returned.
+func (r *run) processDraftLinesStats(root, class string, data []byte) ([]Finding, *simManifest, draftStats) {
 	var out []Finding
 	var manifest *simManifest
+	var stats draftStats
 	lines := strings.Split(string(data), "\n")
 	nonEmpty := 0
 	for i, raw := range lines {
@@ -61,30 +68,37 @@ func (r *run) processDraftLines(root, class string, data []byte) ([]Finding, *si
 		}
 		nonEmpty++
 		if nonEmpty > maxDraftLines {
+			stats.invalid++
 			out = append(out, Finding{"draft", "invalid", class, fmt.Sprintf("line %d: over %d draft lines; remainder refused", lineNum, maxDraftLines)})
 			break
 		}
 		d, err := parseAndValidateDraft(line)
 		if err != nil {
+			stats.invalid++
 			out = append(out, Finding{"draft", "invalid", class, fmt.Sprintf("line %d: %s", lineNum, oneLine(err.Error()))})
 			continue
 		}
 		if mf, handled := handleSIMManifestDraft(class, lineNum, d, &manifest); handled {
 			if mf.Check != "" {
+				stats.invalid++
 				out = append(out, mf)
+			} else {
+				stats.valid++
 			}
 			continue
 		}
 		f, err := r.applyDraftLine(root, class, d)
 		if err != nil {
+			stats.invalid++
 			out = append(out, Finding{"draft", "invalid", class, fmt.Sprintf("line %d: %s", lineNum, oneLine(err.Error()))})
 			continue
 		}
+		stats.valid++
 		if f.Check != "" {
 			out = append(out, f)
 		}
 	}
-	return out, manifest
+	return out, manifest, stats
 }
 
 func parseAndValidateDraft(line string) (draftLine, error) {
@@ -219,6 +233,9 @@ func setDraftField(d *draftLine, key, val string) error {
 }
 
 func (r *run) applyDraftLine(root, class string, d draftLine) (Finding, error) {
+	if err := draftAllowedForClass(class, d); err != nil {
+		return Finding{}, err
+	}
 	switch d.Kind {
 	case "finding":
 		return applyFindingDraft(class, d)
@@ -230,6 +247,37 @@ func (r *run) applyDraftLine(root, class string, d draftLine) (Finding, error) {
 		return r.applyProposalDraft(root, class, d)
 	default:
 		return Finding{}, fmt.Errorf("unknown draft kind %q", d.Kind)
+	}
+}
+
+func draftAllowedForClass(class string, d draftLine) error {
+	switch d.Kind {
+	case "finding":
+		return nil
+	case "memory":
+		switch class {
+		case ClassMemoryConsolidation:
+			return nil
+		case ClassMemoryCandidates:
+			if d.Action != "add" {
+				return fmt.Errorf("memory action %q is not allowed in class %q", d.Action, class)
+			}
+			return nil
+		default:
+			return fmt.Errorf("memory draft is not allowed in class %q", class)
+		}
+	case "feedback":
+		if class != ClassRetroLite {
+			return fmt.Errorf("feedback draft is not allowed in class %q", class)
+		}
+		return nil
+	case "proposal":
+		if class == ClassMemoryCandidates {
+			return fmt.Errorf("proposal draft is not allowed in class %q", class)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown draft kind %q", d.Kind)
 	}
 }
 

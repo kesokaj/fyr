@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -261,6 +262,103 @@ func TestScanCredsGoBuildCacheArchivesAndPlantedCreds(t *testing.T) {
 	slices.Sort(want)
 	if got := newCreds(base, scanCreds(h)); !slices.Equal(got, want) {
 		t.Errorf("planted credentials under go-build:\n got %q\nwant %q", got, want)
+	}
+}
+
+// makeTestGoPkgArchive builds a valid minimal Unix ar archive with the
+// specified member (name, payload) pairs.
+func makeTestGoPkgArchive(members ...[2]string) string {
+	var b strings.Builder
+	b.WriteString("!<arch>\n")
+	for _, m := range members {
+		name, body := m[0], m[1]
+		if len(name) > 16 {
+			name = name[:16]
+		}
+		b.WriteString(name)
+		b.WriteString(strings.Repeat(" ", 16-len(name)))
+		b.WriteString("0           0     0     0644    ")
+		sz := strconv.Itoa(len(body))
+		b.WriteString(sz)
+		b.WriteString(strings.Repeat(" ", 10-len(sz)))
+		b.WriteString("`\n")
+		b.WriteString(body)
+		if len(body)%2 == 1 {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+// TestScanCredsTmpGoBuildArchivesAndPlantedCreds pins that framing-verified Go
+// package archives (__.PKGDEF starting with "go object " and exact ar EOF
+// accounting) left under tmp/go-build<n>/b<n>/_pkg_.a pass while bare magic
+// prefixes, malformed ar trailers/sizes, non-PKGDEF archives, non-_pkg_.a files,
+// credential-named fixtures (including tmp/dream-test-*/.../antigravity-oauth-token),
+// symlinks, and unreadable files under tmp/ continue to fail closed.
+func TestScanCredsTmpGoBuildArchivesAndPlantedCreds(t *testing.T) {
+	old := maxScan
+	maxScan = 128
+	t.Cleanup(func() { maxScan = old })
+
+	h := t.TempDir()
+	base := scanCreds(h)
+	goodA := filepath.Join(h, "tmp", "go-build2464546803", "b253", "_pkg_.a")
+	goodBig := filepath.Join(h, "tmp", "go-build2464546803", "b284", "_pkg_.a")
+	validSmall := makeTestGoPkgArchive(
+		[2]string{"__.PKGDEF", "go object " + ghToken},
+	)
+	validBig := makeTestGoPkgArchive(
+		[2]string{"__.PKGDEF", "go object linux amd64 go1.27\n$$\n"},
+		[2]string{"_go_.o", strings.Repeat("x", 256) + awsKey + "\n" + ghToken},
+	)
+	put(t, goodA, validSmall, 0o644)
+	put(t, goodBig, validBig, 0o644)
+	if got := newCreds(base, scanCreds(h)); len(got) != 0 {
+		t.Fatalf("tmp go-build _pkg_.a archives flagged as credentials: %v", got)
+	}
+
+	outside := filepath.Join(t.TempDir(), "secret.a")
+	put(t, outside, validSmall, 0o600)
+	// Bare magic prefix without 60-byte ar header must fail closed.
+	put(t, filepath.Join(h, "tmp", "go-build2464546803", "b001", "_pkg_.a"), "!<arch>\n__.PKGDEF\n"+ghToken, 0o644)
+	// Valid ar header with wrong first member name must fail closed.
+	put(t, filepath.Join(h, "tmp", "go-build2464546803", "b006", "_pkg_.a"),
+		makeTestGoPkgArchive([2]string{"_go_.o", "go object " + ghToken}), 0o644)
+	// Valid __.PKGDEF member without "go object " prefix must fail closed.
+	put(t, filepath.Join(h, "tmp", "go-build2464546803", "b007", "_pkg_.a"),
+		makeTestGoPkgArchive([2]string{"__.PKGDEF", "not-go-obj " + ghToken}), 0o644)
+	// Valid archive with trailing data past EOF must fail closed.
+	put(t, filepath.Join(h, "tmp", "go-build2464546803", "b008", "_pkg_.a"),
+		makeTestGoPkgArchive([2]string{"__.PKGDEF", "go object linux\n"})+ghToken, 0o644)
+	put(t, filepath.Join(h, "tmp", "go-build2464546803", "b002", "other.a"), validSmall, 0o644)
+	put(t, filepath.Join(h, "tmp", "go-build-evil", "b003", "_pkg_.a"), validSmall, 0o644)
+	put(t, filepath.Join(h, "tmp", "dream-test-12345", "home", ".gemini", "antigravity-cli", "antigravity-oauth-token"), "token", 0o600)
+	if err := os.MkdirAll(filepath.Join(h, "tmp", "go-build2464546803", "b004"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(h, "tmp", "go-build2464546803", "b004", "_pkg_.a")); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		filepath.Join("tmp", "dream-test-12345", "home", ".gemini", "antigravity-cli", "antigravity-oauth-token") + " (name)",
+		filepath.Join("tmp", "go-build-evil", "b003", "_pkg_.a") + " (github-token)",
+		filepath.Join("tmp", "go-build2464546803", "b001", "_pkg_.a") + " (github-token)",
+		filepath.Join("tmp", "go-build2464546803", "b002", "other.a") + " (github-token)",
+		filepath.Join("tmp", "go-build2464546803", "b004", "_pkg_.a") + " (github-token)",
+		filepath.Join("tmp", "go-build2464546803", "b006", "_pkg_.a") + " (github-token)",
+		filepath.Join("tmp", "go-build2464546803", "b007", "_pkg_.a") + " (github-token)",
+		filepath.Join("tmp", "go-build2464546803", "b008", "_pkg_.a") + " (github-token)",
+	}
+	if os.Geteuid() != 0 {
+		locked := filepath.Join(h, "tmp", "go-build2464546803", "b005", "_pkg_.a")
+		put(t, locked, validSmall, 0o000)
+		t.Cleanup(func() { _ = os.Chmod(locked, 0o600) })
+		want = append(want, filepath.Join("tmp", "go-build2464546803", "b005", "_pkg_.a")+" (unreadable)")
+	}
+	slices.Sort(want)
+	if got := newCreds(base, scanCreds(h)); !slices.Equal(got, want) {
+		t.Errorf("planted credentials under tmp/:\n got %q\nwant %q", got, want)
 	}
 }
 

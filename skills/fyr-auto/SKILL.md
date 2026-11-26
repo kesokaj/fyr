@@ -24,6 +24,7 @@ When enabled, `fyr auto` covers all discovered workspaces and conversations acro
 - Do the one task the Kickoff names, inside its `Files:` line. A task that is drafts only gets no file: any change to the tree fails you.
 - Another problem you notice is a finding, not a second task.
 - You run on an isolated branch `fyr auto` made. Commit there, and write the handoff record `fyr auto` asks for. Merging it is `fyr`'s, after the project's marked tests pass.
+- For `harness-edit` and `distill`, run only fast targeted checks (`fyr check` and package-scoped tests) and wait for every command to exit cleanly — never run full-repo `fyr verify` or kill a running `go test` task (`fyr auto` runs full verification and eval after you exit, and killed tests leave temp fixtures in `$TMPDIR`).
 - When the task cannot be done inside `Files:`, stop and write the reason as a finding. Never widen the scope, and never change a test or a check to get a pass.
 - Ask no question: nobody answers. What you would ask becomes a finding, or a proposal for the operator.
 
@@ -96,7 +97,7 @@ Your way out is `.agents/scratch/agents/auto-drafts.jsonl` in the clone: one JSO
 {"kind": "sim_manifest", "problem_id": "SIM-P001", "mechanism_class": "prompt_guidance", "rationale": "what changed and why it differs", "predicted_rows": "dreamer,sim-avoid-repeat", "predicted_signals": "sig:global:bash_read_bypass"}
 ```
 
-`target` is `project` or `harness`; `action` is `add`, `retire` or `merge`; optional `memory_type` is `semantic`, `procedural` or `episodic`; optional `scope` is `project` or `global` (a `retire` or `merge` names a memory of this project and cannot use `global`); optional `sessions` is a comma-separated list of short session IDs.
+`target` is `project` or `harness` (`proposal` also accepts optional digest keys `signal_id`, `report_date` `YYYY-MM-DD`, `action_scope` `auto_skill|operator_code|operator_rule|propose_only`, and `recommended_action`); `action` is `add`, `retire` or `merge`; optional `memory_type` is `semantic`, `procedural` or `episodic`; optional `scope` is `project` or `global` (a `retire` or `merge` names a memory of this project and cannot use `global`); optional `sessions` is a comma-separated list of short session IDs. Never add unknown keys such as `"type"` or `"class"`.
 
 For `harness-edit` and `distill` workers, emit at most one `sim_manifest` line per run (all JSON string values, `<= 4 KiB`, no secrets or control chars, and no non-SIM draft keys):
 - **Required:** `"kind": "sim_manifest"`, `"rationale"` (`<= 400 B`), and `"problem_id"` (`SIM-PNNN`) or `"root_cause"` (`<= 240 B`, alphanumeric).

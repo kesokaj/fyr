@@ -147,19 +147,31 @@ func underAny(p string, dirs []string) bool {
 
 const arMagic = "!<arch>\n"
 
-var goBuildCacheRel = regexp.MustCompile(`^(?:home/)?\.cache/go-build/[0-9a-f]{2}/[0-9a-f]+-[ad]$`)
+var (
+	goBuildCacheRel      = regexp.MustCompile(`^(?:home/)?\.cache/go-build/[0-9a-f]{2}/[0-9a-f]+-[ad]$`)
+	goTmpBuildArchiveRel = regexp.MustCompile(`^tmp/go-build[0-9]+/b[0-9]+/_pkg_\.a$`)
+)
 
 // goBuildCacheEntry reports whether p is a regular Unix ar archive ("!<arch>\n")
 // or linked ELF/Mach-O binary inside the sandbox's Go build cache
-// (home/.cache/go-build/<xx>/<hex>-a|-d, BUG-520, BUG-538): compiled archives
-// and -race test binaries can exceed maxScan, while symlinks, unreadable files,
-// credential-named files and non-binary files in go-build fail closed.
+// (home/.cache/go-build/<xx>/<hex>-a|-d, BUG-520, BUG-538), or a framing-verified
+// Go package archive (__.PKGDEF + "go object " + exact ar EOF accounting) left
+// under tmp/go-build<n>/b<n>/_pkg_.a: compiled archives and -race test binaries
+// can carry repo test patterns or exceed maxScan, while symlinks, unreadable
+// files, credential-named files, bare magic prefixes under tmp/, and non-binary
+// files fail closed.
 func goBuildCacheEntry(root, p string, d fs.DirEntry) bool {
 	if d == nil || !d.Type().IsRegular() {
 		return false
 	}
 	rel, err := filepath.Rel(root, p)
-	if err != nil || !goBuildCacheRel.MatchString(filepath.ToSlash(rel)) || !resolvesUnder(root, p) {
+	if err != nil {
+		return false
+	}
+	slash := filepath.ToSlash(rel)
+	isCache := goBuildCacheRel.MatchString(slash)
+	isTmpPkg := !isCache && goTmpBuildArchiveRel.MatchString(slash)
+	if (!isCache && !isTmpPkg) || !resolvesUnder(root, p) {
 		return false
 	}
 	f, err := OpenRegular(p, os.O_RDONLY)
@@ -167,6 +179,9 @@ func goBuildCacheEntry(root, p string, d fs.DirEntry) bool {
 		return false
 	}
 	defer f.Close()
+	if isTmpPkg {
+		return validGoPkgArchive(f)
+	}
 	var hdr [len(arMagic)]byte
 	n, _ := io.ReadFull(f, hdr[:])
 	return (n == len(arMagic) && string(hdr[:]) == arMagic) || isExecutable(hdr[:n])
@@ -210,7 +225,12 @@ func scanEntry(root, p string, d fs.DirEntry, read bool) (credFinding, bool) {
 		return credFinding{}, false // a device or a fifo is never read
 	}
 	if !read {
-		f, err := os.Open(p)
+		var f *os.File
+		if !link {
+			f, err = OpenRegular(p, os.O_RDONLY)
+		} else {
+			f, err = os.Open(p)
+		}
 		if err != nil {
 			return credFinding{problem: "unreadable"}, true
 		}

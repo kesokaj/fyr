@@ -12,9 +12,11 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/models"
+	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -227,13 +229,18 @@ func (r *run) finishWorker(ctx context.Context, root string, p *Project, t Task,
 	if runErr != nil || res.Verdict != "PASS" {
 		return r.handleWorkerFailure(t.Class, k.Branch, runnerWhy, res, runErr)
 	}
-	draftFindings, manifest, err := r.collectAutoDrafts(root, k.Name, t.Class, res)
+	draftFindings, manifest, stats, err := r.collectAutoDrafts(root, k.Name, t.Class, res)
 	if err != nil {
 		r.failed = true
 		msg := withRunner(fmt.Sprintf("FAIL (drafts: %s); branch %s kept", oneLine(err.Error()), k.Branch), runnerWhy)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
 	r.cleanWorkerDrafts(root, res.DraftsDir)
+	if t.DraftsOnly && stats.invalid > 0 && stats.valid == 0 {
+		r.failed = true
+		msg := withRunner(fmt.Sprintf("FAIL (all %d drafts invalid); branch %s kept", stats.invalid, k.Branch), runnerWhy)
+		return msg, append(draftFindings, Finding{"worker", t.Class, k.Branch, msg})
+	}
 	p.LastClass = t.Class
 	r.recordLearningProgress(p, t, learningCutoff)
 	v, bf := r.finishPassBranch(ctx, root, t, k, runner, runnerWhy, snapBefore, snapErr, res, manifest, workerModel)
@@ -260,7 +267,67 @@ func (r *run) handleWorkerFailure(class, branch, runnerWhy string, res isolate.W
 		why = oneLine(runErr.Error())
 	}
 	msg := withRunner(fmt.Sprintf("FAIL (%s); branch %s kept", why, branch), runnerWhy)
-	return msg, []Finding{{"worker", class, branch, msg}}
+	fs := []Finding{{"worker", class, branch, msg}}
+	if slices.Contains(res.Reasons, isolate.ReasonCredentials) {
+		fs = append(fs, credFailureFindings(branch, res.Notes)...)
+	}
+	return msg, fs
+}
+
+const (
+	credNoteMarker    = isolate.ReasonCredentials + " (BUG-160): "
+	credDetailMaxByte = 320
+	credItemMaxByte   = 160
+)
+
+func credFailureFindings(branch string, notes []string) []Finding {
+	var out []Finding
+	for _, note := range notes {
+		clean := oneLine(note)
+		idx := strings.Index(clean, credNoteMarker)
+		if idx < 0 {
+			continue
+		}
+		detail := trimUTF8(redactCredNote(clean[idx:]), credDetailMaxByte)
+		out = append(out, Finding{"worker", "credentials", branch, detail})
+	}
+	return out
+}
+
+func redactCredNote(clean string) string {
+	prefix := credNoteMarker[:len(credNoteMarker)-2]
+	rest := strings.TrimSpace(clean[len(credNoteMarker):])
+	if rest == "" {
+		return prefix
+	}
+	parts := strings.Split(rest, "), ")
+	for i, part := range parts {
+		if i < len(parts)-1 {
+			part += ")"
+		}
+		red := redact.Redact(strings.TrimSpace(part))
+		parts[i] = trimUTF8(red, credItemMaxByte)
+	}
+	joined := prefix + ": " + strings.Join(parts, ", ")
+	if redact.Redact(joined) != joined {
+		return prefix + ": [redacted by fyr]"
+	}
+	return joined
+}
+
+func trimUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	limit := max(0, maxBytes-3)
+	for len(s) > limit {
+		_, size := utf8.DecodeLastRuneInString(s)
+		if size <= 0 {
+			break
+		}
+		s = s[:len(s)-size]
+	}
+	return s + "..."
 }
 
 func (r *run) recordLearningProgress(p *Project, t Task, cutoff time.Time) {

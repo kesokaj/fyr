@@ -12,6 +12,11 @@ import (
 	"github.com/kesokaj/fyr/internal/metrics"
 )
 
+func (r *run) processDraftLines(root, class string, data []byte) ([]Finding, *simManifest) {
+	fs, manifest, _ := r.processDraftLinesStats(root, class, data)
+	return fs, manifest
+}
+
 func initGitRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
