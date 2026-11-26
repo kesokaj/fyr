@@ -2,6 +2,8 @@ package auto
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/isolate"
+	"github.com/kesokaj/fyr/internal/redact"
 )
 
 func TestAllInvalidDraftsFailAndPreserveWatermark(t *testing.T) {
@@ -22,7 +25,7 @@ func TestAllInvalidDraftsFailAndPreserveWatermark(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeConfig(t, home, validConfig)
-	st := State{Date: now.Format("2006-11-02"), Projects: map[string]Project{root: {}}}
+	st := State{Date: now.Format("2006-01-02"), Projects: map[string]Project{root: {}}}
 	if err := saveState(home, st); err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +114,7 @@ func TestCollectAutoDraftsScrubsSecretsBeforeArchiving(t *testing.T) {
 	rawTok := "gh" + "p_" + strings.Repeat("A", 36)
 	escapedTok := `\u0067hp_` + strings.Repeat("B", 36)
 	spoofEscapedTok := `\u0067hp_` + strings.Repeat("C", 36)
-	bearer := "Authorization: Bearer " + strings.Repeat("x", 24)
+	authHdr := "Auth" + "orization: " + "Bear" + "er " + strings.Repeat("x", 24)
 	pemOpen := "-----" + "begin private" + " key-----"
 	pemBody := "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ"
 	pemClose := "-----" + "end private" + " key-----"
@@ -122,7 +125,7 @@ func TestCollectAutoDraftsScrubsSecretsBeforeArchiving(t *testing.T) {
 		`{"kind":"finding","body":"leaked ` + rawTok + `"}`,
 		`{"kind":"finding","body":"escaped ` + escapedTok + `"}`,
 		`[redacted by fyr] "` + spoofEscapedTok + `"`,
-		`{"kind":"finding","body":"hdr ` + bearer + `"}`,
+		`{"kind":"finding","body":"hdr ` + authHdr + `"}`,
 		pemOpen,
 		pemBody,
 		pemClose,
@@ -146,7 +149,7 @@ func TestCollectAutoDraftsScrubsSecretsBeforeArchiving(t *testing.T) {
 	if !strings.Contains(archived, `{"kind":"finding","body":"clean note"}`) {
 		t.Errorf("archive dropped clean line:\n%s", archived)
 	}
-	for _, secret := range []string{rawTok, strings.Repeat("B", 20), strings.Repeat("C", 20), bearer, pemOpen, pemBody, escPemOpen, escPemBody, pemClose} {
+	for _, secret := range []string{rawTok, strings.Repeat("B", 20), strings.Repeat("C", 20), authHdr, pemOpen, pemBody, escPemOpen, escPemBody, pemClose} {
 		if strings.Contains(archived, secret) {
 			t.Errorf("archive leaked secret %q:\n%s", secret, archived)
 		}
@@ -181,7 +184,10 @@ func TestCollectAutoDraftsScrubsSecretsBeforeArchiving(t *testing.T) {
 		t.Errorf("OpenAsks = %d after archive failure, want 0", r2.st.OpenAsks)
 	}
 	props, err := brain.List(brain.Options{Home: home2, Global: true, Now: r2.o.Now}, brain.ListFilter{Kind: "proposal"})
-	if err == nil && len(props) != 0 {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("brain.List after archive failure: %v", err)
+	}
+	if len(props) != 0 {
 		t.Errorf("proposals mutated after archive failure: %+v", props)
 	}
 }
@@ -236,9 +242,9 @@ func TestWorkerFailureSurfacesCredentialPathsAndRedactsEdges(t *testing.T) {
 			// Normal multi-kind entry + token-bearing filename.
 			"auto: run1: credentials left in the sandbox (BUG-160): tmp/a.txt (aws-key, github-token), tmp/leak-" + tok + " (aws-key, github-token)",
 			// Quoted secret containing ", " must fail closed.
-			`auto: run2: credentials left in the sandbox (BUG-160): tmp/token="abc, def" (name)`,
+			`auto: run2: credentials left in the sandbox (BUG-160): tmp/tok` + `en="abc, def" (name)`,
 			// Newline-split secret must be collapsed before redaction.
-			"auto: run3: credentials left in the sandbox (BUG-160): tmp/password:\nsecret123456 (name)",
+			"auto: run3: credentials left in the sandbox (BUG-160): tmp/pass" + "word:\n" + "secret123456 (name)",
 			// Long multi-byte UTF-8 path must trim on valid rune boundaries.
 			"auto: run4: credentials left in the sandbox (BUG-160): tmp/" + strings.Repeat("é", 220) + " (name)",
 			// Unrelated note merely mentioning ReasonCredentials without (BUG-160): marker must be ignored.
@@ -269,5 +275,26 @@ func TestWorkerFailureSurfacesCredentialPathsAndRedactsEdges(t *testing.T) {
 	}
 	if !utf8.ValidString(credFindings[3].Text) || !strings.HasSuffix(credFindings[3].Text, "...") {
 		t.Errorf("UTF-8 truncation invalid: valid=%v text=%q", utf8.ValidString(credFindings[3].Text), credFindings[3].Text)
+	}
+}
+
+func TestWorkerDraftsTestFileHasNoSecretPatterns(t *testing.T) {
+	data, err := os.ReadFile("worker_drafts_test.go")
+	if err != nil {
+		t.Fatalf("read worker_drafts_test.go: %v", err)
+	}
+	text := string(data)
+	if redact.Redact(text) == text {
+		return
+	}
+	lineHits := 0
+	for i, line := range strings.Split(text, "\n") {
+		if scrubbed := redact.Redact(line); scrubbed != line {
+			lineHits++
+			t.Errorf("worker_drafts_test.go:%d matched secret pattern (%s)", i+1, scrubbed)
+		}
+	}
+	if lineHits == 0 {
+		t.Errorf("worker_drafts_test.go matched a multi-line secret pattern")
 	}
 }

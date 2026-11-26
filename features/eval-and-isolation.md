@@ -62,7 +62,7 @@ Why OS-native isolation matters: `agy --sandbox` restricts shell commands only a
 | **a. Refused roots** | Resolved clone and sandbox paths are never `/`, real `$HOME`, or the harness checkout (`internal/isolate/guard.go`) |
 | **b. Outside checkout** | Sandbox root and clone directory sit outside every git repository (`isolate.OutsideCheckout`) |
 | **c. Real config unchanged** | Fingerprints `~/.config/fyr` (watching `brain.SnapshotScopes` for the trial scope while skipping concurrent stores), `~/.gemini/config`, and vendor `settings.json` before and after (`ADR-506`) |
-| **d. No leaked credentials** | Scans the sandbox directory tree for newly created credential-shaped files, links, or secrets (`internal/isolate/creds.go`) |
+| **d. No leaked credentials** | Scans the sandbox tree for newly created credential-shaped files, links, or secrets (`internal/isolate/creds.go`). Exempts Go build cache artifacts (`home/.cache/go-build`) and framing-verified `tmp/go-build<n>/b<n>/_pkg_.a` archives (`__.PKGDEF`, `"go object "`, exact `ar` EOF, `<= 256 MiB`, `internal/isolate/creds_archive.go`) while keeping credential-name checks active. `fyr auto` surfaces redacted offending paths in `REVIEW-*` reports (`BUG-160`, `BUG-565`). |
 | **e. No stray processes** | Scans Linux `/proc` or macOS `lsof` + `ps -Eww` for leftover child processes tied to the sandbox and kills them with `SIGTERM`/`SIGKILL` |
 | **f. Subagent invocation** | When `agent` is set, verifies `"TypeName":"<agent>"` appears in the sandbox conversation SQLite DB |
 

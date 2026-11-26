@@ -111,7 +111,7 @@ func TestExecWorkerPropagatesRootToWriteKickoff(t *testing.T) {
 	}
 	writeConfig(t, home, validConfig)
 	st := State{
-		Date: runAt.Format("2006-11-02"),
+		Date: runAt.Format("2006-01-02"),
 		Projects: map[string]Project{
 			alphaRoot: {},
 			zuluRoot:  {},

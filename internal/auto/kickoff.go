@@ -171,8 +171,7 @@ func BuildKickoff(now time.Time, t Task) (Kickoff, error) {
 }
 
 func kickoffFinishRule(class string, draftsOnly bool) string {
-	switch class {
-	case ClassMemoryConsolidation, ClassRetroLite, ClassMemoryCandidates:
+	if isZeroToolDraftsClass(class) {
 		return "- Zero repo exploration / zero shell or read tool calls: analyze ONLY the redacted learning input and SessionDigest below, write drafts to .agents/scratch/agents/auto-drafts.jsonl, make no git commit or handoff, and ask no question."
 	}
 	if draftsOnly {
