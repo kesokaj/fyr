@@ -337,7 +337,7 @@ func assertSIMBlockAndOrder(t *testing.T, c Collected, home string) {
 	iSIM := strings.Index(c.Prompt, "\n<<<data sim: optimizer-memory\n")
 	iMetrics := strings.Index(c.Prompt, "\n<<<data metrics: ")
 	iTrans := strings.Index(c.Prompt, "\n<<<data transcript: ")
-	if !(iSkill > 0 && iSkill < iSIM && iSIM < iMetrics && iMetrics < iTrans) {
+	if iSkill <= 0 || iSkill >= iSIM || iSIM >= iMetrics || iMetrics >= iTrans {
 		t.Errorf("unexpected prompt order: skill=%d sim=%d metrics=%d transcript=%d", iSkill, iSIM, iMetrics, iTrans)
 	}
 	for _, rule := range []string{"<<<data sim:", "policy_model", "mechanism_class", "model_workaround", "not_kept", "reverted"} {

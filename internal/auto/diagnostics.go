@@ -106,7 +106,7 @@ func recordUpdatedAfter(rec brain.Record, cutoff time.Time) bool {
 
 func collectSignalTokens(dst map[string]bool, text string) {
 	for _, tok := range strings.FieldsFunc(text, func(r rune) bool {
-		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == ':' || r == '_' || r == '-')
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != ':' && r != '_' && r != '-'
 	}) {
 		if strings.HasPrefix(tok, "sig:") && len(tok) >= 5 && len(tok) <= 96 {
 			dst[tok] = true

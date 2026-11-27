@@ -26,13 +26,6 @@ type draftPlan struct {
 	lines []string
 }
 
-// write stores validated proposals, ratings, and draft skills, returning the
-// count of non-draft-wrapper proposals written.
-func (o Options) write(conf string, c Collected, r response, cli string, t0 time.Time) (int, error) {
-	nProps, _, err := o.writeCounts(conf, c, r, cli, t0)
-	return nProps, err
-}
-
 // writeCounts stores validated proposals, ratings, and draft skills (in order:
 // planDrafts -> propose -> WriteRatings -> commitDrafts) so drafts and ratings
 // only persist after propose() succeeds. Returns non-draft-wrapper proposals
@@ -150,7 +143,7 @@ func cleanSignalID(raw string) string {
 	}
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == ':' || c == '_' || c == '-') {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != ':' && c != '_' && c != '-' {
 			return ""
 		}
 	}

@@ -242,7 +242,7 @@ func TestContractsSpecSectionsFaultsTSVAndGuardrails(t *testing.T) {
 	i10 := strings.Index(out, "- ADR-010:")
 	i15 := strings.Index(out, "- ADR-015:")
 	i20 := strings.Index(out, "- ADR-020:")
-	if !(i10 < i15 && i15 < i20) {
+	if i10 >= i15 || i15 >= i20 {
 		t.Errorf("guardrails not sorted by ADR ID:\n%s", out)
 	}
 

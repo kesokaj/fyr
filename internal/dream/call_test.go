@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // A grandchild of the CLI that kept the output pipes (a language or MCP
@@ -270,14 +272,32 @@ func (s nonSyscallSignal) String() string { return string(s) }
 func (s nonSyscallSignal) Signal()        {}
 
 func TestCLICommandBoundsOutputAndSafeSignal(t *testing.T) {
-	cw := &cappedWriter{limit: 8}
+	cw := trail.NewCappedBuffer(8, nil)
 	n, err := cw.Write([]byte("0123456789"))
-	if err != nil || n != 10 || cw.kept.String() != "01234567" {
-		t.Fatalf("cappedWriter = (%d, %v, %q)", n, err, cw.kept.String())
+	if err != nil || n != 10 || cw.String() != "01234567" || !cw.Truncated() {
+		t.Fatalf("CappedWriter = (%d, %v, %q, truncated=%v)", n, err, cw.String(), cw.Truncated())
 	}
 	_, out, errb, err := cliCommand(context.Background(), []string{"agy"}, "hi", t.TempDir(), []string{})
-	if err != nil || out.limit != maxCLIStdout || errb.limit != maxCLIStderr {
-		t.Fatalf("cliCommand bounds = (%d, %d, %v)", out.limit, errb.limit, err)
+	if err != nil {
+		t.Fatalf("cliCommand: %v", err)
+	}
+	chunk := make([]byte, 1<<20)
+	for range maxCLIStdout / len(chunk) {
+		if _, err := out.Write(chunk); err != nil {
+			t.Fatalf("out.Write: %v", err)
+		}
+	}
+	if out.Truncated() || out.Len() != maxCLIStdout {
+		t.Fatalf("out at limit: len=%d truncated=%v, want %d/false", out.Len(), out.Truncated(), maxCLIStdout)
+	}
+	if _, err := out.Write([]byte{'x'}); err != nil || !out.Truncated() || out.Len() != maxCLIStdout {
+		t.Fatalf("out past limit: len=%d truncated=%v err=%v", out.Len(), out.Truncated(), err)
+	}
+	if _, err := errb.Write(chunk); err != nil || errb.Truncated() || errb.Len() != maxCLIStderr {
+		t.Fatalf("errb at limit: len=%d truncated=%v err=%v", errb.Len(), errb.Truncated(), err)
+	}
+	if _, err := errb.Write([]byte{'x'}); err != nil || !errb.Truncated() || errb.Len() != maxCLIStderr {
+		t.Fatalf("errb past limit: len=%d truncated=%v err=%v", errb.Len(), errb.Truncated(), err)
 	}
 	// Checked type assertion handles non-syscall.Signal without panicking.
 	sigs := make(chan os.Signal, 1)

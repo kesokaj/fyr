@@ -215,17 +215,17 @@ func TestDroppedKindAndSampleHelpers(t *testing.T) {
 		}
 	}
 
-	if got := formatDroppedSample("  \n\t ", maxDroppedSampleBytes); got != "(empty)" {
+	if got := formatDroppedSample("  \n\t "); got != "(empty)" {
 		t.Errorf("empty sample = %q, want (empty)", got)
 	}
-	if got := formatDroppedSample("a\n  b\t c", maxDroppedSampleBytes); got != "a b c" {
+	if got := formatDroppedSample("a\n  b\t c"); got != "a b c" {
 		t.Errorf("collapsed sample = %q", got)
 	}
-	long := formatDroppedSample(strings.Repeat("🚀", 30), maxDroppedSampleBytes)
+	long := formatDroppedSample(strings.Repeat("🚀", 30))
 	if len(long) > maxDroppedSampleBytes || !utf8.ValidString(long) || !strings.HasSuffix(long, "...") {
 		t.Errorf("truncated emoji sample = %q (len=%d, valid=%v)", long, len(long), utf8.ValidString(long))
 	}
-	invalidShort := formatDroppedSample("ok\xff", maxDroppedSampleBytes)
+	invalidShort := formatDroppedSample("ok\xff")
 	if !utf8.ValidString(invalidShort) || strings.HasSuffix(invalidShort, "...") {
 		t.Errorf("invalid short sample = %q", invalidShort)
 	}

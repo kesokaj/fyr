@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
@@ -287,7 +289,7 @@ func (f *fitter) trimSIMBlock(need, minFreed int) bool {
 	if target < minSIMTrimText {
 		target = minSIMTrimText
 	}
-	kept := sliceUTF8Prefix(strings.TrimRight(sim.Text, "\n"), target)
+	kept := trail.TruncateUTF8(strings.TrimRight(sim.Text, "\n"), target)
 	dropped := max(1, len(sim.Text)-len(kept))
 	sim.Text = fmt.Sprintf("%s\n[... trimmed %d bytes ...]", kept, dropped)
 	newSize := len(block(sim))
@@ -315,7 +317,7 @@ func chunkTranscriptWindows(raw string, budget int) string {
 	headLen := usable * 35 / 100
 	midLen := usable * 30 / 100
 	tailLen := usable - headLen - midLen
-	headPart := sliceUTF8Prefix(raw, headLen)
+	headPart := trail.TruncateUTF8(raw, headLen)
 	tailPart := sliceUTF8Suffix(raw, tailLen)
 	midRegion := ""
 	if len(headPart)+len(tailPart) < len(raw) {
@@ -344,7 +346,7 @@ func extractDecisionWindow(region string, budget int) string {
 			strings.Contains(low, "error") || strings.Contains(low, "commit") ||
 			strings.Contains(low, "adr-") || strings.Contains(low, "plan-") ||
 			strings.Contains(low, "resolved") || strings.Contains(low, "verdict") {
-			part := sliceUTF8Prefix(strings.TrimSpace(line), min(160, budget-used))
+			part := trail.TruncateUTF8(strings.TrimSpace(line), min(160, budget-used))
 			if part != "" {
 				picked = append(picked, part)
 				used += len(part) + 1
@@ -355,7 +357,7 @@ func extractDecisionWindow(region string, budget int) string {
 		}
 	}
 	if len(picked) > 0 {
-		return sliceUTF8Prefix(strings.Join(picked, "\n"), budget)
+		return trail.TruncateUTF8(strings.Join(picked, "\n"), budget)
 	}
 	start := len(region)/2 - budget/2
 	if start < 0 {
@@ -364,20 +366,7 @@ func extractDecisionWindow(region string, budget int) string {
 	for start < len(region) && !utf8.RuneStart(region[start]) {
 		start++
 	}
-	return sliceUTF8Prefix(region[start:], budget)
-}
-
-func sliceUTF8Prefix(s string, n int) string {
-	if n <= 0 {
-		return ""
-	}
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n]
+	return trail.TruncateUTF8(region[start:], budget)
 }
 
 func sliceUTF8Suffix(s string, n int) string {

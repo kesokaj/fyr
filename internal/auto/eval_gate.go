@@ -53,20 +53,20 @@ func (r *run) evalGateBranch(ctx context.Context, root string, t Task, k Kickoff
 		return r.checkoutMovedFail(runnerWhy, t.Class, k.Branch)
 	}
 	if err := verifyBranchForApply(root, snapBefore.head, k.Branch, t.Class); err != nil {
-		return r.rejectEvalGate(root, t, k, runnerWhy, nil, 0, err.Error(), nil)
+		return r.rejectEvalGate(root, t, k, runnerWhy, err.Error(), nil)
 	}
 	candSHA, err := applyGit(root, nil, "rev-parse", "--verify", "--end-of-options", "refs/heads/"+k.Branch)
 	if err != nil || candSHA == "" {
-		return r.rejectEvalGate(root, t, k, runnerWhy, nil, 0, "missing candidate branch "+k.Branch, nil)
+		return r.rejectEvalGate(root, t, k, runnerWhy, "missing candidate branch "+k.Branch, nil)
 	}
 	changed, err := changedHarnessTargets(root, snapBefore.head, "refs/heads/"+k.Branch)
 	if err != nil {
-		return r.rejectEvalGate(root, t, k, runnerWhy, nil, 0, err.Error(), nil)
+		return r.rejectEvalGate(root, t, k, runnerWhy, err.Error(), nil)
 	}
 	holdoutPath := r.o.holdoutFile()
 	seeded, err := ensureHoldoutSuite(r.o.Home, root, holdoutPath)
 	if err != nil {
-		return r.rejectEvalGate(root, t, k, runnerWhy, nil, 0, err.Error(), nil)
+		return r.rejectEvalGate(root, t, k, runnerWhy, err.Error(), nil)
 	}
 	var seedFindings []Finding
 	if seeded {
@@ -74,7 +74,7 @@ func (r *run) evalGateBranch(ctx context.Context, root string, t Task, k Kickoff
 	}
 	rows, err := collectGateRows(r.o.Home, root, holdoutPath, changed, t.Class)
 	if err != nil {
-		return r.rejectEvalGate(root, t, k, runnerWhy, nil, 0, err.Error(), seedFindings)
+		return r.rejectEvalGate(root, t, k, runnerWhy, err.Error(), seedFindings)
 	}
 	rows = appendPredictedGateRows(r.o.Home, root, rows, manifest)
 	simCtx := newGateSIMCtx(root, t, snapBefore.head, candSHA, changed, manifest, workerModel)
@@ -330,8 +330,8 @@ func rowKeepError(gr gateRow, parent, cand EvalOutcome) string {
 	return ""
 }
 
-func (r *run) rejectEvalGate(root string, t Task, k Kickoff, runnerWhy string, scores []gateRowScore, sessions int, reason string, gateFindings []Finding) (string, []Finding) {
-	propID := r.fileEvalGateProposal(root, t, k.Branch, scores, sessions, reason)
+func (r *run) rejectEvalGate(root string, t Task, k Kickoff, runnerWhy, reason string, gateFindings []Finding) (string, []Finding) {
+	propID := r.fileEvalGateProposal(root, t, k.Branch, nil, 0, reason)
 	msg := withRunner(fmt.Sprintf("eval-gate not kept (%s); proposal %s; branch %s kept", oneLine(reason), propID, k.Branch), runnerWhy)
 	gateFindings = append(gateFindings, Finding{"eval-gate", "not-kept", k.Branch, msg})
 	return msg, gateFindings

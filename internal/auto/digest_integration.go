@@ -19,7 +19,7 @@ func isValidSignalID(raw string) bool {
 	}
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == ':' || c == '_' || c == '-') {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != ':' && c != '_' && c != '-' {
 			return false
 		}
 	}
@@ -106,7 +106,7 @@ func extractProposalAttribution(rec brain.Record) (sigID, repDate string) {
 
 func firstSignalID(text string) string {
 	for _, fld := range strings.FieldsFunc(text, func(r rune) bool {
-		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == ':' || r == '_' || r == '-')
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != ':' && r != '_' && r != '-'
 	}) {
 		if isValidSignalID(fld) {
 			return fld

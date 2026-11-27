@@ -81,7 +81,7 @@ func agyHome(conf, goos string) (string, func(), error) {
 	}
 	for _, name := range []string{"antigravity-oauth-token", "installation_id"} {
 		optional := name == "installation_id" || keychains != ""
-		if err := copyPrivate(filepath.Join(src, name), filepath.Join(dst, name)); err != nil && !(optional && errors.Is(err, os.ErrNotExist)) {
+		if err := copyPrivate(filepath.Join(src, name), filepath.Join(dst, name)); err != nil && (!optional || !errors.Is(err, os.ErrNotExist)) {
 			cleanup()
 			return "", nil, err
 		}
@@ -176,8 +176,8 @@ func removeCopies(conf string, now time.Time) {
 		n := e.Name()
 		// metrics-agy-* (Antigravity conversation copies) and dream-metrics-*
 		// (a copy of the metrics store) hold the same kind of content.
-		if !e.IsDir() || !(strings.HasPrefix(n, "dream-agy-") || strings.HasPrefix(n, "dream-projects-") ||
-			strings.HasPrefix(n, "metrics-agy-") || strings.HasPrefix(n, "dream-metrics-") || strings.HasPrefix(n, "dream-brain-")) {
+		if !e.IsDir() || (!strings.HasPrefix(n, "dream-agy-") && !strings.HasPrefix(n, "dream-projects-") &&
+			!strings.HasPrefix(n, "metrics-agy-") && !strings.HasPrefix(n, "dream-metrics-") && !strings.HasPrefix(n, "dream-brain-")) {
 			continue
 		}
 		if info, err := e.Info(); err == nil && now.Sub(info.ModTime()) > time.Hour {

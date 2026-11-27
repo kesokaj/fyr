@@ -160,7 +160,7 @@ func scoreProposalImpact(rec brain.Record, targets int) proposalImpact {
 }
 
 func isNonRecordRune(r rune) bool {
-	return !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-')
+	return (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-'
 }
 
 func compareProposalCandidates(a, b proposalCandidate) int {

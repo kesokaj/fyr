@@ -333,7 +333,7 @@ func inferGoDirsVerify(clauseFiles []string) string {
 	seen := map[string]bool{}
 	var targets []string
 	for _, f := range clauseFiles {
-		if strings.ToLower(filepath.Ext(f)) != ".go" && !(isDirPathToken(f) && (strings.HasPrefix(f, "internal/") || strings.HasPrefix(f, "cmd/") || strings.HasPrefix(f, "pkg/"))) {
+		if strings.ToLower(filepath.Ext(f)) != ".go" && (!isDirPathToken(f) || (!strings.HasPrefix(f, "internal/") && !strings.HasPrefix(f, "cmd/") && !strings.HasPrefix(f, "pkg/"))) {
 			continue
 		}
 		dir, target := packageDirKey(f), "./..."

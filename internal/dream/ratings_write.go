@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/metrics"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 func defaultWriteRatings(home, _ string, rows []metrics.SessionRating) error {
@@ -124,23 +124,8 @@ func (o Options) validateRating(root string, allowed map[string]bool, sr session
 		PlanAlignment:   pa,
 		SkillAction:     sa,
 		TargetSkill:     ts,
-		Summary:         clipUTF8(strings.TrimSpace(o.line(sr.Summary)), 400),
+		Summary:         strings.TrimSpace(trail.TruncateUTF8(strings.ToValidUTF8(strings.TrimSpace(o.line(sr.Summary)), "\ufffd"), 400)),
 	}, true
-}
-
-func clipUTF8(s string, maxBytes int) string {
-	if len(s) <= maxBytes && utf8.ValidString(s) {
-		return s
-	}
-	var b strings.Builder
-	for _, r := range s {
-		n := utf8.RuneLen(r)
-		if b.Len()+n > maxBytes {
-			break
-		}
-		b.WriteRune(r)
-	}
-	return strings.TrimSpace(b.String())
 }
 
 func cleanTargetSkill(s string) string {

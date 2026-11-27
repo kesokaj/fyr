@@ -107,9 +107,7 @@ func (idx *proposalIndex) add(project string, m proposalMeta) {
 }
 
 func (idx *proposalIndex) addSignalsFromText(text string) {
-	for _, tok := range strings.FieldsFunc(text, func(r rune) bool {
-		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == ':' || r == '_' || r == '-')
-	}) {
+	for _, tok := range strings.FieldsFunc(text, isNotSignalRune) {
 		if sig := cleanSignalID(tok); sig != "" {
 			idx.signals[sig] = true
 		}

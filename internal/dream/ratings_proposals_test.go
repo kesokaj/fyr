@@ -100,7 +100,7 @@ func TestProposalDeduplicationAndDraftAtomicity(t *testing.T) {
 	}
 	ratingsCalled := false
 	o.WriteRatings = func(string, string, []metrics.SessionRating) error { ratingsCalled = true; return nil }
-	if _, err := o.write(conf, colA, respA, "agy", now); err == nil {
+	if _, _, err := o.writeCounts(conf, colA, respA, "agy", now); err == nil {
 		t.Fatal("expected propose error")
 	}
 	propose = saved
@@ -113,7 +113,7 @@ func TestProposalDeduplicationAndDraftAtomicity(t *testing.T) {
 
 	// Failing WriteRatings leaves zero draft directories on disk.
 	o.WriteRatings = func(string, string, []metrics.SessionRating) error { return errors.New("ratings err") }
-	if _, err := o.write(conf, colA, respA, "agy", now); err == nil {
+	if _, _, err := o.writeCounts(conf, colA, respA, "agy", now); err == nil {
 		t.Fatal("expected WriteRatings error")
 	}
 	if entries, _ := os.ReadDir(filepath.Join(conf, "proposals", "dream", "drafts")); len(entries) != 0 {
@@ -123,7 +123,7 @@ func TestProposalDeduplicationAndDraftAtomicity(t *testing.T) {
 	// Recovery: batch collapses s1/s2 -> 1 skill proposal; rule + draft wrapper = 3 queued;
 	// draft directory has no -2 suffix.
 	o.WriteRatings = nil
-	if _, err := o.write(conf, colA, respA, "agy", now); err != nil {
+	if _, _, err := o.writeCounts(conf, colA, respA, "agy", now); err != nil {
 		t.Fatalf("recovery write failed: %v", err)
 	}
 	entries, err := os.ReadDir(filepath.Join(conf, "proposals", "dream", "drafts"))
@@ -141,7 +141,7 @@ func TestProposalDeduplicationAndDraftAtomicity(t *testing.T) {
 		Proposals: []proposal{{Title: "Vet first", Kind: "rule", Target: "project", File: "AGENTS.md", Text: "Run go vet", Evidence: "s3"}},
 		Ratings:   []sessionRating{{ConversationID: "s3", OutcomeScore: 2, TokenEfficiency: 2, PlanAlignment: "missed", SkillAction: "rewrite-skill", TargetSkill: "skills/golang/SKILL.md", Summary: "gap 3"}},
 	}
-	n, err := o.write(conf, colB, respB, "agy", now)
+	n, _, err := o.writeCounts(conf, colB, respB, "agy", now)
 	if err != nil || n != 1 {
 		t.Fatalf("projB write n=%d err=%v, want n=1", n, err)
 	}
@@ -153,7 +153,7 @@ func TestProposalDeduplicationAndDraftAtomicity(t *testing.T) {
 	}
 	colB.Inputs = []Input{{Kind: kindTranscript, Label: "antigravity s4"}}
 	respB.Ratings[0].ConversationID = "s4"
-	if n, err := o.write(conf, colB, respB, "agy", now); err != nil || n != 0 {
+	if n, _, err := o.writeCounts(conf, colB, respB, "agy", now); err != nil || n != 0 {
 		t.Fatalf("against applied proposals n=%d err=%v, want n=0", n, err)
 	}
 }

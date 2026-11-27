@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/dream"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // toolLimit bounds what a machine tool may print; toolWait and usageWait are
@@ -64,15 +65,7 @@ func readSupplies(root string) ([]Supply, error) {
 	return out, nil
 }
 
-// capped refuses output past its limit, which ends the tool.
-type capped struct{ b strings.Builder }
-
-func (c *capped) Write(p []byte) (int, error) {
-	if c.b.Len()+len(p) > toolLimit {
-		return 0, errors.New("output over the limit")
-	}
-	return c.b.Write(p)
-}
+var errToolOutputLimit = errors.New("output over the limit")
 
 // tool runs one machine tool under a deadline, in the C locale, and returns
 // its stdout.
@@ -85,12 +78,12 @@ func tool(wait time.Duration, dir string, env []string, name string, args ...str
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.Env = append(append(os.Environ(), "LC_ALL=C"), env...)
-	var out capped
-	cmd.Stdout = &out
+	out := trail.NewCappedBuffer(toolLimit, errToolOutputLimit)
+	cmd.Stdout = out
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("%s: %w", name, err)
 	}
-	return out.b.String(), nil
+	return out.String(), nil
 }
 
 func (machine) Pmset(args ...string) (string, error) {

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
@@ -46,7 +48,7 @@ func formatDroppedHeader(dropped []string) string {
 	limit := min(len(dropped), shownDropped)
 	samples := make([]string, 0, limit)
 	for i := 0; i < limit; i++ {
-		samples = append(samples, formatDroppedSample(dropped[i], maxDroppedSampleBytes))
+		samples = append(samples, formatDroppedSample(dropped[i]))
 	}
 	out := fmt.Sprintf("%s; + %d more", prefix, len(dropped))
 	for k := 1; k <= len(samples); k++ {
@@ -59,7 +61,7 @@ func formatDroppedHeader(dropped []string) string {
 		}
 		out = cand
 	}
-	return clipUTF8(out, maxDroppedSummaryBytes)
+	return strings.TrimSpace(trail.TruncateUTF8(out, maxDroppedSummaryBytes))
 }
 
 func formatDroppedKinds(dropped []string, maxBytes int) string {
@@ -102,26 +104,23 @@ func droppedKind(raw string) string {
 	if cut > 0 {
 		s = s[:cut]
 	}
-	if s = clipUTF8(s, maxDroppedKindBytes); s == "" {
+	if s = strings.TrimSpace(trail.TruncateUTF8(s, maxDroppedKindBytes)); s == "" {
 		return "unknown"
 	}
 	return s
 }
 
-func formatDroppedSample(raw string, maxBytes int) string {
+func formatDroppedSample(raw string) string {
 	s := strings.Join(strings.Fields(strings.ToValidUTF8(raw, "\ufffd")), " ")
 	if s == "" {
 		return "(empty)"
 	}
-	if len(s) <= maxBytes {
+	if len(s) <= maxDroppedSampleBytes {
 		return s
 	}
-	if maxBytes <= 3 {
-		return clipUTF8(s, maxBytes)
-	}
-	head := clipUTF8(s, maxBytes-3)
+	head := strings.TrimSpace(trail.TruncateUTF8(s, maxDroppedSampleBytes-3))
 	if head == "" {
-		return clipUTF8(s, maxBytes)
+		return strings.TrimSpace(trail.TruncateUTF8(s, maxDroppedSampleBytes))
 	}
 	return head + "..."
 }

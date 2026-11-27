@@ -8,12 +8,12 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/eval"
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/metrics"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 type gateSIMCtx struct {
@@ -283,11 +283,11 @@ func (r *run) fallbackSIMMeta(sc *gateSIMCtx) (rootCause, what string) {
 	if len(extras) > 0 {
 		base += " (" + strings.Join(extras, "; ") + ")"
 	}
-	rootCause = clipUTF8(strings.TrimSpace(oneLine(base)), simManifestMaxRootCauseBytes)
+	rootCause = strings.TrimSpace(trail.TruncateUTF8(strings.TrimSpace(oneLine(base)), simManifestMaxRootCauseBytes))
 	if !hasSIMAlnum(rootCause) {
 		rootCause = "auto " + sc.task.Class
 	}
-	what = clipUTF8("fallback ("+sc.task.Class+"): "+rootCause, simManifestMaxRationaleBytes)
+	what = strings.TrimSpace(trail.TruncateUTF8("fallback ("+sc.task.Class+"): "+rootCause, simManifestMaxRationaleBytes))
 	return rootCause, what
 }
 
@@ -329,18 +329,7 @@ func appendSIMApplyFailure(what, reason string) string {
 	}
 	headCap := max(0, simManifestMaxRationaleBytes-len(prefix)-32)
 	if len(what) > headCap {
-		what = strings.TrimSpace(clipUTF8(what, headCap))
+		what = strings.TrimSpace(trail.TruncateUTF8(what, headCap))
 	}
-	return clipUTF8(what+suffix, simManifestMaxRationaleBytes)
-}
-
-func clipUTF8(s string, maxBytes int) string {
-	if len(s) <= maxBytes {
-		return s
-	}
-	n := maxBytes
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return strings.TrimSpace(s[:n])
+	return strings.TrimSpace(trail.TruncateUTF8(what+suffix, simManifestMaxRationaleBytes))
 }

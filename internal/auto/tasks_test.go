@@ -231,8 +231,8 @@ func TestTasksRedactedLearningInput(t *testing.T) {
 	r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return now }}, cfg: Config{}}
 	var p Project
 	task := Task{Class: ClassRetroLite, Outcome: OutcomeDrafts, DraftsOnly: true, Count: 1}
-	if _, err := r.writeLearningInput(root, &p, task); err != nil {
-		t.Fatalf("writeLearningInput: %v", err)
+	if _, err := r.writeLearningInputWithCutoff(root, &p, task, r.sweepConversationCutoff()); err != nil {
+		t.Fatalf("writeLearningInputWithCutoff: %v", err)
 	}
 	inPath := filepath.Join(root, ".agents", "scratch", "auto-input", "context.md")
 	data, err := os.ReadFile(inPath)
@@ -273,9 +273,9 @@ func TestTasksRedactedLearningInput(t *testing.T) {
 	// on the next sweep still receives the conversation via p.LastMemoryCandidates.
 	r.recordLearningProgress(&p, task, cutoff)
 	mcTask := Task{Class: ClassMemoryCandidates, Outcome: OutcomeDrafts, DraftsOnly: true, Count: p.PendingMemoryCandidates}
-	mcScrubbed, err := r.writeLearningInput(root, &p, mcTask)
+	mcScrubbed, err := r.writeLearningInputWithCutoff(root, &p, mcTask, r.sweepConversationCutoff())
 	if err != nil {
-		t.Fatalf("writeLearningInput(memory-candidates): %v", err)
+		t.Fatalf("writeLearningInputWithCutoff(memory-candidates): %v", err)
 	}
 	if !strings.Contains(mcScrubbed, "## Conversation c1") {
 		t.Errorf("memory-candidates after retro-lite lost conversation:\n%s", mcScrubbed)
@@ -352,8 +352,8 @@ func TestLearningInputHardeningAndCutoff(t *testing.T) {
 		root := initGitRepo(t)
 		r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return runAt }}, cfg: Config{}}
 		task := Task{Class: ClassRetroLite, Outcome: OutcomeDrafts, DraftsOnly: true, Count: 1}
-		if _, err := r.writeLearningInput(root, &Project{}, task); err != nil {
-			t.Fatalf("writeLearningInput(non-ignored): %v", err)
+		if _, err := r.writeLearningInputWithCutoff(root, &Project{}, task, r.sweepConversationCutoff()); err != nil {
+			t.Fatalf("writeLearningInputWithCutoff(non-ignored): %v", err)
 		}
 		if _, err := os.Lstat(filepath.Join(root, ".agents", "scratch", "auto-input", "context.md")); !os.IsNotExist(err) {
 			t.Errorf("non-gitignored repo wrote context.md: err=%v", err)
@@ -365,7 +365,7 @@ func TestLearningInputHardeningAndCutoff(t *testing.T) {
 		if err := os.Symlink(t.TempDir(), filepath.Join(root, ".agents", "scratch")); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := r.writeLearningInput(root, &Project{}, task); err == nil {
+		if _, err := r.writeLearningInputWithCutoff(root, &Project{}, task, r.sweepConversationCutoff()); err == nil {
 			t.Errorf("expected symlinked .agents/scratch to fail closed")
 		}
 	})
@@ -404,7 +404,7 @@ func TestLearningInputHardeningAndCutoff(t *testing.T) {
 		}
 		r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return runAt }}, cfg: Config{}}
 		task := Task{Class: ClassRetroLite, Outcome: OutcomeDrafts, DraftsOnly: true, Count: 1}
-		got, err := r.writeLearningInput(root, &Project{}, task)
+		got, err := r.writeLearningInputWithCutoff(root, &Project{}, task, r.sweepConversationCutoff())
 		if err != nil {
 			t.Fatal(err)
 		}

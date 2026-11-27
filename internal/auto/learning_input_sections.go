@@ -10,6 +10,7 @@ import (
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/redact"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 type sectionItem struct {
@@ -124,7 +125,7 @@ func appendCappedSection(b *strings.Builder, label, heading, body string, limit 
 	if rem <= len(prefix)+len(heading) {
 		return label
 	}
-	b.WriteString(truncateUTF8(prefix+heading+body+"\n\n", rem))
+	b.WriteString(trail.TruncateUTF8(prefix+heading+body+"\n\n", rem))
 	return ""
 }
 
@@ -155,18 +156,20 @@ func (r *run) appendConversationSections(b *strings.Builder, root string, p *Pro
 			dropped = append(dropped, "transcript: "+conv.label)
 			continue
 		}
-		b.WriteString(prefix + truncateUTF8(scrubbed, rem))
+		b.WriteString(prefix + trail.TruncateUTF8(scrubbed, rem))
 	}
 	return dropped
 }
 
 func learningConvSince(p *Project, class string) time.Time {
-	if class == ClassMemoryCandidates {
+	switch class {
+	case ClassMemoryCandidates:
 		return p.LastMemoryCandidates
-	} else if class == ClassMemoryConsolidation {
+	case ClassMemoryConsolidation:
 		return p.LastMemoryConsolidation
+	default:
+		return p.LastRetroLite
 	}
-	return p.LastRetroLite
 }
 
 func sectionBreakPrefix(s string) string {
@@ -186,7 +189,7 @@ func boundProposalEntry(entry string, maxBytes int) string {
 	if len(entry) <= maxBytes {
 		return entry
 	}
-	head := truncateUTF8(entry, maxBytes-len(sep))
+	head := trail.TruncateUTF8(entry, maxBytes-len(sep))
 	if nl := strings.LastIndexByte(head, '\n'); nl >= len(head)/2 {
 		head = head[:nl]
 	}

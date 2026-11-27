@@ -6,6 +6,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/metrics"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
@@ -126,7 +127,7 @@ func collectSIMTerms(c *Collected, signals []string) []string {
 			continue
 		}
 		first, _, _ := strings.Cut(strings.TrimSpace(in.Text), "\n")
-		push(sliceUTF8Prefix(first, 80))
+		push(trail.TruncateUTF8(first, 80))
 	}
 	return out
 }

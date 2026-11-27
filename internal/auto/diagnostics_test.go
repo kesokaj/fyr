@@ -61,9 +61,9 @@ func seedAutoKneeMetrics(t *testing.T, home, root string, now time.Time) {
 
 func assertAutoDiagnosticLearningInput(t *testing.T, r *run, root string, p *Project, task Task, home string) string {
 	t.Helper()
-	scrubbed, err := r.writeLearningInput(root, p, task)
+	scrubbed, err := r.writeLearningInputWithCutoff(root, p, task, r.sweepConversationCutoff())
 	if err != nil {
-		t.Fatalf("writeLearningInput: %v", err)
+		t.Fatalf("writeLearningInputWithCutoff: %v", err)
 	}
 	if !strings.Contains(scrubbed, "## Diagnostic signals") || !strings.Contains(scrubbed, "[high]") || !strings.Contains(scrubbed, "context_knee_rate") {
 		t.Fatalf("learning input missing Diagnostic signals section:\n%s", scrubbed)

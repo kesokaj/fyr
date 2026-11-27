@@ -108,12 +108,12 @@ func readRevertedSHAs(harnessRepo string) []string {
 	}
 	cmd := trail.Command(repo, "log", "--since=90.days", "--grep=This reverts commit ", "--format=%B")
 	cmd.WaitDelay = time.Second
-	var out capped
-	cmd.Stdout = &out
+	out := trail.NewCappedBuffer(toolLimit, errToolOutputLimit)
+	cmd.Stdout = out
 	if err := runBoundedCmd(cmd, toolWait); err != nil {
 		return nil
 	}
-	return parseRevertedSHAs(out.b.String())
+	return parseRevertedSHAs(out.String())
 }
 
 func runBoundedCmd(cmd *exec.Cmd, wait time.Duration) error {

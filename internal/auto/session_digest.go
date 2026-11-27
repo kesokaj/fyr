@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // SessionDigest summarizes one conversation's request, key actions/decisions,
@@ -68,7 +70,7 @@ func (d *SessionDigest) ingestLine(line string) {
 	if text == "" {
 		text = oneLine(line)
 	}
-	capped := truncateUTF8(text, 320)
+	capped := trail.TruncateUTF8(text, 320)
 	if d.Request == "" && (role == "user" || role == "USER_INPUT" || role == "") {
 		d.Request = capped
 	}
@@ -149,7 +151,7 @@ func appendUniqueBounded(list []string, val string, maxItems, maxBytes int) []st
 	if len(list) >= maxItems {
 		return list
 	}
-	v := truncateUTF8(oneLine(strings.TrimSpace(val)), maxBytes)
+	v := trail.TruncateUTF8(oneLine(strings.TrimSpace(val)), maxBytes)
 	if v == "" || slices.Contains(list, v) {
 		return list
 	}

@@ -382,7 +382,7 @@ func TestSIMAutoLearningInput(t *testing.T) {
 			}
 			propIdx := strings.Index(got, "## Queued proposals\n\n")
 			metricIdx := strings.Index(got, "## Metric numbers\n")
-			if propIdx < 0 || metricIdx < 0 || !(propIdx < simIdx && simIdx < metricIdx) {
+			if propIdx < 0 || metricIdx < 0 || propIdx >= simIdx || simIdx >= metricIdx {
 				t.Fatalf("%s: section order wrong (prop=%d sim=%d metric=%d)", tc.Class, propIdx, simIdx, metricIdx)
 			}
 			simBlock := got[simIdx:metricIdx]
@@ -417,7 +417,7 @@ func TestSIMAutoLearningInput(t *testing.T) {
 			beginIdx := strings.Index(kText, "BEGIN DATA")
 			endIdx := strings.LastIndex(kText, "END DATA")
 			kSimIdx := strings.Index(kText, "## Self-improvement memory")
-			if beginIdx < 0 || endIdx < 0 || kSimIdx < 0 || !(beginIdx < kSimIdx && kSimIdx < endIdx) {
+			if beginIdx < 0 || endIdx < 0 || kSimIdx < 0 || beginIdx >= kSimIdx || kSimIdx >= endIdx {
 				t.Fatalf("%s: SIM not wrapped inside cryptographic fence (begin=%d sim=%d end=%d)", tc.Class, beginIdx, kSimIdx, endIdx)
 			}
 		}

@@ -1,7 +1,6 @@
 package dream
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // call runs the CLI in work with the prompt on stdin as one stream-json
@@ -27,18 +28,6 @@ const (
 	maxCLIStderr = 1 << 20  // 1 MiB
 )
 
-type cappedWriter struct {
-	limit int
-	kept  bytes.Buffer
-}
-
-func (c *cappedWriter) Write(p []byte) (int, error) {
-	if room := c.limit - c.kept.Len(); room > 0 {
-		c.kept.Write(p[:min(room, len(p))])
-	}
-	return len(p), nil
-}
-
 // callWithin is call with its two bounds explicit: timeout for the CLI, and
 // grace for how long Run may wait, after the kill, on a grandchild that kept
 // the output pipes.
@@ -50,7 +39,7 @@ func callWithin(argv []string, prompt, work string, env []string, timeout, grace
 		return "", "", err
 	}
 	err = runGroup(cmd, grace)
-	return cliResult(filepath.Base(argv[0]), timeout, ctx.Err(), out.kept.String(), errb.kept.String(), err)
+	return cliResult(filepath.Base(argv[0]), timeout, ctx.Err(), out.String(), errb.String(), err)
 }
 
 // runGroup runs cmd, made with exec.CommandContext, in its own process
@@ -94,7 +83,7 @@ func runGroup(cmd *exec.Cmd, grace time.Duration) error {
 
 // cliCommand is the CLI's command, with the prompt on its stdin as one
 // stream-json message and its output captured up to bounded limits.
-func cliCommand(ctx context.Context, argv []string, prompt, work string, env []string) (*exec.Cmd, *cappedWriter, *cappedWriter, error) {
+func cliCommand(ctx context.Context, argv []string, prompt, work string, env []string) (*exec.Cmd, *trail.CappedWriter, *trail.CappedWriter, error) {
 	if env == nil {
 		// exec would hand the child fyr's whole environment.
 		return nil, nil, nil, errors.New("the CLI's environment is unset")
@@ -112,8 +101,8 @@ func cliCommand(ctx context.Context, argv []string, prompt, work string, env []s
 	cmd.Dir = work
 	cmd.Env = env
 	cmd.Stdin = strings.NewReader(stdin)
-	out := &cappedWriter{limit: maxCLIStdout}
-	errb := &cappedWriter{limit: maxCLIStderr}
+	out := trail.NewCappedBuffer(maxCLIStdout, nil)
+	errb := trail.NewCappedBuffer(maxCLIStderr, nil)
 	cmd.Stdout, cmd.Stderr = out, errb
 	return cmd, out, errb, nil
 }

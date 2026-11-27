@@ -224,7 +224,7 @@ func (s *store) listPositiveLedgerSpans(conversationID string, genID int, resolv
 
 func spansOverlapAny(start, end int, occs []editSpan) bool {
 	for _, o := range occs {
-		if !(end < o.startLine || start > o.endLine) {
+		if end >= o.startLine && start <= o.endLine {
 			return true
 		}
 	}
