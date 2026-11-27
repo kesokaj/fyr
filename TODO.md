@@ -8,7 +8,7 @@
 ## Now
 
 **Phase 1 — Wave 1: Zero-Risk Deletions, Retire `fyr relay` (`D2`), Deduplication & Residue Cleanup** (`PLAN-2026-11-27-craft-cleanup`, `ADR-537`):
-- [ ] Slice `w1-retire-relay`: retire `fyr relay` (`internal/relay/**`, `cmd/fyr/verb_relay*.go`, `31 -> 30` verbs, `ADR-537` D2) (`who: AI`)
+- [x] Slice `w1-retire-relay`: retire `fyr relay` (`internal/relay/**`, `cmd/fyr/verb_relay*.go`, `31 -> 30` verbs, `ADR-537` D2, `c6d8eeee`) (`who: AI`)
 - [ ] Slice `w1-dead-search`: delete 13 zero-caller unexported funcs, `ineffassign`, prod `unparam`, dead `GraphEdge` fields, and superseded `internal/search` zombies (`who: AI`)
 - [ ] Slice `w1-dead-other-dedup`: delete remaining dead/zombie code across `internal/{metrics,brain,graph,auto,dream,isolate,watch,models}`, replace `runtime.GOROOT()`, unify UTF-8/`capped*` into `internal/trail` (`who: AI`)
 - [ ] Slice `w1-workflows-skills-residue`: dedup `workflows/*.py`, fold `fyr-feedback-log` (`D6`), trim `agents/{verifier,reviewer,security}`, fix `SECURITY.md`, archive `TEST_PLAN.md`, prune brittle prose-pins (`who: AI`)
