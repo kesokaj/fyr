@@ -39,16 +39,13 @@ const initCeilingTable = `
 // duplicates or growth fail; shrinking or removal passes.
 const dupHelperCeilingTable = `
 	allowed=2 boolInt=2 brainDBExists=2 checkScratchNoSymlinks=2 checkoutUnchanged=2
-	classify=2 clipPrintable=2 clipUTF8=2 collectSIMTargetPaths=2 collectSIMTerms=2
-	exists=2 firstNonEmptyStr=2 firstOf=2 firstString=2 gitBytes=2
-	gitConfigValue=2 head=2 isAllDigits=2 isAuditSubagentRole=2 isPathWordByte=2
-	label=2 lock=2 matchLeasePattern=2 matchesAnyLease=2 normalizePhaseID=2
-	oneLine=3 open=2 openStore=2 parseLine=2 poolMatchesFamily=2
-	printable=2 projectKey=2 readBounded=2 recordTime=3 refusef=2
-	removeWorktree=2 runGroup=2 sameCleanPath=2 saveState=2 scanVetHistoryRow=2
-	shaPrefixMatch=2 short=3 shortSHA=2 sortFindings=3 sortedKeys=3
-	splitShellSegments=2 statePath=2 tickRun=2 truncateUTF8=6 truncateUTF8Bytes=2
-	tryOpen=2 within=3 withoutGitRepoVars=2
+	classify=2 collectSIMTargetPaths=2 collectSIMTerms=2 exists=2 firstOf=2
+	firstString=2 gitConfigValue=2 head=2 isAllDigits=2 isPathWordByte=2
+	label=2 lock=2 oneLine=3 open=2 openStore=2
+	parseLine=2 printable=2 projectKey=2 readBounded=2 recordTime=3
+	removeWorktree=2 runGroup=2 saveState=2 scanVetHistoryRow=2 shaPrefixMatch=2
+	short=3 sortFindings=3 sortedKeys=3 splitShellSegments=2 statePath=2
+	tickRun=2 tryOpen=2 within=3
 `
 
 // TestPackageLayeringAndSQLiteConfinement enforces package architecture

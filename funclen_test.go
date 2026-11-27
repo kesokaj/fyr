@@ -319,7 +319,7 @@ const cognitiveCeilingTable = `
 	internal/search/hook_pre_invocation_fast.go:collectParallelTurnWork=26 internal/search/hook_pretool.go:checkStatelessPreToolSafety=25 internal/search/hook_pretool.go:enforceBashFileReads=21 internal/search/hook_pretool_ask.go:appendAskValueStrings=19 internal/search/hook_pretool_nudge.go:parseGrepCommandArgs=24 internal/search/hook_pretool_nudge.go:stepPipelineSplitChar=18
 	internal/search/hook_session_start.go:buildSessionDailyAlert=21 internal/search/hook_session_start.go:extractTodoNow=16 internal/search/hook_stop_stamp.go:evaluateStopStamp=19 internal/search/hook_stop_stamp.go:sessionTouchedDirtyGo=22 internal/search/hook_subagent_args.go:classifyHookModel=18 internal/search/hook_subagent_args.go:suggestSessionModelNudgeForHome=16
 	internal/search/hook_worker_capsule.go:lookupWorkerRecords=21 internal/search/hook_workflow_python.go:findTopLevelEq=26 internal/search/hook_workflow_python.go:scanFStringInterpolations=25 internal/search/hook_workflow_python.go:scanPythonSourceRange=28 internal/search/hook_workflow_scan.go:scanSingleQuotedPythonString=20 internal/search/hook_workflow_scan.go:scanTripleQuotedPythonString=20
-	internal/search/parse.go:parseRefs=27 internal/search/parse_go.go:collectStmtLocals=30 internal/search/pkg_imports.go:symGraph.summarizePackages=37 internal/search/process_artifact.go:buildHookEnvelopeWithModelTimed=19 internal/search/rank.go:matchesPromptTerms=16 internal/search/rank.go:scope.sessionActiveFiles=17
+	internal/search/parse.go:parseRefs=27 internal/search/parse_go.go:collectStmtLocals=30 internal/search/pkg_imports.go:symGraph.summarizePackages=37 internal/search/rank.go:matchesPromptTerms=16 internal/search/rank.go:scope.sessionActiveFiles=17
 	internal/search/read_ledger.go:ParseCapsulePivots=20 internal/search/read_ledger_bash.go:parseBashHeadOrTailMulti=20 internal/search/read_ledger_bash.go:stepTrackedBashDir=17 internal/search/read_ledger_bash_chain.go:extractSimpleSubshell=26 internal/search/read_ledger_bash_chain.go:matchBenignStderrRedirect=17 internal/search/read_ledger_bash_chain.go:matchTrailingOrTrue=16
 	internal/search/read_ledger_bash_chain.go:parseBashFileReadsInDir=29 internal/search/read_ledger_bash_chain.go:splitBashReadStatements=21 internal/search/read_ledger_bash_chain.go:stepReadSplitControl=23 internal/search/read_ledger_bash_filter.go:isStdinJqFilter=16 internal/search/read_ledger_bash_filter.go:isStdinPatternFilter=23 internal/search/read_ledger_bash_filter.go:parseBashAwkRead=23
 	internal/search/read_ledger_bash_pipe.go:extractPythonReadPaths=23 internal/search/read_ledger_bash_pipe.go:parseBashMatchAllGrepRead=18 internal/search/read_ledger_bash_pipe.go:parseStdinLineCount=17 internal/search/read_ledger_bash_pipe.go:stepGrepShortCluster=17 internal/search/read_ledger_bash_sed.go:isSafeReadOnlySedScript=23 internal/search/read_ledger_bash_sed.go:parseSedArgs=24
@@ -342,7 +342,7 @@ const nestingCeilingTable = `
 `
 
 var pkgFileCeiling = map[string]int{
-	"cmd/fyr": 51, "internal/auto": 39, "internal/brain": 45,
+	"cmd/fyr": 50, "internal/auto": 39, "internal/brain": 45,
 	"internal/isolate": 52, "internal/metrics": 72, "internal/search": 114,
 }
 

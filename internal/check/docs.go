@@ -153,7 +153,7 @@ func (k *checker) pathCandidate(where string, c chunk) (candidate, bool) {
 		return candidate{}, false
 	}
 	first, _, nested := strings.Cut(p, "/")
-	if !(k.topDirs[first] || (!nested && k.topFiles[first])) {
+	if !k.topDirs[first] && (nested || !k.topFiles[first]) {
 		return candidate{}, false
 	}
 	cand.p = p
@@ -272,7 +272,7 @@ func (k *checker) checkIgnore(ps []string) (map[string]bool, bool) {
 	cmd.Stdin = strings.NewReader(strings.Join(ps, "\x00") + "\x00")
 	data, err := cmd.Output()
 	var ee *exec.ExitError
-	if err != nil && !(errors.As(err, &ee) && ee.ExitCode() == 1) {
+	if err != nil && (!errors.As(err, &ee) || ee.ExitCode() != 1) {
 		return out, false
 	}
 	for _, p := range strings.Split(string(data), "\x00") {

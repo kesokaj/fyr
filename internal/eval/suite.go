@@ -154,7 +154,7 @@ func suiteStart(lines []string) (int, int, error) {
 	start, width := -1, 0
 	for i, l := range lines {
 		cells, ok := splitCells(l)
-		if !ok || !(equalCells(cells, suiteHeader) || equalCells(cells, suiteLongHeader) || equalCells(cells, suiteBenchHeader) || equalCells(cells, suiteACPHeader)) {
+		if !ok || (!equalCells(cells, suiteHeader) && !equalCells(cells, suiteLongHeader) && !equalCells(cells, suiteBenchHeader) && !equalCells(cells, suiteACPHeader)) {
 			continue
 		}
 		if start >= 0 {
@@ -209,7 +209,7 @@ func checkRow(r Row, n int) error {
 	if r.Agent != "" && !validAgent.MatchString(r.Agent) {
 		return fmt.Errorf("GUIDE-eval line %d: row %s: agent %q is not an agent name", n, r.ID, r.Agent)
 	}
-	if reason, wide := r.Wide(); !(r.Grants == "named" || wide && strings.TrimSpace(reason) != "") {
+	if reason, wide := r.Wide(); r.Grants != "named" && (!wide || strings.TrimSpace(reason) == "") {
 		return fmt.Errorf("GUIDE-eval line %d: row %s: grants is %q, want named or wide: <reason>", n, r.ID, r.Grants)
 	}
 	if r.Turns == 1 && r.Prompt2 != "" {

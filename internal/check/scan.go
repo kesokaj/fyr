@@ -133,7 +133,7 @@ func indentedCode(l string) bool {
 	for j < len(rest) && rest[j] >= '0' && rest[j] <= '9' {
 		j++
 	}
-	return !(j > 0 && j < len(rest) && (rest[j] == '.' || rest[j] == ')'))
+	return j == 0 || j >= len(rest) || (rest[j] != '.' && rest[j] != ')')
 }
 
 // spans is every inline code span on one line: a run of N backticks closed
