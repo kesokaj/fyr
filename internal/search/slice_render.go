@@ -257,10 +257,6 @@ func fitLinesToBudget(makeHdr func(endLine int) string, lines []string, startLin
 	return hdr + body.String()
 }
 
-func (sc *scope) readLinesRange(oid, relPath string, startLine, endLine int) []string {
-	return sc.readLinesRangeCached(nil, oid, relPath, startLine, endLine)
-}
-
 func (sc *scope) readLinesRangeCached(cache sliceLineCache, oid, relPath string, startLine, endLine int) []string {
 	if cache != nil {
 		if all, ok := cache[relPath]; ok {

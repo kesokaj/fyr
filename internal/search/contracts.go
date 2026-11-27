@@ -317,7 +317,7 @@ func mergeBrainRefADRs(existing []SpecADRRef, paths []string, brainRefs func(str
 				continue
 			}
 			if _, ok := byID[lr.ID]; !ok {
-				byID[lr.ID] = SpecADRRef{ID: lr.ID, Status: lr.Status, Title: lr.Title}
+				byID[lr.ID] = SpecADRRef(lr)
 			}
 		}
 	}

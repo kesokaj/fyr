@@ -19,10 +19,10 @@ func TestPersonalizedPageRank(t *testing.T) {
 	// helper "logHelper" called everywhere, plus a target pivot "ReconcileIndex"
 	// that calls "VerifyTreeState".
 	for i := 1; i <= 6; i++ {
-		writeFile(t, root, fmt.Sprintf("internal/util/u%d.go", i), fmt.Sprintf(`package util
+		writeFile(t, root, fmt.Sprintf("internal/util/u%d.go", i), `package util
 func CommonUtil() { logHelper() }
 func logHelper() {}
-`))
+`)
 	}
 	writeFile(t, root, "go.mod", "module example\n\ngo 1.24\n")
 	writeFile(t, root, "internal/core/reconcile.go", `package core
@@ -51,9 +51,9 @@ func ActiveSessionHandler() error {
 	}
 	defer sc.close()
 
-	g, err := sc.loadSymGraph()
+	g, err := sc.loadSymGraphOpts(false)
 	if err != nil {
-		t.Fatalf("loadSymGraph: %v", err)
+		t.Fatalf("loadSymGraphOpts: %v", err)
 	}
 	ranked := g.rank("ReconcileIndex", map[string]bool{"internal/core/session_active.go": true})
 	if len(ranked) == 0 {
@@ -387,9 +387,9 @@ func BenchmarkPersonalizedPageRank(b *testing.B) {
 		b.Fatalf("prepare: %v", err)
 	}
 	defer sc.close()
-	g, err := sc.loadSymGraph()
+	g, err := sc.loadSymGraphOpts(false)
 	if err != nil {
-		b.Fatalf("loadSymGraph: %v", err)
+		b.Fatalf("loadSymGraphOpts: %v", err)
 	}
 	active := map[string]bool{"internal/core/session_active.go": true}
 	b.ResetTimer()

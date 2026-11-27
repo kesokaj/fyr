@@ -9,6 +9,42 @@ import (
 	"testing"
 )
 
+type coActivityRow struct {
+	FileA     string
+	FileB     string
+	Kind      string
+	Count     int
+	UpdatedAt int64
+}
+
+func queryTestCoActivityDB(st *store, rel, kind string, minCount int) ([]coActivityRow, error) {
+	q := `SELECT file_a, file_b, kind, count, updated_at FROM co_activity WHERE count >= ?`
+	args := []any{minCount}
+	if rel != "" {
+		q += ` AND (file_a = ? OR file_b = ?)`
+		args = append(args, rel, rel)
+	}
+	if kind != "" {
+		q += ` AND kind = ?`
+		args = append(args, kind)
+	}
+	q += ` ORDER BY count DESC, file_a, file_b`
+	rows, err := st.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []coActivityRow
+	for rows.Next() {
+		var r coActivityRow
+		if err := rows.Scan(&r.FileA, &r.FileB, &r.Kind, &r.Count, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 func queryTestCoActivity(t *testing.T, dir, rel, kind string, minCount int) []coActivityRow {
 	t.Helper()
 	st, err := openStore(projectDB(dir), io.Discard)
@@ -16,9 +52,9 @@ func queryTestCoActivity(t *testing.T, dir, rel, kind string, minCount int) []co
 		t.Fatalf("openStore: %v", err)
 	}
 	defer st.close()
-	rows, err := queryCoActivityDB(st, rel, kind, minCount)
+	rows, err := queryTestCoActivityDB(st, rel, kind, minCount)
 	if err != nil {
-		t.Fatalf("queryCoActivityDB: %v", err)
+		t.Fatalf("queryTestCoActivityDB: %v", err)
 	}
 	return rows
 }
@@ -266,7 +302,7 @@ func TestCoActivityIgnoresPreExistingDirtyReadOnlyAndCapsBulk(t *testing.T) {
 	if err := upsertCoActivityPairs(st, "sess-bulk", "co_read", bulk); err != nil {
 		t.Fatalf("upsertCoActivityPairs bulk: %v", err)
 	}
-	if rows, err := queryCoActivityDB(st, "", "co_read", 1); err != nil || len(rows) != 1 || rows[0].FileA != "pkg/alpha/alpha.go" || rows[0].FileB != "pkg/beta/beta.go" {
+	if rows, err := queryTestCoActivityDB(st, "", "co_read", 1); err != nil || len(rows) != 1 || rows[0].FileA != "pkg/alpha/alpha.go" || rows[0].FileB != "pkg/beta/beta.go" {
 		t.Fatalf("bulk session >%d files should be skipped, got rows=%+v err=%v", maxCoActivityFiles, rows, err)
 	}
 	if _, err := st.db.Exec(`INSERT INTO co_activity(file_a, file_b, kind, count, updated_at) VALUES ('pkg/alpha/alpha.go', 'pkg/beta/beta.go', 'co_modified', 4, 1), ('pkg/other1.go', 'pkg/other2.go', 'co_modified', 10, 1)`); err != nil {

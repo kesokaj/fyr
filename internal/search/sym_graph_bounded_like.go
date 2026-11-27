@@ -15,14 +15,6 @@ var boundedFileExts = map[string]bool{
 	".html": true, ".svg": true, ".proto": true, ".txt": true, ".db": true,
 }
 
-func querySeedSymbolsLikeDB(db *sql.DB, projects []string, includeDocs bool, terms []string) ([]RankedSymbol, error) {
-	return querySeedSymbolsLikeDBCtx(context.Background(), db, projects, includeDocs, terms, maxBoundedSeedNames)
-}
-
-func querySeedSymbolsLikeDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, terms []string, maxNames int) ([]RankedSymbol, error) {
-	return querySeedSymbolsLikeMinLenDBCtx(ctx, db, projects, includeDocs, terms, maxNames, 4)
-}
-
 func querySeedSymbolsLikeMinLenDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, terms []string, maxNames, minLikeLen int) ([]RankedSymbol, error) {
 	if len(projects) == 0 || ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -63,10 +55,6 @@ func queryBoundedMatchedSymbolsDBCtx(ctx context.Context, db *sql.DB, projects [
 		}
 	}
 	return out, nil
-}
-
-func collectBoundedLikeTerms(terms []string) (exact, long, dotMethods []string, hasQualDot bool) {
-	return collectBoundedLikeTermsWithMin(terms, 4)
 }
 
 func collectBoundedLikeTermsWithMin(terms []string, minLikeLen int) (exact, long, dotMethods []string, hasQualDot bool) {

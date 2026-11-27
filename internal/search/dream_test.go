@@ -226,7 +226,7 @@ func pb(n int, b []byte) []byte {
 }
 
 func pbVarint(n int, v uint64) []byte {
-	out := binary.AppendUvarint(nil, uint64(n<<3|0))
+	out := binary.AppendUvarint(nil, uint64(n<<3))
 	return binary.AppendUvarint(out, v)
 }
 

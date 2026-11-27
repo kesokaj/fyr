@@ -7,14 +7,6 @@ import (
 	"time"
 )
 
-type coActivityRow struct {
-	FileA     string
-	FileB     string
-	Kind      string
-	Count     int
-	UpdatedAt int64
-}
-
 const coActivityLedgerTrigger = `CREATE TRIGGER IF NOT EXISTS trg_co_activity_mod
 AFTER UPDATE ON read_ledger
 WHEN OLD.start_line = 0 AND OLD.end_line = 0 AND (OLD.sha256 = '' OR (NEW.sha256 != '' AND OLD.sha256 != NEW.sha256))
@@ -120,14 +112,14 @@ func collectSessionCoActivity(st *store, root, conversationID string) ([]string,
 				firstDigest[r.rel] = r.sha
 			}
 		}
-		if isLedgerRowModified(st, root, r.rel, r.start, r.end, r.sha, diskDigest) {
+		if isLedgerRowModified(root, r.rel, r.start, r.end, r.sha, diskDigest) {
 			modSet[r.rel] = true
 		}
 	}
 	return sortedMapKeys(readSet), sortedMapKeys(modSet), nil
 }
 
-func isLedgerRowModified(st *store, root, rel string, start, end int, sha string, diskDigest map[string]string) bool {
+func isLedgerRowModified(root, rel string, start, end int, sha string, diskDigest map[string]string) bool {
 	if (start == 0 && end == 0 && sha == "") || (start == -1 && end == -1) {
 		return true
 	}
@@ -190,34 +182,6 @@ func upsertCoActivityPairs(st *store, conversationID, kind string, files []strin
 		}
 	}
 	return tx.Commit()
-}
-
-func queryCoActivityDB(st *store, rel, kind string, minCount int) ([]coActivityRow, error) {
-	q := `SELECT file_a, file_b, kind, count, updated_at FROM co_activity WHERE count >= ?`
-	args := []any{minCount}
-	if rel != "" {
-		q += ` AND (file_a = ? OR file_b = ?)`
-		args = append(args, rel, rel)
-	}
-	if kind != "" {
-		q += ` AND kind = ?`
-		args = append(args, kind)
-	}
-	q += ` ORDER BY count DESC, file_a, file_b`
-	rows, err := st.db.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []coActivityRow
-	for rows.Next() {
-		var r coActivityRow
-		if err := rows.Scan(&r.FileA, &r.FileB, &r.Kind, &r.Count, &r.UpdatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
 }
 
 func relPathInRepo(root, p string) string {

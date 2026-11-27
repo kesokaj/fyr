@@ -2,6 +2,7 @@ package search
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"reflect"
@@ -407,17 +408,17 @@ func TestQuerySeedSymbolsLikeDBFiltersByProjectAndDocs(t *testing.T) {
 		}
 	}
 
-	gotProj, err := querySeedSymbolsLikeDB(db, []string{root}, false, []string{"TargetAlpha"})
+	gotProj, err := querySeedSymbolsLikeMinLenDBCtx(context.Background(), db, []string{root}, false, []string{"TargetAlpha"}, maxBoundedSeedNames, 4)
 	if err != nil {
-		t.Fatalf("querySeedSymbolsLikeDB project filter: %v", err)
+		t.Fatalf("querySeedSymbolsLikeMinLenDBCtx project filter: %v", err)
 	}
 	if !hasSeedSymbolName(gotProj, "TargetAlphaHelper") {
 		t.Fatalf("target project symbol TargetAlphaHelper starved by unrelated project: %+v", gotProj)
 	}
 
-	gotDocs, err := querySeedSymbolsLikeDB(db, []string{root}, false, []string{"DocMask"})
+	gotDocs, err := querySeedSymbolsLikeMinLenDBCtx(context.Background(), db, []string{root}, false, []string{"DocMask"}, maxBoundedSeedNames, 4)
 	if err != nil {
-		t.Fatalf("querySeedSymbolsLikeDB doc filter: %v", err)
+		t.Fatalf("querySeedSymbolsLikeMinLenDBCtx doc filter: %v", err)
 	}
 	if !hasSeedSymbolName(gotDocs, "DocMaskHelper") {
 		t.Fatalf("target code symbol DocMaskHelper starved by excluded docs: %+v", gotDocs)

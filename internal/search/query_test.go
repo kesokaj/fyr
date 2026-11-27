@@ -234,7 +234,7 @@ func runTask(task string) error {
 	return nil
 }
 `
-	syms, refs := extractGoSymbols("internal/demo/worker.go", src)
+	syms, refs := extractSymbolsAndRefs("internal/demo/worker.go", src)
 	gotSyms := map[string]symbolRow{}
 	for _, s := range syms {
 		gotSyms[s.recv+"."+s.name] = s
@@ -284,7 +284,7 @@ func runTask(task string) error {
 	for i := 0; i <= maxImplicitImplementers; i++ {
 		fmt.Fprintf(&many, "type Impl%d struct{}\nfunc (Impl%d) Step() {}\n", i, i)
 	}
-	_, manyRefs := extractGoSymbols("internal/demo/many.go", many.String())
+	_, manyRefs := extractSymbolsAndRefs("internal/demo/many.go", many.String())
 	for _, r := range manyRefs {
 		if r.confidence == "INFERRED" {
 			t.Fatalf("expected 0 INFERRED edges when implementers > %d, got %+v", maxImplicitImplementers, r)
@@ -293,7 +293,7 @@ func runTask(task string) error {
 
 	// Partial/broken Go syntax falls back without losing declarations.
 	broken := "package demo\nfunc BeforeBroken() {}\nfunc broken(\nfunc AfterBroken() { BeforeBroken() }\n"
-	bSyms, bRefs := extractGoSymbols("internal/demo/broken.go", broken)
+	bSyms, bRefs := extractSymbolsAndRefs("internal/demo/broken.go", broken)
 	foundAfter := false
 	for _, s := range bSyms {
 		if s.name == "AfterBroken" {
@@ -354,7 +354,7 @@ func TestFyrGoCallerResolution(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			syms, refs := extractGoSymbols(filepath.ToSlash(p), string(data))
+			syms, refs := extractSymbolsAndRefs(filepath.ToSlash(p), string(data))
 			for _, s := range syms {
 				declared[s.name] = true
 				if s.recv != "" {

@@ -332,9 +332,9 @@ func UseAlpha() error {
 		t.Fatalf("prepare: %v", err)
 	}
 	defer sc.close()
-	g, err := sc.loadSymGraph()
+	g, err := sc.loadSymGraphOpts(false)
 	if err != nil {
-		t.Fatalf("loadSymGraph: %v", err)
+		t.Fatalf("loadSymGraphOpts: %v", err)
 	}
 	_, deps := g.summarizePackages()
 	if strings.Join(deps["internal/alpha"], ",") != "internal/beta" {
@@ -387,7 +387,7 @@ func TestTSImportsAndConstSuppression(t *testing.T) {
 	if !symNames["web/lib:PUBLIC_LIMIT"] || symNames["web/lib:internalLimit"] || symNames["web/ui:localCount"] || symNames["web/ui:formatted"] {
 		t.Fatalf("const suppression mismatch in symbols: %v", symNames)
 	}
-	if len(snap.PkgEdges) != 1 || snap.Packages[snap.PkgEdges[0].From()].Path != "web/ui" || snap.Packages[snap.PkgEdges[0].To()].Path != "web/lib" {
+	if len(snap.PkgEdges) != 1 || snap.Packages[snap.PkgEdges[0][0]].Path != "web/ui" || snap.Packages[snap.PkgEdges[0][1]].Path != "web/lib" {
 		t.Fatalf("expected single TS relative package edge web/ui -> web/lib, got pkgs=%+v edges=%+v", snap.Packages, snap.PkgEdges)
 	}
 }

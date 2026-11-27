@@ -77,10 +77,6 @@ type symGraph struct {
 	importEdges []resolvedImportEdge
 }
 
-func (sc *scope) loadSymGraph() (*symGraph, error) {
-	return sc.loadSymGraphOpts(false)
-}
-
 func (sc *scope) loadSymGraphOpts(includeDocs bool) (*symGraph, error) {
 	return buildSymGraphFromDB(sc.st.db, sc.projects, loadGoModules(sc), includeDocs)
 }
@@ -157,12 +153,6 @@ func queryIndexedFilesDB(db *sql.DB, projects []string, includeDocs bool) ([]ind
 	return scanIndexedFilesDB(db, q, args, includeDocs, false)
 }
 
-func queryIndexedFilePathsDB(db *sql.DB, projects []string, includeDocs bool) ([]indexedFileMeta, error) {
-	inSQL, args := projectsInClause(projects)
-	q := `SELECT f.project, f.path, f.oid, 0 FROM files f WHERE f.project IN ` + inSQL + ` ORDER BY f.path`
-	return scanIndexedFilesDB(db, q, args, includeDocs, false)
-}
-
 func scanIndexedFilesDB(db *sql.DB, q string, args []any, includeDocs, vendoredOnly bool) ([]indexedFileMeta, error) {
 	rows, err := db.Query(q, args...)
 	if err != nil {
@@ -223,10 +213,6 @@ func querySymbolNodesDB(db *sql.DB, projects []string, includeDocs bool) ([]Rank
 		syms = append(syms, s)
 	}
 	return syms, rows.Err()
-}
-
-func newSymGraph(syms []RankedSymbol) *symGraph {
-	return newSymGraphWithMeta(syms, nil, nil)
 }
 
 func newSymGraphWithMeta(syms []RankedSymbol, files []indexedFileMeta, goMods map[string]string) *symGraph {

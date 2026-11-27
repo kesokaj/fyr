@@ -177,7 +177,7 @@ func buildSnapshotHiddenCoupling(db *sql.DB, root string, fileIdxOf map[string]i
 		}
 		linkedIdx[[2]int{a, b}] = true
 	}
-	hints, _ := queryHiddenCouplingPairs(db, root, defaultHiddenCouplingMinCount, astLinked)
+	hints := queryHiddenCouplingPairs(db, root, defaultHiddenCouplingMinCount, astLinked)
 	var out []GraphHiddenCoupling
 	for _, h := range hints {
 		uIdx, okU := fileIdxOf[h.FileA]

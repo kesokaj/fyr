@@ -26,10 +26,6 @@ type symRefRow struct {
 	line                                          int
 }
 
-func extractGoSymbols(filePath, text string) ([]symbolRow, []symRefRow) {
-	return extractGoSymbolsCore(filePath, text, true)
-}
-
 func extractGoSymbolsCore(filePath, text string, includeImplicit bool) ([]symbolRow, []symRefRow) {
 	if isExcludedASTPath(filePath) || isGeneratedGoText(text) {
 		return nil, nil
@@ -47,7 +43,7 @@ func extractGoSymbolsCore(filePath, text string, includeImplicit bool) ([]symbol
 		refs = append(refs, walkRefs...)
 	}
 	if err != nil {
-		fbSyms, fbRefs := parseGoFallback(filePath, text, pkgName)
+		fbSyms, fbRefs := parseGoFallback(text, pkgName)
 		syms = mergeSymbols(syms, fbSyms)
 		refs = append(refs, fbRefs...)
 	}

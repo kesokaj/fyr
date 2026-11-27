@@ -24,12 +24,6 @@ type GraphOptions struct {
 // GraphEdge encodes [u, v, prodW, testW, kindMask] directly as a 5-int tuple.
 type GraphEdge [5]int
 
-func (e GraphEdge) From() int     { return e[0] }
-func (e GraphEdge) To() int       { return e[1] }
-func (e GraphEdge) ProdW() int    { return e[2] }
-func (e GraphEdge) TestW() int    { return e[3] }
-func (e GraphEdge) KindMask() int { return e[4] }
-
 // GraphPackage is one canonical package node in GraphSnapshot.
 type GraphPackage struct {
 	Idx         int     `json:"idx"`

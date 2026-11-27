@@ -125,7 +125,7 @@ var (
 	codeSkip     = map[string]bool{}
 )
 
-func parseGoFallback(filePath, text, pkgName string) ([]symbolRow, []symRefRow) {
+func parseGoFallback(text, pkgName string) ([]symbolRow, []symRefRow) {
 	lines := splitLines(text)
 	var syms []symbolRow
 	var refs []symRefRow

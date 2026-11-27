@@ -76,7 +76,7 @@ func ReadHiddenCouplingHints(dbPath, repoRoot string, minCount, limit int) ([]Hi
 		return nil, err
 	}
 	astLinked := collectUndirectedASTFilePairs(g)
-	hints, _ := queryHiddenCouplingPairs(db, root, minCount, astLinked)
+	hints := queryHiddenCouplingPairs(db, root, minCount, astLinked)
 	if limit > 0 && len(hints) > limit {
 		hints = hints[:limit]
 	}

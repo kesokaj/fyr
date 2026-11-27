@@ -139,7 +139,7 @@ func louvainMovePass(adj [][]louvainNeighbor, deg, tot []float64, comm []int, m2
 			}
 			cOld := comm[u]
 			tot[cOld] -= deg[u]
-			bestC := bestLouvainCommunity(u, cOld, deg[u], adj[u], comm, tot, m2)
+			bestC := bestLouvainCommunity(cOld, deg[u], adj[u], comm, tot, m2)
 			comm[u] = bestC
 			tot[bestC] += deg[u]
 			if bestC != cOld {
@@ -154,7 +154,7 @@ func louvainMovePass(adj [][]louvainNeighbor, deg, tot []float64, comm []int, m2
 	return anyMoved
 }
 
-func bestLouvainCommunity(u, cOld int, degU float64, neighbors []louvainNeighbor, comm []int, tot []float64, m2 float64) int {
+func bestLouvainCommunity(cOld int, degU float64, neighbors []louvainNeighbor, comm []int, tot []float64, m2 float64) int {
 	kIn := map[int]float64{}
 	var cands []int
 	seen := map[int]bool{cOld: true}

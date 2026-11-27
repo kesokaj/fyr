@@ -93,9 +93,8 @@ func scanCoActivityByPairKind(db *sql.DB, repoRoot string, minCount int) (map[pa
 	return best, allPairs
 }
 
-func queryHiddenCouplingPairs(db *sql.DB, repoRoot string, minCount int, astLinked map[[2]string]bool) ([]HiddenCouplingHint, int) {
-	s := summarizeHiddenCoupling(db, repoRoot, minCount, astLinked)
-	return s.hints, s.totalCoPairs
+func queryHiddenCouplingPairs(db *sql.DB, repoRoot string, minCount int, astLinked map[[2]string]bool) []HiddenCouplingHint {
+	return summarizeHiddenCoupling(db, repoRoot, minCount, astLinked).hints
 }
 
 func sortHiddenCouplingHints(hidden []HiddenCouplingHint) {
