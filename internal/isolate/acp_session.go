@@ -178,27 +178,6 @@ func (b *Box) handleACPError(parentCtx, turnCtx context.Context, err error) {
 	b.Note("agy: %v", err)
 }
 
-// Steer sends a mid-session steering message to an active ACP session.
-func (b *Box) Steer(ctx context.Context, text string) error {
-	p := b.currentACP()
-	if p == nil || p.client == nil || p.sessionID == "" {
-		return errors.New("no active ACP session")
-	}
-	return p.client.Steer(ctx, p.sessionID, text)
-}
-
-// SessionID returns the active ACP session ID, or "" if none is active.
-func (b *Box) SessionID() string {
-	if p := b.currentACP(); p != nil {
-		return p.sessionID
-	}
-	data, err := os.ReadFile(filepath.Join(b.dir, "session.id"))
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
-}
-
 func (b *Box) closeACP() {
 	p := b.takeACP()
 	if p == nil {

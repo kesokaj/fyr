@@ -68,7 +68,8 @@ func (w *worker) copyDrafts(dir *os.Root, entries []os.DirEntry) bool {
 	var dest *os.Root
 	var skipped []string
 	for _, e := range entries {
-		if !draftName.MatchString(e.Name()) && !((w.o.Auto || w.o.DraftsOnly) && e.Name() == autoDraftsName) {
+		isAutoDraft := (w.o.Auto || w.o.DraftsOnly) && e.Name() == autoDraftsName
+		if !draftName.MatchString(e.Name()) && !isAutoDraft {
 			skipped = append(skipped, e.Name())
 			continue
 		}

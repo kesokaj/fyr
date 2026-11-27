@@ -42,15 +42,11 @@ var (
 	modelRe = models.ModelIDRe
 )
 
-// ParseKickoff reads path as a Kickoff, or refuses it (refusal 3, and
+// parseKickoff reads path as a Kickoff, or refuses it (refusal 3, and
 // refusal 4's name rule): a missing, unreadable or oversized file, no single
 // Files: line, an entry that is neither a repo-relative path nor a record
 // ID, more than one Model: line or one that is not a model ID, or a name
 // outside the branch alphabet (D40).
-func ParseKickoff(path string) (Kickoff, error) {
-	return parseKickoff(path, false)
-}
-
 func parseKickoff(path string, auto bool) (Kickoff, error) {
 	k := Kickoff{Path: path, Name: strings.TrimSuffix(filepath.Base(path), ".md")}
 	f, err := OpenRegular(path, os.O_RDONLY)
@@ -183,7 +179,7 @@ func checkEntry(e string) error {
 	for _, seg := range strings.Split(strings.TrimSuffix(e, "/"), "/") {
 		switch seg {
 		case "..":
-			return fmt.Errorf("the Files: entry %s contains ..", e)
+			return fmt.Errorf("the Files: entry %s contains a '..' segment", e)
 		case "", ".":
 			return fmt.Errorf("the Files: entry %s is not a clean repo-relative path", e)
 		}

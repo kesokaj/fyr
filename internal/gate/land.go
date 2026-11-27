@@ -320,7 +320,7 @@ func firstLineCompact(raw string, maxLen int) string {
 		s = strings.TrimSpace(s[:idx])
 	}
 	if maxLen > 0 && len(s) > maxLen {
-		return string(trimIncompleteUTF8([]byte(s[:maxLen]))) + "..."
+		return string(trail.TruncateUTF8Bytes([]byte(s), maxLen)) + "..."
 	}
 	return s
 }

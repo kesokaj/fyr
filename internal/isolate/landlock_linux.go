@@ -334,11 +334,6 @@ func setEnvKey(env []string, key, val string) []string {
 	return out
 }
 
-func hasEnvKey(env []string, key string) bool {
-	_, ok := envValue(env, key)
-	return ok
-}
-
 func envValue(env []string, key string) (string, bool) {
 	prefix := key + "="
 	for i := len(env) - 1; i >= 0; i-- {

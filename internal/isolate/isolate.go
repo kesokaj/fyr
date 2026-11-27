@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -113,7 +112,7 @@ func policyPaths(realHome, bin string, baseRW, extraRW, baseRO, extraRO []string
 	ro = appendAgyROPaths(nil, realHome, bin)
 	ro = appendExistingPaths(ro, baseRO)
 	ro = appendExistingPaths(ro, systemROCandidates)
-	if gr := runtime.GOROOT(); gr != "" {
+	if gr := resolveGoRoot(); gr != "" {
 		ro = appendExistingPaths(ro, []string{gr})
 	}
 	ro = appendSafePATHDirs(ro, realHome)

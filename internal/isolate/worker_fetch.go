@@ -97,10 +97,10 @@ const maxFetchOutput = 64 << 10
 
 // runBounded is CombinedOutput with a deadline and a bound on the output.
 func runBounded(cmd *exec.Cmd, limit time.Duration) ([]byte, error) {
-	out := cappedBuffer{limit: maxFetchOutput}
-	cmd.Stdout, cmd.Stderr = &out, &out
+	out := trail.NewCappedBuffer(maxFetchOutput, nil)
+	cmd.Stdout, cmd.Stderr = out, out
 	err := runGroup(cmd, limit)
-	return out.buf.Bytes(), err
+	return out.Bytes(), err
 }
 
 // runGroup runs cmd in its own process group, which is killed whole at the

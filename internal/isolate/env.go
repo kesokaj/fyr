@@ -1,11 +1,17 @@
 package isolate
 
 import (
+	"context"
+	"io"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
-	"runtime"
 	"strings"
+	"sync"
+	"time"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // FyrEnv is the caller's environment for the sandbox's fyr calls, minus
@@ -114,7 +120,7 @@ func confinedPATH(firstDir, realHome string, allowPaths []string) string {
 	for _, dir := range explicitDirs {
 		add(dir)
 	}
-	if gr := runtime.GOROOT(); gr != "" {
+	if gr := resolveGoRoot(); gr != "" {
 		goBin := filepath.Join(gr, "bin")
 		if st, err := os.Stat(goBin); err == nil && st.IsDir() {
 			add(goBin)
@@ -198,6 +204,50 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+var (
+	goRootMu    sync.Mutex
+	goRootCache = map[string]string{}
+)
+
+// resolveGoRoot locates GOROOT via the "go" binary on PATH and caches the
+// result per resolved binary path and GOROOT env setting (SA1019).
+func resolveGoRoot() string {
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		return ""
+	}
+	key := filepath.Clean(goBin) + "\x00" + os.Getenv("GOROOT")
+	goRootMu.Lock()
+	if cached, ok := goRootCache[key]; ok {
+		goRootMu.Unlock()
+		return cached
+	}
+	goRootMu.Unlock()
+
+	root := queryGoRoot(goBin)
+	goRootMu.Lock()
+	goRootCache[key] = root
+	goRootMu.Unlock()
+	return root
+}
+
+func queryGoRoot(goBin string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, goBin, "env", "GOROOT")
+	out := trail.NewCappedBuffer(4096, nil)
+	cmd.Stdout = out
+	cmd.Stderr = io.Discard
+	if err := cmd.Run(); err != nil || out.Truncated() {
+		return ""
+	}
+	root := strings.TrimSpace(out.String())
+	if root == "" || strings.ContainsAny(root, "\r\n\x00") || !filepath.IsAbs(root) {
+		return ""
+	}
+	return filepath.Clean(root)
 }
 
 // ShellQuote is s as one single-quoted bash word.

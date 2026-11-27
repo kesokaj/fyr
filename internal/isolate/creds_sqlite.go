@@ -246,7 +246,7 @@ func isISODate(s []byte) bool {
 
 func isLowerHex40(s []byte) bool {
 	for _, c := range s {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return false
 		}
 	}

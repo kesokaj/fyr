@@ -31,9 +31,10 @@ func guardHome(t *testing.T, self string) string {
 	if err := os.WriteFile(installed, []byte("installed"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if self == "installed" {
+	switch self {
+	case "installed":
 		self = installed
-	} else if self == "" {
+	case "":
 		self = filepath.Join(t.TempDir(), "fyr")
 		if err := os.WriteFile(self, []byte("dev build"), 0o755); err != nil {
 			t.Fatal(err)
@@ -62,7 +63,7 @@ func asInstalled(t *testing.T, home string) {
 }
 
 // guardFor parses args as run does and returns the guard's verdict.
-func guardFor(t *testing.T, args ...string) (error, string) {
+func guardFor(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
 	c := newCtx(args[0], verbs[args[0]], &out)
@@ -72,7 +73,8 @@ func guardFor(t *testing.T, args ...string) (error, string) {
 	if err := c.resolveHome(); err != nil {
 		t.Fatal(err)
 	}
-	return c.refuseRealHomeWrite(), out.String()
+	err := c.refuseRealHomeWrite()
+	return out.String(), err
 }
 
 func isGuardRefusal(err error, out string) bool {
@@ -102,7 +104,7 @@ var guardedInvocations = [][]string{
 func TestRealHomeGuardRefusesDevBuild(t *testing.T) {
 	guardHome(t, "")
 	for _, args := range guardedInvocations {
-		if err, out := guardFor(t, args...); !isGuardRefusal(err, out) {
+		if out, err := guardFor(t, args...); !isGuardRefusal(err, out) {
 			t.Errorf("%v: err = %v, out %q; want the BUG-507 refusal", args, err, out)
 		}
 	}
@@ -111,7 +113,7 @@ func TestRealHomeGuardRefusesDevBuild(t *testing.T) {
 func TestRealHomeGuardPassesInstalledBinary(t *testing.T) {
 	guardHome(t, "installed")
 	for _, args := range guardedInvocations {
-		if err, out := guardFor(t, args...); err != nil {
+		if out, err := guardFor(t, args...); err != nil {
 			t.Errorf("%v: err = %v, out %q; the installed binary passes", args, err, out)
 		}
 	}
@@ -125,7 +127,7 @@ func TestRealHomeGuardPassesLinkToInstalled(t *testing.T) {
 		t.Fatal(err)
 	}
 	guardSelf = func() (string, error) { return link, nil }
-	if err, out := guardFor(t, "record", "list"); err != nil {
+	if out, err := guardFor(t, "record", "list"); err != nil {
 		t.Errorf("err = %v, out %q", err, out)
 	}
 }
@@ -136,7 +138,7 @@ func TestRealHomeGuardPassesExplicitHome(t *testing.T) {
 	for _, h := range []string{home, t.TempDir()} {
 		for _, args := range guardedInvocations {
 			args = append(append([]string{}, args...), "--home", h)
-			if err, out := guardFor(t, args...); err != nil {
+			if out, err := guardFor(t, args...); err != nil {
 				t.Errorf("%v: err = %v, out %q", args, err, out)
 			}
 		}
@@ -153,7 +155,7 @@ func TestRealHomeGuardExemptions(t *testing.T) {
 		{"install", "--dry-run"}, {"update", "--check"},
 		{"list"}, {"render"}, {"diff"}, {"version"},
 	} {
-		if err, out := guardFor(t, args...); err != nil {
+		if out, err := guardFor(t, args...); err != nil {
 			t.Errorf("%v: err = %v, out %q; not guarded", args, err, out)
 		}
 	}
@@ -169,7 +171,7 @@ func TestRealHomeGuardRefusesReads(t *testing.T) {
 		{"auto", "run", "--dry-run"}, {"dream", "--dry-run"}, {"uninstall", "--dry-run"},
 		{"eval", "--list"}, {"models"}, {"resume"}, {"git-check"},
 	} {
-		if err, out := guardFor(t, args...); !isGuardRefusal(err, out) {
+		if out, err := guardFor(t, args...); !isGuardRefusal(err, out) {
 			t.Errorf("%v: err = %v, out %q; want the BUG-507 refusal", args, err, out)
 		}
 	}
@@ -206,14 +208,14 @@ func TestRealHomeGuardReadsLeaveOlderStores(t *testing.T) {
 func TestRealHomeGuardRefusesWhenUnsure(t *testing.T) {
 	home := guardHome(t, "installed")
 	guardSelf = func() (string, error) { return "", errors.New("no executable") }
-	if err, out := guardFor(t, "record", "list"); !isGuardRefusal(err, out) {
+	if out, err := guardFor(t, "record", "list"); !isGuardRefusal(err, out) {
 		t.Errorf("unreadable self: err = %v, out %q", err, out)
 	}
 	guardSelf = func() (string, error) { return filepath.Join(home, harness.BinPath), nil }
 	if err := os.Remove(filepath.Join(home, harness.BinPath)); err != nil {
 		t.Fatal(err)
 	}
-	if err, out := guardFor(t, "record", "list"); !isGuardRefusal(err, out) {
+	if out, err := guardFor(t, "record", "list"); !isGuardRefusal(err, out) {
 		t.Errorf("no installed binary: err = %v, out %q", err, out)
 	}
 }

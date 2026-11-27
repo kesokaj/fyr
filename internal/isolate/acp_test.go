@@ -273,7 +273,7 @@ done
 	b.After()
 	b.ExitChecks()
 
-	// Good ACP session + concurrent Steer/SessionID/Reasons under -race.
+	// Good ACP session + concurrent Box state reads under -race.
 	goodACP := filepath.Join(r.bin, "agy-good-acp")
 	goodScript := `#!/bin/sh
 while IFS= read -r line; do
@@ -303,12 +303,11 @@ done
 		done <- b2.Session(context.Background(), goodACP, tok, "hi", "out.txt")
 	}()
 	for i := 0; i < 10; i++ {
-		_ = b2.SessionID()
+		_ = b2.currentACP()
 		_ = b2.Reasons()
 		_ = b2.Started()
 		_ = b2.TimedOut()
 		_ = b2.Has(ReasonReplaced)
-		_ = b2.Steer(context.Background(), "nudge")
 		time.Sleep(10 * time.Millisecond)
 	}
 	if rc := <-done; rc != 0 {

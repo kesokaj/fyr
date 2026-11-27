@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +16,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // WorkTokenRel is the legacy path under a home's state directory where
@@ -58,25 +58,12 @@ func readKeychainCmd(kc string) (string, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "/usr/bin/security", "find-generic-password", "-s", keychainService, "-a", keychainAccount, "-w", db)
 	cmd.Env = WithoutGit(os.Environ())
-	var out bytes.Buffer
-	cmd.Stdout = &limitWriter{w: &out, n: 64 * 1024}
+	out := trail.NewCappedBuffer(64*1024, errors.New("keychain output exceeds 64 KiB"))
+	cmd.Stdout = out
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("keychain lookup failed: %v", err)
 	}
 	return strings.TrimSpace(out.String()), nil
-}
-
-type limitWriter struct {
-	w io.Writer
-	n int
-}
-
-func (l *limitWriter) Write(p []byte) (int, error) {
-	if len(p) > l.n {
-		return 0, errors.New("keychain output exceeds 64 KiB")
-	}
-	l.n -= len(p)
-	return l.w.Write(p)
 }
 
 type oauthToken struct {

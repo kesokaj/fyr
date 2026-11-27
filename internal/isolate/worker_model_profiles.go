@@ -7,12 +7,6 @@ import (
 	"github.com/kesokaj/fyr/internal/models"
 )
 
-// resolveAutoRoleAndTier determines the best (role, tier) for a Kickoff based
-// on its Files scope and Prompt complexity.
-func resolveAutoRoleAndTier(k Kickoff) (role, tier, rationale string) {
-	return models.ResolveScopeRoleAndTier(k.Files, k.Text)
-}
-
 // resolveAutoModels resolves Kickoffs with Model: "auto" (or empty when
 // default/auto-pick applies) and Judge-Model: "auto" before preflight model
 // verification, and rejects interactive-only orchestrator IDs in headless work.

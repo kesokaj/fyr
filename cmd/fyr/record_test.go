@@ -126,7 +126,7 @@ func TestRecordGetIsPrintable(t *testing.T) {
 	if out, err := recordCmd(t, "evil \x1b[2J\x1b]0;pwned\x07 body\n", "record", "add", "learning", "--title", "t", "--home", home); exitOf(err) != 1 {
 		t.Fatalf("a body with ESC must be refused: %q %v", out, err)
 	}
-	if out, err := recordCmd(t, "evil \u009b2J \u2028 body\n", "record", "add", "learning", "--title", "t‮itle", "--home", home); err != nil {
+	if out, err := recordCmd(t, "evil \u009b2J \u2028 body\n", "record", "add", "learning", "--title", "t\u202eitle", "--home", home); err != nil {
 		t.Fatalf("add: %q %v", out, err)
 	}
 	list, _ := recordCmd(t, "", "record", "list", "--home", home)
@@ -135,7 +135,7 @@ func TestRecordGetIsPrintable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.ContainsAny(out, "\x1b\x07‮\u009b\u2028") {
+	if strings.ContainsAny(out, "\x1b\x07\u202e\u009b\u2028") {
 		t.Errorf("get printed control characters: %q", out)
 	}
 }

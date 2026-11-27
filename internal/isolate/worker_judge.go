@@ -17,6 +17,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/models"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
@@ -211,9 +212,9 @@ func judgeEnv(scratchHome, tmpDir, dir string) []string {
 }
 
 func execJudgeCmd(ctx context.Context, cmd *exec.Cmd, cleanup func(), timeout time.Duration) (JudgeExecOutput, error) {
-	stdout := cappedBuffer{limit: maxJudgeOutputBytes}
-	stderr := cappedBuffer{limit: maxJudgeOutputBytes}
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	stdout := trail.NewCappedBuffer(maxJudgeOutputBytes, nil)
+	stderr := trail.NewCappedBuffer(maxJudgeOutputBytes, nil)
+	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Start(); err != nil {
 		cleanup()
 		return JudgeExecOutput{ExitCode: -1}, err
@@ -237,7 +238,7 @@ func execJudgeCmd(ctx context.Context, cmd *exec.Cmd, cleanup func(), timeout ti
 		err = ctx.Err()
 	}
 	_ = syscall.Kill(-pgid, syscall.SIGKILL)
-	return JudgeExecOutput{Stdout: stdout.buf.String(), Stderr: stderr.buf.String(), ExitCode: agyExit(err)}, err
+	return JudgeExecOutput{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: agyExit(err)}, err
 }
 
 func runWorkerJudge(ctx context.Context, w *worker) {
@@ -288,7 +289,7 @@ func workerDiffForJudge(ctx context.Context, appDir, base string) (string, error
 		return "", err
 	}
 	if len(out) > maxJudgeDiffBytes {
-		return fmt.Sprintf("%s\n... [diff truncated at %d KiB]", truncateUTF8(string(out), maxJudgeDiffBytes), maxJudgeDiffBytes>>10), nil
+		return fmt.Sprintf("%s\n... [diff truncated at %d KiB]", trail.TruncateUTF8(string(out), maxJudgeDiffBytes), maxJudgeDiffBytes>>10), nil
 	}
 	return string(out), nil
 }
@@ -302,7 +303,7 @@ func buildWorkerJudgePrompt(criterion, diff string) string {
 	avail := maxJudgePromptBytes - 1 - len(formatWorkerJudgePrompt(criterion, "")) - len(diffNote) - 64
 	for avail > 0 && len(prompt) >= maxJudgePromptBytes {
 		if len(diff) > avail {
-			diff = truncateUTF8(diff, avail) + diffNote
+			diff = trail.TruncateUTF8(diff, avail) + diffNote
 		}
 		prompt = formatWorkerJudgePrompt(criterion, diff)
 		avail -= 512
@@ -315,7 +316,7 @@ func buildWorkerJudgePrompt(criterion, diff string) string {
 	critAvail := maxJudgePromptBytes - 1 - len(formatWorkerJudgePrompt("", "")) - len(critNote) - 64
 	for len(prompt) >= maxJudgePromptBytes && critAvail >= 0 {
 		if len(criterion) > critAvail {
-			criterion = truncateUTF8(criterion, critAvail) + critNote
+			criterion = trail.TruncateUTF8(criterion, critAvail) + critNote
 		}
 		prompt = formatWorkerJudgePrompt(criterion, diff)
 		critAvail -= 512

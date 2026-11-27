@@ -51,10 +51,10 @@ func checkRawChanges(ctx context.Context, tgt gateTarget, lease []string, rep *G
 func evaluateRawEntry(meta, rel string, lease []string, rep *GateReport) bool {
 	fields := strings.Fields(meta)
 	if len(fields) >= 2 {
-		modeNew := fields[1]
-		if modeNew == "120000" {
+		switch fields[1] {
+		case "120000":
 			rep.Findings = append(rep.Findings, GateFinding{Check: "lease", Path: rel, Detail: "symlink mode 120000 disallowed"})
-		} else if modeNew == "160000" {
+		case "160000":
 			rep.Findings = append(rep.Findings, GateFinding{Check: "lease", Path: rel, Detail: "gitlink mode 160000 disallowed"})
 		}
 	}

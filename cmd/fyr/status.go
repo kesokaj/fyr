@@ -125,8 +125,8 @@ func status(src harness.Source, home string, out io.Writer) error {
 func sourceLine(src harness.Source, zipNote string, out io.Writer) harness.RepoInfo {
 	repo := src.Dir
 	var info harness.RepoInfo
-	switch {
-	case repo == "":
+	switch repo {
+	case "":
 		// The embedded files: no git state to show, and none is asked (D17).
 		fmt.Fprintf(out, "source     embedded %s (release binary; update downloads the newest release%s)\n", src.Version, zipNote)
 	default:

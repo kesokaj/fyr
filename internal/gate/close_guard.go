@@ -284,7 +284,8 @@ func containsPlanID(text, id string) bool {
 		pos := start + idx
 		end := pos + len(id)
 		leftOK := pos == 0 || (!isPlanIDChar(text[pos-1]) && text[pos-1] != '.')
-		rightOK := end == len(text) || (!isPlanIDChar(text[end]) && !(text[end] == '.' && end+1 < len(text) && isPlanIDAlnum(text[end+1])))
+		dotExt := end+1 < len(text) && text[end] == '.' && isPlanIDAlnum(text[end+1])
+		rightOK := end == len(text) || (!isPlanIDChar(text[end]) && !dotExt)
 		if leftOK && rightOK {
 			return true
 		}

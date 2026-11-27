@@ -2,8 +2,8 @@ package isolate
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -84,7 +84,7 @@ func TestAgyEnvPATHFiltering(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rawPATH := strings.Join([]string{
+	rawEntries := []string{
 		realHomeBin,
 		linkToHome,
 		tmpBin,
@@ -98,7 +98,11 @@ func TestAgyEnvPATHFiltering(t *testing.T) {
 		appBin,
 		boxTmpBin,
 		sbBin,
-	}, string(os.PathListSeparator))
+	}
+	if goExe, err := exec.LookPath("go"); err == nil {
+		rawEntries = append(rawEntries, filepath.Dir(goExe))
+	}
+	rawPATH := strings.Join(rawEntries, string(os.PathListSeparator))
 	t.Setenv("PATH", rawPATH)
 
 	b := New(Config{
@@ -115,7 +119,7 @@ func TestAgyEnvPATHFiltering(t *testing.T) {
 	if len(parts) == 0 || parts[0] != sbBin {
 		t.Fatalf("confined PATH first entry = %v, want %q first", parts, sbBin)
 	}
-	if gr := runtime.GOROOT(); gr != "" {
+	if gr := resolveGoRoot(); gr != "" {
 		goBin := filepath.Join(gr, "bin")
 		if st, err := os.Stat(goBin); err == nil && st.IsDir() {
 			if !slices.Contains(parts, goBin) {
@@ -191,7 +195,7 @@ func TestConfinedPATHHardening(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rawPATH := strings.Join([]string{
+	rawEntries := []string{
 		".",
 		"relative-bin",
 		filepath.Join("..", "tools"),
@@ -201,7 +205,11 @@ func TestConfinedPATHHardening(t *testing.T) {
 		linkEscapeHome,
 		linkEscapeTmp,
 		roDir,
-	}, string(os.PathListSeparator))
+	}
+	if goExe, err := exec.LookPath("go"); err == nil {
+		rawEntries = append(rawEntries, filepath.Dir(goExe))
+	}
+	rawPATH := strings.Join(rawEntries, string(os.PathListSeparator))
 	t.Setenv("PATH", rawPATH)
 
 	// Empty RealHome must still fall back to HOME / user.Current and exclude homeBin.
@@ -227,7 +235,7 @@ func TestConfinedPATHHardening(t *testing.T) {
 	if roIdx >= sysIdx {
 		t.Errorf("expected explicit roDir (%d) before sysDir (%d): %v", roIdx, sysIdx, parts)
 	}
-	if gr := runtime.GOROOT(); gr != "" {
+	if gr := resolveGoRoot(); gr != "" {
 		goBin := filepath.Join(gr, "bin")
 		if st, err := os.Stat(goBin); err == nil && st.IsDir() {
 			goIdx := slices.Index(parts, goBin)
@@ -249,4 +257,91 @@ func TestConfinedPATHHardening(t *testing.T) {
 	if !slices.Contains(safeDirs, sysDir) {
 		t.Errorf("appendSafePATHDirs missing safe sysDir %q: %v", sysDir, safeDirs)
 	}
+}
+
+func TestResolveGoRoot(t *testing.T) {
+	t.Run("real go binary on PATH", func(t *testing.T) {
+		if _, err := exec.LookPath("go"); err != nil {
+			t.Skip("go binary not on PATH")
+		}
+		got := resolveGoRoot()
+		if got == "" || !filepath.IsAbs(got) {
+			t.Fatalf("resolveGoRoot() = %q, want non-empty absolute path", got)
+		}
+		goBin := filepath.Join(got, "bin")
+		if st, err := os.Stat(goBin); err != nil || !st.IsDir() {
+			t.Fatalf("resolveGoRoot()/bin = %q is not a directory: %v", goBin, err)
+		}
+	})
+
+	t.Run("caches per go binary", func(t *testing.T) {
+		t.Setenv("GOROOT", "")
+		binDir := t.TempDir()
+		wantRoot := t.TempDir()
+		countFile := filepath.Join(t.TempDir(), "calls")
+		script := "#!/bin/sh\necho x >> " + ShellQuote(countFile) + "\nprintf '%s\\n' " + ShellQuote(wantRoot) + "\n"
+		if err := os.WriteFile(filepath.Join(binDir, "go"), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", binDir)
+		if got := resolveGoRoot(); got != wantRoot {
+			t.Fatalf("first resolveGoRoot() = %q, want %q", got, wantRoot)
+		}
+		if got := resolveGoRoot(); got != wantRoot {
+			t.Fatalf("second resolveGoRoot() = %q, want %q", got, wantRoot)
+		}
+		raw, err := os.ReadFile(countFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lines := len(strings.Split(strings.TrimSpace(string(raw)), "\n")); lines != 1 {
+			t.Fatalf("fake go invoked %d times, want 1 (cached)", lines)
+		}
+	})
+
+	t.Run("missing go on PATH returns empty", func(t *testing.T) {
+		t.Setenv("GOROOT", "")
+		t.Setenv("PATH", t.TempDir())
+		if got := resolveGoRoot(); got != "" {
+			t.Fatalf("resolveGoRoot() without go = %q, want empty", got)
+		}
+	})
+
+	t.Run("failing go returns empty", func(t *testing.T) {
+		t.Setenv("GOROOT", "")
+		binDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(binDir, "go"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", binDir)
+		if got := resolveGoRoot(); got != "" {
+			t.Fatalf("resolveGoRoot() on exit 1 = %q, want empty", got)
+		}
+	})
+
+	t.Run("oversized output over 4096 bytes returns empty", func(t *testing.T) {
+		t.Setenv("GOROOT", "")
+		binDir := t.TempDir()
+		big := "/" + strings.Repeat("a", 5000)
+		script := "#!/bin/sh\nprintf '%s\\n' " + ShellQuote(big) + "\n"
+		if err := os.WriteFile(filepath.Join(binDir, "go"), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", binDir)
+		if got := resolveGoRoot(); got != "" {
+			t.Fatalf("resolveGoRoot() on >4096B output = %q, want empty", got)
+		}
+	})
+
+	t.Run("relative path output returns empty", func(t *testing.T) {
+		t.Setenv("GOROOT", "")
+		binDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(binDir, "go"), []byte("#!/bin/sh\necho relative/goroot\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", binDir)
+		if got := resolveGoRoot(); got != "" {
+			t.Fatalf("resolveGoRoot() on relative path = %q, want empty", got)
+		}
+	})
 }

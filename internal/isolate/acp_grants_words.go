@@ -237,7 +237,7 @@ func isShellIdent(s string) bool {
 		c := s[i]
 		isAlpha := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
 		isDigit := c >= '0' && c <= '9'
-		if !(isAlpha || (i > 0 && isDigit)) {
+		if !isAlpha && (i == 0 || !isDigit) {
 			return false
 		}
 	}

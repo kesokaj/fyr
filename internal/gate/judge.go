@@ -12,12 +12,12 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
@@ -159,24 +159,11 @@ func truncateUTF8Newline(b []byte, limit int) []byte {
 	if len(b) <= limit {
 		return b
 	}
-	cand := trimIncompleteUTF8(b[:limit])
+	cand := trail.TruncateUTF8Bytes(b, limit)
 	if idx := bytes.LastIndexByte(cand, '\n'); idx > 0 {
 		return cand[:idx+1]
 	}
 	return cand
-}
-
-func trimIncompleteUTF8(b []byte) []byte {
-	n := len(b)
-	for back := 1; back < utf8.UTFMax && back <= n; back++ {
-		if utf8.RuneStart(b[n-back]) {
-			if !utf8.FullRune(b[n-back:]) {
-				return b[:n-back]
-			}
-			break
-		}
-	}
-	return b
 }
 
 func readGateJudgeStamp(tgt gateTarget) (string, error) {

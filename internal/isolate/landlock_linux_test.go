@@ -163,3 +163,8 @@ func TestWithCoverDirForInitRejectsUnsafeTargets(t *testing.T) {
 		}
 	}
 }
+
+func hasEnvKey(env []string, key string) bool {
+	_, ok := envValue(env, key)
+	return ok
+}

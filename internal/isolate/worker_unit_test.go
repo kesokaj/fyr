@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 func TestRunGroupSetsidAndKillsSubshell(t *testing.T) {
@@ -88,28 +90,44 @@ func TestKickoffDisjointAndUTF8Truncation(t *testing.T) {
 	kDir := t.TempDir()
 	k1Path := filepath.Join(kDir, "task-a.md")
 	k2Path := filepath.Join(kDir, "task-b.md")
+	k3Path := filepath.Join(kDir, "task-c.md")
+	kBadPath := filepath.Join(kDir, "task-bad.md")
 	_ = os.WriteFile(k1Path, []byte("Files: a/\n\nbody\n"), 0o600)
 	_ = os.WriteFile(k2Path, []byte("Files: a/x.go\n\nbody\n"), 0o600)
-	k1, err := ParseKickoff(k1Path)
-	if err != nil {
-		t.Fatal(err)
+	_ = os.WriteFile(k3Path, []byte("Files: b/y.go\n\nbody\n"), 0o600)
+	_ = os.WriteFile(kBadPath, []byte("Files: a/../x.go\n\nbody\n"), 0o600)
+
+	const sentinelModel = "bad model"
+	baseOpts := func() WorkerOptions {
+		return WorkerOptions{
+			Home:       t.TempDir(),
+			RealHome:   t.TempDir(),
+			Model:      sentinelModel,
+			DraftsOnly: true,
+		}
 	}
-	k2, err := ParseKickoff(k2Path)
-	if err != nil {
-		t.Fatal(err)
+	opts := baseOpts()
+	if _, err := preflightWorker(context.Background(), &opts, []string{k1Path, k2Path}); err == nil || !strings.Contains(err.Error(), "overlap on") {
+		t.Fatalf("preflightWorker(overlapping) err = %v, want overlap refusal", err)
 	}
-	if err := disjoint([]Kickoff{k1, k2}); err == nil {
-		t.Fatal("disjoint missed overlapping paths")
+	opts = baseOpts()
+	if _, err := preflightWorker(context.Background(), &opts, []string{kBadPath}); err == nil || !strings.Contains(err.Error(), "contains a '..' segment") {
+		t.Fatalf("preflightWorker(parent dir) err = %v, want '..' refusal", err)
 	}
+	opts = baseOpts()
+	if _, err := preflightWorker(context.Background(), &opts, []string{k1Path, k3Path}); err == nil || !strings.Contains(err.Error(), "--model "+sentinelModel+": not a model ID") {
+		t.Fatalf("preflightWorker(disjoint) err = %v, want sentinel model refusal past parse/disjoint", err)
+	}
+
 	// Multi-byte UTF-8 boundary truncation test (IN101).
 	long := strings.Repeat("─", 2500) // 7500 bytes, 3 bytes per rune
-	got := truncateUTF8(long, 6000)
+	got := trail.TruncateUTF8(long, 6000)
 	if len(got) > 6000 || !utf8.ValidString(got) {
-		t.Fatalf("truncateUTF8 invalid: len=%d valid=%v", len(got), utf8.ValidString(got))
+		t.Fatalf("trail.TruncateUTF8 invalid: len=%d valid=%v", len(got), utf8.ValidString(got))
 	}
-	gotOdd := truncateUTF8(long, 10)
+	gotOdd := trail.TruncateUTF8(long, 10)
 	if len(gotOdd) != 9 || !utf8.ValidString(gotOdd) {
-		t.Fatalf("truncateUTF8(10) = len=%d valid=%v, want 9 and valid", len(gotOdd), utf8.ValidString(gotOdd))
+		t.Fatalf("trail.TruncateUTF8(10) = len=%d valid=%v, want 9 and valid", len(gotOdd), utf8.ValidString(gotOdd))
 	}
 }
 
@@ -125,12 +143,13 @@ func TestWorkerDraftsZoneModelsRemoveAndBash(t *testing.T) {
 	}
 
 	// worker_model_profiles (IN97, IN-S43, IN-S47)
-	role, tier, _ := resolveAutoRoleAndTier(Kickoff{Files: []string{"README.md"}, Text: "update doc"})
-	if role == "" || tier == "" {
-		t.Fatalf("resolveAutoRoleAndTier returned empty: (%q, %q)", role, tier)
-	}
 	listed := map[string]bool{"gemini-4-carbon-high": true, "gemini-pro-orchestrator": true}
 	ids := []string{"gemini-4-carbon-high", "gemini-pro-orchestrator"}
+	docOpts := WorkerOptions{Home: t.TempDir()}
+	docKs := []Kickoff{{Path: "doc.md", Files: []string{"README.md"}, Text: "update doc", Model: "auto", JudgeModel: "auto"}}
+	if err := resolveAutoModels(&docOpts, docKs, listed, ids); err != nil || docKs[0].Model != "gemini-4-carbon-high" || docKs[0].JudgeModel != "" {
+		t.Fatalf("resolveAutoModels(doc) = (err=%v, k.Model=%q, k.JudgeModel=%q)", err, docKs[0].Model, docKs[0].JudgeModel)
+	}
 	opts := WorkerOptions{Home: t.TempDir(), Model: "auto"}
 	ks := []Kickoff{{Path: "k1.md", Files: []string{"a.go"}, Text: "work"}}
 	if err := resolveAutoModels(&opts, ks, listed, ids); err != nil || opts.Model != "gemini-4-carbon-high" || ks[0].Model != "gemini-4-carbon-high" {
@@ -141,15 +160,15 @@ func TestWorkerDraftsZoneModelsRemoveAndBash(t *testing.T) {
 		t.Fatal("resolveAutoModels succeeded when no eligible model listed")
 	}
 
-	// IN-S45: shared cappedBuffer
-	cb := cappedBuffer{limit: 5}
+	// IN-S45: shared trail.CappedWriter
+	cb := trail.NewCappedBuffer(5, nil)
 	_, _ = cb.Write([]byte("abc"))
-	if cb.over || cb.buf.String() != "abc" {
-		t.Fatalf("cappedBuffer under limit: over=%v buf=%q", cb.over, cb.buf.String())
+	if cb.Truncated() || cb.String() != "abc" {
+		t.Fatalf("CappedWriter under limit: truncated=%v buf=%q", cb.Truncated(), cb.String())
 	}
 	_, _ = cb.Write([]byte("defg"))
-	if !cb.over || cb.buf.String() != "abcde" {
-		t.Fatalf("cappedBuffer over limit: over=%v buf=%q", cb.over, cb.buf.String())
+	if !cb.Truncated() || cb.String() != "abcde" {
+		t.Fatalf("CappedWriter over limit: truncated=%v buf=%q", cb.Truncated(), cb.String())
 	}
 
 	// IN100: PrintTimeout capped grace for 5m timeout

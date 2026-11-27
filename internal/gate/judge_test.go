@@ -558,6 +558,11 @@ func TestGateJudgeTruncationAndHomeValidation(t *testing.T) {
 		if !utf8.Valid(gotSingle) || string(gotSingle) != "abc€" {
 			t.Fatalf("truncateUTF8Newline(single, 8) = %q, want %q", gotSingle, "abc€")
 		}
+		// firstLineCompact aligns multi-byte UTF-8 truncation without splitting runes.
+		gotCompact := firstLineCompact("abc€🚀\nsecond line", 8)
+		if !utf8.ValidString(gotCompact) || gotCompact != "abc€..." {
+			t.Fatalf("firstLineCompact = %q (valid=%v), want %q", gotCompact, utf8.ValidString(gotCompact), "abc€...")
+		}
 	})
 }
 

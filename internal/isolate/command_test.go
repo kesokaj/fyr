@@ -428,7 +428,7 @@ func TestCommandConfinedPATHFiltering(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rawPATH := strings.Join([]string{
+	rawEntries := []string{
 		realHomeBin,
 		linkToHome,
 		tmpBin,
@@ -439,7 +439,11 @@ func TestCommandConfinedPATHFiltering(t *testing.T) {
 		workBin,
 		scratchBin,
 		cmdTmpBin,
-	}, string(os.PathListSeparator))
+	}
+	if goExe, err := exec.LookPath("go"); err == nil {
+		rawEntries = append(rawEntries, filepath.Dir(goExe))
+	}
+	rawPATH := strings.Join(rawEntries, string(os.PathListSeparator))
 	t.Setenv("PATH", rawPATH)
 
 	confinedEnv, _, _ := buildCommandEnv(CommandOpts{
@@ -451,7 +455,7 @@ func TestCommandConfinedPATHFiltering(t *testing.T) {
 		RWPaths:     []string{rwDir},
 	})
 	parts := filepath.SplitList(envToMap(confinedEnv)["PATH"])
-	if gr := runtime.GOROOT(); gr != "" {
+	if gr := resolveGoRoot(); gr != "" {
 		goBin := filepath.Join(gr, "bin")
 		if st, err := os.Stat(goBin); err == nil && st.IsDir() && !slices.Contains(parts, goBin) {
 			t.Errorf("confined Command PATH missing GOROOT/bin %q: %v", goBin, parts)

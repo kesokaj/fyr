@@ -6,7 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // KickoffCapsuleBudget is the maximum token budget (<= 1,500 tokens at
@@ -23,7 +24,7 @@ type CapsulePivot struct {
 var (
 	capsuleHeaderRe = regexp.MustCompile(`^\[Hop [01]\] ([^:\s]+):(\d+)-(\d+) `)
 	// DefaultSliceFunc and DefaultPreseedFunc are optional hooks registered by
-	// callers that link internal/search so ParseKickoff attaches structural
+	// callers that link internal/search so parseKickoff attaches structural
 	// capsules without internal/isolate importing modernc.org/sqlite (ADR-063).
 	DefaultSliceFunc   func(dir, query string, budget int) (string, error)
 	DefaultPreseedFunc func(dir string, pivots []CapsulePivot) error
@@ -127,7 +128,7 @@ func FormatKickoffCapsule(
 	maxChars := KickoffCapsuleBudget * 4
 	truncated := len(capsule) > maxChars
 	if truncated {
-		capsule = strings.TrimSpace(truncateUTF8(capsule, maxChars))
+		capsule = strings.TrimSpace(trail.TruncateUTF8(capsule, maxChars))
 	}
 	if preseedFn != nil {
 		pivots := ParseKickoffCapsulePivots(capsule)
@@ -140,17 +141,4 @@ func FormatKickoffCapsule(
 	}
 	base := strings.TrimRight(k.Text, "\n")
 	return base + "\n\n## Structural Context Capsule\n" + capsule + "\n"
-}
-
-func truncateUTF8(s string, maxBytes int) string {
-	if maxBytes <= 0 {
-		return ""
-	}
-	if len(s) <= maxBytes {
-		return s
-	}
-	for maxBytes > 0 && !utf8.RuneStart(s[maxBytes]) {
-		maxBytes--
-	}
-	return s[:maxBytes]
 }

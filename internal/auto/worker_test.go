@@ -20,6 +20,12 @@ import (
 
 func TestKickoffBuilder(t *testing.T) {
 	home := t.TempDir()
+	repo := idleProject(t)
+	workHome := t.TempDir()
+	realHome := t.TempDir()
+	const sentinelModel = "bad model"
+	wantSentinel := "--model " + sentinelModel + ": not a model ID"
+
 	for _, spec := range classOrder {
 		entries := []string{"SPEC-foo", "README.md"}
 		id := ""
@@ -73,11 +79,31 @@ func TestKickoffBuilder(t *testing.T) {
 				t.Errorf("%s: missing %q", spec.Name, want)
 			}
 		}
-		if len(k.Files) > 0 {
-			if _, err := isolate.ParseKickoff(k.Path); err != nil {
-				t.Errorf("%s: ParseKickoff: %v", spec.Name, err)
-			}
+		_, err = isolate.RunWorker(context.Background(), isolate.WorkerOptions{
+			Root:       repo,
+			Home:       workHome,
+			RealHome:   realHome,
+			Model:      sentinelModel,
+			Auto:       spec.DraftsOnly,
+			DraftsOnly: spec.DraftsOnly,
+		}, k.Path)
+		if err == nil || !strings.Contains(err.Error(), wantSentinel) {
+			t.Errorf("%s: RunWorker preflight rejected kickoff: %v", spec.Name, err)
 		}
+	}
+
+	badKickoff := filepath.Join(t.TempDir(), "bad-kickoff.md")
+	if err := os.WriteFile(badKickoff, []byte("no files header here\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := isolate.RunWorker(context.Background(), isolate.WorkerOptions{
+		Root:     repo,
+		Home:     workHome,
+		RealHome: realHome,
+		Model:    sentinelModel,
+	}, badKickoff)
+	if err == nil || !strings.Contains(err.Error(), "no Files: line") {
+		t.Errorf("malformed kickoff err = %v, want no Files: line refusal before model check", err)
 	}
 }
 

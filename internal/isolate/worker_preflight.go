@@ -207,7 +207,7 @@ func disjoint(ks []Kickoff) error {
 			for _, ea := range a.Files {
 				for _, eb := range b.Files {
 					if ea == eb || (strings.HasSuffix(ea, "/") && strings.HasPrefix(eb, ea)) || (strings.HasSuffix(eb, "/") && strings.HasPrefix(ea, eb)) {
-						return fmt.Errorf("Kickoffs %s and %s overlap on %s and %s", a.Path, b.Path, ea, eb)
+						return fmt.Errorf("the Kickoffs %s and %s overlap on %s and %s", a.Path, b.Path, ea, eb)
 					}
 				}
 			}
