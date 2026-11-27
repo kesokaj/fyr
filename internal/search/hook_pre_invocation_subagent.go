@@ -39,13 +39,13 @@ func resolvePreInvocationSubagentCtx(ctx context.Context, home string, st *store
 			)
 		}
 	}
-	light := isAuditSubagentRole(role) || (hasParent && role != "" && !strings.EqualFold(role, "main"))
+	light := IsAuditSubagentRole(role) || (hasParent && role != "" && !strings.EqualFold(role, "main"))
 	return preInvocationSubagentInfo{role: role, name: name, toolCalls: toolCalls, lightweight: light}
 }
 
 func inferPreInvocationSubagentRole(ctx context.Context, home, convID, rawPrompt string, meta hookSubagentMeta, hasParent bool) (string, string, bool) {
 	if a := strings.TrimSpace(meta.AgentName); a != "" && !strings.EqualFold(a, "main") {
-		return a, a, hasParent || isAuditSubagentRole(a)
+		return a, a, hasParent || IsAuditSubagentRole(a)
 	}
 	if r := matchPreInvocationRolePreamble(rawPrompt); r != "" {
 		return r, r, true

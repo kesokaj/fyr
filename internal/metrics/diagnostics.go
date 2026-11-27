@@ -85,7 +85,7 @@ func buildDiagnosticReport(sum Summary, evals []EvalRow, scope, projectRoot stri
 	}
 }
 
-func (s *Store) populateDiagnostics(sum *Summary, o ShowOptions, since, now time.Time) error {
+func (s *Store) populateDiagnostics(sum *Summary, o ShowOptions, now time.Time) error {
 	if o.skipDeltas || o.Label != "" {
 		return nil
 	}

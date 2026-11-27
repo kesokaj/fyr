@@ -42,34 +42,11 @@ func collectStepHealth(h *HealthSignals, sum *Summary, all []sess, stepsByID map
 	return overBudget
 }
 
-// isAuditSubagentRole reports whether agent is an empty/unknown or specialized
-// audit role capped at auditSubagentCap (40), aligned with hook_watchdog.go.
-func isAuditSubagentRole(agent string) bool {
-	r := strings.ToLower(strings.TrimSpace(agent))
-	if r == "" {
-		return true
-	}
-	r = strings.TrimPrefix(strings.TrimPrefix(r, "workflow-"), "workflow_")
-	for _, p := range []string{"reviewer", "security", "verifier", "explorer", "dreamer", "documentation", "research", "subagent"} {
-		if r == p || strings.HasPrefix(r, p+"-") || strings.HasPrefix(r, p+"_") {
-			return true
-		}
-	}
-	return strings.HasPrefix(r, "sub-") || strings.HasPrefix(r, "sub_")
-}
-
-// isBuilderOrSelfRole reports whether agent is a general worker role
-// (self, builder, workflow-builder-*, coder, worker, etc.) sharing the 120-call budget.
-func isBuilderOrSelfRole(agent string) bool {
-	r := strings.ToLower(strings.TrimSpace(agent))
-	return r != "" && !isAuditSubagentRole(r)
-}
-
 // subagentCapForRole returns the per-subagent tool-call budget cap aligned with
-// internal/search/hook_watchdog.go: 40 for audit/specialized/unknown roles and
-// 120 for builder/self/worker roles.
+// internal/search/hook_watchdog.go: 40 for empty/audit/specialized/unknown
+// subagent roles and 120 for builder/coder/self roles.
 func subagentCapForRole(agent string) int {
-	if isAuditSubagentRole(agent) {
+	if strings.TrimSpace(agent) == "" || search.IsAuditSubagentRole(agent) {
 		return auditSubagentCap
 	}
 	return builderSubagentCap

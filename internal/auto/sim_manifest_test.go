@@ -354,7 +354,7 @@ func testSIMEvalGateMissingManifestFallback(t *testing.T) {
 	}
 }
 
-func testSIMEvalExecPolicyModel(t *testing.T) {
+func TestSIMEvalExecPolicyModel(t *testing.T) {
 	home, root := t.TempDir(), idleProject(t)
 	s, err := metrics.Open(metrics.Path(home))
 	if err != nil {

@@ -97,7 +97,7 @@ func addOptionalPlanAndHandoff(brainHome, root string, since, upper time.Time, c
 	if handoffs, err := brain.List(o, brain.ListFilter{Kind: "handoff"}); err == nil {
 		for _, r := range handoffs {
 			if seen[r.ID] {
-				break
+				continue
 			}
 			seen[r.ID] = true
 			add(kindTrail, r.ID, r.Title+"\n"+r.Body, contextTime(r, since, upper))

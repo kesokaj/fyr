@@ -547,7 +547,8 @@ func testV910SandboxTurnVetsFilter(t *testing.T) {
 
 func testV910SubagentCapsAndExemptSteps(t *testing.T) {
 	for role, want := range map[string]int{
-		"workflow-builder-8a62522f": 120, "coder-1": 120, "worker-2": 120, "implementer": 120,
+		"workflow-builder-8a62522f": 120, "coder-1": 120,
+		"worker-2": 40, "worker-x": 40, "implementer": 40,
 		"workflow-reviewer-1234": 40, "security-audit": 40, "sub-extra": 40,
 	} {
 		if got := subagentCapForRole(role); got != want {

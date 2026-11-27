@@ -89,11 +89,17 @@ func evaluateWatchdogPreCtx(ctx context.Context, o Options, dir string, in HookI
 	return watchdogPreState{active: true, exempt: exempt, ringTool: ringTool, argHash: argHash, role: role, agentName: name, denyReason: deny, budgetWarn: warn}, st, root
 }
 
-// IsBuilderSubagentRole reports whether role is a general builder/worker role
-// (self, builder, builder-*, builder_*, coder, coder-*, coder_*) that gets the
-// higher 120-call watchdog budget.
+// IsBuilderSubagentRole reports whether role is a general builder role
+// (self, builder, coder — optionally prefixed with workflow-/workflow_ and
+// suffixed with -*/_*) that gets the higher 120-call watchdog budget. Unknown
+// custom roles (e.g. worker-*, implementer) default to the 40-call audit cap.
 func IsBuilderSubagentRole(role string) bool {
 	r := strings.ToLower(strings.TrimSpace(role))
+	if strings.HasPrefix(r, "workflow-") {
+		r = strings.TrimPrefix(r, "workflow-")
+	} else if strings.HasPrefix(r, "workflow_") {
+		r = strings.TrimPrefix(r, "workflow_")
+	}
 	if r == "self" {
 		return true
 	}
@@ -130,7 +136,9 @@ func checkWatchdogBudget(role string, toolCalls int) (string, string) {
 	return "", ""
 }
 
-func isAuditSubagentRole(role string) bool {
+// IsAuditSubagentRole reports whether role is a non-main, non-builder subagent
+// role subject to the stricter 40-call audit budget.
+func IsAuditSubagentRole(role string) bool {
 	r := strings.ToLower(strings.TrimSpace(role))
 	return r != "" && r != "main" && !IsBuilderSubagentRole(r)
 }

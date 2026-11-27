@@ -519,3 +519,58 @@ func TestLookupWatchdogSummaryRoleROAndSymlinkReject(t *testing.T) {
 		t.Fatalf("expected symlinked -wal to be refused, got (%q, %v)", r, ok)
 	}
 }
+
+func TestIsAuditSubagentRoleClassification(t *testing.T) {
+	cases := []struct {
+		role      string
+		wantAudit bool
+		wantBuild bool
+		wantCap   int
+	}{
+		{"", false, false, 40},
+		{"   ", false, false, 40},
+		{"main", false, false, 40},
+		{" MAIN ", false, false, 40},
+		{"self", false, true, 120},
+		{"SELF", false, true, 120},
+		{"builder", false, true, 120},
+		{"Builder", false, true, 120},
+		{"builder-1", false, true, 120},
+		{"builder_slice", false, true, 120},
+		{"workflow-builder-8a62522f", false, true, 120},
+		{"workflow_builder_1", false, true, 120},
+		{"coder", false, true, 120},
+		{"coder-2", false, true, 120},
+		{"worker", true, false, 40},
+		{"worker-1", true, false, 40},
+		{"worker-2", true, false, 40},
+		{"worker-x", true, false, 40},
+		{"implementer", true, false, 40},
+		{"reviewer", true, false, 40},
+		{"workflow-reviewer-abc", true, false, 40},
+		{"security", true, false, 40},
+		{"security-audit", true, false, 40},
+		{"verifier", true, false, 40},
+		{"explorer", true, false, 40},
+		{"dreamer", true, false, 40},
+		{"documentation", true, false, 40},
+		{"research", true, false, 40},
+		{"sub-extra", true, false, 40},
+		{"judge", true, false, 40},
+		{"custom-role", true, false, 40},
+		{"custom-audit", true, false, 40},
+		{"unknown-role", true, false, 40},
+		{"workflow-", true, false, 40},
+	}
+	for _, tc := range cases {
+		if got := IsAuditSubagentRole(tc.role); got != tc.wantAudit {
+			t.Errorf("IsAuditSubagentRole(%q) = %v, want %v", tc.role, got, tc.wantAudit)
+		}
+		if got := IsBuilderSubagentRole(tc.role); got != tc.wantBuild {
+			t.Errorf("IsBuilderSubagentRole(%q) = %v, want %v", tc.role, got, tc.wantBuild)
+		}
+		if _, capAt := SubagentBudgetCap(tc.role); capAt != tc.wantCap {
+			t.Errorf("SubagentBudgetCap(%q) cap = %d, want %d", tc.role, capAt, tc.wantCap)
+		}
+	}
+}

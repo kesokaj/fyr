@@ -62,14 +62,14 @@ func preflightWorker(ctx context.Context, o *WorkerOptions, files []string) ([]p
 	if err := disjoint(ks); err != nil {
 		return nil, err
 	}
-	base, z, rf, err := preflightSessionState(ctx, o, ks)
+	base, z, rf, err := preflightSessionState(o)
 	if err != nil {
 		return nil, err
 	}
 	return buildPrepared(ctx, o, ks, base, z, rf)
 }
 
-func preflightSessionState(ctx context.Context, o *WorkerOptions, ks []Kickoff) (string, zone, []refEntry, error) {
+func preflightSessionState(o *WorkerOptions) (string, zone, []refEntry, error) {
 	if o.Model != "" && !modelRe.MatchString(o.Model) {
 		return "", zone{}, nil, fmt.Errorf("--model %s: not a model ID", o.Model)
 	}
