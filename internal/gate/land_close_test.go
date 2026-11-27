@@ -13,6 +13,35 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
+// stubFakeGoTools prepends a temp directory with fast `go` and `gofmt` shims
+// onto PATH so non-e2e Land/Verify subtests avoid compiling and running
+// `go test -race ./...` while still exercising Verify's step plumbing, tree
+// digest computation, and verify.stamp writes.
+func stubFakeGoTools(t *testing.T, failGoTest bool) {
+	t.Helper()
+	binDir := filepath.Join(t.TempDir(), "fake-go-bin")
+	writeFakeGoTools(t, binDir, failGoTest)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func writeFakeGoTools(t *testing.T, binDir string, failGoTest bool) {
+	t.Helper()
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	goScript := "#!/bin/sh\n"
+	if failGoTest {
+		goScript += "if [ \"$1\" = \"test\" ]; then\n  echo 'FAIL example.com/testmod (fake go test)'\n  exit 1\nfi\n"
+	}
+	goScript += "exit 0\n"
+	if err := os.WriteFile(filepath.Join(binDir, "go"), []byte(goScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(binDir, "gofmt"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLandAndCloseE2E(t *testing.T) {
 	ctx := context.Background()
 	repo := initTestGoRepo(t)
@@ -35,6 +64,7 @@ func TestLandAndCloseE2E(t *testing.T) {
 	}
 
 	t.Run("failed land preserves branch", func(t *testing.T) {
+		stubFakeGoTools(t, true)
 		wt := filepath.Join(t.TempDir(), "wt-bad")
 		runGit(t, repo, "worktree", "add", "-b", "bad-branch", wt, "main")
 		writeFile(t, filepath.Join(wt, "broken_test.go"), "package main\n\nimport \"testing\"\n\nfunc TestBroken(t *testing.T) { t.Fatal(\"fail\") }\n")
@@ -137,6 +167,7 @@ func TestLandAndCloseE2E(t *testing.T) {
 	})
 
 	t.Run("pins gated commit SHA against concurrent branch update (IN105)", func(t *testing.T) {
+		stubFakeGoTools(t, false)
 		wt := filepath.Join(t.TempDir(), "wt-toctou")
 		runGit(t, repo, "worktree", "add", "-b", "toctou-branch", wt, "main")
 		writeFile(t, filepath.Join(wt, "good.go"), "package main\n\nfunc Good() int { return 42 }\n")
@@ -185,6 +216,7 @@ func TestLandJudgeRunsAfterVerifyWithFreshStamp(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("PASS sees fresh verify.stamp matching landCommit and fast-forwards main", func(t *testing.T) {
+		stubFakeGoTools(t, false)
 		repo := initTestGoRepo(t)
 		home := t.TempDir()
 		mainHead := runGit(t, repo, "rev-parse", "HEAD")
@@ -258,6 +290,7 @@ func TestLandJudgeRunsAfterVerifyWithFreshStamp(t *testing.T) {
 	})
 
 	t.Run("FAIL after verify aborts land without moving main", func(t *testing.T) {
+		stubFakeGoTools(t, false)
 		repo := initTestGoRepo(t)
 		home := t.TempDir()
 		headBefore := runGit(t, repo, "rev-parse", "HEAD")
@@ -403,6 +436,7 @@ func TestLandJudgeRunsAfterScratchVerifyStamp(t *testing.T) {
 
 			binDir := filepath.Join(t.TempDir(), "bin")
 			writeFakeLandJudgeAgy(t, binDir, treeState.TreeSHA256, mainHead, branchHead, tc.diffNeedle, tc.verdictJSON)
+			writeFakeGoTools(t, binDir, false)
 			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 			var recorded []JudgeVerdictRecord

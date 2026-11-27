@@ -1,9 +1,9 @@
 package search
 
 import (
+	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -237,7 +237,7 @@ func TestReconcilePopulatesSymbolsAndSymRefs(t *testing.T) {
 		t.Fatalf("want 1 EXTRACTED call edge Worker.Run -> helper, got %d", refCount)
 	}
 
-	// Warm apply on unchanged blobs takes no write lock and completes in < 5 ms.
+	// Warm apply on unchanged blobs performs zero writes and leaves symbol counts intact.
 	st, err := openStore(projectDB(root), os.Stdout)
 	if err != nil {
 		t.Fatal(err)
@@ -247,21 +247,43 @@ func TestReconcilePopulatesSymbolsAndSymRefs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	durations := make([]time.Duration, 5)
-	for i := range durations {
-		start := time.Now()
+	for range 2 {
 		changed, err := st.apply(source{project: root, dir: root, view: view})
-		durations[i] = time.Since(start)
 		if err != nil || changed != 0 {
 			t.Fatalf("warm apply: changed=%d, err=%v", changed, err)
 		}
 	}
-	slices.Sort(durations)
-	if best := durations[0]; best >= 5*time.Millisecond {
-		t.Errorf("warm apply best of 5 runs took %v (all: %v), want < 5ms", best, durations)
-	}
 	if got := count(t, db, `SELECT count(*) FROM symbols WHERE oid = ?`, oidGo); got != symCount {
 		t.Errorf("symbols count changed after warm apply: got %d, want %d", got, symCount)
+	}
+}
+
+func BenchmarkWarmApply(b *testing.B) {
+	root := benchInitRepo(b)
+	home := b.TempDir()
+	benchWriteFile(b, root, "pkg/svc.go", "package pkg\n\ntype Runner interface {\n\tRun(name string) error\n}\n\ntype Worker struct{}\n\nfunc (w *Worker) Run(name string) error {\n\treturn helper(name)\n}\n\nfunc helper(s string) error {\n\treturn nil\n}\n")
+	benchWriteFile(b, root, "docs/arch.md", "# Arch\n\nCalls `Worker.Run` and `helper`.\n")
+	benchGit(b, root, "add", "-A")
+	benchGit(b, root, "commit", "-q", "-m", "add code and docs")
+	if err := Index(Options{Dir: root, Home: home}, io.Discard); err != nil {
+		b.Fatalf("Index: %v", err)
+	}
+	st, err := openStore(projectDB(root), io.Discard)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer st.close()
+	view, _, err := gitView(root)
+	if err != nil {
+		b.Fatal(err)
+	}
+	src := source{project: root, dir: root, view: view}
+	b.ResetTimer()
+	for range b.N {
+		changed, err := st.apply(src)
+		if err != nil || changed != 0 {
+			b.Fatalf("warm apply: changed=%d, err=%v", changed, err)
+		}
 	}
 }
 

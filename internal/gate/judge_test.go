@@ -194,6 +194,7 @@ func TestGateJudgeCrossFamily(t *testing.T) {
 	})
 
 	t.Run("Land forwards judge options", func(t *testing.T) {
+		stubFakeGoTools(t, false)
 		wtLand := filepath.Join(t.TempDir(), "wt-land-judge")
 		runGit(t, repo, "worktree", "add", "-b", "branch-judge-land", wtLand, "main")
 		writeFile(t, filepath.Join(wtLand, "sub.go"), "package main\n\nfunc Sub(a, b int) int { return a - b }\n")
@@ -693,6 +694,7 @@ func TestV910GateRelayIsolateAndWorkflows(t *testing.T) {
 	})
 
 	t.Run("F-033 LandReport.Detail populated on gate, verify, conflict, and refusal failures", func(t *testing.T) {
+		stubFakeGoTools(t, true)
 		landRepo := initTestGoRepo(t)
 		home := t.TempDir()
 

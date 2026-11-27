@@ -543,7 +543,8 @@ func runV910BrainSubDeadlineAndTimeoutT(t *testing.T) {
 	}
 }
 
-func runV910DirtyFastPathT(t *testing.T) {
+func assertDirtyFastPathCapsAndTruncT(t *testing.T) {
+	t.Helper()
 	if got := dynamicDirtyFastPathCap(context.Background(), 500); got != 8 {
 		t.Fatalf("dynamicDirtyFastPathCap(500) = %d, want 8", got)
 	}
@@ -555,25 +556,55 @@ func runV910DirtyFastPathT(t *testing.T) {
 	if got := dynamicDirtyFastPathCap(shortCtx, 500); got != 0 {
 		t.Fatalf("dynamicDirtyFastPathCap(<60ms) = %d, want 0", got)
 	}
+	manyDirty := make([]string, 25)
+	for i := range manyDirty {
+		manyDirty[i] = fmt.Sprintf("?? dirty_%02d.go", i)
+	}
+	truncSummary := formatDirtyFastPath(manyDirty, len(manyDirty), 3)
+	if !strings.Contains(truncSummary, "> 3 threshold") || !strings.Contains(truncSummary, "... and 5 more") {
+		t.Fatalf("formatDirtyFastPath truncation mismatch:\n%s", truncSummary)
+	}
+}
+
+func runV910DirtyFastPathT(t *testing.T) {
+	assertDirtyFastPathCapsAndTruncT(t)
 
 	dir, home := newRepo(t), t.TempDir()
 	writeFile(t, dir, "service.go", hookSampleServiceSrc)
-	for i := 0; i < 5000; i++ {
-		sub := fmt.Sprintf("pkg%02d/f%04d.txt", i%50, i)
+	for i := 0; i < 64; i++ {
+		sub := fmt.Sprintf("pkg%02d/f%04d.txt", i%8, i)
 		writeFile(t, dir, sub, fmt.Sprintf("synthetic file %d\n", i))
 	}
-	commitAll(t, dir, "seed 5000 files")
+	commitAll(t, dir, "seed synthetic files")
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
-		t.Fatalf("Index 5000: %v", err)
+		t.Fatalf("Index fixture: %v", err)
 	}
 
-	// 2 dirty files (<= 3 cap): applyDirtyPaths updates only those 2 files without full gitView.
+	// 2 dirty files (<= 3 and <= 8 cap): applyDirtyPaths updates only those 2 files without full gitView.
 	writeFile(t, dir, "service.go", hookSampleServiceSrc+"\nfunc DirtyFastUpdated() error { return nil }\n")
 	writeFile(t, dir, "untracked_v910.go", "package sample\nfunc UntrackedV910() {}\n")
 	assertV910DirtyHookTurnT(t, dir, home, "conv-v910-dirty-2", "Inspect DirtyFastUpdated in service.go", "DirtyFastUpdated", false)
 
-	// 12 dirty files (> 3 cap, <= 15): serves cached AST snapshot via fast path under 150ms.
-	for i := 0; i < 12; i++ {
+	// 4 dirty files exceed the >=2000-file cap (3) via tryDirtyFastReconcile.
+	for i := 0; i < 4; i++ {
+		writeFile(t, dir, fmt.Sprintf("cap_%02d.go", i), fmt.Sprintf("package sample\nfunc Cap%02d() {}\n", i))
+	}
+	st, _, err := openLedgerStore(dir)
+	if err != nil {
+		t.Fatalf("openLedgerStore: %v", err)
+	}
+	sc, summary, fast, handled, err := tryDirtyFastReconcile(context.Background(), dir, st, 2000)
+	if sc != nil {
+		sc.close()
+	} else {
+		st.close()
+	}
+	if err != nil || !handled || !fast || !strings.Contains(summary, "> 3 threshold") || !strings.Contains(summary, "cap_00.go") {
+		t.Fatalf("tryDirtyFastReconcile(2000, 4 dirty) = (fast=%v handled=%v err=%v summary=%q), want fast-path > 3 threshold", fast, handled, err, summary)
+	}
+
+	// 12 dirty files (> 8 cap): serves cached AST snapshot via fast path.
+	for i := 0; i < 8; i++ {
 		writeFile(t, dir, fmt.Sprintf("burst_%02d.go", i), fmt.Sprintf("package sample\nfunc Burst%02d() {}\n", i))
 	}
 	assertV910DirtyHookTurnT(t, dir, home, "conv-v910-dirty-12", "Inspect ReconcileProjectIndex in service.go", "burst_00.go", true)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -147,28 +148,31 @@ func TestRecordBodyFileAndOut(t *testing.T) {
 	stdin = os.Stdin
 
 	// An open pipe on stdin with no bytes written must not block --body-file.
+	// Keep the write end open until run completes (guarded by a generous deadlock
+	// watchdog) so non-blocking completion is proven deterministically under -race.
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pr.Close()
-	doneTimer := make(chan struct{})
-	go func() {
-		select {
-		case <-time.After(100 * time.Millisecond):
-			pw.Close()
-		case <-doneTimer:
-			pw.Close()
-		}
-	}()
 	stdin = pr
-	startPipe := time.Now()
 	var pipeOut bytes.Buffer
-	pipeErr := run([]string{"record", "add", "change", "--title", "idle-pipe", "--body-file", good, "--home", home}, &pipeOut)
-	close(doneTimer)
+	pipeDone := make(chan error, 1)
+	go func() {
+		pipeDone <- run([]string{"record", "add", "change", "--title", "idle-pipe", "--body-file", good, "--home", home}, &pipeOut)
+	}()
+	var pipeErr error
+	select {
+	case pipeErr = <-pipeDone:
+		_ = pw.Close()
+	case <-time.After(5 * time.Second):
+		_ = pw.Close()
+		pipeErr = <-pipeDone
+		t.Errorf("add --body-file blocked on idle open pipe on stdin until writer closed: err=%v out=%q", pipeErr, pipeOut.String())
+	}
 	stdin = os.Stdin
-	if pipeErr != nil || time.Since(startPipe) >= 80*time.Millisecond {
-		t.Errorf("add --body-file with idle open pipe on stdin: err=%v elapsed=%v out=%q", pipeErr, time.Since(startPipe), pipeOut.String())
+	if pipeErr != nil {
+		t.Errorf("add --body-file with idle open pipe on stdin: err=%v out=%q", pipeErr, pipeOut.String())
 	}
 
 	if out, err := recordCmd(t, "", "record", "edit", "PLAN-2026-11-03-speed", "--body", "--body-file", good, "--home", home); exitOf(err) != 2 || !strings.Contains(out, "not both") {
@@ -350,5 +354,45 @@ func TestNoRedirectedFyrInstructions(t *testing.T) {
 	}
 	if !strings.Contains(string(specBytes), "[a-z0-9-]") {
 		t.Errorf("skills/fyr-spec/SKILL.md does not constrain <app> and <topic> to [a-z0-9-]")
+	}
+}
+
+func BenchmarkRecordAddBodyFileIdlePipe(b *testing.B) {
+	root := b.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"config", "user.email", "bench@example.invalid"},
+		{"config", "user.name", "bench"},
+		{"config", "commit.gpgsign", "false"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
+			b.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	b.Chdir(root)
+	home := b.TempDir()
+	good := filepath.Join(b.TempDir(), "body.md")
+	if err := os.WriteFile(good, []byte("# Bench\n\nBody.\n"), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		b.Fatal(err)
+	}
+	origStdin := stdin
+	stdin = pr
+	b.Cleanup(func() {
+		stdin = origStdin
+		_ = pw.Close()
+		_ = pr.Close()
+	})
+	args := []string{"record", "add", "change", "--title", "bench-idle-pipe", "--body-file", good, "--home", home}
+	var out bytes.Buffer
+	b.ResetTimer()
+	for range b.N {
+		out.Reset()
+		if err := run(args, &out); err != nil {
+			b.Fatalf("record add --body-file: %v (%s)", err, out.String())
+		}
 	}
 }

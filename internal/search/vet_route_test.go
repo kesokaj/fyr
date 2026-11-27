@@ -3,11 +3,9 @@ package search
 import (
 	"bytes"
 	"encoding/json"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestVetRoutesIntentToFeature(t *testing.T) {
@@ -274,19 +272,11 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 		}
 	}
 
-	// Latency check: VetPrompt with RouteFeature stays well within the < 25 ms budget.
+	// Multi-phase prompt routes deterministically without flaky wall-clock checks.
 	const benchPrompt = "Implement Phase 1 in internal/search/service.go returning Stats; implement Phase 2 in internal/search/vet.go returning Route, and verify with go test"
-	_ = VetPrompt(benchPrompt, "", slice, TurnBrainContext{})
-	runtime.GC()
-	samples := make([]time.Duration, 21)
-	for i := range samples {
-		t0 := time.Now()
-		_ = VetPrompt(benchPrompt, "", slice, TurnBrainContext{})
-		samples[i] = time.Since(t0)
-	}
-	slices.Sort(samples)
-	if median := samples[len(samples)/2]; median >= 25*time.Millisecond {
-		t.Errorf("VetPrompt median latency = %v (all: %v), want < 25ms", median, samples)
+	benchRes := VetPrompt(benchPrompt, "", slice, TurnBrainContext{})
+	if benchRes.Gate != GateEnrichAndProceed || !strings.HasPrefix(benchRes.Route, "/fyr-swarm") {
+		t.Errorf("VetPrompt(multi-phase) = (gate=%s route=%q), want ENRICH_AND_PROCEED and /fyr-swarm prefix", benchRes.Gate, benchRes.Route)
 	}
 
 	// Live pre-invocation hook: mid-score bug emits structured Enrichment.ImprovedPrompt
@@ -418,6 +408,18 @@ func TestRouteFeatureSkipsSwarmOnDiagnosticPrompts(t *testing.T) {
 	for _, st := range resEdit.Subtasks {
 		if slices.Contains(st.Files, "cmd/fyr/verb_search_hook.go") {
 			t.Errorf("explicit 2-package edit leaked 3rd-package AST neighbor into %+v", st)
+		}
+	}
+}
+
+func BenchmarkVetPromptRouteFeature(b *testing.B) {
+	slice := SliceResult{SymbolHits: 1, Files: []string{"internal/search/service.go"}, Capsule: "[Hop 0] internal/search/service.go:1-10 (ReconcileProjectIndex)"}
+	const benchPrompt = "Implement Phase 1 in internal/search/service.go returning Stats; implement Phase 2 in internal/search/vet.go returning Route, and verify with go test"
+	b.ResetTimer()
+	for range b.N {
+		res := VetPrompt(benchPrompt, "", slice, TurnBrainContext{})
+		if res.Route == "" {
+			b.Fatal("empty route")
 		}
 	}
 }

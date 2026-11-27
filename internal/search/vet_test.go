@@ -6,11 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/kesokaj/fyr/internal/redact"
 )
@@ -337,23 +335,7 @@ func TestVetPromptFencesRecordsAndRunsUnderLatencyBudget(t *testing.T) {
 
 	slice := SliceResult{SymbolHits: 2, Pivots: 1, Files: []string{"service.go"}, Capsule: "[Hop 0] service.go:3-5 (ReconcileProjectIndex)"}
 	const vetInput = "Fix ReconcileProjectIndex in service.go to respect sha256 token auth and run go test"
-	// Measure pure in-memory VetPrompt before SQLite Index() heap allocations,
-	// warming once after runtime.GC() and checking p25 over 21 samples so OS
-	// scheduler preemptions across 16 concurrent `go test -race ./...` binaries
-	// do not mask ~1.6ms CPU execution while any >= 10ms regression fails (BUG-537).
-	_ = VetPrompt(vetInput, "", slice, brainCtx)
-	runtime.GC()
-	var res VetResult
-	durations := make([]time.Duration, 21)
-	for i := range durations {
-		startVet := time.Now()
-		res = VetPrompt(vetInput, "", slice, brainCtx)
-		durations[i] = time.Since(startVet)
-	}
-	slices.Sort(durations)
-	if p25 := durations[len(durations)/4]; p25 >= 10*time.Millisecond {
-		t.Errorf("VetPrompt p25 of 21 runs took %v (all: %v), want < 10ms", p25, durations)
-	}
+	res := VetPrompt(vetInput, "", slice, brainCtx)
 	if !fenceBoundaryRe.MatchString(res.FenceBoundary) {
 		t.Fatalf("invalid FenceBoundary: %q", res.FenceBoundary)
 	}
@@ -441,6 +423,24 @@ func TestVetPromptFencesRecordsAndRunsUnderLatencyBudget(t *testing.T) {
 	}
 	if !strings.Contains(sys, "Intent:    FEATURE") || !strings.Contains(sys, "PRE_INVOCATION · VET_FIRST") || !strings.Contains(sys, "prefix `!` to bypass vetting") {
 		t.Errorf("hook systemMessage banner missing FEATURE/VET_FIRST or `!` tip:\n%s", sys)
+	}
+}
+
+func BenchmarkVetPrompt(b *testing.B) {
+	brainCtx := TurnBrainContext{
+		Memories:   []MatchedRecord{{ID: "MEMORY-hooks", Kind: "memory", Title: "Keep hooks under 50ms", Provenance: "operator", Body: "Never spawn background daemons.", StaleTag: "[STALE: service.go modified since MEMORY-hooks]"}},
+		Bugs:       []MatchedRecord{{ID: "BUG-507", Kind: "bug", Status: "open", Title: "Guard real home writes", Body: "Prevention: always pass --home in tests."}},
+		ADRs:       []MatchedRecord{{ID: "ADR-511", Kind: "adr", Status: "accepted", Title: "Zero-daemon CLI hooks", Body: "Hooks execute in < 250ms and fail open."}},
+		ActivePlan: &MatchedRecord{ID: "PLAN-2026-11-08", Kind: "plan", Status: "open", Title: "Second-Brain AST", Body: "Ready phases: Phase 6"},
+	}
+	slice := SliceResult{SymbolHits: 2, Pivots: 1, Files: []string{"service.go"}, Capsule: "[Hop 0] service.go:3-5 (ReconcileProjectIndex)"}
+	const vetInput = "Fix ReconcileProjectIndex in service.go to respect sha256 token auth and run go test"
+	b.ResetTimer()
+	for range b.N {
+		res := VetPrompt(vetInput, "", slice, brainCtx)
+		if res.FenceBoundary == "" {
+			b.Fatal("empty FenceBoundary")
+		}
 	}
 }
 

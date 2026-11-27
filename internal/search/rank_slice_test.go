@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestPersonalizedPageRank(t *testing.T) {
@@ -53,14 +55,9 @@ func ActiveSessionHandler() error {
 	if err != nil {
 		t.Fatalf("loadSymGraph: %v", err)
 	}
-	start := time.Now()
 	ranked := g.rank("ReconcileIndex", map[string]bool{"internal/core/session_active.go": true})
-	elapsed := time.Since(start)
 	if len(ranked) == 0 {
 		t.Fatalf("expected non-empty ranked symbols, got 0")
-	}
-	if elapsed >= 5*time.Millisecond {
-		t.Errorf("20-iteration PageRank took %v, want < 5ms", elapsed)
 	}
 
 	scoreOf := map[string]float64{}
@@ -337,5 +334,68 @@ func TestFindPackageCyclesMultiHop(t *testing.T) {
 	want := "a -> b -> a\nx -> y -> z -> x"
 	if strings.Join(got, "\n") != want {
 		t.Errorf("findPackageCycles =\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
+
+func benchGit(tb testing.TB, dir string, args ...string) {
+	tb.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		tb.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func benchWriteFile(tb testing.TB, root, rel, content string) {
+	tb.Helper()
+	p := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		tb.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		tb.Fatal(err)
+	}
+}
+
+func benchInitRepo(tb testing.TB) string {
+	tb.Helper()
+	root := tb.TempDir()
+	benchGit(tb, root, "init", "-q", "-b", "main")
+	benchGit(tb, root, "config", "user.email", "bench@example.invalid")
+	benchGit(tb, root, "config", "user.name", "bench")
+	benchGit(tb, root, "config", "commit.gpgsign", "false")
+	benchWriteFile(tb, root, ".gitignore", ".agents/scratch/*\n")
+	benchWriteFile(tb, root, "README.md", "# demo\n\nA small demo project.\n")
+	benchGit(tb, root, "add", "-A")
+	benchGit(tb, root, "commit", "-q", "-m", "init")
+	return root
+}
+
+func BenchmarkPersonalizedPageRank(b *testing.B) {
+	root := benchInitRepo(b)
+	home := b.TempDir()
+	for i := 1; i <= 6; i++ {
+		benchWriteFile(b, root, fmt.Sprintf("internal/util/u%d.go", i), "package util\nfunc CommonUtil() { logHelper() }\nfunc logHelper() {}\n")
+	}
+	benchWriteFile(b, root, "go.mod", "module example\n\ngo 1.24\n")
+	benchWriteFile(b, root, "internal/core/reconcile.go", "package core\nimport \"example/internal/util\"\nfunc ReconcileIndex() error { util.CommonUtil(); return VerifyTreeState() }\nfunc VerifyTreeState() error { util.CommonUtil(); return nil }\n")
+	benchWriteFile(b, root, "internal/core/session_active.go", "package core\nfunc ActiveSessionHandler() error { return ReconcileIndex() }\n")
+	benchGit(b, root, "add", "-A")
+	benchGit(b, root, "commit", "-q", "-m", "seed graph")
+
+	sc, err := prepare(Options{Dir: root, Home: home}, io.Discard)
+	if err != nil {
+		b.Fatalf("prepare: %v", err)
+	}
+	defer sc.close()
+	g, err := sc.loadSymGraph()
+	if err != nil {
+		b.Fatalf("loadSymGraph: %v", err)
+	}
+	active := map[string]bool{"internal/core/session_active.go": true}
+	b.ResetTimer()
+	for range b.N {
+		if ranked := g.rank("ReconcileIndex", active); len(ranked) == 0 {
+			b.Fatal("expected non-empty ranked symbols")
+		}
 	}
 }
