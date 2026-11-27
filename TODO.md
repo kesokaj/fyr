@@ -7,18 +7,18 @@
 
 ## Now
 
-**Phase 1 — Wave 1: Zero-Risk Deletions, Retire `fyr relay` (`D2`), Deduplication & Residue Cleanup** (`PLAN-2026-11-27-craft-cleanup`, `ADR-537`):
-- [x] Slice `w1-retire-relay`: retire `fyr relay` (`internal/relay/**`, `cmd/fyr/verb_relay*.go`, `31 -> 30` verbs, `ADR-537` D2, `c6d8eeee`) (`who: AI`)
-- [ ] Slice `w1-dead-search`: delete 13 zero-caller unexported funcs, `ineffassign`, prod `unparam`, dead `GraphEdge` fields, and superseded `internal/search` zombies (`who: AI`)
-- [ ] Slice `w1-dead-other-dedup`: delete remaining dead/zombie code across `internal/{metrics,brain,graph,auto,dream,isolate,watch,models}`, replace `runtime.GOROOT()`, unify UTF-8/`capped*` into `internal/trail` (`who: AI`)
-- [ ] Slice `w1-workflows-skills-residue`: dedup `workflows/*.py`, fold `fyr-feedback-log` (`D6`), trim `agents/{verifier,reviewer,security}`, fix `SECURITY.md`, archive `TEST_PLAN.md`, prune brittle prose-pins (`who: AI`)
-- [ ] Checkpoint (Phase 1): `fyr land --judge` sequentially -> tighten Wave 0 ratchets -> fix 4 `SPEC-fyr-*` Failure-modes tables -> `fyr verify` + `golangci-lint run` (`who: AI`)
+**Phase 2 — Wave 2: Documentation Bonsai, SSOT Generation & `PRD.md` Tightening (`D7`)** (`PLAN-2026-11-27-craft-cleanup`, `ADR-537`):
+- [ ] Slice `w2-cli-gen`: build deterministic `docs/cli-reference.md` generator + `TestCLIDocsFresh` and concise `docs/glossary.md` (`E1`, `E5`, `E7`) (`who: AI`)
+- [ ] Slice `w2-prd-sdd`: tighten `PRD.md` (`32 KB -> ~14 KB`, `ADR-537` D7) and shrink `SDD.md` (`49 KB -> ~16 KB`) with C4 diagrams + 1-line component table (`E2`, `E4`, `E6`) (`who: AI`)
+- [ ] Slice `w2-readme-workflow`: shrink `README.md` (`43.2 KB -> ~14 KB`, `TestHarnessMap` green) and `Workflow.md` (`36.5 KB -> ~14 KB`) (`E1`, `E2`, `E5`, `E9`) (`who: AI`)
+- [ ] Slice `w2-tdd-features`: shrink `TDD.md` (`119 KB -> ~28 KB`) and all 7 `features/*.md` (`104.3 KB -> ~62.5 KB`) to `>= 80%` STE on 11/11 Track 1 docs (`E1`, `E2`, `E4`, `E7`) (`who: AI`)
+- [ ] Checkpoint (Phase 2): `fyr land --judge` sequentially -> promote STE threshold ratchet in `internal/check/style.go` -> `/fyr-review --docs` -> `fyr verify` -> update `TODO.md` (`who: AI`)
 
 ## Next
 
-- Phase 2 — Wave 2: Documentation Bonsai (`429 KB -> ~176 KB`), Generated `docs/cli-reference.md`, `11/11` STE `>= 80%`, `PRD.md` Tightening (`D7`) (`PLAN-2026-11-27-craft-cleanup`)
 - Phase 3 — Wave 3a: Pinch-Point Characterization Tests, `internal/sqliteutil`, Remove `init()`s & Split `fyr search` (`D1`, `D4`) (`PLAN-2026-11-27-craft-cleanup`)
 - Phase 4 — Wave 3b: Hotspot Monolith Decomposition (`search`, `metrics`, `sim`, `isolate/acp`), Complexity Reduction & `t.Parallel()` (`PLAN-2026-11-27-craft-cleanup`)
+- Workstream 2 — Automatic Antigravity Conversation Retention (`fyr conversations`, `ADR-538`) + `/fyr-preflight v9.14.0`
 
 ## Backlog
 
