@@ -8,11 +8,11 @@
 ## Now
 
 **Phase 2 — Wave 2: Documentation Bonsai, SSOT Generation & `PRD.md` Tightening (`D7`)** (`PLAN-2026-11-27-craft-cleanup`, `ADR-537`):
-- [ ] Slice `w2-cli-gen`: build deterministic `docs/cli-reference.md` generator + `TestCLIDocsFresh` and concise `docs/glossary.md` (`E1`, `E5`, `E7`) (`who: AI`)
-- [ ] Slice `w2-prd-sdd`: tighten `PRD.md` (`32 KB -> ~14 KB`, `ADR-537` D7) and shrink `SDD.md` (`49 KB -> ~16 KB`) with C4 diagrams + 1-line component table (`E2`, `E4`, `E6`) (`who: AI`)
-- [ ] Slice `w2-readme-workflow`: shrink `README.md` (`43.2 KB -> ~14 KB`, `TestHarnessMap` green) and `Workflow.md` (`36.5 KB -> ~14 KB`) (`E1`, `E2`, `E5`, `E9`) (`who: AI`)
-- [ ] Slice `w2-tdd-features`: shrink `TDD.md` (`119 KB -> ~28 KB`) and all 7 `features/*.md` (`104.3 KB -> ~62.5 KB`) to `>= 80%` STE on 11/11 Track 1 docs (`E1`, `E2`, `E4`, `E7`) (`who: AI`)
-- [ ] Checkpoint (Phase 2): `fyr land --judge` sequentially -> promote STE threshold ratchet in `internal/check/style.go` -> `/fyr-review --docs` -> `fyr verify` -> update `TODO.md` (`who: AI`)
+- [x] Slice `w2-cli-gen`: deterministic `docs/cli-reference.md` generator + `TestCLIDocsFresh` and `docs/glossary.md` (`10114501`, `E1`, `E5`, `E7`) (`who: AI`)
+- [x] Slice `w2-prd-sdd`: tightened `PRD.md` (`32.8 -> 16.1 KB`, `D7`) and `SDD.md` (`49.0 -> 15.7 KB`, 100% STE, C4 L2/L3) (`0f028ab0`, `E2`, `E4`, `E6`) (`who: AI`)
+- [x] Slice `w2-readme-workflow`: shrank `README.md` (`43.8 -> 15.8 KB`, `TestHarnessMap` green) and `Workflow.md` (`34.9 -> 14.6 KB`, 100% STE) (`cf8a900a`, `E1`, `E2`, `E5`, `E9`) (`who: AI`)
+- [x] Slice `w2-tdd-features`: shrank `TDD.md` (`116.4 -> 27.4 KB`) and all 7 `features/*.md` (`102.8 -> 59.4 KB`) to `0` `fyr check` findings & `0` STE notes across `13/13` Track 1 docs (`9b50c045`, `fc99b50e`, `E1`, `E2`, `E4`, `E7`) (`who: AI`)
+- [ ] Checkpoint (Phase 2): add Track 1 STE ratchet test (`arch_fitness_test.go`, keeping consumer advisory contract) -> `/fyr-review --docs` over `706485c0..HEAD` -> `fyr verify` -> tick Phase 2 + update `TODO.md` (`who: AI`)
 
 ## Next
 
