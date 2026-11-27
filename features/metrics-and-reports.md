@@ -1,100 +1,69 @@
 # Telemetry, Trajectories & Economist Usage Reports
 
-`fyr metrics` and `fyr report` capture the structural shape of every Antigravity session inside `~/.config/fyr/metrics.db` (`internal/metrics`) so you can track token economics, context compaction knees, second-brain leverage, subagent anomalies, and behavioural eval pass rates—without ever storing your prompts, code, or file paths.
+`fyr metrics` and `fyr report` capture the structural shape of Antigravity sessions in `~/.config/fyr/metrics.db` (`internal/metrics`). They track token economics, context knees, second-brain leverage, subagent anomalies, and eval pass rates. Telemetry never stores prompts, source code, or raw file paths.
 
 ## Privacy-first telemetry pipeline
 
-`fyr metrics ingest` reads Antigravity conversation databases, per-project `.agents/scratch/search.db` tables (`vet_history` and `read_ledger_stats`), wave status files (`~/.config/fyr/work/*/status.json`), and `fyr eval` trial outcomes into `~/.config/fyr/metrics.db`. Every shell verb is normalized and every file path inside `steps` is converted into a salted hash prefixed by `"r:"` (ranged read) or `"f:"` (full read) so `fyr uninstall` can leave `metrics.db` safely behind as long-term history (`R4`).
+`fyr metrics ingest` reads Antigravity transcripts, `.agents/scratch/search.db` (`vet_history`, `read_ledger_stats`), wave status files, and `fyr eval` outcomes into `~/.config/fyr/metrics.db`. Ingest normalizes every shell verb and replaces file paths inside `steps` with salted hashes (`"r:"` ranged, `"f:"` full). Because `metrics.db` contains zero prose, `fyr uninstall` leaves it safely behind as long-term history (`PRD.md` R4).
 
 ```mermaid
 flowchart LR
-    agyConv["Antigravity transcripts\n(tokens, tool calls, timestamps)"] --> ingestCmd["fyr metrics ingest"]
-    searchDB[".agents/scratch/search.db\n(vet history, read ledger stats)"] --> ingestCmd
-    waveStatus["Work waves & eval trials"] --> ingestCmd
-    ingestCmd --> metricsDB[("~/.config/fyr/metrics.db\n(shape-only history, zero prose)")]
+    agyConv["Antigravity transcripts\n(tokens, tools, timestamps)"] --> ingestCmd["fyr metrics ingest"]
+    searchDB[".agents/scratch/search.db\n(vet history, read ledger)"] --> ingestCmd
+    waveStatus["Work waves and eval trials"] --> ingestCmd
+    ingestCmd --> metricsDB[("~/.config/fyr/metrics.db\n(shape-only, zero prose)")]
     metricsDB --> showCli["fyr metrics show / trajectory / evals"]
-    metricsDB --> reportCmd["fyr report (HTML, --md, --json, or --web)"]
-    metricsDB --> dreamDigest["DreamTrajectoryDigest\n(shape-only feed for dreaming)"]
+    metricsDB --> reportCmd["fyr report (HTML, --md, --json, --web)"]
+    metricsDB --> dreamDigest["DreamTrajectoryDigest\n(shape-only dream input)"]
 ```
 
-Because `metrics.db` preserves session shapes even after old Antigravity conversation transcripts expire, schema migrations (`1` through `14`, adding `session_ratings` in v8, `judge_verdicts` in v9, `background_runs` in v10, `repo_id` / `judge_verdicts.{worker_model,worker_session_id,repo_id}` / extended `turn_vets` in v11, `daily_digests` in v12, `trials.policy_model` plus `"info"` `model_shift_audit` signals in v13, and `orchestration_runs`, `background_runs.halt_reason`, `turn_vets.suggested_skills`, and `trials.{skill,arm,tokens,defects}` in schema 14, `ADR-533`, `ADR-534`) always move forward without rebuilding or truncating historical rows. Ingest (`internal/metrics/agy.go`, `agy_conversation.go`, `agy_tools.go`, `events_join.go`) maps Antigravity `step_type = 23` (`agyCheckpoint`) to `"compaction"` steps, joins eval sandbox `Options.BrainHome` trail records, emits `KNEE_EXCEEDED` events against calibrated per-model knees, anchors `skillPath` strictly to installed skill roots (`/.gemini/config/skills/`, `/.agents/skills/`, `/builtin/skills/`) so repo-source edits are ignored, and merges read-only `dev/fyr-eval` trials via `OpenDevEvalFallbackRO` (`internal/metrics/report_evals.go`). Telemetry tracks concrete catalog model IDs with `14`-day decayed role-partitioned `ModelEvidence`, counts standalone `sv.n == 0` `grep`/`rg` invocations for `Search : grep` (excluding downstream pipe filters), separates `ToolErrors` from `HookDenials` (`agy_denials.go`, `show_types.go`), applies the `120`-call budget cap to `self`/`builder`/`builder-*`/`coder`/`coder-*` workers vs `40` for audit subagents (`subagentCapForRole` in `show_health.go`), and transfers sanitized v14 archives (including `orchestration_runs`) offline via `fyr state export|import` (`internal/state`). `Summary.Numbers()` (`internal/metrics/numbers.go`), `WindowDeltas` (`internal/metrics/deltas.go`, populating `H.structural.*` deltas from prior `daily_digests.ast_json` via `priorStructuralSnapshot`), and rate-normalized `DiagnosticReport` (`internal/metrics/diagnostics.go`, `diagnostics_health.go`) compute period-over-period comparisons and high/medium/low diagnostic signals with 2-day persistence hysteresis (`applyPersistenceHysteresis` downgrading unconfirmed 1st-window non-static `"high"` signals to `"medium"`) while filtering sandbox and scratch roots via `isSandboxProjectRoot` unless `--include-sandboxes` is passed; `WriteDailyReport` also writes a once-per-day `0600` `O_EXCL` summary at `<home>/.config/fyr/reports/YYYY-MM-DD-daily-metrics.html`, `fyr metrics record-run --json-in` persists shape-only `orchestration_runs` rows from relay and workflow scripts, and `fyr metrics export <file>` backs up `metrics.db` (excluding the `cmd_hash` salt) as `0600` JSONL.
+Five mechanics keep metrics accurate, private, and portable across hosts:
+
+- **Forward-only history:** Schema migrations preserve older rows even after Antigravity transcripts expire. `fyr metrics export` writes `0600` JSONL without the `cmd_hash` salt, and `fyr state` transfers sanitized archives offline (`internal/state`).
+- **Transcript mapping and joins:** Ingest (`internal/metrics/agy.go`, `internal/metrics/events_join.go`) maps `step_type = 23` checkpoints to `"compaction"` steps and joins eval `BrainHome` records. It anchors `skillPath` to installed skill roots and merges read-only `dev/fyr-eval` trials (`OpenDevEvalFallbackRO`).
+- **Normalized reliability signals:** Telemetry tracks concrete model IDs with 14-day decayed role-partitioned `ModelEvidence`. It counts standalone `grep`/`rg` calls (`sv.n == 0`) for `Search : grep` and separates `ToolErrors` from `HookDenials`. Worker subagents use a `120`-call budget cap vs `40` for audit roles (`subagentCapForRole`).
+- **Deltas and hysteresis:** `Summary.Numbers()`, `WindowDeltas`, and `DiagnosticReport` (`internal/metrics/diagnostics.go`) compute period comparisons and `high`/`medium`/`low` signals. Two-day hysteresis (`applyPersistenceHysteresis`) downgrades unconfirmed first-window `"high"` signals to `"medium"`. Sandbox roots stay excluded (`isSandboxProjectRoot`) unless `--include-sandboxes` is passed.
+- **Orchestration and daily digests:** `fyr metrics record-run --json-in` logs shape-only `orchestration_runs` rows from workflow scripts. `WriteDailyReport` writes one `0600` `O_EXCL` daily summary at `<home>/.config/fyr/reports/YYYY-MM-DD-daily-metrics.html`.
 
 ## Wall-time decomposition and trajectory anomaly detection
 
-`fyr metrics show` breaks session duration into four exact buckets (`model`, `tool`, `wait`, and `idle` minutes) alongside `search : grep` ratios and ranged-read percentages. To inspect individual conversations and subagent trees, `fyr metrics trajectory` (`internal/metrics/trajectory.go`) reconstructs parent-to-child lineage and flags three performance anomalies automatically:
+`fyr metrics show` splits session wall time into four buckets (`model`, `tool`, `wait`, `idle`) alongside `search : grep` and ranged-read rates. `fyr metrics trajectory` (`internal/metrics/trajectory.go`) rebuilds parent-to-child subagent trees and detects three performance anomalies automatically.
 
 ```mermaid
 flowchart TD
     rootSess["Main session (root parent)"] --> childSub["Child subagents (linked to parent)"]
-    rootSess --> stepScan["Scan step sequence & tokens"]
+    rootSess --> stepScan["Scan step sequence and tokens"]
     childSub --> stepScan
     stepScan --> kneeCheck{"Peak context >= calibrated\n40-60% model knee?"}
     kneeCheck -- "Yes" --> anomKnee["Flag KNEE_EXCEEDED"]
-    stepScan --> readCheck{"Same file hash read twice\nwithout write/compaction?"}
+    stepScan --> readCheck{"Same file hash read twice\nwithout write or compaction?"}
     readCheck -- "Yes" --> anomRead["Flag REDUNDANT_READ"]
     stepScan --> bashCheck{"Consecutive identical\nBash command hash?"}
     bashCheck -- "Yes" --> anomRetry["Flag RETRY_LOOP"]
 ```
 
-When `fyr dream` or `fyr auto` runs consolidation, `Store.DreamTrajectoryDigest` (`internal/metrics/dream_digest.go`) aggregates session counts, median peak tokens, anomaly counts (`DreamTrajectoryDigest.KneeExceeded` counts distinct label-free sessions reaching their calibrated `[40%..60%]` effective context knee via `models.ContextKneeWithOverrides` / `models.CalibratedContextKnee`, capped at `180,000` / `300,000` empirical degradation onset, or recording `LOWER(events.kind) = 'knee_exceeded'`), and model pass rates into a strictly shape-only digest so the dreamer learns from behavioral efficiency patterns without leaking raw session text.
+During consolidation, `Store.DreamTrajectoryDigest` (`internal/metrics/dream_digest.go`) feeds session counts, median peak tokens, anomaly counts, and model pass rates into `fyr dream` and `fyr auto`. Context-knee counts use calibrated `[40%..60%]` effective windows (`models.CalibratedContextKnee`, capped at `180,000` or `300,000` tokens) plus logged `KNEE_EXCEEDED` events. The digest remains strictly shape-only and leaks no session prose.
 
 ## Scorecard, diagnostics, and usage reports (`fyr report`)
 
-`fyr report` (`cmd/fyr/verb_report.go`, `internal/metrics/report.go`, `internal/metrics/report_sections.go`) auto-ingests incrementally first unless `--no-ingest` is passed and combines `metrics.db` and `brain.db` into a self-contained Economist-styled HTML report (`~/.config/fyr/reports/<date-time>-metrics.html`, mode `0600`, zero `<script>` tags, never overwriting an existing file; omitting the `Cost per day (USD)` SVG when `hasAnyCost` is false / `sum.B.CostUSD` is nil), Markdown (`--md`), structured JSON (`--json` via `RenderJSONReport` / `WriteJSONReport`), or an authenticated localhost preview (`--web [--listen HOST:PORT]` via `serveReportWeb` in `cmd/fyr/verb_report.go` using `webpreview.Serve` in `internal/webpreview` serving `/`, `/report.html`, `/report.md`, and `/report.json`). Background runs also call `WriteDailyReport` to emit `~/.config/fyr/reports/YYYY-MM-DD-daily-metrics.html` (`0600`, `O_EXCL`), returning quietly when today's file already exists. Inside a git checkout, `fyr report` defaults to `--project` for that checkout; outside a checkout, it defaults to `--global`.
+`fyr report` (`cmd/fyr/verb_report.go`, `internal/metrics/report.go`) runs incremental ingest first unless `--no-ingest` is set. It combines `metrics.db` and `brain.db` into Economist HTML (`~/.config/fyr/reports/<date-time>-metrics.html`, `0600`, zero `<script>` tags), Markdown (`--md`), JSON (`--json`), or localhost `--web` preview (`internal/webpreview`). Inside a git checkout it defaults to `--project`; outside a checkout it defaults to `--global`.
 
 | Section | What It Measures |
 |---|---|
-| **0. Scorecard** (`report_scorecard.go`) | 4 KPI categories (`1. Volume & Context`, `2. Second-Brain`, `3. Reliability`, `4. Window Deltas` via `WindowDeltas`) plus `Top-5 Diagnostic Signals` (`DiagnosticReport`: `Severity`, `SignalID`, `Metric`, `Current -> Previous`, `Delta`, `Summary`) |
-| **1. Executive Pulse** | Sessions, subagents, turns, tool calls, active vs wall min, `model`/`tool`/`wait`/`idle` split, token breakdown, peak context, sessions `>=` calibrated knee, compactions (`step_type = 23` + `search.db`) |
-| **2. Second-Brain Leverage** | `Search : grep` ratio (`sv.n == 0` standalone greps), ranged read %, redundant reads, bash read bypasses, turn vets, `PreInvocation` p50/p95 latency & timeout rate, mean vet score, `VET_FIRST` / bypassed turns, pivots seeded/used, skills loaded, read-ledger & `[CLAMPED]` saves |
-| **3. Quality & Learning Loop** | DoD closure rate, verifier `PASS`/`FAIL`, review findings (`high`/`medium`/`low`), escaped bugs, `FEEDBACK-*` corrections, `session_ratings` (rated sessions, mean outcome & token efficiency), tool error rate, separated hook denials, `pass^k` eval summary, SIM counts |
-| **4. Autonomy & Model Routing** | Work waves/workers, `orchestration_runs` (`units`, `ok`/`fail`, `defect_rounds`, by kind), `v9 orchestration`, `Deterministic gates`, `Model-family share`, `Guarded subagent downgrades`, `Subagents over budget`, `Live quota pools`, `fyr auto` open asks / verdict, worker/`Base-Check`/cross-family judge verdicts & fallbacks, top subagent tool calls |
-| **Background Autonomy** (`report_autonomy.go`) | `Dream runs (pass / fail)`, `Dream mean duration / outputs`, `Auto runs (pass / fail)`, `Auto workers run / applied commits`, `Session ratings (outcome / token efficiency)`, `Kept work/auto-* branches`, `PROPOSAL-* records (queued / closed)` |
-| **Trigger coverage** (`trigger_coverage.go`) | KPI coverage vs targets (`>= 80%` worker phases, `= 0` build-time questions, `>= 1.0` `Search : grep`, `> 0` read-ledger blocks, `fyr auto` runs/wk, `>= 80%` DoD closed) |
-| **5. Per-Project / Project Breakdown** | Cross-project table in `--global` mode (filtering sandbox/probe roots via `isSandboxProjectRoot` unless `--include-sandboxes` or `--project` is passed; includes `Auto findings` and `Handoff lag (d)`), or top skills and subagents in `--project` mode |
-| **Conditional Breakdowns** (`report_sections.go`, `show_waves.go`) | `Agent Roles` (per-role sessions, ratios, latency), `SIM` (active/resolved problems, attempts, workarounds), `Skill & Rule Telemetry` (per-skill invocations, outcomes, defects), and `Tag Cohort` (`--since-tag TAG` pre/post window) |
-
-<details>
-<summary>Metrics and report CLI subcommands and flags reference</summary>
-
-### `fyr metrics` subcommands
-
-| Subcommand | Flags | Purpose |
-|---|---|---|
-| `fyr metrics ingest` | `--source DIR`, `--label KEY=VALUE`, `--outcome pass\|fail\|error` | Ingest Antigravity sessions (`step_type = 23` compactions, calibrated knees, anchored `skillPath`), `search.db` stats (`suggested_skills`), and wave status into `metrics.db` |
-| `fyr metrics show` | `--since YYYY-MM-DD`, `--since-tag TAG`, `--until YYYY-MM-DD`, `--project DIR`, `--include-sandboxes`, `--label KEY=VALUE`, `--all-labels`, `--context-target N`, `--json` | Print aggregated efficiency, time split, adherence, and reliability summary |
-| `fyr metrics report` | `--since`, `--since-tag`, `--until`, `--project [DIR]`, `--global`, `--include-sandboxes`, `--daily-digest`, `--no-ingest`, `--md`, `--json`, `--web`, `--listen HOST:PORT`, `--label`, `--all-labels`, `--context-target N`, `--out FILE` | Auto-ingest (unless `--no-ingest`) and render scorecard, diagnostics, and usage reports in HTML, Markdown, JSON, or localhost `--web` preview |
-| `fyr metrics evals` | `--since`, `--until`, `--harness KEY`, `--json` | Summarize `fyr eval` trial histories (merging read-only `dev/fyr-eval` fallback) with Wilson 95% intervals and efficiency means |
-| `fyr metrics trajectory` | `[<session-id>]`, `--project DIR`, `--limit N`, `--json` | Print turn token curves, subagent trees, and `KNEE_EXCEEDED`/`REDUNDANT_READ`/`RETRY_LOOP` flags |
-| `fyr metrics record-run` | `--json-in`, `--json` | Persist one shape-only `OrchestrationRunRow` JSON payload from stdin into `metrics.db` schema 14 `orchestration_runs` |
-| `fyr metrics export <file>` | (global flags only) | Export `metrics.db` rows (excluding `cmd_hash` salt) as `0600` JSONL |
-
-### `fyr report` flags
-
-| Flag | Default | Purpose |
-|---|---|---|
-| `--project [DIR]` | Current checkout when inside git | Scope report to one project checkout |
-| `--global` | Default outside a git checkout | Aggregate metrics across all projects |
-| `--include-sandboxes` | `false` | Include sandbox/probe project roots filtered out by `isSandboxProjectRoot` |
-| `--daily-digest` | `false` | Save and print the shape-only daily health digest (combine with `--json` for JSON) |
-| `--no-ingest` | `false` | Skip the automatic incremental `fyr metrics ingest` step before rendering |
-| `--md` | `false` | Output Markdown instead of Economist HTML (mutually exclusive with `--json` and `--web`) |
-| `--json` | `false` | Output structured JSON instead of HTML (mutually exclusive with `--md` and `--web`) |
-| `--web` | `false` | Serve HTML, Markdown, and JSON over authenticated localhost HTTP (mutually exclusive with `--out`, `--md`, and `--json`) |
-| `--listen HOST:PORT` | `127.0.0.1:0` | Listen address for `--web` (requires `--web`) |
-| `--out FILE` | `~/.config/fyr/reports/<date-time>-metrics.html` (HTML) / stdout (`--md`, `--json`) | Write report to `FILE` (`0600`, refuses overwrite; mutually exclusive with `--web`) |
-| `--since YYYY-MM-DD` | 30 days ago | Window start date (inclusive) |
-| `--since-tag TAG` | `""` | Pre/post cohort comparison around git tag `TAG` (mutually exclusive with `--since`) |
-| `--until YYYY-MM-DD` | Now | Window end date (exclusive) |
-| `--label KEY=VALUE` | `""` | Include only labelled (sandbox/eval) sessions matching `KEY=VALUE` |
-| `--all-labels` | `false` | Include all labelled sessions alongside normal sessions |
-| `--context-target N` | `300000` | Peak context threshold reported in `Executive Pulse` |
-
-</details>
+| **0. Scorecard** (`internal/metrics/report_scorecard.go`) | Four KPI blocks (`Volume & Context`, `Second-Brain`, `Reliability`, `Window Deltas`) plus `Top-5 Diagnostic Signals` (`DiagnosticReport`) |
+| **1. Executive Pulse** | Sessions, subagents, turns, tool calls, `model`/`tool`/`wait`/`idle` split, token breakdown, peak context, knee hits, and compactions |
+| **2. Second-Brain Leverage** | `Search : grep` ratio, ranged read %, redundant reads, bash read bypasses, `PreInvocation` p50/p95 latency, timeouts, vet scores, pivots, skills, and clamp saves |
+| **3. Quality & Learning Loop** | DoD closure rate, verifier verdicts, review findings, escaped bugs, `FEEDBACK-*` corrections, `session_ratings`, tool errors, hook denials, `pass^k` evals, and SIM counts |
+| **4. Autonomy & Model Routing** | Work waves, `orchestration_runs`, deterministic gates, model-family share, guarded downgrades, over-budget subagents, quota pools, `fyr auto` asks, and judge verdicts |
+| **Background Autonomy** (`internal/metrics/report_autonomy.go`) | Dream runs, duration and outputs, `fyr auto` runs, applied commits, session ratings, kept `work/auto-*` branches, and `PROPOSAL-*` counts |
+| **Trigger coverage** (`internal/metrics/trigger_coverage.go`) | Live KPI coverage vs targets (`>= 80%` worker phases, `0` build questions, `>= 1.0` `Search : grep`, read-ledger blocks, `fyr auto` cadence, `>= 80%` DoD closed) |
+| **5. Project Breakdown** | Cross-project table in `--global` mode (`Auto findings`, `Handoff lag`, excluding sandboxes by default), or top skills and subagents in `--project` mode |
+| **Conditional Breakdowns** (`internal/metrics/report_sections.go`) | `Agent Roles`, `SIM` (problems, attempts, workarounds), `Skill & Rule Telemetry`, and `Tag Cohort` (`--since-tag` pre/post window) |
 
 ## Next steps
 
-Generate a project report or inspect recent session token curves from the CLI:
+Generate a usage report, inspect recent token curves, or review full CLI options:
 
-- Run `fyr report --md`, `fyr report --json`, or `fyr report --web` in any project directory to see your scorecard, diagnostic signals, and trigger coverage immediately.
-- Run `fyr metrics trajectory --limit 5` to inspect token growth and check for `REDUNDANT_READ` or `KNEE_EXCEEDED` sessions.
+- See all flags in the [CLI Reference for `fyr metrics`](../docs/cli-reference.md#fyr-metrics) and [`fyr report`](../docs/cli-reference.md#fyr-report).
+- Run `fyr report --md`, `fyr report --json`, or `fyr report --web` inside any project checkout.
+- Run `fyr metrics trajectory --limit 5` to inspect token growth, `REDUNDANT_READ`, and `KNEE_EXCEEDED` flags.
