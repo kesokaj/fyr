@@ -294,3 +294,26 @@ func TestV910RunModelsExcludesSubagents(t *testing.T) {
 		t.Fatalf("RunModels(subagent-only) = (%v, %v), want empty", gotEmpty, err)
 	}
 }
+
+func TestValidateRunLowercaseErrors(t *testing.T) {
+	ok := Options{Home: "/nonexistent", Source: "/src", Label: "eval=x", Run: "s/x/1"}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("valid Options.Validate() = %v, want nil", err)
+	}
+	for name, o := range map[string]Options{
+		"no source": {Home: "/nonexistent", Run: "s/x/1"},
+		"escape":    {Home: "/nonexistent", Source: "/src", Label: "eval=x", Run: "s/x\x1b[2J/1"},
+		"long":      {Home: "/nonexistent", Source: "/src", Label: "eval=x", Run: strings.Repeat("r", trialText+1)},
+	} {
+		err := o.Validate()
+		if err == nil {
+			t.Fatalf("%s: Validate accepted invalid run", name)
+		}
+		if !strings.HasPrefix(err.Error(), "run ") {
+			t.Errorf("%s: Validate error = %q, want lowercase prefix \"run \"", name, err.Error())
+		}
+		if strings.Contains(err.Error(), "\x1b") {
+			t.Errorf("%s: Validate error leaked escape byte: %q", name, err.Error())
+		}
+	}
+}

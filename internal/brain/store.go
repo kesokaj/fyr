@@ -168,7 +168,7 @@ func openStore(home string) (*store, error) {
 	// and SQLite answers that race with SQLITE_BUSY without waiting on the
 	// busy timeout: the open is retried for as long as that timeout.
 	var s *store
-	if _, err := openDBBusyRetry(func() (*sql.DB, error) {
+	if err := openDBBusyRetry(func() (*sql.DB, error) {
 		opened, err := tryOpen(path)
 		if err != nil {
 			return nil, err
@@ -184,12 +184,12 @@ func openStore(home string) (*store, error) {
 // openWait is how long a busy open is retried.
 var openWait = 10 * time.Second
 
-func openDBBusyRetry(fn func() (*sql.DB, error)) (*sql.DB, error) {
-	db, err := search.OpenDBWithRetry(openWait, fn)
+func openDBBusyRetry(fn func() (*sql.DB, error)) error {
+	_, err := search.OpenDBWithRetry(openWait, fn)
 	if err != nil && search.IsBusy(err) {
-		return nil, refuse("the brain store is busy (another fyr holds its write lock); retry")
+		return refuse("the brain store is busy (another fyr holds its write lock); retry")
 	}
-	return db, err
+	return err
 }
 
 func tryOpen(path string) (*store, error) {
@@ -244,7 +244,7 @@ func openStoreReadOnly(home string) (*store, int, error) {
 	}
 	var s *store
 	var ver int
-	if _, err := openDBBusyRetry(func() (*sql.DB, error) {
+	if err := openDBBusyRetry(func() (*sql.DB, error) {
 		opened, v, err := tryOpenReadOnly(path)
 		if err != nil {
 			return nil, err

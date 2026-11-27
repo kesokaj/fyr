@@ -193,10 +193,6 @@ func (dc diskRootCache) resolve(dir string) (string, bool) {
 	return main, ok
 }
 
-func resolveWorktreeRoots(convs []agyConv, db *sql.DB) {
-	resolveWorktreeRootsFor(convs, db, nil)
-}
-
 func resolveWorktreeRootsFor(convs []agyConv, db *sql.DB, changed map[string]bool) {
 	byID, parents, knownReal := loadExistingSessionRoots(db)
 	dc := diskRootCache{}
@@ -325,8 +321,9 @@ func matchWorktreeToKnownRoot(wtName string, knownReal []string) string {
 	return match
 }
 
-func resolveSessionRoots(all []sess) (byID map[string]string, wtMap map[string]string, knownReal []string) {
+func resolveSessionRoots(all []sess) (byID map[string]string, wtMap map[string]string) {
 	byID, parents, wtMap := map[string]string{}, map[string]string{}, map[string]string{}
+	var knownReal []string
 	dc := diskRootCache{}
 	for _, x := range all {
 		if x.parent != "" {
@@ -346,7 +343,7 @@ func resolveSessionRoots(all []sess) (byID map[string]string, wtMap map[string]s
 		}
 	}
 	propagateSessionFallbackRoots(all, byID, parents, wtMap, knownReal)
-	return byID, wtMap, knownReal
+	return byID, wtMap
 }
 
 func propagateSessionFallbackRoots(all []sess, byID, parents, wtMap map[string]string, knownReal []string) {

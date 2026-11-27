@@ -258,9 +258,9 @@ func TestSymlinkedExportPathRefused(t *testing.T) {
 // or forge a line, while its newlines and tabs stay.
 func TestGetOutputPrintable(t *testing.T) {
 	r := Record{ID: "BUG-001", Kind: "bug", Status: "open", Date: "2026-10-25",
-		Title: "evil\x1b[31m title‮", Body: "line one\x1b]0;x\x07\n\tindented forged"}
+		Title: "evil\x1b[31m title\u202e", Body: "line one\x1b]0;x\x07\n\tindented\u2028forged"}
 	got := FormatGet(r)
-	if strings.ContainsAny(got, "\x1b\x07‮ ") {
+	if strings.ContainsAny(got, "\x1b\x07\u202e\u2028") {
 		t.Errorf("control characters survived: %q", got)
 	}
 	want := "BUG-001  bug  open  2026-10-25  evil?[31m title?\nline one?]0;x?\n\tindented?forged\n"

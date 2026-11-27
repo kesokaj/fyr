@@ -80,7 +80,7 @@ func TestSIMRetrieve(t *testing.T) {
 	idxPath := strings.Index(sl.Text, pPath.ProblemID)
 	idxFail := strings.Index(sl.Text, pFail.ProblemID)
 	idxFTS := strings.Index(sl.Text, pFTS.ProblemID)
-	if idxSig < 0 || !(idxSig < idxPath && idxPath < idxFail && idxFail < idxFTS) {
+	if idxSig < 0 || idxSig >= idxPath || idxPath >= idxFail || idxFail >= idxFTS {
 		t.Fatalf("wrong tier priority order (sig=%d path=%d fail=%d fts=%d) in:\n%s", idxSig, idxPath, idxFail, idxFTS, sl.Text)
 	}
 

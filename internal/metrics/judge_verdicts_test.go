@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestV910InferWorkerAttribution(t *testing.T) {
@@ -64,5 +65,25 @@ func TestV910InferWorkerAttribution(t *testing.T) {
 	// Must-fail: unrelated project with no sessions returns empty.
 	if mod, sid := InferWorkerAttribution(home, filepath.Join(t.TempDir(), "unknown"), "work/x"); mod != "" || sid != "" {
 		t.Errorf("unrelated project attributed: (%q, %q), want empty", mod, sid)
+	}
+}
+
+func TestClipPrintableUTF8Bounds(t *testing.T) {
+	cases := []struct {
+		in     string
+		maxLen int
+		want   string
+	}{
+		{"  αβγ  ", 4, "αβ"},
+		{"αβγ", 3, "α"},
+		{"αβγ", 0, ""},
+		{"abc", -1, ""},
+		{"ok", 10, "ok"},
+	}
+	for _, tc := range cases {
+		got := clipPrintable(tc.in, tc.maxLen)
+		if got != tc.want || !utf8.ValidString(got) {
+			t.Errorf("clipPrintable(%q, %d) = %q (valid=%v), want %q", tc.in, tc.maxLen, got, utf8.ValidString(got), tc.want)
+		}
 	}
 }

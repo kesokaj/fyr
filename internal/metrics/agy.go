@@ -181,9 +181,10 @@ func summaryProbeCols(db *sql.DB) (hasTitle, hasPreview bool) {
 		var name, colType string
 		var dflt sql.NullString
 		if rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk) == nil {
-			if name == "title" {
+			switch name {
+			case "title":
 				hasTitle = true
-			} else if name == "preview" {
+			case "preview":
 				hasPreview = true
 			}
 		}

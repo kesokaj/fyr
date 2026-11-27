@@ -137,7 +137,7 @@ func ListSIMProblems(home string, f SIMListFilter) ([]SIMProblemSummary, error) 
 	if limit == 0 {
 		limit = defaultSIMListLimit
 	}
-	st, _, err := openSIMReadOnly(home)
+	st, err := openSIMReadOnly(home)
 	if err != nil || st == nil {
 		return nil, err
 	}
@@ -216,7 +216,7 @@ func GetSIMProblem(home, id string) (SIMProblemDetail, error) {
 	if !validSIMProblemID(id) {
 		return SIMProblemDetail{}, usage("sim: invalid problem id %q (want SIM-PNNN)", id)
 	}
-	st, _, err := openSIMReadOnly(home)
+	st, err := openSIMReadOnly(home)
 	if err != nil {
 		return SIMProblemDetail{}, err
 	}
@@ -260,7 +260,7 @@ func FindSIMAttemptByProposalOrSHA(home, proposalID, commitSHA string) (*SIMAtte
 	if proposalID == "" && !simHexSHARe.MatchString(commitSHA) {
 		return nil, nil
 	}
-	st, _, err := openSIMReadOnly(home)
+	st, err := openSIMReadOnly(home)
 	if err != nil || st == nil {
 		return nil, err
 	}

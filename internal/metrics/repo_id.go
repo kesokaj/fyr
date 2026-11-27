@@ -9,12 +9,6 @@ import (
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
-// NormalizeRepoID returns a canonical portable repository identifier via
-// trail.NormalizeRepoID.
-func NormalizeRepoID(originURL, absRoot string) string {
-	return trail.NormalizeRepoID(originURL, absRoot)
-}
-
 // ResolveRepoID inspects root's git checkout via trail.ResolveRepoID without
 // leaking embedded credentials, skipping deleted Antigravity worktree paths.
 func ResolveRepoID(root string) string {

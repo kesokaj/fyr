@@ -104,7 +104,7 @@ func transitionDerivedProblemFieldStatus(ctx context.Context, c *sql.Conn, probl
 // FindSIMAttemptsForFieldSync returns non-reverted attempts eligible for Stage
 // B field outcome synchronization, tolerating missing or pre-v5 stores.
 func FindSIMAttemptsForFieldSync(home string) ([]SIMAttempt, error) {
-	st, _, err := openSIMReadOnly(home)
+	st, err := openSIMReadOnly(home)
 	if err != nil || st == nil {
 		return nil, err
 	}

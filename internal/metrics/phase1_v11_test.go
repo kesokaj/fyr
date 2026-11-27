@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 func TestMigrationTenToEleven(t *testing.T) {
@@ -87,24 +88,24 @@ func TestNormalizeAndResolveRepoID(t *testing.T) {
 		"http://github.com/MyOrg/MyRepo/",
 	}
 	for _, u := range urls {
-		got := NormalizeRepoID(u, "/fallback/ignored")
+		got := trail.NormalizeRepoID(u, "/fallback/ignored")
 		if got != want {
-			t.Errorf("NormalizeRepoID(%q) = %q, want %q", u, got, want)
+			t.Errorf("trail.NormalizeRepoID(%q) = %q, want %q", u, got, want)
 		}
 		if strings.Contains(got, secretTok) || strings.Contains(got, "oauth2") {
-			t.Fatalf("NormalizeRepoID leaked userinfo in %q", got)
+			t.Fatalf("trail.NormalizeRepoID leaked userinfo in %q", got)
 		}
 	}
 
 	absRoot := "/work/local-only/project/"
 	cleanSum := sha256.Sum256([]byte("/work/local-only/project"))
 	wantPathID := "path:" + hex.EncodeToString(cleanSum[:])[:16]
-	if got := NormalizeRepoID("", absRoot); got != wantPathID {
-		t.Errorf("NormalizeRepoID empty origin = %q, want %q", got, wantPathID)
+	if got := trail.NormalizeRepoID("", absRoot); got != wantPathID {
+		t.Errorf("trail.NormalizeRepoID empty origin = %q, want %q", got, wantPathID)
 	}
 	// Malformed URL with credentials and no repo path must fall back to absRoot without leaking secret.
 	badCredURL := schemeHTTPS + "user" + ":" + secretTok + "@" + "github.com/"
-	if got := NormalizeRepoID(badCredURL, absRoot); got != wantPathID || strings.Contains(got, secretTok) {
+	if got := trail.NormalizeRepoID(badCredURL, absRoot); got != wantPathID || strings.Contains(got, secretTok) {
 		t.Errorf("malformed URL fallback = %q, want %q", got, wantPathID)
 	}
 	if got := ResolveRepoID(""); got != "" {

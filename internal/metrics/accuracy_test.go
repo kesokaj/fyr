@@ -51,7 +51,8 @@ func TestRootCanonicalizerNeverCollapsesHome(t *testing.T) {
 	}
 	delete(vets, "/home/alice/code")
 
-	canon := buildRootCanonicalizer(all, vets)
+	byID, wtMap := resolveSessionRoots(all)
+	canon := buildRootCanonicalizerWithRoots(all, vets, byID, wtMap)
 	cases := []struct {
 		in, want string
 	}{

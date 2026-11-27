@@ -59,7 +59,7 @@ func appendStructuralRegressionSignal(out []DiagnosticSignal, sum Summary, pfx s
 		float64(st.LargeFilesOver350)/float64(st.TotalCodeFiles) >= largeFileSpikeRatio
 	activeRisks := countTrue(cycleRisk, couplingRisk, largeRisk)
 	worsened := structuralDeltaCount(sum)
-	if activeRisks < 2 && !(worsened > 0 && (cycleRisk || couplingRisk || largeRisk)) {
+	if activeRisks < 2 && (worsened <= 0 || (!cycleRisk && !couplingRisk && !largeRisk)) {
 		return out
 	}
 	score := max(activeRisks, worsened)

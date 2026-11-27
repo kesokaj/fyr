@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // encodeWaveStamp prefixes a wave stamp with a length-framed label so labelled
@@ -79,7 +80,7 @@ func scopedKey(prefix, val string) string {
 	}
 	sum := sha256.Sum256([]byte(prefix + "\x00" + val))
 	if len(prefix) > 40 {
-		prefix = truncateUTF8(prefix, 40)
+		prefix = trail.TruncateUTF8(prefix, 40)
 	}
 	return fmt.Sprintf("%s:%x", prefix, sum[:16])
 }

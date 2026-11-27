@@ -60,7 +60,7 @@ func TestPassPowK(t *testing.T) {
 			t.Errorf("PassPowK(%d, %d, %d) = %.4f, %v; want %.4f, %v", c.n, c.c, c.k, got, ok, c.want, c.ok)
 		}
 	}
-	if plug := math.Pow(3.0/4, 2); near(plug, 0.5) {
+	if plug := (3.0 / 4) * (3.0 / 4); near(plug, 0.5) {
 		t.Fatal("the plug-in form equals the estimator on the pinned case: the pin proves nothing")
 	}
 }

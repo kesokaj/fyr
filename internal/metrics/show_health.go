@@ -65,9 +65,10 @@ func countSessionStepHealth(h *HealthSignals, x sess, steps []stp, seen map[stri
 			}
 			seen[key] = true
 		}
-		if st.kind == "compaction" {
+		switch st.kind {
+		case "compaction":
 			h.StepCompactions++
-		} else if st.kind == "tool" {
+		case "tool":
 			classifyToolHealth(h, st)
 		}
 	}

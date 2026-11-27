@@ -77,9 +77,9 @@ func (o Options) validateRun() error {
 	case o.Run == "":
 		return nil
 	case o.Source == "":
-		return fmt.Errorf("Run is for a --source run")
+		return fmt.Errorf("run is for a --source run")
 	case printable(o.Run) != o.Run || len(o.Run) > trialText:
-		return fmt.Errorf("Run %q: not printable or over %d bytes", printable(o.Run), trialText)
+		return fmt.Errorf("run %q: not printable or over %d bytes", printable(o.Run), trialText)
 	}
 	return nil
 }

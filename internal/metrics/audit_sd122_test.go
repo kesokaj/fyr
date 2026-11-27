@@ -40,7 +40,8 @@ func TestSD122ToSD129IngestAndSyncFixes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readLedgerSavings: %v", err)
 	}
-	vets, err := readVetHistoryRows(db, "/proj", ledger)
+	vetStore := openT(t, filepath.Join(t.TempDir(), "vet-metrics.db"))
+	vets, err := vetStore.readVetHistoryRows(db, "/proj", ResolveRepoID("/proj"), ledger)
 	if err != nil || len(vets) != 2 {
 		t.Fatalf("readVetHistoryRows len=%d err=%v", len(vets), err)
 	}
@@ -54,7 +55,7 @@ func TestSD122ToSD129IngestAndSyncFixes(t *testing.T) {
 		{id: "mid", parent: "root", root: "/home/u/.gemini/antigravity-cli/worktrees/root/w2"},
 		{id: "root", root: "/tmp/myrepo"},
 	}
-	resolveWorktreeRoots(convs, nil)
+	resolveWorktreeRootsFor(convs, nil, nil)
 	if convs[0].root != "/tmp/myrepo" || convs[1].root != "/tmp/myrepo" {
 		t.Fatalf("worktree propagation = %+v", convs)
 	}

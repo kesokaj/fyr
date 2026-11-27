@@ -12,7 +12,7 @@ import (
 // migrating a pre-v5 store. When since is non-zero, only rows updated/created
 // at or after since (plus parent problems referenced by them) are returned.
 func ExportStateSIM(home string, since time.Time) (SIMStateExport, error) {
-	st, _, err := openSIMReadOnly(home)
+	st, err := openSIMReadOnly(home)
 	if err != nil || st == nil {
 		return SIMStateExport{}, err
 	}
@@ -172,7 +172,7 @@ func importSIMStateDryRun(home string, exp SIMStateExport, total int) (StateImpo
 	probs := map[string]SIMProblem{}
 	atts := map[simAttemptNatKey]SIMAttempt{}
 	aliases := map[string]string{}
-	st, _, err := openSIMReadOnly(home)
+	st, err := openSIMReadOnly(home)
 	if err != nil {
 		return StateImportStats{}, err
 	}

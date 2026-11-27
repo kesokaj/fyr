@@ -9,19 +9,19 @@ import (
 	"strings"
 )
 
-func openSIMReadOnly(home string) (*store, int, error) {
+func openSIMReadOnly(home string) (*store, error) {
 	st, ver, err := openStoreReadOnly(home)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, 0, nil
+			return nil, nil
 		}
-		return nil, 0, err
+		return nil, err
 	}
 	if ver < simSchemaVersion {
 		_ = st.close()
-		return nil, ver, nil
+		return nil, nil
 	}
-	return st, ver, nil
+	return st, nil
 }
 
 // RecordSIMAttempt records one attempt inside BEGIN IMMEDIATE, opening or

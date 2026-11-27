@@ -26,12 +26,6 @@ var hookGuardMarkers = []string{
 	"[KICKOFF_GUARD]",
 }
 
-// isHookDenial reports whether a tool step represents a pre-tool hook denial
-// rather than an execution failure.
-func isHookDenial(status int, f fields, meta, errDetails []byte) bool {
-	return classifyHookDenial(status, f, meta, errDetails) != ""
-}
-
 // classifyHookDenial classifies a tool step's pre-tool hook denial into
 // "clamped", "ledger", "guard", or "" when not denied.
 func classifyHookDenial(status int, f fields, meta, errDetails []byte) string {

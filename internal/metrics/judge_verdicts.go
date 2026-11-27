@@ -5,7 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // JudgeVerdictRow records one cross-family gate or judge verdict in metrics.db
@@ -88,18 +89,7 @@ func normalizeJudgeVerdictRow(r JudgeVerdictRow) (JudgeVerdictRow, error) {
 }
 
 func clipPrintable(s string, maxLen int) string {
-	return truncateUTF8(printable(strings.TrimSpace(s)), maxLen)
-}
-
-func truncateUTF8(s string, maxLen int) string {
-	for len(s) > maxLen {
-		_, sz := utf8.DecodeLastRuneInString(s)
-		if sz <= 0 {
-			return s[:maxLen]
-		}
-		s = s[:len(s)-sz]
-	}
-	return s
+	return trail.TruncateUTF8(printable(strings.TrimSpace(s)), maxLen)
 }
 
 // JudgeVerdicts reads stored judge verdicts from s matching optional project

@@ -7,17 +7,17 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // RetrieveSIMSlice runs read-only 4-tier priority retrieval over the global
 // SIM ledger, returning a bounded, redacted text slice for optimizer prompts.
 // Missing or pre-v5 stores return an empty SIMSlice and nil error.
 func RetrieveSIMSlice(home string, q SIMQuery) (SIMSlice, error) {
-	st, _, err := openSIMReadOnly(home)
+	st, err := openSIMReadOnly(home)
 	if err != nil || st == nil {
 		return SIMSlice{}, err
 	}
@@ -224,7 +224,7 @@ func appendSIMProblemLines(out *strings.Builder, cleanHome string, p SIMProblem,
 	header := redactSIMLine(formatSIMProblemHeader(p), cleanHome) + "\n"
 	if out.Len()+len(header) > maxBytes {
 		if out.Len() == 0 {
-			out.WriteString(truncateUTF8(header, maxBytes))
+			out.WriteString(trail.TruncateUTF8(header, maxBytes))
 			sl.ProblemCount = 1
 		}
 		return false
@@ -335,15 +335,4 @@ func redactSIMLine(line, cleanHome string) string {
 		}
 	}
 	return redact.Redact(line)
-}
-
-func truncateUTF8(s string, maxBytes int) string {
-	if len(s) <= maxBytes {
-		return s
-	}
-	n := maxBytes
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n]
 }

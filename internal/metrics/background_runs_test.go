@@ -68,3 +68,25 @@ func TestBackgroundRunsHaltReasonPersistenceAndScrub(t *testing.T) {
 		t.Errorf("non-empty HaltReason missing from JSON: %s", haltJSON)
 	}
 }
+
+func TestIsValidShapeOutcome(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"pass", true},
+		{"halted_ok-1", true},
+		{"a0_-z9", true},
+		{strings.Repeat("a", 32), true},
+		{"", false},
+		{"Pass", false},
+		{"bad/char", false},
+		{"bad space", false},
+		{strings.Repeat("a", 33), false},
+	}
+	for _, tc := range cases {
+		if got := isValidShapeOutcome(tc.in); got != tc.want {
+			t.Errorf("isValidShapeOutcome(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}

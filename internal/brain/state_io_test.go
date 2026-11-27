@@ -89,6 +89,26 @@ func TestMergeMemoryBodyCompactionAndBounds(t *testing.T) {
 	}
 }
 
+func TestTrimTruncatedUTF8(t *testing.T) {
+	cases := []struct {
+		in       string
+		maxBytes int
+		want     string
+	}{
+		{"αβ  γδ", 5, "αβ"},
+		{"αβγ", 3, "α"},
+		{"short  ", 10, "short  "},
+		{"αβγ", 0, ""},
+		{"abc", -1, ""},
+	}
+	for _, tc := range cases {
+		got := trimTruncatedUTF8(tc.in, tc.maxBytes)
+		if got != tc.want || !utf8.ValidString(got) {
+			t.Errorf("trimTruncatedUTF8(%q, %d) = %q (valid=%v), want %q", tc.in, tc.maxBytes, got, utf8.ValidString(got), tc.want)
+		}
+	}
+}
+
 func TestStateExportAndImportEndToEnd(t *testing.T) {
 	// Source machine A: two repos + global records.
 	homeA := t.TempDir()
@@ -96,7 +116,6 @@ func TestStateExportAndImportEndToEnd(t *testing.T) {
 	git(t, dirA1, "remote", "add", "origin", "git@github.com:org/alpha.git")
 	git(t, dirA2, "remote", "add", "origin", "https://github.com/org/beta.git")
 	const repoAlpha = "git:github.com/org/alpha"
-	const repoBeta = "git:github.com/org/beta"
 
 	tOld := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
 	tMid := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)

@@ -3,7 +3,8 @@ package brain
 import (
 	"regexp"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
@@ -111,7 +112,7 @@ func dedupAndCapPriors(primaryMain string, candidates []priorEntry) []priorEntry
 	seen := map[string]bool{strings.TrimSpace(primaryMain): true}
 	var dedup []priorEntry
 	for _, p := range candidates {
-		t := truncateUTF8Bytes(strings.TrimSpace(p.text), maxSinglePriorBytes)
+		t := trimTruncatedUTF8(strings.TrimSpace(p.text), maxSinglePriorBytes)
 		if t == "" || seen[t] {
 			continue
 		}
@@ -166,12 +167,12 @@ func formatBoundedOperatorMemoryBody(head string, priors []priorEntry) string {
 	if rem <= len("\n\n---\nPrior (x):\n") {
 		return head
 	}
-	return head + truncateUTF8Bytes(tail, rem)
+	return head + trimTruncatedUTF8(tail, rem)
 }
 
 func formatBoundedMemoryBody(head string, priors []priorEntry) string {
 	if len(priors) == 0 {
-		return truncateUTF8Bytes(head, maxMergedBodyBytes)
+		return trimTruncatedUTF8(head, maxMergedBodyBytes)
 	}
 	tail := formatPriorTail(priors)
 	if len(head)+len(tail) <= maxMergedBodyBytes {
@@ -179,25 +180,18 @@ func formatBoundedMemoryBody(head string, priors []priorEntry) string {
 	}
 	const minTailBudget = 320
 	if len(head) > maxMergedBodyBytes-minTailBudget {
-		head = truncateUTF8Bytes(head, maxMergedBodyBytes-minTailBudget)
+		head = trimTruncatedUTF8(head, maxMergedBodyBytes-minTailBudget)
 	}
 	rem := maxMergedBodyBytes - len(head)
 	if rem <= len("\n\n---\nPrior (x):\n") {
-		return truncateUTF8Bytes(head, maxMergedBodyBytes)
+		return trimTruncatedUTF8(head, maxMergedBodyBytes)
 	}
-	return head + truncateUTF8Bytes(tail, rem)
+	return head + trimTruncatedUTF8(tail, rem)
 }
 
-func truncateUTF8Bytes(s string, maxBytes int) string {
+func trimTruncatedUTF8(s string, maxBytes int) string {
 	if len(s) <= maxBytes {
 		return s
 	}
-	if maxBytes <= 0 {
-		return ""
-	}
-	s = s[:maxBytes]
-	for len(s) > 0 && !utf8.ValidString(s) {
-		s = s[:len(s)-1]
-	}
-	return strings.TrimRight(s, " \t\r\n")
+	return strings.TrimRight(trail.TruncateUTF8(s, maxBytes), " \t\r\n")
 }

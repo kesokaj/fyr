@@ -55,11 +55,6 @@ func buildVetHistoryQuery(cols map[string]bool) string {
 	)
 }
 
-func readVetHistoryRows(db *sql.DB, root string, ledger map[turnKey]int) ([]turnVetRow, error) {
-	var s *Store
-	return s.readVetHistoryRows(db, root, ResolveRepoID(root), ledger)
-}
-
 func (s *Store) readVetHistoryRows(db *sql.DB, root, repoID string, ledger map[turnKey]int) ([]turnVetRow, error) {
 	cols, err := vetHistoryColumns(db)
 	if err != nil {

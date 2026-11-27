@@ -15,7 +15,7 @@ type projAcc struct {
 }
 
 func buildProjectRowsWithOpts(all []sess, vetsByRoot map[string]*projVetAcc, stepsByID map[string][]stp, eventsByID map[string][]sessEvent, o ShowOptions, home string) []ProjectRow {
-	byID, wtMap, _ := resolveSessionRoots(all)
+	byID, wtMap := resolveSessionRoots(all)
 	canon := buildRootCanonicalizerWithRoots(all, vetsByRoot, byID, wtMap)
 	accs := map[string]*projAcc{}
 	getAcc := func(raw string) *projAcc {
@@ -69,11 +69,6 @@ func sessionProjectRoot(x sess, byID, parentRoot map[string]string) string {
 		return parentRoot[x.parent]
 	}
 	return root
-}
-
-func buildRootCanonicalizer(all []sess, vetsByRoot map[string]*projVetAcc) func(string) string {
-	byID, wtMap, _ := resolveSessionRoots(all)
-	return buildRootCanonicalizerWithRoots(all, vetsByRoot, byID, wtMap)
 }
 
 func buildRootCanonicalizerWithRoots(all []sess, vetsByRoot map[string]*projVetAcc, byID, wtMap map[string]string) func(string) string {

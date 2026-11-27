@@ -98,7 +98,7 @@ func checkProbeHypotheses(t *testing.T, home string) {
 	// H3: assistant reply step (idx=1): t1 (created) < t6 (streaming start, status 8) < t7 == t8 (completed, status 3).
 	_, st1, m1 := readProbeStep(t, home, probeMain, 1)
 	f1 := fieldMap(m1)
-	if st1 != 3 || !(f1.timeMS(1) < f1.timeMS(6) && f1.timeMS(6) < f1.timeMS(7) && f1.timeMS(7) == f1.timeMS(8)) || f1.timeMS(8)-f1.timeMS(1) != 5798 {
+	if st1 != 3 || f1.timeMS(1) >= f1.timeMS(6) || f1.timeMS(6) >= f1.timeMS(7) || f1.timeMS(7) != f1.timeMS(8) || f1.timeMS(8)-f1.timeMS(1) != 5798 {
 		t.Fatalf("H3 reply: t1=%d t6=%d t7=%d t8=%d", f1.timeMS(1), f1.timeMS(6), f1.timeMS(7), f1.timeMS(8))
 	}
 	// H4: step cancelled while waiting at the dialog (idx=6 of probeCancelled): status = 6 (agyCancelled), wait_ms = 88,928 ms.

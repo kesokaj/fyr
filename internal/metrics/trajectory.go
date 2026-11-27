@@ -11,10 +11,6 @@ import (
 	"github.com/kesokaj/fyr/internal/models"
 )
 
-// ContextKneeTokens is the fallback context token threshold above which an
-// unknown or legacy-model session is flagged KNEE_EXCEEDED (60% of 300k).
-const ContextKneeTokens = 180000
-
 // DefaultTrajectoryLimit is the default number of main sessions returned by
 // Trajectories when TrajectoryOptions.Limit is not set.
 const DefaultTrajectoryLimit = 10

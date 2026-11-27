@@ -75,16 +75,6 @@ func beforeCutoffProjectWhere(tsCol string, o ShowOptions, cutoff time.Time) (st
 
 const excludeLabeledTurnVetsSQL = ` AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id = turn_vets.conversation_id AND s.label IS NOT NULL AND s.label != '')`
 
-func (s *Store) querySecondBrain(o ShowOptions, since, now time.Time) (SecondBrain, map[string]*projVetAcc, error) {
-	home := resolveMetricsHome(o, s.path)
-	where, args := windowAndProjectWhere("created_at", o, since, now)
-	acc, err := s.querySecondBrainFiltered(where, args, o, home)
-	if err != nil {
-		return SecondBrain{}, nil, err
-	}
-	return acc.sb, acc.byRoot, nil
-}
-
 func (s *Store) querySecondBrainFiltered(where string, args []any, o ShowOptions, home string) (*secondBrainAcc, error) {
 	if o.Label == "" && !o.AllLabels {
 		where += excludeLabeledTurnVetsSQL
