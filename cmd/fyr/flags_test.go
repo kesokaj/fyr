@@ -10,11 +10,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
-	"github.com/kesokaj/fyr/internal/relay"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -257,6 +255,12 @@ func TestSearchGraphModesCLI(t *testing.T) {
 	if !strings.Contains(hookOut.String(), `"injectSteps"`) || !strings.Contains(hookOut.String(), "[Hop 0]") {
 		t.Errorf("search --hook pre-invocation output missing capsule:\n%s", hookOut.String())
 	}
+}
+
+// classifyTurnRecord is a test-only convenience wrapper over classifyTurnRecordWithFTS
+// with nil FTS IDs (removed from production verb_search_hook.go under B6).
+func classifyTurnRecord(ctx *search.TurnBrainContext, dir, prompt string, files, terms []string, r brain.Record) {
+	classifyTurnRecordWithFTS(ctx, dir, prompt, files, terms, nil, r)
 }
 
 func TestClassifyTurnRecordSkipsUnrelatedADRs(t *testing.T) {
@@ -614,8 +618,8 @@ func testV910LocalBinAgyLookup(t *testing.T) {
 	}
 }
 
-func TestReportNoIngestWritesStateAndRelayRecordWarn(t *testing.T) {
-	// 1. report --no-ingest writesState: true for --daily-digest --no-ingest; false for read-only report --no-ingest (matching TestStateDirMigrationByVerb).
+func TestReportNoIngestWritesState(t *testing.T) {
+	// report --no-ingest writesState: true for --daily-digest --no-ingest; false for read-only report --no-ingest (matching TestStateDirMigrationByVerb).
 	for _, tc := range []struct {
 		name string
 		cmd  string
@@ -641,18 +645,5 @@ func TestReportNoIngestWritesStateAndRelayRecordWarn(t *testing.T) {
 				t.Errorf("%s writesState() = %v, want %v", tc.name, got, tc.want)
 			}
 		})
-	}
-
-	// 2. recordRelayOrchestrationRun warns to stderr when RecordOrchestrationRun errors.
-	var errBuf bytes.Buffer
-	prevErr := stderr
-	stderr = &errBuf
-	defer func() { stderr = prevErr }()
-	recordRelayOrchestrationRun(t.TempDir(), t.TempDir(), relay.Report{
-		PlanID: "PLAN-bad",
-		Status: "INVALID STATUS WITH SPACES",
-	}, time.Now(), time.Second)
-	if !strings.Contains(errBuf.String(), "warning:") {
-		t.Errorf("recordRelayOrchestrationRun failed silently, stderr=%q", errBuf.String())
 	}
 }

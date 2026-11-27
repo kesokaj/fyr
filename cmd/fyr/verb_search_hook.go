@@ -102,12 +102,6 @@ func canonicalCacheDir(dir string) string {
 	return dir
 }
 
-func (tc *turnBrainCache) ftsMatches(dir, homeOverride string, terms []string) map[string]bool {
-	tc.mu.Lock()
-	defer tc.mu.Unlock()
-	return tc.ftsMatchesLockedCtx(context.Background(), dir, homeOverride, terms)
-}
-
 func (tc *turnBrainCache) ftsMatchesLockedCtx(ctx context.Context, dir, homeOverride string, terms []string) map[string]bool {
 	if ctx != nil && ctx.Err() != nil {
 		return nil
@@ -153,10 +147,6 @@ func filterFTSHitsByPrecision(hits []brain.Hit, terms []string) map[string]bool 
 		}
 	}
 	return out
-}
-
-func (tc *turnBrainCache) loadTurnData(dir, homeOverride string, terms []string) ([]brain.Record, map[string]bool) {
-	return tc.loadTurnDataCtx(context.Background(), dir, homeOverride, terms)
 }
 
 func (tc *turnBrainCache) loadTurnDataCtx(ctx context.Context, dir, homeOverride string, terms []string) ([]brain.Record, map[string]bool) {
@@ -324,10 +314,6 @@ func makeBrainTurnContextCtx(tc *turnBrainCache) func(ctx context.Context, dir, 
 
 func totalMatchedRecords(ctx *search.TurnBrainContext) int {
 	return len(ctx.Memories) + len(ctx.Bugs) + len(ctx.ADRs)
-}
-
-func classifyTurnRecord(ctx *search.TurnBrainContext, dir, prompt string, files, terms []string, r brain.Record) {
-	classifyTurnRecordWithFTS(ctx, dir, prompt, files, terms, nil, r)
 }
 
 func classifyTurnRecordWithFTS(ctx *search.TurnBrainContext, dir, prompt string, files, terms []string, ftsIDs map[string]bool, r brain.Record) {

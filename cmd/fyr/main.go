@@ -28,7 +28,6 @@
 //	fyr gate        run lease, numstat, secret and trailer checks on a diff
 //	fyr land        gate, squash-verify in worktree, ff main and delete branch
 //	fyr close       write one handoff record embedding the fresh verify stamp
-//	fyr relay       hands-off fresh-session phase runner for a plan
 //	fyr check       read-only drift check of this checkout's docs
 //	fyr git-check   read-only post-dispatch git status, log and tag check
 //	fyr watch       inspect sessions, artifacts and processes for hangs

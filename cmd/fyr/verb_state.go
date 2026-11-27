@@ -49,7 +49,7 @@ func runState(c *ctx) error {
 	if sub == "export" {
 		return runStateExport(c, rest, set)
 	}
-	return runStateImport(c, rest, set)
+	return runStateImport(c, rest)
 }
 
 func runStateExport(c *ctx, args []string, set map[string]bool) error {
@@ -93,7 +93,7 @@ func runStateExport(c *ctx, args []string, set map[string]bool) error {
 	return nil
 }
 
-func runStateImport(c *ctx, args []string, set map[string]bool) error {
+func runStateImport(c *ctx, args []string) error {
 	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
 		return usageErr(c.out, "state", "fyr state import requires <bundle.zip>")
 	}

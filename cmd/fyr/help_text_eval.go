@@ -232,23 +232,6 @@ var opsVerbPages = map[string]verbPage{
 			"2 refused, missing/idle stdin, or missing/stale stamp.",
 		},
 	},
-	"relay": {
-		synopsis: []string{
-			"usage: fyr relay --plan PLAN-ID [--max-phases N] [--judge-model ID]",
-			"                 [--dry-run] [--json]",
-		},
-		about: []string{
-			"Opt-in hands-off fresh-session phase runner for an open PLAN-* record in",
-			"brain.db. Resolves the next ready phase, checks clean git state and cached",
-			"provider quota floors (20% 5h, 15% week), builds a bounded Kickoff prompt,",
-			"and executes one isolated agy -p session per phase (up to --max-phases).",
-			"After each phase, checks HEAD progress, lease/gate rules, fyr verify, and",
-			"cross-family alignment judge, then stores an immutable handoff checkpoint.",
-			"Halts immediately on FAIL, stuck loops, PRD.md edits, new tags, or budget",
-			"breach; never pushes or tags. --dry-run previews without writing or running",
-			"agy. Exit 0 ok, 1 phase halted or failed, 2 usage error or refusal.",
-		},
-	},
 	"graph": {
 		synopsis: []string{
 			"usage: fyr graph [--out FILE] [--force] [--include-tests] [--include-docs]",

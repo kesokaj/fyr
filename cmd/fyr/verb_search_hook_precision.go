@@ -38,10 +38,6 @@ func extractTurnQueryTerms(prompt string) []string {
 	return out
 }
 
-func matchesRecordPrecision(r brain.Record, prompt string, files, terms []string) bool {
-	return matchesRecordPrecisionWithFTS(r, prompt, files, terms, nil)
-}
-
 func matchesRecordPrecisionWithFTS(r brain.Record, prompt string, files, terms []string, ftsIDs map[string]bool) bool {
 	if r.ID != "" && strings.Contains(strings.ToLower(prompt), strings.ToLower(r.ID)) {
 		return true

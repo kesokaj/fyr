@@ -231,7 +231,6 @@ func TestUsageErrSites(t *testing.T) {
 		"dream scope conflict":   {[]string{"dream", "--all", "--project", "x"}, "dream", "fyr dream: --all or --project <dir>, not both"},
 		"dream all and project":  {[]string{"dream", "--all", "--project", "x"}, "dream", "fyr dream: --all or --project <dir>, not both"},
 		"bare dream":             {[]string{"dream"}, "dream", ""},
-		"bare relay":             {[]string{"relay"}, "relay", "fyr relay requires --plan <PLAN-ID>"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, code := helpRun(t, append(tc.args, "--home", home)...)
@@ -254,16 +253,22 @@ func TestUsageErrSites(t *testing.T) {
 	}
 }
 
-// An unknown verb names itself and points at fyr help; it never prints the
-// short page.
+// An unknown verb (including retired verbs such as relay, ADR-537 D2) names
+// itself and points at fyr help; it never prints the short page.
 func TestUsageErrUnknownVerb(t *testing.T) {
-	got, code := helpRun(t, "nosuch")
-	want := "fyr: unknown command \"nosuch\"\nrun 'fyr help' for the commands\n"
-	if code != 2 || got != want {
-		t.Errorf("fyr nosuch: exit %d\n%s", code, got)
+	for _, verb := range []string{"nosuch", "relay"} {
+		got, code := helpRun(t, verb)
+		want := "fyr: unknown command \"" + verb + "\"\nrun 'fyr help' for the commands\n"
+		if code != 2 || got != want {
+			t.Errorf("fyr %s: exit %d\ngot:\n%s\nwant:\n%s", verb, code, got, want)
+		}
+		if strings.Contains(got, "Harness") {
+			t.Errorf("fyr %s printed the short page:\n%s", verb, got)
+		}
 	}
-	if strings.Contains(got, "Harness") {
-		t.Errorf("fyr nosuch printed the short page:\n%s", got)
+	// Positive case: active verb help still succeeds.
+	if got, code := helpRun(t, "help", "version"); code != 0 || !strings.Contains(got, "usage: fyr version") {
+		t.Errorf("fyr help version: exit %d\n%s", code, got)
 	}
 }
 

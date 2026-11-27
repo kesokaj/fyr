@@ -97,7 +97,6 @@ var guardedInvocations = [][]string{
 	{"models", "--refresh"},
 	{"uninstall"},
 	{"adopt", "skill"},
-	{"relay", "--plan", "PLAN-1"},
 }
 
 func TestRealHomeGuardRefusesDevBuild(t *testing.T) {
@@ -168,7 +167,7 @@ func TestRealHomeGuardRefusesReads(t *testing.T) {
 		{"status"}, {"memory", "show"}, {"metrics", "show"}, {"metrics", "report"}, {"report"},
 		{"metrics", "evals"}, {"record", "import", "--dry-run"}, {"auto", "status"},
 		{"auto", "run", "--dry-run"}, {"dream", "--dry-run"}, {"uninstall", "--dry-run"},
-		{"eval", "--list"}, {"models"}, {"resume"}, {"git-check"}, {"relay", "--plan", "PLAN-1", "--dry-run"},
+		{"eval", "--list"}, {"models"}, {"resume"}, {"git-check"},
 	} {
 		if err, out := guardFor(t, args...); !isGuardRefusal(err, out) {
 			t.Errorf("%v: err = %v, out %q; want the BUG-507 refusal", args, err, out)

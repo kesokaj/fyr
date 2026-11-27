@@ -257,8 +257,6 @@ func (c *ctx) writesState() bool {
 		// status and any --dry-run read; on, off and real run write auto.json or auto/.
 		sub := c.fs.Arg(0)
 		return !c.dryRun && (sub == "on" || sub == "off" || sub == "run")
-	case "relay":
-		return !c.dryRun
 	case "models":
 		if (c.modelsTier != "" && c.modelsPick == "") || (c.modelsExplain != "" && c.modelsPick != "") {
 			return false

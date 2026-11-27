@@ -306,7 +306,7 @@ func TestAreasPackageParity(t *testing.T) {
 	for _, m := range missingAreaRefs(text, want) {
 		t.Errorf("%s does not reference %q", areasPath, m)
 	}
-	for _, probe := range []string{"internal/relay", "arch_fitness_test.go", "features/brain-and-memory.md", "SDD.md"} {
+	for _, probe := range []string{"internal/gate", "arch_fitness_test.go", "features/brain-and-memory.md", "SDD.md"} {
 		mutated := strings.ReplaceAll(text, probe, "REDACTED_TARGET")
 		if mutated != text && !slices.Contains(missingAreaRefs(mutated, want), probe) {
 			t.Errorf("dropping %q from %s was not caught", probe, areasPath)

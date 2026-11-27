@@ -1,6 +1,6 @@
 # Workflows, Subagents, Parallel Swarm & Build Control
 
-`fyr` coordinates multi-step work by pairing Antigravity dispatchers (`invoke_subagent`, `run_workflow`, `swarm`) with 35 skills and 7 subagents. Three Python scripts (`workflows/phase_loop.py`, `workflows/review_parallel.py`, `workflows/preflight_gate.py`) run parallel waves and log `orchestration_runs` via `fyr metrics record-run --json-in`. Evidence-ranked model routing (`fyr models`), calibrated context knees (`internal/models/context_budget.go`), and `fyr relay` guide execution across sessions. Deterministic Go gates (`fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr check`, `fyr watch`, `fyr state`) enforce merge safety.
+`fyr` coordinates multi-step work by pairing Antigravity dispatchers (`invoke_subagent`, `run_workflow`, `swarm`) with 35 skills and 7 subagents. Three Python scripts (`workflows/phase_loop.py`, `workflows/review_parallel.py`, `workflows/preflight_gate.py`) run parallel waves and log `orchestration_runs` via `fyr metrics record-run --json-in`. Evidence-ranked model routing (`fyr models`) and calibrated context knees (`internal/models/context_budget.go`) guide execution across sessions. Deterministic Go gates (`fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr check`, `fyr watch`, `fyr state`) enforce merge safety.
 
 ## End-to-end build lifecycle
 
@@ -61,12 +61,6 @@ flowchart TD
 
 Three Python workflow scripts (`workflows/phase_loop.py`, `workflows/review_parallel.py`, `workflows/preflight_gate.py`) run subagents concurrently through `run_workflow`. They use `--caller-family` cross-family routing and log `orchestration_runs` via `fyr metrics record-run --json-in`. `phase_loop.py` checks disjoint `files` leases, loops back `DefectPacket` fixes for up to `2` rounds, and lands passing slices via `fyr land`. `PreToolUse` guards `invoke_subagent`, `run_workflow` (enforcing the dual-root `~/.gemini/config/workflows/*.py` allowlist), and `swarm` workers. It keeps guarded roles on capable models, emits `[CROSS_FAMILY_NOTICE]` for tier enums, and lets `security` and `builder` inherit the session model (`internal/harness/agents_test.go`).
 
-## Opt-in hands-off phase relay (`fyr relay`)
-
-`fyr relay --plan <PLAN-ID> [--max-phases N] [--judge-model ID] [--dry-run] [--json]` (`internal/relay`, `M27`, `ADR-532`, `ADR-534`) advances approved plan phases hands-off. It runs one isolated fresh `agy -p` session per ready phase using `--disable-slash-commands --output-format json --print-timeout`. It never passes `--dangerously-skip-permissions` and caps Kickoff prompts below `120 KiB` with a top-level `RELAY OVERRIDE`. Under `FYR_RELAY=1`, `PreToolUse` enforces `[RELAY_GUARD]` and `[KICKOFF_GUARD]` while ignoring repo-local `.agents/scratch/no-hooks`.
-
-Before each phase, `fyr relay` checks clean git state and cached quota floors (`20%` 5h, `15%` week, `<= 10m` `DefaultPoolQuotaTTL`). After each phase, it blocks `PUSH_DETECTED`, `ZERO_PROGRESS`, `HISTORY_REWRITE`, `DIRTY_TREE`, `PRD_MODIFIED`, `TAG_CREATED`, `PLAN_TAMPERED`, and `LEASE_OR_GATE_FAIL`. It runs `fyr verify` and a cross-family `gate.Gate` judge check, logs `orchestration_runs`, and writes immutable `handoff` checkpoints. Any `FAIL` or `REPEATING_ERROR_HASH` halts immediately with a redacted diagnostic `handoff` and never pushes or tags.
-
 ## Drift and trace checking
 
 `fyr check [--json]` (`internal/check`, `SPEC-fyr-docs-harness`, `ADR-535`, `ADR-536`) runs read-only drift and dual-track docs harness rules. It scans tracked Markdown files (excluding `TODO.md`, `ROADMAP.md`, `PLAN.md`, `.fyr-noindex`, and vendored directories) plus `current` `spec`, `guide`, and `deploy` records:
@@ -120,7 +114,6 @@ Run `fyr git-check [--json]` (`ADR-508`) after any write-capable subagent dispat
 | `fyr gate <worktree>` | `--base REF`, `--lease GLOB`, `--lease-file FILE`, `--max-files N`, `--max-lines N`, `--judge TEXT`, `--judge-model ID`, `--worker-model ID`, `--worker-session ID`, `--json` | Run 4 deterministic checks plus optional confined cross-family `--judge` verdict on a worktree or branch |
 | `fyr land <branch>` | `--message TEXT`, `--lease GLOB`, `--lease-file FILE`, `--max-files N`, `--max-lines N`, `--timeout D`, `--judge TEXT`, `--judge-model ID`, `--worker-model ID`, `--worker-session ID`, `--json` | Gate (with optional `--judge`), squash-verify in detached worktree, fast-forward `main`, and delete branch |
 | `fyr close` | `--title TEXT`, `--id ID`, `--body-file FILE`, `--json` | Read bounded `<= 1 MiB` body (fail-fast on empty/idle stdin) and write immutable `handoff` record embedding fresh verification digest |
-| `fyr relay` | `--plan PLAN-ID`, `--max-phases N`, `--judge-model ID`, `--dry-run`, `--json` | Run ready plan phases hands-off in isolated fresh `agy -p` sessions with deterministic safety, `fyr verify`, cross-family judge, `orchestration_runs` emission, and checkpoint handoffs |
 | `fyr check` | `--json` | Run read-only drift, `docs-style`, `AGENTS.md` `budget`, `spec-structure`, trace checks, and advisory `docs-style-note` hints; exit `1` on findings |
 | `fyr git-check` | `--json` | Run post-dispatch `git status`, unpushed commits, and `git tag` check |
 | `fyr watch` | `--check`, `--conv ID`, `--idle-sec N`, `--json` | Inspect session DBs (direct RO `< 25 ms`), scratch artifacts, and child processes out-of-band for stdin blocks (incl. OpenSSH `(yes/no)?`), stalls, and subagent budgets |

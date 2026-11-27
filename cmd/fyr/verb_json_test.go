@@ -42,16 +42,16 @@ func runCLI(t *testing.T, args ...string) (string, int) {
 	return out.String(), exitOf(err)
 }
 
-func TestV910All31VerbsJSON(t *testing.T) {
+func TestV910All30VerbsJSON(t *testing.T) {
 	t.Setenv(harness.ChildEnv, "1")
 	repo, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	t.Run("all_31_verbs_declare_json_and_help_fits", func(t *testing.T) {
-		if len(verbs) != 31 {
-			t.Fatalf("len(verbs) = %d, want 31", len(verbs))
+	t.Run("all_30_verbs_declare_json_and_help_fits", func(t *testing.T) {
+		if len(verbs) != 30 {
+			t.Fatalf("len(verbs) = %d, want 30", len(verbs))
 		}
 		for _, name := range verbKeys() {
 			c := newCtx(name, verbs[name], io.Discard)
