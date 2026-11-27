@@ -7,17 +7,18 @@
 
 ## Now
 
-**Phase 0 — Wave 0: Tooling, Architecture Fitness Gates, Latent Bugs & Fast Deterministic Tests** (`PLAN-2026-11-27-craft-cleanup`, `ADR-537`):
-- [ ] Slice `w0-gates`: `.golangci.yml`, 4 Go fitness tests (`arch_fitness_test.go`, `areas_test.go`, `funclen_test.go`), `areas.md` parity, per-verb `fyr check` flags (`who: AI`)
-- [ ] Slice `w0-bugs`: fix unrun `testSIMEvalExecPolicyModel`, `SA4004` loop break (`collect_sources.go`), divergent `isAuditSubagentRole`, unused `ctx`/`since` (`who: AI`)
-- [ ] Slice `w0-fast-tests`: fix 309s `TestRunUnreadableAnswer`, 61s `SIGHUP` test, flaky `< 5ms` `TestPersonalizedPageRank` + sub-50ms timers, duplicate `isolate`/`gate`/`search` fixture builds (`who: AI`)
-- [ ] Checkpoint (Phase 0): `fyr gate` -> sequential `fyr land` -> `fyr verify` green in `< 5 min` (`who: AI`)
+**Phase 1 — Wave 1: Zero-Risk Deletions, Retire `fyr relay` (`D2`), Deduplication & Residue Cleanup** (`PLAN-2026-11-27-craft-cleanup`, `ADR-537`):
+- [ ] Slice `w1-retire-relay`: retire `fyr relay` (`internal/relay/**`, `cmd/fyr/verb_relay*.go`, `31 -> 30` verbs, `ADR-537` D2) (`who: AI`)
+- [ ] Slice `w1-dead-search`: delete 13 zero-caller unexported funcs, `ineffassign`, prod `unparam`, dead `GraphEdge` fields, and superseded `internal/search` zombies (`who: AI`)
+- [ ] Slice `w1-dead-other-dedup`: delete remaining dead/zombie code across `internal/{metrics,brain,graph,auto,dream,isolate,watch,models}`, replace `runtime.GOROOT()`, unify UTF-8/`capped*` into `internal/trail` (`who: AI`)
+- [ ] Slice `w1-workflows-skills-residue`: dedup `workflows/*.py`, fold `fyr-feedback-log` (`D6`), trim `agents/{verifier,reviewer,security}`, fix `SECURITY.md`, archive `TEST_PLAN.md`, prune brittle prose-pins (`who: AI`)
+- [ ] Checkpoint (Phase 1): `fyr land --judge` sequentially -> tighten Wave 0 ratchets -> fix 4 `SPEC-fyr-*` Failure-modes tables -> `fyr verify` + `golangci-lint run` (`who: AI`)
 
 ## Next
 
-- Phase 1 — Wave 1: Zero-Risk Deletions, Retire `fyr relay` (`D2`), Helper/Workflow Deduplication & Residue Cleanup (`PLAN-2026-11-27-craft-cleanup`)
 - Phase 2 — Wave 2: Documentation Bonsai (`429 KB -> ~176 KB`), Generated `docs/cli-reference.md`, `11/11` STE `>= 80%`, `PRD.md` Tightening (`D7`) (`PLAN-2026-11-27-craft-cleanup`)
 - Phase 3 — Wave 3a: Pinch-Point Characterization Tests, `internal/sqliteutil`, Remove `init()`s & Split `fyr search` (`D1`, `D4`) (`PLAN-2026-11-27-craft-cleanup`)
+- Phase 4 — Wave 3b: Hotspot Monolith Decomposition (`search`, `metrics`, `sim`, `isolate/acp`), Complexity Reduction & `t.Parallel()` (`PLAN-2026-11-27-craft-cleanup`)
 
 ## Backlog
 
