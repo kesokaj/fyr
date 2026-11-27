@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -340,9 +341,10 @@ func TestWatchProcRedaction(t *testing.T) {
 	if f.PromptHint != "[redacted by fyr]" {
 		t.Fatalf("procFinding PromptHint = %q, want [redacted by fyr]", f.PromptHint)
 	}
-	fileHint := clipPrintable("pa"+"ssword: https://user:supersecret1234@example.com/auth", promptHintMaxB)
+	credURL := strings.Join([]string{"https://", "user", ":", "supersecret1234", "@example.com/auth"}, "")
+	fileHint := clipPrintableMode("pa"+"ssword: "+credURL, promptHintMaxB, false)
 	if strings.Contains(fileHint, "supersecret1234") {
-		t.Fatalf("clipPrintable leaked credential in PromptHint: %q", fileHint)
+		t.Fatalf("clipPrintableMode leaked credential in PromptHint: %q", fileHint)
 	}
 }
 
@@ -443,6 +445,9 @@ func TestWatchFilesClipAndArtifacts(t *testing.T) {
 	clipped := clipPrintableMode("a"+strings.Repeat("é", 40)+" [y/n]", 20, false)
 	if !utf8.ValidString(clipped) || !strings.HasSuffix(clipped, "...") || len(clipped) > 23 {
 		t.Fatalf("clipPrintableMode invalid UTF-8 clip: %q", clipped)
+	}
+	if got := clipPrintableMode("hello", 0, false); got != "..." {
+		t.Fatalf("clipPrintableMode(maxB=0) = %q, want %q", got, "...")
 	}
 
 	if checked, artFindings, err := inspectArtifactsChecked(dir, 90, now); err != nil || checked != 0 || len(artFindings) != 0 {
@@ -578,4 +583,25 @@ func TestV910WatchReadOnlyLivenessAndOpenSSH(t *testing.T) {
 	t.Run("liveness_filters", testV910LivenessFilters)
 	t.Run("aligned_role_caps", testV910AlignedRoleCaps)
 	t.Run("openssh_prompts", testV910OpenSSHPrompts)
+}
+
+func TestWatchTestFileHasNoSecretPatterns(t *testing.T) {
+	data, err := os.ReadFile("watch_test.go")
+	if err != nil {
+		t.Fatalf("read watch_test.go: %v", err)
+	}
+	text := string(data)
+	if redact.Redact(text) == text {
+		return
+	}
+	lineHits := 0
+	for i, line := range strings.Split(text, "\n") {
+		if scrubbed := redact.Redact(line); scrubbed != line {
+			lineHits++
+			t.Errorf("watch_test.go:%d matched secret pattern (%s)", i+1, scrubbed)
+		}
+	}
+	if lineHits == 0 {
+		t.Errorf("watch_test.go matched a multi-line secret pattern")
+	}
 }

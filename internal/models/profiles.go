@@ -223,7 +223,7 @@ func matchesChangelogLine(e CatalogEntry, lowLine string) bool {
 		return false
 	}
 	hasSub, hasFam := false, false
-	for _, w := range strings.FieldsFunc(lowLine, func(r rune) bool { return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-') }) {
+	for _, w := range strings.FieldsFunc(lowLine, func(r rune) bool { return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' }) {
 		hasSub = hasSub || w == sub
 		hasFam = hasFam || w == e.Family || (e.Family == "anthropic" && w == "claude")
 	}

@@ -8,8 +8,6 @@ import "encoding/json"
 // Edge kind bitmasks for EdgeInput[4] and normalized edge tuples.
 const (
 	KindCall   = 1
-	KindType   = 2
-	KindIface  = 4
 	KindImport = 8
 )
 

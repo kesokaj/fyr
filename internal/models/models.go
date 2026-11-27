@@ -1,7 +1,6 @@
 package models
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // ModelIDRe matches syntactically valid model identifiers returned by agy models.
@@ -152,14 +152,15 @@ func runAgyProbeCapped(run context.Context, home, agy string, timeout, waitDelay
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = waitDelay
-	stdout, stderr := &Capped{Limit: maxOut, Over: overErr}, &Capped{Limit: MaxModelsOut}
+	stdout := trail.NewCappedBuffer(maxOut, overErr)
+	stderr := trail.NewCappedBuffer(MaxModelsOut, nil)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	err = cmd.Run()
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 	switch {
-	case stdout.full:
+	case stdout.Truncated():
 		err = overErr
 	case run.Err() != nil:
 		err = errors.New("the run ended before it answered")
@@ -174,35 +175,6 @@ func runAgyProbeCapped(run context.Context, home, agy string, timeout, waitDelay
 	}
 	return stdout.String(), nil
 }
-
-// Capped keeps up to Limit bytes (defaulting to MaxModelsOut). Past that it
-// returns Over, ending the copy and closing the child's pipe, or drops the rest.
-type Capped struct {
-	buf   bytes.Buffer
-	Limit int
-	Over  error
-	full  bool
-}
-
-// Write appends p up to Limit (default MaxModelsOut), returning Over when truncated.
-func (c *Capped) Write(p []byte) (int, error) {
-	limit := c.Limit
-	if limit <= 0 {
-		limit = MaxModelsOut
-	}
-	if room := limit - c.buf.Len(); len(p) > room {
-		c.buf.Write(p[:max(room, 0)])
-		c.full = true
-		if c.Over != nil {
-			return 0, c.Over
-		}
-		return len(p), nil
-	}
-	return c.buf.Write(p)
-}
-
-// String returns the buffered bytes accumulated before any cap.
-func (c *Capped) String() string { return c.buf.String() }
 
 // LastLine returns s's last non-blank line, past any carriage return a spinner left.
 func LastLine(s string) string {

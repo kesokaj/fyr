@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/search"
@@ -185,7 +184,7 @@ func hasInProgressStatus(body string) bool {
 			}
 			continue
 		}
-		if ch != 0 && !(ch == '`' && strings.ContainsRune(trimmed[n:], '`')) {
+		if ch != 0 && (ch != '`' || !strings.ContainsRune(trimmed[n:], '`')) {
 			fenceChar, fenceLen = ch, n
 			continue
 		}
@@ -254,10 +253,6 @@ func tailNonEmptyLines(text string, limit int) []string {
 	return out
 }
 
-func clipPrintable(s string, maxB int) string {
-	return clipPrintableMode(s, maxB, false)
-}
-
 func clipPrintableMode(s string, maxB int, jsonl bool) string {
 	redacted := redact.Redact(s)
 	if jsonl {
@@ -267,16 +262,5 @@ func clipPrintableMode(s string, maxB int, jsonl bool) string {
 	if len(clean) <= maxB {
 		return clean
 	}
-	if maxB <= 0 {
-		return "..."
-	}
-	cut := 0
-	for cut < len(clean) {
-		_, size := utf8.DecodeRuneInString(clean[cut:])
-		if cut+size > maxB {
-			break
-		}
-		cut += size
-	}
-	return clean[:cut] + "..."
+	return trail.TruncateUTF8(clean, maxB) + "..."
 }

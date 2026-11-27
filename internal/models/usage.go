@@ -187,14 +187,6 @@ func resolveRoleModel(ctx context.Context, home, agyPath, role, tier, explicitMo
 	return pick.Model, pick.Reason, nil
 }
 
-// PickRoleFromCatalogWithPools selects an active model from cat for role+tier,
-// reusing fresh cached pool quotas when present (<= DefaultPoolQuotaTTL) and
-// otherwise probing live Anthropic quota via agyPath for judge/reviewer/verifier.
-// Live pools parsed from `agy -p "/usage"` are returned for persistence.
-func PickRoleFromCatalogWithPools(ctx context.Context, cat Catalog, agyPath, role, tier string) (RolePick, []Pool, error) {
-	return pickRoleFromCatalogWithPoolsForHome(ctx, "", cat, agyPath, role, tier)
-}
-
 func pickRoleFromCatalogWithPoolsForHome(ctx context.Context, home string, cat Catalog, agyPath, role, tier string) (RolePick, []Pool, error) {
 	return PickRoleFromCatalogForHome(ctx, cat, PickRoleOptions{
 		Home:    home,

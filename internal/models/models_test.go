@@ -29,9 +29,11 @@ func TestModelsPackageDeps(t *testing.T) {
 		}
 		for _, imp := range f.Imports {
 			p := strings.Trim(imp.Path.Value, `"`)
-			// models depends only on stdlib and internal/harness (never SQLite or sibling internal/* packages such as internal/isolate or internal/gate).
+			// models depends only on stdlib, internal/harness, and zero-outbound leaf internal/trail (never SQLite or sibling internal/* packages such as internal/isolate or internal/gate).
 			if p == "modernc.org/sqlite" ||
-				(strings.HasPrefix(p, "github.com/kesokaj/fyr/internal/") && p != "github.com/kesokaj/fyr/internal/harness") {
+				(strings.HasPrefix(p, "github.com/kesokaj/fyr/internal/") &&
+					p != "github.com/kesokaj/fyr/internal/harness" &&
+					p != "github.com/kesokaj/fyr/internal/trail") {
 				t.Errorf("%s imports forbidden package %q", e.Name(), p)
 			}
 		}
@@ -138,4 +140,33 @@ esac
 		t.Fatal(err)
 	}
 	return p
+}
+
+func TestRunAgyProbeCappedOverflow(t *testing.T) {
+	home := t.TempDir()
+	script := filepath.Join(t.TempDir(), "fake-agy")
+	body := `#!/bin/sh
+case "$1" in
+  ok)
+    # Emit > MaxModelsOut to stderr (discard mode) while keeping stdout small.
+    dd if=/dev/zero bs=1024 count=80 2>/dev/null | tr '\0' 'e' >&2
+    printf 'small-ok\n'
+    ;;
+  over)
+    dd if=/dev/zero bs=1024 count=4 2>/dev/null | tr '\0' 'x'
+    ;;
+esac
+`
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Positive case: noisy stderr past MaxModelsOut is discarded without stalling or failing.
+	got, err := runAgyProbeCapped(context.Background(), home, script, 5*time.Second, time.Second, 1024, "ok")
+	if err != nil || strings.TrimSpace(got) != "small-ok" {
+		t.Fatalf("runAgyProbeCapped(ok) = (%q, %v), want (small-ok, nil)", got, err)
+	}
+	// Negative case: stdout exceeding maxOut triggers error mode and returns overErr.
+	if out, err := runAgyProbeCapped(context.Background(), home, script, 5*time.Second, time.Second, 1024, "over"); err == nil || !strings.Contains(err.Error(), "its output is over 1 KiB") {
+		t.Fatalf("runAgyProbeCapped(over) = (%q, %v), want over-1-KiB error", out, err)
+	}
 }

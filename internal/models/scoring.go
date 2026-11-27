@@ -83,9 +83,10 @@ func RoleBaselineForTier(role, wantTier, candTier, effort string) float64 {
 		base = 0.65
 	}
 	if wt == "light" {
-		if ct == "flash" {
+		switch ct {
+		case "flash":
 			base -= 0.12
-		} else if ct == "pro" || ct == "" {
+		case "pro", "":
 			base -= 0.25
 		}
 	} else if (strings.EqualFold(role, "mechanical") || wt == "flash") && (ct == "pro" || ct == "") {
