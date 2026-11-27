@@ -42,8 +42,8 @@ func TestSkillCatalogInstalledPathsAndZeroPhantom(t *testing.T) {
 		}
 		installedCount++
 	}
-	if installedCount < 35 {
-		t.Fatalf("expected >= 35 installed skills copied, got %d", installedCount)
+	if installedCount < 34 {
+		t.Fatalf("expected >= 34 installed skills copied, got %d", installedCount)
 	}
 
 	got := LoadSkillCatalog(home)

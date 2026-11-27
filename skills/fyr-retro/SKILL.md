@@ -37,7 +37,7 @@ Collect all 11 evidence sources (`references/sources-and-harness.md` for full qu
 ## Step 2: Target, scope, `rule_ref`, and promotion check
 
 Assign per finding:
-1. **`rule_ref`** (shared with `fyr-feedback-log`): `AGENTS.md § <section>`, `project AGENTS.md § <section>`, `skill:<name>`, `agent:<name>`, `rule:<name>`, or `null`.
+1. **`rule_ref`** (shared with `fyr-project-memory`): `AGENTS.md § <section>`, `project AGENTS.md § <section>`, `skill:<name>`, `agent:<name>`, `rule:<name>`, or `null`.
 2. **One target file:**
 
 | Category | Project target | Harness target |

@@ -1,6 +1,6 @@
 # Workflows, Subagents, Parallel Swarm & Build Control
 
-`fyr` coordinates multi-step work by pairing Antigravity dispatchers (`invoke_subagent`, `run_workflow`, `swarm`) with 35 skills and 7 subagents. Three Python scripts (`workflows/phase_loop.py`, `workflows/review_parallel.py`, `workflows/preflight_gate.py`) run parallel waves and log `orchestration_runs` via `fyr metrics record-run --json-in`. Evidence-ranked model routing (`fyr models`) and calibrated context knees (`internal/models/context_budget.go`) guide execution across sessions. Deterministic Go gates (`fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr check`, `fyr watch`, `fyr state`) enforce merge safety.
+`fyr` coordinates multi-step work by pairing Antigravity dispatchers (`invoke_subagent`, `run_workflow`, `swarm`) with 34 skills and 7 subagents. Three Python scripts (`workflows/phase_loop.py`, `workflows/review_parallel.py`, `workflows/preflight_gate.py`) run parallel waves and log `orchestration_runs` via `fyr metrics record-run --json-in`. Evidence-ranked model routing (`fyr models`) and calibrated context knees (`internal/models/context_budget.go`) guide execution across sessions. Deterministic Go gates (`fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr check`, `fyr watch`, `fyr state`) enforce merge safety.
 
 ## End-to-end build lifecycle
 
@@ -82,7 +82,7 @@ Run `fyr git-check [--json]` (`ADR-508`) after any write-capable subagent dispat
 - **`[BUDGET_NEAR_LIMIT]`:** Warns when tool calls reach `>= 80%` of the `40` or `120` subagent budget.
 
 <details>
-<summary>Complete inventory of 35 skills, 7 subagents, and build-control CLI flags</summary>
+<summary>Complete inventory of 34 skills, 7 subagents, and build-control CLI flags</summary>
 
 ### Subagents (`agents/<name>/agent.md`)
 
@@ -96,13 +96,13 @@ Run `fyr git-check [--json]` (`ADR-508`) after any write-capable subagent dispat
 | `documentation` | `flash` | Living docs maintainer (`README.md`, `SDD.md`, `TDD.md`, `SPEC-*`, `GUIDE-*`, `DEPLOY-*`) enforcing the 5-track audience split for edits over 30 lines |
 | `dreamer` | inherit | Consolidation judgement for `/fyr-retro`, proposing skill edits and memory consolidations |
 
-### Skills by group (35)
+### Skills by group (34)
 
 | Group | Skills |
 |---|---|
 | **Work & release protocols (9)** | `fyr-feature`, `fyr-swarm`, `fyr-bug`, `fyr-triage`, `fyr-review`, `review-standards`, `fyr-preflight`, `fyr-harness-audit`, `fyr-auto` |
 | **Project shape, specs & handoffs (7)** | `fyr-init-project`, `docs-ste100-80`, `fyr-requirements`, `fyr-spec`, `testing-strategy`, `fyr-research`, `fyr-handoff` |
-| **Learning loop (4)** | `fyr-feedback-log`, `fyr-project-memory`, `fyr-retro`, `fyr-dream` |
+| **Learning loop (3)** | `fyr-project-memory`, `fyr-retro`, `fyr-dream` |
 | **Language, shell, APIs & UI (9)** | `golang`, `typescript`, `frontend-ui-modern`, `frontend-ui-economist`, `frontend-slate-ui`, `bash`, `json-api-style`, `docker`, `mermaid-syntax` |
 | **Google Cloud (6)** | `gcloud-setup`, `cloud-run-deploy`, `terraform`, `operate-gcp`, `data-gcp`, `api-auth-gcp` |
 

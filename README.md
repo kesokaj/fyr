@@ -2,7 +2,7 @@
 
 **`fyr`** is an open-source agentic coding harness, build controller, and zero-daemon SQLite/AST second brain for the **Antigravity CLI** (`agy`) on Linux and macOS (`Apple Silicon`).
 
-It packages one global context (`context/AGENTS.md`, [agents.md](https://agents.md) standard), 35 skills ([Agent Skills `SKILL.md`](https://agentskills.io) standard), 7 specialized subagents (`agents/<name>/agent.md`), 5 rules (`rules/*.md`), 3 native parallel workflows (`workflows/*.py`), and a single static Go binary (`fyr`, built with `CGO_ENABLED=0` and `modernc.org/sqlite`). No background daemons, no proxies, no commit gates, no CI, and no hosted service (`PRD.md` R0–R10, MIT License in [`LICENSE`](LICENSE), security policy in [`SECURITY.md`](SECURITY.md)).
+It packages one global context (`context/AGENTS.md`, [agents.md](https://agents.md) standard), 34 skills ([Agent Skills `SKILL.md`](https://agentskills.io) standard), 7 specialized subagents (`agents/<name>/agent.md`), 5 rules (`rules/*.md`), 3 native parallel workflows (`workflows/*.py`), and a single static Go binary (`fyr`, built with `CGO_ENABLED=0` and `modernc.org/sqlite`). No background daemons, no proxies, no commit gates, no CI, and no hosted service (`PRD.md` R0–R10, MIT License in [`LICENSE`](LICENSE), security policy in [`SECURITY.md`](SECURITY.md)).
 
 Quick links: [Workflow Guide](Workflow.md) (plan to finish, feature to finish & DoD) · [Feature Guides](#feature-guides--architecture) · [How It Works](#how-it-works) · [Quickstart](#quickstart-three-ways-in) · [Daily CLI Reference](#daily-cli-reference)
 
@@ -23,7 +23,7 @@ flowchart TB
     devEnv["You + Antigravity CLI (agy)"] --> delivery["1. Delivery & Customization\n(fyr install / update / adopt)"]
     delivery --> hooks["2. CLI Hooks & AST Graph\n(< 250 ms fail-open + search.db)"]
     hooks --> brain["3. Brain Store & Memory\n(brain.db trail + validity >= 0.40)"]
-    devEnv --> workflows["4. Workflows & Build Control\n(35 skills, 7 agents, gate / land / close)"]
+    devEnv --> workflows["4. Workflows & Build Control\n(34 skills, 7 agents, gate / land / close)"]
     workflows --> brain
     workflows --> metrics["5. Telemetry & Reports\n(metrics.db shapes + fyr report)"]
     devEnv --> evalIso["6. Behavioural Eval & Isolation\n(Landlock / Seatbelt + fyr eval)"]
@@ -37,7 +37,7 @@ flowchart TB
 | [Delivery, Installer & Customization](features/delivery-and-customization.md) | M1–M6, M26 | `fyr install`, `fyr update`, `fyr status`, `fyr adopt`, `fyr state` | Atomic `~/.gemini/config/` deployment, three delivery paths, offline zip state bundles, stack overrides, size budgets, and allowlist lint |
 | [CLI Hooks, Prompt Vetting & AST Graph](features/hooks-and-ast-graph.md) | M8, M25 | `fyr search`, `fyr index`, `fyr graph` | `< 250 ms` lifecycle hooks (`< 80 ms` warm `PreInvocation` / `< 15 ms` mid-turn dedup with parallel `<= 120 ms` slice deadline, lightweight subagent fast path & timeout fallback stamp), 9-mode intent vetter, explicit-target subtask decomposition, worker JIT capsules, `[COORDINATOR_GUARD]`, `[CROSS_FAMILY_NOTICE]`, `[SEARCH_NUDGE]`, `[KICKOFF_GUARD]`, out-of-root `read_file` bypass, SHA-256 read ledger + multi-line/pipe Bash read-chain enforcement, `[CLAMPED]` skeletons, `--include-docs`, `--include-vendored` (`fyr graph`), split `co_edit`/`co_read` coupling, and PageRank / Tarjan / Louvain AST graph slicing & export |
 | [Brain Store, Trail & Memory](features/brain-and-memory.md) | M7, M15 | `fyr record`, `fyr memory`, `fyr resume` | 15 record kinds in `brain.db`, seven-step resume + fail-open `Daily Health & Auto Actions` brief, `.agents/trail.jsonl` export/sync, and validity-scored memory |
-| [Workflows, Swarm & Build Control](features/workflows-and-build-control.md) | M2, M3, M14, M20, M21, M23 | `fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr watch`, `fyr check`, `fyr models` | 35 skills, 7 subagents (incl. `builder`), 3 `run_workflow` scripts (`phase_loop.py`, `review_parallel.py`, `preflight_gate.py`), `< 50 ms` warm `fyr models --pick` (`<= 10m` cached pool quotas & `--bench`), out-of-band hang checks, and deterministic verification |
+| [Workflows, Swarm & Build Control](features/workflows-and-build-control.md) | M2, M3, M14, M20, M21, M23 | `fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr watch`, `fyr check`, `fyr models` | 34 skills, 7 subagents (incl. `builder`), 3 `run_workflow` scripts (`phase_loop.py`, `review_parallel.py`, `preflight_gate.py`), `< 50 ms` warm `fyr models --pick` (`<= 10m` cached pool quotas & `--bench`), out-of-band hang checks, and deterministic verification |
 | [Telemetry, Trajectories & Reports](features/metrics-and-reports.md) | M10, M24 | `fyr metrics`, `fyr report` | Shape-only `metrics.db` (`v14` `orchestration_runs`, `background_runs.halt_reason`, `turn_vets.suggested_skills`, `trials.{policy_model,skill,arm,tokens,defects}`, `daily_digests`, informational `model_shift_audit`) ingestion, separated `ToolErrors`/`HookDenials`, dynamic subagent budget caps, calibrated `[40%..60%]` per-model context-knee trajectory anomalies, `DailyDigest` (`--daily-digest`, `"Daily Direction & Actions"` banner), `DiagnosticReport`, `--since-tag` cohorts, `Agent Roles`, Section `0. Scorecard`, `Background Autonomy`, live `Trigger coverage`, per-skill/SIM/orchestration views, and multi-section HTML/Markdown/`--json`/`--web` preview reports |
 | [Behavioural Eval & OS Isolation](features/eval-and-isolation.md) | M13, M22 | `fyr eval` | Sandboxed multi-turn/ACP behavioral testing, Wilson 95% intervals, host-safety checks `a`–`e`, subagent check `f`, Landlock, and Seatbelt |
 | [Dream Consolidation & Auto Mode](features/dream-and-auto.md) | M11, M12, M19 | `fyr dream`, `fyr auto` | Global binary `on \| off` `fyr auto` timer (`4h` cooldown / `--force`), all-workspace stale-conversation rating (`session_ratings`), ephemeral worktree 0d pruning, in-place `still_regressing` proposal dedup/consolidation, `DraftsOnly` workers (zero-tool `SessionDigest` classes plus `missing-skill`, incl. dirty/non-git/`__global__` roots), gates `G1`–`G3`/`G8`/`G9`, risk rubric, and `k=3` eval-gated skill edits |
@@ -93,7 +93,7 @@ flowchart LR
 ```mermaid
 flowchart LR
     homeFiles["~/.gemini/config\ninstalled files, no repository"]
-    sessions["Antigravity sessions\nfyr-feedback-log skill logs, /fyr-retro queues"]
+    sessions["Antigravity sessions\nfyr-project-memory skill logs, /fyr-retro queues"]
     configDir["~/.config/fyr/\nbrain.db, metrics.db, search.db, state.json\nstays on this machine"]
     dreamer["fyr dream --all\non demand or inside fyr auto\na CLI with no tool granted"]
     evalRun["fyr eval rows\ntyped by you, each row an OS-isolated clone and HOME"]
@@ -131,7 +131,7 @@ Installing `fyr` deploys seven managed surfaces into `~/.gemini/config/` and `~/
 | Surface | Installed path & details |
 |---|---|
 | **Global context** | `context/AGENTS.md` + `context/dev-setup.md`, rendered and deployed as `~/.gemini/config/rules/AGENTS.md` |
-| **Skills (35)** | `skills/<name>/SKILL.md` → `~/.gemini/config/skills/<name>/`; auto-loaded by description or invoked as `/name` |
+| **Skills (34)** | `skills/<name>/SKILL.md` → `~/.gemini/config/skills/<name>/`; auto-loaded by description or invoked as `/name` |
 | **Subagents (7)** | `agents/<name>/agent.md` → `~/.gemini/config/agents/<name>/agent.md` (`builder`, `documentation`, `dreamer`, `explorer`, `reviewer`, `security`, `verifier`) |
 | **Rules (5)** | `rules/*.md` → `~/.gemini/config/rules/*.md` (`agy-dispatch`, `code-modularity`, `critical-thinking`, `fyr-features`, `session-sizing`) |
 | **Workflow scripts (3)** | `workflows/*.py` → `~/.gemini/config/workflows/*.py` (`phase_loop.py`, `review_parallel.py`, `preflight_gate.py`) for native `run_workflow` parallel orchestration |
@@ -339,13 +339,13 @@ Use these ten commands in daily workflows, and expand the full reference below f
 
 `fyr list` prints every skill, subagent, rule, and workflow script installed from the harness.
 
-### Skills (35)
+### Skills (34)
 
 | Group | Skills |
 |---|---|
 | **Work protocols** | `fyr-feature` (phased plan, cold-reader check, checkpoints), `fyr-swarm` (native parallel swarm routing, `Files:` leases, and `fyr gate`/`fyr land`), `fyr-bug` (diagnose, red-first test, smallest fix, bug record), `fyr-triage` (GitHub issue/PR and local queue triage into Agent Briefs or `/fyr-swarm` Kickoffs), `fyr-review` (`--code --security --simplify --docs --prompts --tests --all --resume --judge --fix`), `review-standards`, `fyr-preflight` (release gate & publisher), `fyr-harness-audit`, `fyr-auto` (worker contract for `fyr auto`) |
 | **Project shape & specs** | `fyr-init-project` (full scaffold + trail + index), `docs-ste100-80` (ASD-STE100 ~80% git Track 1 human Markdown/HTML docs: active prose, direct steps, safety callouts, BLUF, diagrams & `<details>`), `fyr-requirements`, `fyr-spec`, `testing-strategy`, `fyr-research`, `fyr-handoff` (session checkpoint + Kickoff block) |
-| **Learning loop** | `fyr-feedback-log`, `fyr-project-memory`, `fyr-retro`, `fyr-dream` |
+| **Learning loop** | `fyr-project-memory` (facts, preferences & passive correction feedback), `fyr-retro`, `fyr-dream` |
 | **Code & UI** | `golang`, `typescript`, `frontend-ui-modern` (shadcn/ui + Tailwind + React), `frontend-ui-economist` (editorial HTML/CSS/SVG), `frontend-slate-ui` (Angular 20 SlateUI components), `bash` (incl. interactive setup wizards), `json-api-style`, `docker`, `mermaid-syntax` |
 | **Google Cloud** | `gcloud-setup`, `cloud-run-deploy`, `terraform`, `operate-gcp`, `data-gcp`, `api-auth-gcp` |
 | **Vendored & forks** | `fyr-triage` (forked from `triage`), `frontend-slate-ui`, `bash` wizard; provenance in `skills/VENDORED.md` |

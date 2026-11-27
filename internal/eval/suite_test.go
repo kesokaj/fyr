@@ -420,7 +420,7 @@ func TestNamedRowSkillCommands(t *testing.T) {
 	namedRowTarget := map[string]string{
 		"spec":                    "skills/fyr-spec/SKILL.md",
 		"feature":                 "skills/fyr-feature/SKILL.md",
-		"feedback-log":            "skills/fyr-feedback-log/SKILL.md",
+		"feedback-log":            "skills/fyr-project-memory/SKILL.md",
 		"project-memory":          "skills/fyr-project-memory/SKILL.md",
 		"reviewer":                "agents/reviewer/agent.md",
 		"reviewer-cold":           "agents/reviewer/agent.md",

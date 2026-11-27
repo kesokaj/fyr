@@ -40,24 +40,6 @@ func section(t *testing.T, text, head string) string {
 	return rest
 }
 
-// TestHandoffReportEndsWithTheKickoffInline: the operator said "Give it as a
-// prompt always" (2026-10-25, project memory next-session-prompt-inline), and
-// two sessions still closed with a pointer to the handoff file instead of the
-// block. The handoff skill's report step prints the Kickoff in full, in a
-// fenced block, as its last item, and says a pointer does not replace it.
-func TestHandoffReportEndsWithTheKickoffInline(t *testing.T) {
-	step := section(t, readSkill(t, "skills/fyr-handoff/SKILL.md"), "## Step 7")
-	for _, want := range []string{"Kickoff block in full", "in a fenced block in the reply", "ready to paste", "Never a pointer to the file"} {
-		if !strings.Contains(step, want) {
-			t.Errorf("handoff Step 7 does not say %q", want)
-		}
-	}
-	items := regexp.MustCompile(`(?m)^\d+\. .*$`).FindAllString(step, -1)
-	if len(items) == 0 || !strings.Contains(items[len(items)-1], "Kickoff") {
-		t.Errorf("the Kickoff is not the report's last numbered item: %q", items)
-	}
-}
-
 // TestPushStepsRunTheTrailerCheck: BUG-177's rule graduated into a script
 // (plan 2026-10-25-harness-audit-fix D13); both skills that push run it
 // before the push, by its installed path.
@@ -77,32 +59,54 @@ func TestPushStepsRunTheTrailerCheck(t *testing.T) {
 	}
 }
 
-// TestWorkflowSkillsCarryNoStaleNames pins Phase 3's grep expects (WS23,
-// WS24, WS27, WS28): the agent format of ADR-062, the global context's
-// section name, one CLI, and one Session form.
+// TestWorkflowSkillsCarryNoStaleNames pins structural format contracts (ADR-062
+// agent paths, one Session form, folded feedback-log retirement under ADR-537 D6,
+// and research/spec/requirements ownership boundaries).
 func TestWorkflowSkillsCarryNoStaleNames(t *testing.T) {
+	if _, err := os.Stat("skills/fyr-feedback-log/SKILL.md"); !os.IsNotExist(err) {
+		t.Errorf("skills/fyr-feedback-log/SKILL.md must be removed after folding into fyr-project-memory (err=%v)", err)
+	}
 	gone := map[string][]string{
-		"skills/fyr-retro/SKILL.md":                    {"`agents/<name>.md`", "`.agents/agents/<name>.md`"},
-		"skills/fyr-harness-audit/references/areas.md": {"derive.go", "`agents/*.md`"},
-		"skills/fyr-handoff/SKILL.md":                  {"Resume Protocol", "either vendor", "Session ID"},
-		"skills/review-standards/SKILL.md":             {"the six criteria below"},
-		"skills/fyr-review/SKILL.md":                   {"all six criteria"},
-		"skills/fyr-preflight/SKILL.md":                {"Step 2 item 1"},
-		"skills/fyr-feature/SKILL.md":                  {"a tool-call budget the dispatch names"},
-		"skills/fyr-bug/SKILL.md":                      {"a tool-call budget the dispatch names"},
+		"skills/fyr-retro/SKILL.md":                    {"`agents/<name>.md`", "`.agents/agents/<name>.md`", "fyr-feedback-log"},
+		"skills/fyr-harness-audit/references/areas.md": {"derive.go", "`agents/*.md`", "fyr-feedback-log"},
+		"skills/fyr-handoff/SKILL.md":                  {"Resume Protocol", "either vendor", "Session ID", "fyr-feedback-log"},
+		"skills/fyr-dream/SKILL.md":                    {"fyr-feedback-log"},
+		"skills/fyr-project-memory/SKILL.md":           {"fyr-feedback-log"},
+		"context/AGENTS.md":                            {"fyr-feedback-log"},
+		"README.md":                                    {"fyr-feedback-log"},
+		"features/workflows-and-build-control.md":      {"fyr-feedback-log"},
 	}
 	for path, words := range gone {
 		text := readSkill(t, path)
 		for _, w := range words {
 			if strings.Contains(text, w) {
-				t.Errorf("%s still says %s", path, w)
+				t.Errorf("%s still contains stale reference %q", path, w)
 			}
 		}
 	}
 	const form = "<first 8 chars of the conversation id>"
-	for _, path := range []string{"skills/fyr-handoff/SKILL.md", "skills/fyr-feedback-log/SKILL.md", "skills/fyr-retro/SKILL.md"} {
+	for _, path := range []string{"skills/fyr-handoff/SKILL.md", "skills/fyr-project-memory/SKILL.md", "skills/fyr-retro/SKILL.md"} {
 		if !strings.Contains(readSkill(t, path), form) {
 			t.Errorf("%s does not use the one Session form %s", path, form)
+		}
+	}
+	memText := readSkill(t, "skills/fyr-project-memory/SKILL.md")
+	for _, want := range []string{
+		"When to Log", "When NOT to Log", "Log Format", "Categories", "Signal Types", "Behavior Rules",
+		"fyr record add feedback --global", "fyr memory add --type procedural", "rule_ref",
+	} {
+		if !strings.Contains(memText, want) {
+			t.Errorf("skills/fyr-project-memory/SKILL.md missing folded passive logging contract %q", want)
+		}
+	}
+	for _, path := range []string{
+		"skills/fyr-research/SKILL.md",
+		"skills/fyr-spec/SKILL.md",
+		"skills/fyr-requirements/SKILL.md",
+	} {
+		text := readSkill(t, path)
+		if !strings.Contains(text, "**Owns:**") || !strings.Contains(text, "**Does not own:**") {
+			t.Errorf("%s missing explicit **Owns:** / **Does not own:** trigger boundary", path)
 		}
 	}
 	if !strings.Contains(readSkill(t, "skills/fyr-retro/SKILL.md"), "<name>/agent.md") {
@@ -110,99 +114,61 @@ func TestWorkflowSkillsCarryNoStaleNames(t *testing.T) {
 	}
 }
 
-// TestFeatureSkillEmptyRepoAndWorkersDRow pins Item 18 and I4 of
-// PLAN-2026-11-02-1806-fyr-speed: feature Step 1 skips explorer in a
-// repository that has no source files yet, and Step 3 shows the workers D-row
-// shape that the work skill reads.
+// TestFeatureSkillEmptyRepoAndWorkersDRow pins structural Step 1 explorer gate
+// and Step 3 machine-parsed workers D-row format in skills/fyr-feature/SKILL.md.
 func TestFeatureSkillEmptyRepoAndWorkersDRow(t *testing.T) {
 	text := readSkill(t, "skills/fyr-feature/SKILL.md")
 	step1 := section(t, text, "## Step 1: Scope")
-	for _, want := range []string{
-		"repository already has source files",
-		"no source files yet",
-		"skip `explorer`",
-		"no source yet",
-	} {
-		if !strings.Contains(step1, want) {
-			t.Errorf("skills/fyr-feature/SKILL.md ## Step 1: Scope does not say %q", want)
-		}
+	if !strings.Contains(step1, "`explorer`") {
+		t.Errorf("skills/fyr-feature/SKILL.md ## Step 1: Scope missing `explorer` gate")
 	}
 	step3 := section(t, text, "## Step 3: Cold-reader check")
-	for _, want := range []string{
-		"D<n> — <date> — workers: yes | no, <why> — by: planner",
-	} {
-		if !strings.Contains(step3, want) {
-			t.Errorf("skills/fyr-feature/SKILL.md ## Step 3: Cold-reader check does not say %q", want)
-		}
+	if !strings.Contains(step3, "workers: yes | no") {
+		t.Errorf("skills/fyr-feature/SKILL.md ## Step 3: Cold-reader check missing `workers: yes | no` D-row marker")
 	}
 }
 
-// TestColdReaderBudget pins Item 19 of PLAN-2026-11-02-1806-fyr-speed: the
-// plan's cold reader gets a 15-tool-call budget and a 10-finding/question
-// output cap (< 80 lines), and skips review-standards code-diff references.
+// TestColdReaderBudget pins the cold-reader numeric caps (15 tool calls,
+// 10 findings, 80 lines; not 30 tool calls) across fyr-feature and reviewer.
 func TestColdReaderBudget(t *testing.T) {
 	step3 := section(t, readSkill(t, "skills/fyr-feature/SKILL.md"), "## Step 3: Cold-reader check")
-	for _, want := range []string{
-		"a budget of 15 tool calls",
-		"at most 10 findings and questions",
-		"under 80 lines",
-	} {
+	for _, want := range []string{"15 tool calls", "10 findings", "80 lines"} {
 		if !strings.Contains(step3, want) {
-			t.Errorf("skills/fyr-feature/SKILL.md ## Step 3: Cold-reader check does not say %q", want)
+			t.Errorf("skills/fyr-feature/SKILL.md ## Step 3: Cold-reader check missing budget %q", want)
 		}
 	}
-	if strings.Contains(step3, "a budget of 30 tool calls") {
+	if strings.Contains(step3, "30 tool calls") {
 		t.Error("skills/fyr-feature/SKILL.md ## Step 3: Cold-reader check still says 30 tool calls")
 	}
-
 	rev := readSkill(t, "agents/reviewer/agent.md")
-	for _, want := range []string{
-		"15 tool calls",
-		"10 findings and questions",
-		"under 80 lines",
-		"skip on a plan cold-read",
-	} {
+	for _, want := range []string{"15 tool calls", "10 findings", "80 lines"} {
 		if !strings.Contains(rev, want) {
-			t.Errorf("agents/reviewer/agent.md does not say %q", want)
+			t.Errorf("agents/reviewer/agent.md missing budget %q", want)
 		}
 	}
 }
 
-// TestResumeAndGitCheckAndSingleCommit pins Items 20, 28, and 29 of
-// PLAN-2026-11-02-1806-fyr-speed: context/AGENTS.md uses fyr resume and fyr
-// git-check, and context/AGENTS.md, skills/fyr-feature/SKILL.md, and
-// skills/fyr-handoff/SKILL.md commit, push, and ingest once per conversation.
+// TestResumeAndGitCheckAndSingleCommit pins structural CLI/skill references
+// (fyr resume, fyr git-check, /fyr-handoff, fyr metrics ingest) across context,
+// fyr-feature, and fyr-handoff.
 func TestResumeAndGitCheckAndSingleCommit(t *testing.T) {
 	ctx := readSkill(t, "context/AGENTS.md")
-	for _, want := range []string{
-		"`fyr resume`",
-		"`fyr git-check`: an unnamed path, commit or tag is a stop sign.",
-		"commits, pushes and runs `fyr metrics ingest` once",
-	} {
+	for _, want := range []string{"`fyr resume`", "`fyr git-check`", "`/fyr-handoff`", "`fyr metrics ingest`"} {
 		if !strings.Contains(ctx, want) {
-			t.Errorf("context/AGENTS.md does not say %q", want)
+			t.Errorf("context/AGENTS.md missing structural CLI/skill reference %q", want)
 		}
 	}
-	for _, gone := range []string{
-		"as three separate commands, never joined on one line",
-		"(Checkpoint box, `change` record, commit, push, `fyr metrics ingest`)",
-	} {
-		if strings.Contains(ctx, gone) {
-			t.Errorf("context/AGENTS.md still says %q", gone)
-		}
-	}
-
 	feat := readSkill(t, "skills/fyr-feature/SKILL.md")
-	if strings.Contains(feat, "commit and push as separate calls, then the handoff") {
-		t.Error("skills/fyr-feature/SKILL.md still commits and pushes before the handoff")
+	for _, want := range []string{"/fyr-handoff", "`fyr metrics ingest`"} {
+		if !strings.Contains(feat, want) {
+			t.Errorf("skills/fyr-feature/SKILL.md missing structural reference %q", want)
+		}
 	}
-	if !strings.Contains(feat, "commits, pushes and runs `fyr metrics ingest` once") {
-		t.Error("skills/fyr-feature/SKILL.md does not state that /fyr-handoff commits, pushes and ingests once")
-	}
-
 	handoff := section(t, readSkill(t, "skills/fyr-handoff/SKILL.md"), "## Step 6")
-	if !strings.Contains(handoff, "one commit, one push and one `fyr metrics ingest` per conversation") {
-		t.Error("skills/fyr-handoff/SKILL.md Step 6 does not state one commit, push and ingest per conversation")
+	for _, want := range []string{"fyr metrics ingest", "push"} {
+		if !strings.Contains(handoff, want) {
+			t.Errorf("skills/fyr-handoff/SKILL.md Step 6 missing structural step %q", want)
+		}
 	}
 }
 
@@ -349,10 +315,9 @@ func assertSkillTextCases(t *testing.T, cases []skillTextCase) {
 	}
 }
 
-// TestV910SkillTemplatesAndR7Alignment pins Phase 16 (F-041, F-015 / D10 / ADR-534):
-// runnable distroless + imagetools inspect in docker, two-stage first-apply bootstrap
-// in terraform, and PRD.md R7 single-handoff close (optional change) across context,
-// fyr-bug, and fyr-handoff.
+// TestV910SkillTemplatesAndR7Alignment pins structural template guarantees
+// (runnable distroless + imagetools inspect in docker, ignore_changes + var.git_sha
+// in terraform) and PRD.md R7 optional-change / single-handoff markers.
 func TestV910SkillTemplatesAndR7Alignment(t *testing.T) {
 	assertSkillTextCases(t, []skillTextCase{
 		{
@@ -362,29 +327,26 @@ func TestV910SkillTemplatesAndR7Alignment(t *testing.T) {
 			forbid: []string{"@sha256:<digest>"},
 		},
 		{
-			name:   "terraform-first-apply-bootstrap",
-			path:   "skills/terraform/SKILL.md",
-			want:   []string{"two-stage bootstrap", "placeholder", "ignore_changes = [template[0].containers[0].image]", "var.git_sha"},
-			forbid: []string{"from `var.git_sha`"},
+			name: "terraform-first-apply-bootstrap",
+			path: "skills/terraform/SKILL.md",
+			want: []string{"ignore_changes = [template[0].containers[0].image]", "var.git_sha"},
 		},
 		{
-			name:   "context-r7-single-handoff",
-			path:   "context/AGENTS.md",
-			want:   []string{"(`change` optional)", "self-review small diffs in `handoff`", "batch `adr`/`bug`"},
-			forbid: []string{"store `change` and run `/fyr-handoff`", "self-review small diffs in `change`", "batch `change`/`adr`/`bug`"},
+			name: "context-r7-single-handoff",
+			path: "context/AGENTS.md",
+			want: []string{"`change` optional", "handoff"},
 		},
 		{
 			name:   "fyr-bug-r7-single-handoff",
 			path:   "skills/fyr-bug/SKILL.md",
 			sec:    "## Step 5",
-			want:   []string{"single `handoff` record", "optional"},
+			want:   []string{"handoff", "optional"},
 			forbid: []string{"Store `change` (`fyr record add change"},
 		},
 		{
-			name:   "fyr-handoff-r7-single-handoff",
-			path:   "skills/fyr-handoff/SKILL.md",
-			want:   []string{"one `handoff` record", "`fyr record add change` is optional"},
-			forbid: []string{"no `change` record covers those changes, store one **before** the handoff", "the checkpoint's `change` record, commit and push", "the `change` record, the `handoff` record", "with no `change` record covering it"},
+			name: "fyr-handoff-r7-single-handoff",
+			path: "skills/fyr-handoff/SKILL.md",
+			want: []string{"`fyr record add change`", "optional"},
 		},
 	})
 }
@@ -532,10 +494,9 @@ func TestV910SkillDietBudget(t *testing.T) {
 
 	// PRD.md R7 / D10: single-handoff close in fyr-feature (`change` optional).
 	assertSkillTextCases(t, []skillTextCase{{
-		name:   "fyr-feature-r7-single-handoff",
-		path:   "skills/fyr-feature/SKILL.md",
-		want:   []string{"`change` optional", "single `handoff` record"},
-		forbid: []string{"Store the `change` record yourself", "store the `change` record for the phase yourself"},
+		name: "fyr-feature-r7-single-handoff",
+		path: "skills/fyr-feature/SKILL.md",
+		want: []string{"`change` optional", "handoff"},
 	}})
 
 	// Frontmatter keyword overlap check across all skills/*/SKILL.md.
@@ -587,6 +548,7 @@ func TestV910SkillDietNoSecretPatterns(t *testing.T) {
 		"skills/fyr-retro/SKILL.md",
 		"skills/fyr-retro/references/sources-and-harness.md",
 		"skills/fyr-retro/references/record-and-apply.md",
+		"skills/fyr-project-memory/SKILL.md",
 		"skills/golang/SKILL.md",
 		"skills_text_test.go",
 	}

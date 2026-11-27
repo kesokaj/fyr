@@ -1,12 +1,12 @@
 ---
 name: fyr-spec
-description: "Author or revise surface specs (SPEC-<app>-<topic>) verified by fyr check (/fyr-spec)."
+description: "Author/revise machine-projectable SPEC-<app>-<topic> surface contract verified by fyr check (/fyr-spec). Not option comparisons or plans."
 argument-hint: "<topic> [--app <cmd dir>]"
 ---
 
 # Spec
 
-One surface, one machine-projectable record in 100% agent-only `brain.db` (Track 3 surface contract; projected on demand by `fyr search --contracts` and relayed to humans via agent summaries). A spec defines what a surface looks like from outside and how a reader or checker proves the code matches; the plan says how it gets built, and the ADR says why it was decided this way.
+**Owns:** authoring and revising one machine-projectable `SPEC-<app>-<topic>` surface contract in 100% agent-only `brain.db` (Track 3 contract; projected on demand by `fyr search --contracts`, checked by `fyr check`, and relayed to humans via agent summaries) — defining what a surface looks like from outside and how tests prove the code matches. **Does not own:** comparing 3+ alternatives (`fyr-research`), formal `PRD.md` requirements (`fyr-requirements`), phased build plans (`fyr-feature`), or interface-free decisions (`ADR`).
 
 **Trail:** `~/.gemini/config/skills/fyr-init-project/references/trail.md`; dates from `date +%F`. `<app>` is the single `cmd/<app>` directory (`ls -d cmd/*/` printing exactly one); a repository with several binaries gets one `SPEC-<app>-…` set per binary; with none, the binary or service the project's `AGENTS.md` names, else the repository directory's own name — the `documentation` agent's rule for the single-binary and no-binary cases, extended with one directory per binary when there are several.
 

@@ -204,5 +204,5 @@ Then this session ends (`rules/session-sizing.md`): a new task in a session that
 
 - The `/fyr-retro` workflow turns corrections into proposals scoped to the project (applied there, recorded as a `retro` record) or to the harness (queued as global `proposal` records)
 - The `dreamer` agent, dispatched by `/fyr-retro`, proposes skills and memory consolidations from memory and the trail in a draft the main thread stores as a `retro` record; the `fyr-dream` skill consolidates the memory itself
-- The `fyr-feedback-log` skill passively stores corrections as global `feedback` records
+- The `fyr-project-memory` skill passively stores corrections as global `feedback` records (and procedural memories)
 - `change` records (optional standalone changelog notes, plus historical `change` records in the store) — reference these, don't duplicate them

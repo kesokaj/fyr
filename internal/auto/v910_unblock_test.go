@@ -140,7 +140,7 @@ func runV910EvalPrefixAndPreDispatchFeasibility(t *testing.T) {
 		{ID: "feature-empty", Prompt: "build from scratch"},
 		{ID: "dreamer", Agent: "dreamer", Prompt: "dispatch dreamer"},
 		{ID: "retro", Prompt: "run retro"},
-		{ID: "feedback-log", Prompt: "record correction"},
+		{ID: "feedback-log", Prompt: "record correction via fyr-project-memory"},
 		{ID: "project-memory", Prompt: "remember Friday"},
 	}
 	mustMatch := [][2]string{
@@ -148,7 +148,7 @@ func runV910EvalPrefixAndPreDispatchFeasibility(t *testing.T) {
 		{"feature-empty", "fyr-feature"},
 		{"dreamer", "skills/fyr-dream/SKILL.md"},
 		{"retro", "skills/fyr-retro/SKILL.md"},
-		{"feedback-log", "skills/fyr-feedback-log/SKILL.md"},
+		{"feedback-log", "skills/fyr-project-memory/SKILL.md"},
 		{"project-memory", "skills/fyr-project-memory/SKILL.md"},
 	}
 	for _, tc := range mustMatch {

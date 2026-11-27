@@ -6,7 +6,7 @@ argument-hint: "[--dry-run]"
 
 # Dream — consolidate the project's memory
 
-Sessions save memory one record per fact through `fyr memory add` (the `fyr-project-memory` skill, `fyr-feedback-log` rule 7), and nothing tidies it. This skill reads the memory, gives every memory one verdict, applies the verdicts by retiring or rewriting records, and hands what deserves to become a rule to `/fyr-retro`. It never writes a rule, a skill or context itself: `/fyr-retro` Step 2 is the one place that decides where a rule lives.
+Sessions save memory one record per fact through `fyr memory add` (the `fyr-project-memory` skill, including passive correction logging rule 7), and nothing tidies it. This skill reads the memory, gives every memory one verdict, applies the verdicts by retiring or rewriting records, and hands what deserves to become a rule to `/fyr-retro`. It never writes a rule, a skill or context itself: `/fyr-retro` Step 2 is the one place that decides where a rule lives.
 
 ```
 /fyr-dream              # orientation → verdict table → the operator picks → apply → record

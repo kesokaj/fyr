@@ -1,12 +1,12 @@
 ---
 name: fyr-research
-description: "Compare 3+ options, recommend one, and optionally draft SPEC-* (/fyr-research) before /fyr-feature. Not for quick code lookups."
+description: "Compare 3+ options and recommend one (/fyr-research) before planning. Not quick lookups, surface specs, or PRD edits."
 argument-hint: "[topic]"
 ---
 
-# Research & Spec Workflow
+# Research Workflow
 
-Research a topic, compare alternatives, and optionally write a spec; the plan is the `fyr-feature` skill's.
+**Owns:** comparing 3+ viable options, building a trade-off table, and recommending one approach (`/fyr-research`). **Does not own:** quick codebase lookups (`fyr search`), surface contracts (delegate to `fyr-spec` in Step 4), phased build plans (`fyr-feature`), or formal `PRD.md` requirements (`fyr-requirements`).
 
 ## Usage
 

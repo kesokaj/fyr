@@ -44,7 +44,7 @@ func MatchSkills(prompt string, intent IntentMode, files []string, catalog []Ski
 		return nil, secReq
 	}
 	if intent == IntentCorrection {
-		return selectInstalledNamedSkills(installed, "operator correction", "fyr-feedback-log", "fyr-project-memory"), secReq
+		return selectInstalledNamedSkills(installed, "operator correction", "fyr-project-memory"), secReq
 	}
 	docs, idf, avgLen := buildSkillCorpus(installed)
 	queryTerms := extractPromptQueryTerms(low)

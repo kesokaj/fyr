@@ -146,10 +146,6 @@ func EvaluateAnchors(prompt string, slice SliceResult, brainCtx TurnBrainContext
 	return present, missing
 }
 
-func vetPromptCore(prompt string, intent IntentMode, slice SliceResult, brainCtx TurnBrainContext, catalog []SkillMeta) VetResult {
-	return vetPromptCoreWithHistory(prompt, intent, slice, brainCtx, catalog, nil, nil, nil)
-}
-
 func vetPromptCoreWithHistory(
 	prompt string,
 	intent IntentMode,

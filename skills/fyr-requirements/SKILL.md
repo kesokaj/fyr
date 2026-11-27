@@ -1,12 +1,12 @@
 ---
 name: fyr-requirements
-description: "Elicit, trace, and maintain PRD.md requirements with enforced-by sites (/fyr-requirements) after formal approval."
+description: "Elicit, trace, and maintain PRD.md requirements with enforced-by sites (/fyr-requirements) on formal approval. Not wire shapes."
 argument-hint: "[area or question]"
 ---
 
 # Requirements
 
-Requirements are the sentences the project is wrong without. This skill gets them out of the user's head, writes them in the template's tiers, ties each to the place that enforces it, and hands the user a draft to approve. It never approves anything itself.
+**Owns:** formal `PRD.md` requirement elicitation, tiering (`Must`/`Should`/`Could`/`Non-goals`), `enforced-by` site tracing, and approval-gated `PRD.md` + `TODO.md` + ADR writes (`/fyr-requirements`; never self-approved). **Does not own:** comparing 3+ solution options (`fyr-research`), machine-projectable `SPEC-*` interface contracts (`fyr-spec`), or phased build plans (`fyr-feature`).
 
 **Trail:** `~/.gemini/config/skills/fyr-init-project/references/trail.md`; dates from `date +%F`. The file is `PRD.md` at the repository root. A project that still has the legacy `REQUIREMENTS.md` is offered `/fyr-init-project`'s update first, whose migration line renames it; nothing is drafted against the old file.
 

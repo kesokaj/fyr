@@ -154,13 +154,18 @@ func TestVetPromptGatesAndBypasses(t *testing.T) {
 		}
 	}
 
-	// 6. CORRECTION gets ENRICH_AND_PROCEED and prefetches fyr-feedback-log + fyr-project-memory from installed catalog.
+	// 6. CORRECTION gets ENRICH_AND_PROCEED and prefetches fyr-project-memory from installed catalog.
 	corrRes := VetPrompt("No, always do table-driven tests with -race", "", SliceResult{}, TurnBrainContext{}, loadInstalledRepoSkillCatalog(t))
 	if corrRes.Intent != IntentCorrection || corrRes.Gate != GateEnrichAndProceed {
 		t.Errorf("CORRECTION: got intent=%s gate=%s, want CORRECTION / ENRICH_AND_PROCEED", corrRes.Intent, corrRes.Gate)
 	}
-	if len(corrRes.Skills) != 2 || corrRes.Skills[0].Name != "fyr-feedback-log" || corrRes.Skills[1].Name != "fyr-project-memory" {
-		t.Errorf("CORRECTION skills = %+v, want [fyr-feedback-log, fyr-project-memory]", corrRes.Skills)
+	if len(corrRes.Skills) != 1 || corrRes.Skills[0].Name != "fyr-project-memory" {
+		t.Errorf("CORRECTION skills = %+v, want [fyr-project-memory]", corrRes.Skills)
+	}
+	// When fyr-project-memory is absent from the installed catalog, CORRECTION must return 0 skills.
+	absentCat := []SkillMeta{{Name: "fyr-retro", Description: "Session retrospective"}}
+	if gotAbsent, _ := MatchSkills("No, always record corrections", IntentCorrection, nil, absentCat); len(gotAbsent) != 0 {
+		t.Errorf("CORRECTION without fyr-project-memory = %+v, want empty", gotAbsent)
 	}
 
 	// 7. Conflict with PRD / ADR triggers VET_FIRST and sanitizes newlines in ADR titles.
@@ -481,7 +486,7 @@ func VetPrompt(prompt string, intent IntentMode, slice SliceResult, brainCtx Tur
 	if len(catalog) > 0 {
 		cat = catalog[0]
 	}
-	res := vetPromptCore(prompt, intent, slice, brainCtx, cat)
+	res := vetPromptCoreWithHistory(prompt, intent, slice, brainCtx, cat, nil, nil, nil)
 	sysMsg, banner := BuildTurnEnvelope(&res, slice, brainCtx, nil, nil)
 	res.SystemMessage = sysMsg
 	res.UserMarkdownBanner = banner
@@ -511,8 +516,8 @@ func loadInstalledRepoSkillCatalog(t *testing.T) []SkillMeta {
 			Digest:      desc,
 		})
 	}
-	if len(out) < 35 {
-		t.Fatalf("expected >= 35 repo skills, got %d", len(out))
+	if len(out) < 34 {
+		t.Fatalf("expected >= 34 repo skills, got %d", len(out))
 	}
 	return out
 }
@@ -561,7 +566,7 @@ func TestV910DynamicSkillPrefetch(t *testing.T) {
 		}
 	}
 
-	// 3. Dynamic coverage of all 35 installed skills (including the 8 previously uncovered) + synthetic 36th skill.
+	// 3. Dynamic coverage of all 34 installed skills + synthetic 35th skill.
 	probes := []struct {
 		want   string
 		prompt string
@@ -581,7 +586,7 @@ func TestV910DynamicSkillPrefetch(t *testing.T) {
 		{"fyr-bug", "Fix failing parser crash with goldfish diagnosis and BUG record", IntentBug, nil},
 		{"fyr-dream", "Run /fyr-dream interactive memory consolidation and assign verdicts", IntentTask, nil},
 		{"fyr-feature", "Plan phased feature recon with cold-reader check and interview", IntentFeature, nil},
-		{"fyr-feedback-log", "No, always record operator corrections as global feedback records", IntentCorrection, nil},
+		{"fyr-project-memory", "No, always record operator corrections as global feedback records", IntentCorrection, nil},
 		{"fyr-handoff", "Wrap up with /fyr-handoff immutable handoff and Kickoff", IntentTask, nil},
 		{"fyr-harness-audit", "Run /fyr-harness-audit area by area with --reaudit", IntentTask, nil},
 		{"fyr-init-project", "Scaffold a fyr project with /fyr-init-project root docs and seed guides", IntentTask, nil},
