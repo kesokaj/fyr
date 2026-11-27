@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -150,27 +149,17 @@ func TestV910IsolateLandlockModelsAndAgyBundle(t *testing.T) {
 	}
 	// Capture host Go caches before newRig(t) overrides HOME so neither go build
 	// nor `fyr install --repo` creates read-only modcache files under r.real.
-	goEnv := func(key string) string {
-		out, envErr := exec.Command("go", "env", key).Output()
-		if envErr != nil {
-			t.Fatalf("go env %s: %v", key, envErr)
-		}
-		return strings.TrimSpace(string(out))
-	}
-	goModCache, goBuildCache := goEnv("GOMODCACHE"), goEnv("GOCACHE")
-
-	// Build a real fyr binary so `fyr models --pick` runs inside Landlock.
-	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	goModCache, err := goEnvVal("GOMODCACHE")
 	if err != nil {
 		t.Fatal(err)
 	}
-	builtFyr := filepath.Join(t.TempDir(), "real-fyr")
-	buildCmd := exec.Command("go", "build", "-o", builtFyr, "./cmd/fyr")
-	buildCmd.Dir = repoRoot
-	buildCmd.Env = append(FyrEnv(), "GOTOOLCHAIN=local", "CGO_ENABLED=0", "GOMODCACHE="+goModCache, "GOCACHE="+goBuildCache)
-	if out, err := buildCmd.CombinedOutput(); err != nil {
-		t.Fatalf("build fyr binary: %v\n%s", err, out)
+	goBuildCache, err := goEnvVal("GOCACHE")
+	if err != nil {
+		t.Fatal(err)
 	}
+
+	// Reuse the package-shared real fyr binary so `fyr models --pick` runs inside Landlock.
+	builtFyr, repoRoot := sharedFyrBin(t)
 
 	r := newRig(t)
 	t.Setenv("GOMODCACHE", goModCache)

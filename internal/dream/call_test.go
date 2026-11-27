@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -86,14 +87,18 @@ func TestCallKeepsTheAnswerWhenAHelperOutlivesTheCLI(t *testing.T) {
 	}
 }
 
-// TestHelperCall is not a test: TestCallKillsTheGroupOnInterrupt runs this
-// binary as a subprocess with DREAM_HELPER_DIR set, and interrupts it.
+// TestHelperCall is not a test: TestCallKillsTheGroupOnInterrupt and
+// TestCallLeavesTheGroupOnAnIgnoredSignal run this binary as a subprocess with
+// DREAM_HELPER_DIR set.
 func TestHelperCall(t *testing.T) {
 	dir := os.Getenv("DREAM_HELPER_DIR")
 	if dir == "" {
 		t.Skip("helper process")
 	}
-	callWithin([]string{filepath.Join(dir, "holder")}, "", dir, append(os.Environ(), "PIDFILE="+filepath.Join(dir, "pid")), time.Minute, time.Second)
+	if os.Getenv("DREAM_HELPER_RESET_SIGNALS") == "1" {
+		signal.Reset(syscall.SIGHUP, syscall.SIGINT)
+	}
+	callWithin([]string{filepath.Join(dir, "holder")}, "", dir, append(os.Environ(), "PIDFILE="+filepath.Join(dir, "pid")), 5*time.Second, time.Second)
 }
 
 // Ctrl-C on a hand-run `fyr dream` reached the CLI while it shared
@@ -113,9 +118,16 @@ func callKilledBy(t *testing.T, sig os.Signal) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { killPidFile(pidfile) })
+	// Non-interactive shells often launch `go test` with SIGHUP/SIGINT set to
+	// SIG_IGN. Catching both briefly across Start makes execve(2) reset them to
+	// SIG_DFL in the child (matching os/signal's TestDetectNohup).
+	unignore := make(chan os.Signal, 1)
+	signal.Notify(unignore, syscall.SIGHUP, syscall.SIGINT)
 	c := exec.Command(os.Args[0], "-test.run=^TestHelperCall$")
-	c.Env = append(os.Environ(), "DREAM_HELPER_DIR="+dir)
-	if err := c.Start(); err != nil {
+	c.Env = append(os.Environ(), "DREAM_HELPER_DIR="+dir, "DREAM_HELPER_RESET_SIGNALS=1")
+	err := c.Start()
+	signal.Stop(unignore)
+	if err != nil {
 		t.Fatal(err)
 	}
 	var pid int
@@ -132,7 +144,11 @@ func callKilledBy(t *testing.T, sig os.Signal) {
 	if err := c.Process.Signal(sig); err != nil {
 		t.Fatal(err)
 	}
-	c.Wait() // dies by the signal, as before the group existed
+	if waitErr := c.Wait(); waitErr == nil {
+		t.Fatalf("helper exited cleanly instead of dying from %v", sig)
+	} else if ws, ok := c.ProcessState.Sys().(syscall.WaitStatus); !ok || !ws.Signaled() || ws.Signal() != sig {
+		t.Fatalf("helper wait status = %v (err %v), want signal %v", c.ProcessState, waitErr, sig)
+	}
 	for i := 0; i < 30 && alive(pid); i++ {
 		time.Sleep(100 * time.Millisecond)
 	}

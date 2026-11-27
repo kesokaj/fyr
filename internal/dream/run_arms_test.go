@@ -1,6 +1,7 @@
 package dream
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"path/filepath"
@@ -54,21 +55,31 @@ func TestRunSkipsAndStateWriteAtFinish(t *testing.T) {
 	}
 }
 
-// An answer the scanner cannot read fails the project with the scanner's
+// An answer the scanner or result parser cannot read fails with the reader's
 // reason, not "invalid output".
 func TestRunUnreadableAnswer(t *testing.T) {
-	if testing.Short() {
-		t.Skip("a 17 MB answer")
+	// Direct oversize-line check exercises the exact 16 MiB scanner cap without
+	// piping 17 MiB through /bin/sh and keepFailure redaction under -race.
+	oversize := strings.Repeat("x", (16<<20)+1) + "\n"
+	if got, err := answer(oversize); !errors.Is(err, bufio.ErrTooLong) || !strings.Contains(err.Error(), "output line too long or unreadable") || got != "" {
+		t.Fatalf("answer(oversize) = (%q, %v), want output line too long or unreadable wrapping bufio.ErrTooLong", got, err)
 	}
+	if got, err := answer(agyResult(`{"proposals":[],"skills":[]}`, false)); err != nil || got != `{"proposals":[],"skills":[]}` {
+		t.Fatalf("answer(valid) = (%q, %v), want empty JSON response with nil error", got, err)
+	}
+
+	// End-to-end Run check pins that an answer error logs its reason instead of
+	// falling back to "invalid output".
 	f := newFixture(t)
 	scaffold(t, f)
 	agyLogin(t)
-	fakeCLI(t, "agy", strings.Repeat("x", 17<<20)+"\n", 0)
+	fakeCLI(t, "agy", `{"event":"result","result":{"status":"ERROR","response":"x"}}`+"\n", 0)
 	var ee *ExitError
 	if err := Run(runOpts(f, &bytes.Buffer{})); !errors.As(err, &ee) || ee.Code != 1 {
 		t.Fatalf("err = %v, want exit 1", err)
 	}
-	if log := dreamLog(t, f); !strings.Contains(log, f.root+" fail output line too long or unreadable") {
+	log := dreamLog(t, f)
+	if !strings.Contains(log, f.root+` fail CLI result status "ERROR"`) || strings.Contains(log, "invalid output") {
 		t.Errorf("log:\n%s", log)
 	}
 }
