@@ -127,6 +127,9 @@ func TestCheckoutAgentsAreNative(t *testing.T) {
 		if a.Name == "reviewer" && !strings.Contains(a.Body, "~/.gemini/config/skills/review-standards/SKILL.md") {
 			t.Errorf("the reviewer does not name the review-standards skill by its Antigravity path")
 		}
+		if a.Name == "security" && !strings.Contains(a.Body, "~/.gemini/config/skills/review-standards/SKILL.md") {
+			t.Errorf("the security agent does not reference the shared review-standards hygiene section")
+		}
 		wantModel := map[string]string{
 			"documentation": "flash",
 			"explorer":      "flash",
@@ -153,9 +156,14 @@ func TestCheckoutAgentsAreNative(t *testing.T) {
 			}
 		}
 		if a.Name == "verifier" {
-			for _, wantClause := range []string{"## Boundary Contract Checklist", "< 200 ms", "128 KiB", "BUG-560", "ast.PyCF_ALLOW_TOP_LEVEL_AWAIT"} {
+			for _, wantClause := range []string{"live runtime e2e and smoke verification", "## Write the artifact EARLY", "## Status: IN PROGRESS", "## Not examined", ".agents/scratch/", "never open `~/.gemini/` or `~/.config/fyr/` SQLite DBs in place"} {
 				if !strings.Contains(a.Body, wantClause) {
-					t.Errorf("agent verifier missing boundary contract clause %q", wantClause)
+					t.Errorf("agent verifier missing generic verification contract clause %q", wantClause)
+				}
+			}
+			for _, forbidClause := range []string{"## Boundary Contract Checklist", "internal/search/hook", "BUG-560", "workflows/*.py", "ast.PyCF_ALLOW_TOP_LEVEL_AWAIT"} {
+				if strings.Contains(a.Body, forbidClause) {
+					t.Errorf("global agent verifier leaks fyr-internal clause %q", forbidClause)
 				}
 			}
 		}
@@ -209,6 +217,16 @@ func TestCheckoutAgentsAreNative(t *testing.T) {
 	}
 	if !foundHighLine {
 		t.Errorf("skills/fyr-review/SKILL.md missing --high line")
+	}
+
+	reviewStandards, err := os.ReadFile(filepath.Join("..", "..", "skills", "review-standards", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, wantSec := range []string{"## 9. Subagent review hygiene", "Tool-call budget", "Write the artifact early", "Scratch & stores safety"} {
+		if !strings.Contains(string(reviewStandards), wantSec) {
+			t.Errorf("skills/review-standards/SKILL.md missing shared subagent hygiene marker %q", wantSec)
+		}
 	}
 }
 

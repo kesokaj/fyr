@@ -26,6 +26,8 @@ var maxAssetBytes int64 = 256 << 20
 var ErrNewerRelease = fmt.Errorf("a newer release is available")
 
 // assetName is the binary asset's name for one platform.
+//
+//nolint:unparam // goos varies across GOOS targets
 func assetName(goos, goarch string) string {
 	return fmt.Sprintf("fyr-%s-%s", goos, goarch)
 }

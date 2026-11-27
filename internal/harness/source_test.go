@@ -2,7 +2,6 @@ package harness
 
 import (
 	"bytes"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -167,7 +166,9 @@ func TestDirSourceReadsTheSameAsFS(t *testing.T) {
 			t.Errorf("file %d: dir %s %v, fs %s %v", i, a.Rel, a.Mode, b.Rel, b.Mode)
 		}
 	}
-	var _ fs.FS = DirSource(repo).FS
+	if DirSource(repo).FS == nil {
+		t.Fatal("DirSource.FS is nil")
+	}
 }
 
 // skills/<name> may be a link — `npx skills add -g` leaves one — and a

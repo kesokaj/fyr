@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/redact"
 )
 
 type workflowAgentCall struct {
@@ -29,7 +31,11 @@ type workflowRunResult struct {
 const pyWorkflowHarness = `
 import ast, asyncio, contextlib, io, json, os, sys
 
+sys.dont_write_bytecode = True
 script_path, args_json = sys.argv[1], sys.argv[2]
+script_dir = os.path.dirname(os.path.abspath(script_path))
+if not sys.path or sys.path[0] != script_dir:
+    sys.path.insert(0, script_dir)
 args = json.loads(args_json)
 mocks = json.loads(os.environ.get("FYR_WORKFLOW_MOCKS", "{}") or "{}")
 prompts = []
@@ -193,7 +199,7 @@ func runWorkflowScriptWithOpts(t *testing.T, script string, args map[string]any,
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("python3", "-c", pyWorkflowHarness, absScript, string(rawArgs))
+	cmd := exec.Command("python3", "-B", "-c", pyWorkflowHarness, absScript, string(rawArgs))
 	if opts.workDir != "" {
 		cmd.Dir = opts.workDir
 	}
@@ -245,7 +251,7 @@ func runWorkflowScriptExpectError(t *testing.T, script string, args map[string]a
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("python3", "-c", pyWorkflowHarness, absScript, string(rawArgs))
+	cmd := exec.Command("python3", "-B", "-c", pyWorkflowHarness, absScript, string(rawArgs))
 	cmd.Env = overrideEnv(os.Environ(), map[string]string{"FYR_WORKFLOW_MOCKS": "", "FYR_TEST_CONVERSATION_ID": ""})
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -449,7 +455,7 @@ enum = ns["STAGE_SCHEMA"]["properties"]["verdict"].get("enum")
 want = ["APPROVE", "APPROVE_WITH_NITS", "REQUEST_CHANGES", "CLEAR", "FINDINGS", "PASS", "FAIL", "BLOCKED"]
 assert enum == want, f"STAGE_SCHEMA verdict enum={enum}, want {want}"
 `
-	if out, err := exec.Command("python3", "-c", pySchemaCheck, "workflows/preflight_gate.py").CombinedOutput(); err != nil {
+	if out, err := exec.Command("python3", "-B", "-c", pySchemaCheck, "workflows/preflight_gate.py").CombinedOutput(); err != nil {
 		t.Fatalf("preflight_gate.py STAGE_SCHEMA check failed: %v\n%s", err, out)
 	}
 }
@@ -512,7 +518,7 @@ for call in agent_calls:
     m = kw.get("model")
     assert isinstance(m, ast.Constant) and m.value in ("flash", "pro"), f"non-literal or bad model arg: {ast.dump(call)}"
 `
-	if out, err := exec.Command("python3", "-c", pyASTCheck, "workflows/review_parallel.py").CombinedOutput(); err != nil {
+	if out, err := exec.Command("python3", "-B", "-c", pyASTCheck, "workflows/review_parallel.py").CombinedOutput(); err != nil {
 		t.Fatalf("review_parallel.py AST check failed: %v\n%s", err, out)
 	}
 }
@@ -1054,7 +1060,7 @@ for c in calls:
     else:
         assert tn.value in ("reviewer", "security", "verifier") and m.value == "pro", f"guarded call {tn.value!r}/{m.value!r}"
 `
-		if out, err := exec.Command("python3", "-c", pyASTCheck, "workflows/phase_loop.py").CombinedOutput(); err != nil {
+		if out, err := exec.Command("python3", "-B", "-c", pyASTCheck, "workflows/phase_loop.py").CombinedOutput(); err != nil {
 			t.Fatalf("phase_loop.py AST check failed: %v\n%s", err, out)
 		}
 	})
@@ -1374,5 +1380,192 @@ esac`
 	})
 	if disjoint.Output["status"] != "DRY_RUN" {
 		t.Fatalf("disjoint trailing-slash dirs failed dry_run: %+v", disjoint.Output)
+	}
+}
+
+func TestWorkflowScriptsSharedLibAndSyntax(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not installed")
+	}
+
+	// Verify ast.parse(..., mode='exec') succeeds on every workflows/*.py and fails on malformed syntax.
+	scripts, err := filepath.Glob("workflows/*.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scripts) < 4 {
+		t.Fatalf("expected >= 4 workflows/*.py including fyr_workflow_lib.py, got %v", scripts)
+	}
+	const pySyntaxCheck = `
+import ast, sys
+for p in sys.argv[1:]:
+    with open(p, "r", encoding="utf-8") as fh:
+        ast.parse(fh.read(), p, mode="exec")
+try:
+    ast.parse("def broken(:\n", "<bad>", mode="exec")
+except SyntaxError:
+    pass
+else:
+    raise AssertionError("ast.parse failed to reject malformed syntax")
+`
+	if out, err := exec.Command("python3", append([]string{"-B", "-c", pySyntaxCheck}, scripts...)...).CombinedOutput(); err != nil {
+		t.Fatalf("ast.parse(mode='exec') check failed: %v\n%s", err, out)
+	}
+
+	// Verify preflight_gate.py and review_parallel.py delegate shared helpers to fyr_workflow_lib.
+	for _, script := range []string{"workflows/preflight_gate.py", "workflows/review_parallel.py"} {
+		raw, err := os.ReadFile(script)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(raw)
+		if !strings.Contains(src, "fyr_workflow_lib") {
+			t.Errorf("%s does not import shared module fyr_workflow_lib", script)
+		}
+		for _, dupDef := range []string{
+			"def _resolve_cross_family_route(",
+			"def _unwrap_agy_json(",
+			"async def _record_orchestration_run(",
+			"async def _run_headless_cross_family(",
+		} {
+			if strings.Contains(src, dupDef) {
+				t.Errorf("%s still defines duplicated helper %q instead of using fyr_workflow_lib", script, dupDef)
+			}
+		}
+	}
+
+	// Verify installed ~/.gemini/config/workflows/ layout works via ScriptPath and inline execution
+	// and never loads an untrusted cwd/workflows/fyr_workflow_lib.py or cwd/fyr_workflow_lib.py.
+	homeDir := t.TempDir()
+	instDir := filepath.Join(homeDir, ".gemini", "config", "workflows")
+	if err := os.MkdirAll(instDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"fyr_workflow_lib.py", "preflight_gate.py", "review_parallel.py"} {
+		data, err := os.ReadFile(filepath.Join("workflows", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(instDir, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	poisonWork := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(poisonWork, "workflows"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	poison := []byte("raise RuntimeError('cwd hijack loaded')\n")
+	for _, p := range []string{
+		filepath.Join(poisonWork, "fyr_workflow_lib.py"),
+		filepath.Join(poisonWork, "workflows", "fyr_workflow_lib.py"),
+	} {
+		if err := os.WriteFile(p, poison, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("installed ScriptPath loads sibling lib and ignores cwd poison", func(t *testing.T) {
+		res := runWorkflowScriptWithOpts(t, filepath.Join(instDir, "preflight_gate.py"), map[string]any{
+			"base_ref": "v0.1.0", "run_reviewer": true, "run_security": false, "run_verifier": false,
+		}, workflowExecOpts{workDir: poisonWork, homeDir: homeDir})
+		if res.Output["gate_verdict"] != "SHIP" {
+			t.Fatalf("installed preflight_gate gate_verdict = %v, want SHIP", res.Output["gate_verdict"])
+		}
+		rev := runWorkflowScriptWithOpts(t, filepath.Join(instDir, "review_parallel.py"), map[string]any{
+			"scope_text": "git diff HEAD", "lenses": []string{"code"},
+		}, workflowExecOpts{workDir: poisonWork, homeDir: homeDir})
+		if len(rev.Calls) != 1 || rev.Calls[0].TypeName != "reviewer" {
+			t.Fatalf("installed review_parallel calls = %+v, want 1 reviewer call", rev.Calls)
+		}
+	})
+
+	t.Run("inline exec resolves installed lib from HOME and ignores cwd poison", func(t *testing.T) {
+		const inlineRunner = `
+import ast, asyncio, contextlib, io, json, os, sys
+sys.dont_write_bytecode = True
+src = open(sys.argv[1], "r", encoding="utf-8").read()
+async def _agent(*_a, **_kw):
+    return {"stage": "reviewer", "lens": "code", "agent": "reviewer", "status": "COMPLETE", "verdict": "APPROVE", "blocking": False, "high_findings": 0, "artifact_path": ".agents/scratch/agents/m.md", "not_examined": "none", "summary": "ok"}
+async def _parallel(items, fn):
+    return [await fn(x) for x in items]
+ns = {"__name__": "__main__", "args": json.loads(sys.argv[2]), "phase": lambda _n: None, "log": lambda _m: None, "agent": _agent, "parallel": _parallel}
+code = compile(src, "<inline>", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    ret = eval(code, ns)
+    if asyncio.iscoroutine(ret):
+        asyncio.run(ret)
+print(buf.getvalue())
+`
+		for _, tc := range []struct {
+			script, argsJSON, wantKey string
+		}{
+			{filepath.Join(instDir, "preflight_gate.py"), `{"base_ref":"v0.1.0","run_reviewer":true,"run_security":false}`, "gate_verdict"},
+			{filepath.Join(instDir, "review_parallel.py"), `{"scope_text":"git diff HEAD","lenses":["code"]}`, "results"},
+		} {
+			cmd := exec.Command("python3", "-B", "-c", inlineRunner, tc.script, tc.argsJSON)
+			cmd.Dir = poisonWork
+			cmd.Env = overrideEnv(os.Environ(), map[string]string{"HOME": homeDir, "FYR_WORKFLOW_MOCKS": ""})
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("inline exec %s failed: %v\n%s", tc.script, err, out)
+			}
+			var parsed map[string]any
+			if err := json.Unmarshal(out, &parsed); err != nil || parsed[tc.wantKey] == nil {
+				t.Fatalf("inline exec %s bad output: err=%v out=%s", tc.script, err, out)
+			}
+		}
+
+		// Symlinked installed lib must be refused in inline mode instead of following link or loading cwd poison.
+		symHome := t.TempDir()
+		symInst := filepath.Join(symHome, ".gemini", "config", "workflows")
+		if err := os.MkdirAll(symInst, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(instDir, "fyr_workflow_lib.py"), filepath.Join(symInst, "fyr_workflow_lib.py")); err != nil {
+			t.Skip("symlinks unavailable")
+		}
+		cmd := exec.Command("python3", "-B", "-c", inlineRunner, filepath.Join(instDir, "preflight_gate.py"), `{"base_ref":"v0.1.0","run_reviewer":true,"run_security":false}`)
+		cmd.Dir = poisonWork
+		cmd.Env = overrideEnv(os.Environ(), map[string]string{"HOME": symHome, "FYR_WORKFLOW_MOCKS": ""})
+		out, err := cmd.CombinedOutput()
+		if err == nil || strings.Contains(string(out), "cwd hijack loaded") {
+			t.Fatalf("symlinked installed lib should fail closed without loading cwd poison: err=%v out=%s", err, out)
+		}
+	})
+
+	if _, err := os.Stat(filepath.Join("workflows", "__pycache__")); err == nil {
+		t.Fatal("workflows/__pycache__ created during tests; breaks go:embed all:workflows parity")
+	}
+}
+
+func TestWorkflowScriptsNoSecretPatterns(t *testing.T) {
+	// Verify the guard catches the dict-literal shape while allowing separate key assignment.
+	badLine := `"` + "pass" + `ed": units - failed,`
+	if redact.Redact(badLine) == badLine {
+		t.Fatalf("expected redact.Redact to flag dict-literal shape")
+	}
+	safeLine := `row["passed"] = units - failed`
+	if redact.Redact(safeLine) != safeLine {
+		t.Fatalf("expected redact.Redact to allow separate key assignment")
+	}
+
+	paths, err := filepath.Glob(filepath.Join("workflows", "*.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("no workflows/*.py files found")
+	}
+	for _, path := range paths {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, line := range strings.Split(string(raw), "\n") {
+			if redact.Redact(line) != line {
+				t.Errorf("%s:%d matched redact.Redact (would trip fyr gate [secrets])", path, i+1)
+			}
+		}
 	}
 }
