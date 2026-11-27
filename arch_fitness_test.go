@@ -84,6 +84,9 @@ func TestNoNewInitOrDuplicateHelpers(t *testing.T) {
 	}
 }
 
+// TestTrack1DocsSTESentenceRatchet lives in arch_fitness_docs_test.go
+// (package fyr_test) to avoid an import cycle with internal/check.
+
 func requireGitCheckout(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
