@@ -1,34 +1,32 @@
-# Workflow — From Plan to Finish & Feature to Finish
+# Workflow — Plan to Finish & Feature to Finish
 
-`fyr` turns operator intent into verified, traceable commits across stateless Antigravity CLI sessions by separating **upfront design** from **uninterrupted execution** and closing every piece of work through deterministic verification, isolated review, and durable brain records. This guide explains the workflow's **goal**, **turn classification**, **plan-to-finish** lifecycle, **feature-to-finish** execution paths (single-track, parallel swarm, bug fixes, and releases), and step-by-step **Definition of Done (DoD)** alongside [`README.md`](README.md) and [`features/workflows-and-build-control.md`](features/workflows-and-build-control.md).
+This guide covers the `fyr` engineering lifecycle from session start to verified close. It separates upfront design from uninterrupted execution through deterministic gates. See [`README.md`](README.md) for setup, [`docs/cli-reference.md`](docs/cli-reference.md) for flags, [`docs/glossary.md`](docs/glossary.md) for terms, and [`features/workflows-and-build-control.md`](features/workflows-and-build-control.md) for internals.
 
-## 1. Goal & Operating Philosophy
+## 1. Operating Rules
 
-Antigravity sessions start stateless and lose reasoning precision as prompt context expands past `60%` of each model's effective pre-compaction context budget (`rules/session-sizing.md`: `300k` for Gemini `4+`/Claude `5+`/Orchestrators, `180k` default, `77k` GPT-OSS, overridable via `models.json` `context_window`; tracked as `KNEE_EXCEEDED` by `fyr metrics trajectory`). The `fyr` workflow keeps sessions fast, repeatable, and resumable across machines by injecting compact Turn-0 context capsules, locking design decisions before edits start (`ADR-517`), isolating independent reviewers from builder intent, and enforcing completion through fail-closed CLI gates.
+Antigravity sessions start stateless and degrade past `60%` of each model's context budget (`TokenKnee`). `fyr` keeps sessions focused, repeatable, and traceable across machines.
 
 ```mermaid
 flowchart LR
-    resume["1. Resume & Capsule\nfyr resume + PreInvocation\n(handoff, plan, AST slice)"] --> classify["2. Classify & Scope\nTrivial / Task / Bug /\nFeature / Swarm / Release"]
-    classify --> planGate["3. Plan & Interview\nPLAN record + cold-reader\n+ single interview"]
-    planGate --> buildLoop["4. Uninterrupted Build\nRed-first tests + small edits\n(under 60% model knee)"]
+    resume["1. Resume\nfyr resume + AST slice"] --> classify["2. Classify\nTrivial, Task, Bug,\nFeature, Swarm, Release"]
+    classify --> planGate["3. Plan & Interview\nPLAN-* + cold-reader\n+ one interview"]
+    planGate --> buildLoop["4. Build\nRed-first tests + small edits\n(under 60% knee)"]
     buildLoop --> dodGate["5. Three-Step DoD\nfyr verify + review/docs\n+ brain.db records"]
-    dodGate --> nextSess["6. Close or Handoff\nfyr close (task) or\n/fyr-handoff (checkpoint)"]
-    nextSess -. "Kickoff block resets\ncontext to 0 tokens" .-> resume
+    dodGate --> nextSess["6. Close or Handoff\nfyr close or\n/fyr-handoff"]
+    nextSess -. "Kickoff resets context" .-> resume
 ```
 
-Five invariants govern every session in a `fyr`-managed repository:
-
-| Invariant | Target / Rule | Why It Exists |
+| Rule | Target | Purpose |
 |---|---|---|
-| **Session context ceiling** | `<= 60%` effective model context budget per session (`rules/session-sizing.md`) | Prevents long-context degradation before compaction by sizing each session to `1` plan phase or `<= 3` small tasks (`<= 6` changed files, `<= 2` subagents) |
-| **Decide once, build uninterrupted (`ADR-517`, `ADR-532`)** | Zero operator questions during build or handoff Kickoff execution (`[KICKOFF_GUARD]` enforces on `ask_question`) | Resolves scope, interfaces, `PRD.md`, and `ADR` trade-offs in one pre-build interview so implementation runs autonomously |
-| **Search and skeleton before reading** | `fyr search --slice` / `--contracts` / `--affected` / `--path` / `--skeleton` / `--refs` | Cuts token waste; `PreToolUse` clamps unranged reads of `>= 400` lines and rejects duplicate reads whose SHA-256 has not changed |
-| **Fail-open hooks, fail-closed gates** | `< 250 ms` hooks (`SessionStart`, `PreInvocation`, `PreToolUse`, `PostToolUse`, `Stop`) + hard CLI gates | Guides turns without stalling the CLI, while `fyr verify`, `fyr gate`, `fyr land`, `fyr close`, and `/fyr-preflight` enforce real checks |
-| **Durable trail outside chat memory** | `~/.config/fyr/brain.db` (and on-demand `.agents/trail.jsonl`) + `metrics.db` | Preserves `plan`, `adr`, `bug`, `testing`, `review`, `change`, and `handoff` records across session compactions and machines |
+| **Stay under `TokenKnee`** | `<= 60%` model context ([`rules/session-sizing.md`](rules/session-sizing.md)) | Size each session to one phase or `<= 3` small tasks |
+| **Decide once, build clean** | Zero mid-build questions (`[KICKOFF_GUARD]`) | Settle scope, `PRD.md`, and `ADR-*` choices before edits |
+| **Search before reading** | `fyr search --slice` / `--contracts` / `--affected` / `--skeleton` | Cut token waste; hooks clamp unranged reads over `400` lines |
+| **Fail-open hooks, hard gates** | `< 250 ms` hooks + `verify` / `gate` / `land` / `close` | Guide turns without stalls while blocking bad commits |
+| **Keep state outside chat** | `~/.config/fyr/brain.db` and `metrics.db` | Preserve `plan`, `adr`, `bug`, `testing`, `review`, `change`, `handoff` |
 
-## 2. Work Classification & Feature Routing
+## 2. Classify the Work
 
-Every operator turn starts by classifying the request against current specs, architecture decisions, and blast radius (`context/AGENTS.md` § Work, `internal/search/vet.go`). Small copy edits ship immediately, whereas defect reports, multi-phase features, parallel work streams, and release requests each enter a tailored workflow track.
+Check every operator turn for `PRD.md` or `ADR-*` conflicts first, then select the matching workflow track. See [`rules/fyr-features.md`](rules/fyr-features.md) for the trigger routing table.
 
 ```mermaid
 flowchart TD
@@ -36,46 +34,26 @@ flowchart TD
     conflictCheck -- "Yes" --> conflictStop["Flag conflict and ask\n(no edits or subagents)"]
     conflictCheck -- "No" --> releaseCheck{"Ship, release, tag,\nor deploy request?"}
     releaseCheck -- "Yes" --> preflightPath["/fyr-preflight\n(release gate)"]
-    releaseCheck -- "No" --> bugCheck{"Failing test, crash,\nwrong output, or regression?"}
+    releaseCheck -- "No" --> bugCheck{"Broken behavior,\ncrash, or regression?"}
     bugCheck -- "Yes" --> bugPath["/fyr-bug\n(goldfish + red-first fix)"]
-    bugCheck -- "No" --> designCheck{"Design question or\nmulti-sitting scope?"}
-    designCheck -- "No: <= 10 lines docs/config" --> trivialPath["Trivial: apply edit + DoD 2-3"]
+    bugCheck -- "No" --> designCheck{"Design choice or\nmulti-sitting scope?"}
+    designCheck -- "No: <= 10 lines docs/config" --> trivialPath["Trivial: edit + DoD 2-3"]
     designCheck -- "No: 1 sitting, clear path" --> taskPath["Task: 3-line plan + build + DoD"]
     designCheck -- "Yes" --> featurePath["/fyr-feature\n(+ /fyr-swarm if workers: yes)"]
 ```
 
-| Track | Scope & Trigger | Upfront Design | Verification & Review | Close Command |
+| Track | Trigger | Design | Checks & Review | Close |
 |---|---|---|---|---|
-| **Trivial** | `<= 10`-line docs, typo, dead code, formatter, or 1-line config | None | Self-check + `DoD 2-3` | `fyr record add handoff` (`fyr close` only if `fyr verify` also ran) |
-| **Task** | Clear single-sitting change with no open interface/schema choice | 3-line plan in turn | `fyr verify` + `reviewer` if `50+` lines or `5+` files + `security` if sensitive | `fyr close` |
-| **Bug (`/fyr-bug`)** | Any broken code behavior, regression, or non-trivial 1-line code fix | Problem note + `explorer` goldfish diagnosis | Red-first test + `fyr verify` + mandatory diff `reviewer` + `BUG-NNN` record | `fyr close` (or `/fyr-handoff` on multi-phase bug) |
-| **Feature (`/fyr-feature`)** | New behavior, new surface, schema/interface decision, or `2+` phases | `PLAN-*` record + `reviewer` cold-reader check + single interview | Red-first tests per task + Checkpoint per phase + `verifier` e2e + `/fyr-review` | `/fyr-handoff` per phase; `fyr close` / `/fyr-handoff` at end |
-| **Parallel Swarm (`/fyr-swarm`)** | `2+` AI-only phases (`workers: yes`) or backlog triage (`Files:` disjoint) | `PLAN-*` with unbulleted `files:`/`model:`/`base-check:`/`judge:`/`judge-model:` headers + `D-row` | Worker `fyr verify` + `fyr gate` + cross-family judge + sequential `fyr land` | Workers run worker-mode `/fyr-handoff`; coordinator runs `/fyr-handoff` |
-| **Release (`/fyr-preflight`)** | Operator asks to ship, release, deploy, tag, or cut `vX.Y.Z` | Complete dirty-tree DoD first | `preflight_gate.py` (`reviewer` + `security` + `verifier`) + `fyr eval` + `VERDICT: SHIP` | Annotated tag `vX.Y.Z` + push + deploy + entry |
+| **Trivial** | `<= 10` lines of docs, typo, or config | None | Self-check + DoD 2–3 | `fyr record add handoff` |
+| **Task** | Clear single-sitting change | 3-line plan | `fyr verify` + `reviewer` (`50+` L / `5+` F) + `security` | `fyr close` |
+| **Bug** (`/fyr-bug`) | Broken behavior or regression | Problem note + `explorer` | Red-first test + `fyr verify` + `reviewer` + `BUG-*` | `fyr close` or `/fyr-handoff` |
+| **Feature** (`/fyr-feature`) | New surface, schema, or `2+` phases | `PLAN-*` + cold-reader + interview | Red-first + Checkpoint + `verifier` + `/fyr-review` | `/fyr-handoff` per phase |
+| **Swarm** (`/fyr-swarm`) | `2+` disjoint AI slices (`workers: yes`) | `PLAN-*` with `files:`/`judge:` | Worker verify + `fyr gate` + judge + `fyr land` | Worker + coordinator handoff |
+| **Release** (`/fyr-preflight`) | Direct ship, tag, or deploy turn | Finish dirty-tree DoD first | `workflows/preflight_gate.py` + `fyr eval` + `SHIP` | Annotated tag, push, deploy |
 
-<details>
-<summary>Complete feature routing table (rules/fyr-features.md)</summary>
+## 3. Plan to Finish
 
-| When | Use | Not |
-|---|---|---|
-| Code or record lookup | `fyr search --slice` / `--contracts` / `--affected` / `--refs` / `--skeleton` | `grep`, whole-file reads |
-| Session start | `fyr resume` | Reading root files one by one |
-| New behaviour or design question | `/fyr-feature` | Building straight away |
-| 2+ phases or independent tasks | `/fyr-swarm` | Sequential hand-execution |
-| Choosing a model for any role | `fyr models --pick` (`--tier pro` / `flash`) | Hardcoded or guessed model IDs |
-| Anything broken or failing | `/fyr-bug` | Patching straight away |
-| Queue of issues, PRs, or Backlog | `/fyr-triage` then `/fyr-swarm` | Ad-hoc cherry-picking |
-| Review or judgement needed | `reviewer` / `security` / `verifier` (`--judge` cross-family) | Unchecked self-review |
-| Skill, rule, or agent changed | `fyr eval` on affected rows | Untested behavioural claims |
-| Docs written or audited | `/docs-ste100-80` + `fyr check` | Dense prose walls |
-| Phase or session end | `/fyr-handoff` | Ending silently |
-| Idle consolidation or usage audit | `fyr report --md`, `fyr auto`, `fyr dream` | Leaving telemetry unread |
-
-</details>
-
-## 3. From Plan to Finish (The Planning & Session Lifecycle)
-
-Non-trivial engineering work flows from `fyr resume` and AST reconnaissance through a stored `PLAN-*` record, an isolated cold-reader check, and a single pre-build interview that sets `workers: yes | no`. When `workers: no`, the planning session ends with Phase 1's Kickoff so each phase executes in a clean session; when `workers: yes` (default for `2+` AI-only phases), the planning session becomes the `/fyr-swarm` coordinator right away.
+Non-trivial work moves from `fyr resume` through a stored `PLAN-*` record, an isolated cold-reader check, and one pre-build interview. Read [`skills/fyr-feature/SKILL.md`](skills/fyr-feature/SKILL.md) for the `PLAN-*` schema and worker headers, and [`skills/fyr-handoff/SKILL.md`](skills/fyr-handoff/SKILL.md) for verbatim `## Kickoff` templates.
 
 ```mermaid
 sequenceDiagram
@@ -85,241 +63,116 @@ sequenceDiagram
     participant Sub as "Isolated Subagents"
     Op->>Lead: Request new feature or goal
     Lead->>Fyr: fyr resume + fyr search --slice
-    Fyr-->>Lead: Latest handoff, open plans, PRD, AST slice
-    Lead->>Sub: explorer recon brief (when existing repo touches 10+ files)
-    Sub-->>Lead: Structured brief drafted in scratch
-    Lead->>Fyr: fyr record add plan (draft PLAN record)
-    Lead->>Sub: reviewer cold-reader check (plan text only, <= 15 calls)
-    Sub-->>Lead: <= 10 findings on failure modes, tests, or scope
-    Lead->>Op: Single pre-build interview (deep stress-test + Open rows + workers yes/no)
-    Op-->>Lead: Approve plan, PRD, ADRs, and workers D-row
-    alt workers: no (single-track phases)
-        Lead->>Fyr: Store Phase 1 /fyr-handoff ## Kickoff and end planning session
-        Fyr-->>Op: Fresh sessions execute 1 phase each -> DoD -> /fyr-handoff
-    else workers: yes (parallel coordinator)
-        Lead->>Fyr: Planning session coordinates /fyr-swarm waves -> fyr land -> /fyr-handoff
+    Fyr-->>Lead: Handoff, open plans, PRD, AST slice
+    Lead->>Sub: explorer recon brief (10+ unread files)
+    Sub-->>Lead: Brief in scratch
+    Lead->>Fyr: fyr record add plan (draft PLAN-*)
+    Lead->>Sub: reviewer cold-reader check (plan text only)
+    Sub-->>Lead: Up to 10 findings
+    Lead->>Op: Single pre-build interview (Open rows + workers yes/no)
+    Op-->>Lead: Approve plan, PRD, ADRs, and workers decision
+    alt workers: no
+        Lead->>Fyr: Store Phase 1 /fyr-handoff Kickoff and stop
+    else workers: yes
+        Lead->>Fyr: Coordinate /fyr-swarm waves -> fyr land -> /fyr-handoff
     end
 ```
 
-### The seven plan-to-finish stages
+Follow these seven steps in order:
 
-1. **Resume and Turn-0 capsule (`fyr resume`):** Run `fyr resume` at session start to inspect `AGENTS.md`, open records, the newest `handoff`, `TODO.md` `Now`, open plans, recent changes, and matching `semantic` memories (`validity >= 0.40`). In parallel, `PreInvocation` injects a compact Turn-0 AST slice and matches from `search.db` inside per-turn cryptographic fences (`=====<18-hex>=====`).
-2. **Scope and reconnaissance:** Query `fyr search --slice`, `--contracts`, `--affected`, `--path`, `--skeleton`, and `--refs` before opening source files. When the repository already has source files and scoping touches `10+` files across unread packages, dispatch `explorer` (`flash` model) to write `.agents/scratch/agents/<topic>-brief.md` and store it as a closed recon `plan` record (`Recon — <topic>`). Skip `explorer` on small scopes or empty repositories with no source yet.
-3. **Draft the `PLAN-*` record:** Draft `.agents/scratch/plan-<slug>.md` with the required sections (`## Why`, `## Scope`, `## Surfaces touched`, `## Interfaces`, `## Failure modes`, `## Trust boundaries and data handled`, `## Verification`, `## Phases`, `## Risks`, `## Decisions`) and store it via `fyr record add plan`. Resolve worker `model:` and `judge-model:` headers via `fyr models --pick builder` and `fyr models --pick judge` (never invoke `agy models` directly here). If an interface, API, CLI, or storage contract exceeds one screen, author a `SPEC-*` record first via `/fyr-spec`.
-4. **Isolated cold-reader check:** Dispatch `reviewer` once with the drafted plan text alone (never your intent or rationale), a `15`-tool-call budget, and a `<= 10`-item cap targeting missing failure modes, untestable steps (`verify:` / `expect:`), missing owners (`who:`), and scope bloat. Fold accepted fixes into `PLAN-*` with `fyr record edit <PLAN-ID>`.
-5. **Single pre-build interview (`ADR-517`) & `workers` decision:** In one interactive interview, settle remaining `Open:` rows, approve any `PRD.md` changes (Must -> `ADR-*` -> `PRD.md` + `TODO.md`) and structural `ADR-*` records, and confirm `testing-strategy` tiers. Record the execution decision in `## Decisions` as `D<n> — <date> — workers: yes | no, <why> — by: planner`: plans with `2+` `who: AI` phases default to `workers: yes`, setting `workers: no` only with a concrete technical reason. Once approved:
-   - If **`workers: no`**: write the closing `/fyr-handoff` with Phase 1's `## Kickoff` and stop so Phase 1 starts fresh under the `60%` model context limit.
-   - If **`workers: yes`**: remain in the planning session and run Phase 1 immediately as the `/fyr-swarm` coordinator.
-6. **Autonomous execution & mid-build unknowns (`D-row`s vs Closed Set):**
-   - **Small implementation unknowns (`D-row`s):** When a reversible, non-structural detail surfaces mid-phase (such as test case bounds or internal helper layout), settle it without asking and append a column-0 dated `D-row` under `## Decisions` (`D<n> — YYYY-MM-DD — <decision> — by: implementer` or `by: lead`), never rewriting existing `D-row`s.
-   - **Closed-set boundaries (never decided autonomously):** Items outside standing approvals are never settled via `D-row`s; instead defer them to the handoff's `Next Steps` (halting only on a critical blocker or unapproved change required right now): `who: user` tasks, unsettled `Open:` rows, unapproved `PRD.md` changes, new structural `ADR-*` records, releases (`/fyr-preflight`), production deploys (`DEPLOY-*`), real-home installs (in the `fyr` repository), and anything outside the repository.
-7. **Phase checkpoint (`/fyr-handoff`):** After a phase's tasks pass, verify its `**Checkpoint:**` box (command, expected result, and observed evidence), tick `- [x]` in `PLAN-*`, record `change`, update `TODO.md`, commit and push, run `fyr metrics ingest` once, and store an immutable `HANDOFF-*` record ending with the fixed verbatim `## Kickoff` block.
+1. **Run `fyr resume`:** Load `AGENTS.md`, open records, the newest handoff, `TODO.md`, open plans, and memory.
+2. **Search before opening files:** Query `fyr search --slice`, `--contracts`, `--affected`, and `--skeleton`. If scope spans `10+` unread files, dispatch `explorer` and save its brief as a closed recon plan.
+3. **Draft `PLAN-*`:** Write the plan in `.agents/scratch/` per [`skills/fyr-feature/SKILL.md`](skills/fyr-feature/SKILL.md) and store it with `fyr record add plan`. Pick worker and judge models with `fyr models --pick`. If a surface exceeds one screen, author a `SPEC-*` record via `/fyr-spec` first.
+4. **Run a cold-reader check:** Dispatch `reviewer` once with plan text only (`<= 15` tool calls, `<= 10` findings). Apply accepted fixes with `fyr record edit`.
+5. **Hold one pre-build interview:** Settle `Open:` rows, approve `PRD.md` or `ADR-*` updates, confirm test tiers, and record `workers: yes | no`. Plans with `2+` AI-only phases default to `workers: yes`.
+   - If `workers: no`, store Phase 1's `/fyr-handoff` with a verbatim `## Kickoff` block and stop.
+   - If `workers: yes`, stay in the session and launch Wave 1 as the `/fyr-swarm` coordinator.
+6. **Build autonomously within boundaries:**
+   - When a minor choice arises mid-phase, decide it and append a `D-row` (`by: implementer`) under `## Decisions`.
+   - Defer closed-set items to `Next Steps` (`who: user`, `Open:` rows, unapproved `PRD.md`, releases, deploys, or real-home installs).
+7. **Checkpoint the phase:** Confirm the phase `**Checkpoint:**` check, tick `PLAN-*`, log `change`, update `TODO.md`, commit, push, and run `/fyr-handoff`. Copy verbatim `## Kickoff` blocks from [`skills/fyr-handoff/SKILL.md`](skills/fyr-handoff/SKILL.md).
 
-<details>
-<summary>PLAN-* record schema, column-0 worker headers, and verbatim Kickoff templates</summary>
+## 4. Feature to Finish
 
-### Standard `PLAN-*` record schema (`skills/fyr-feature/SKILL.md`)
+After interview approval, run phases sequentially (`workers: no`) or in parallel swarm waves (`workers: yes`) until verification, review, and DoD close the feature.
 
-```markdown
-# Plan — <topic> (<YYYY-MM-DD>)
+### 4.1 Single-track phases (`workers: no`)
 
-## Why
-<1-3 sentences tying the work to PRD.md or user goal>
+Use single-track execution for tightly coupled edits (`1`–`6` files), one phase per fresh session:
 
-## Scope
-- In scope: ...
-- Non-goals: ...
+1. **Write a failing test first:** Reproduce the behavior, including must-pass and must-fail cases for validators or guards. Confirm it fails as expected.
+2. **Make the smallest passing edit:** Follow [`rules/code-modularity.md`](rules/code-modularity.md) and skip unrelated refactors.
+3. **Verify and tick progress:** Run the task's `verify:` check and tick `- [x]` in `PLAN-*` with `fyr record edit`.
+4. **Close the phase:** Run `fyr verify`, record `change`, update `TODO.md`, and run `/fyr-handoff` when phases remain.
 
-## Surfaces touched
-- `cmd/billing/`, `internal/billing/`
+### 4.2 Parallel swarm (`workers: yes`)
 
-## Interfaces
-<Signatures, CLI flags, schemas, or link to SPEC-<app>-<topic>>
-
-## Failure modes
-<Expected errors, timeouts, edge cases, fallback behavior>
-
-## Trust boundaries and data handled
-<Untrusted inputs, auth/authz, secret/path validation>
-
-## Verification
-<Tiers owed from GUIDE-testing / testing-strategy: unit, integration, e2e, eval>
-
-## Phases
-
-- [ ] Cold-reader check — <review record ID once run>
-
-### Phase 1 — Core domain model and store (independent)
-files: internal/billing/**
-model: <id from fyr models --pick builder>
-base-check: go test -race ./internal/billing/...
-judge: Domain validation, idempotent writes, and error cases pass -race unit tests with zero relaxed assertions.
-judge-model: <cross-family id from fyr models --pick judge>
-- [ ] **Task 1.1:** Implement ledger validation and tests (verify: `go test -race ./internal/billing/...`, who: AI) — expect: PASS with -race
-- [ ] **Checkpoint:** `go test -race ./...` — expect: exit 0 — evidence: <filled when checked>
-
-### Phase 2 — HTTP endpoints and CLI wiring (after: Phase 1)
-files: cmd/billing/**
-model: <id from fyr models --pick builder>
-base-check: go test -race ./cmd/billing/...
-judge: Handlers enforce auth/validation and return expected HTTP status codes on valid and invalid payloads.
-judge-model: <cross-family id from fyr models --pick judge>
-- [ ] **Task 2.1:** Wire billing handlers and CLI subcommand (verify: `go test -race ./cmd/billing/...`, who: AI) — expect: PASS with -race
-- [ ] **Checkpoint:** `fyr verify` — expect: PASS stamp written — evidence: <filled when checked>
-
-## Risks
-- ...
-
-## Decisions
-D1 — YYYY-MM-DD — workers: yes, two disjoint AI-only phases — by: planner
-D2 — YYYY-MM-DD — Reject negative invoice amounts at handler boundary — by: implementer
-```
-
-### Standard `## Kickoff` block (verbatim fixed text from `skills/fyr-handoff/SKILL.md`)
-
-```text
-Project: <absolute repository path>. Run fyr resume (handoff <HANDOFF-ID>, plan <PLAN-ID>); do <phase name or task> only.
-Files: <the phase's files: line, or omit when unrestricted>
-Standing approvals (closed set): the phase's boxes marked who: AI and the tests they name; the checkpoint's change record, commit and push; the closing handoff. Never: a who: user box, an Open: row, a release, a deploy, a real-home install, anything outside this repository. Ask only outside the set or on a critical failure.
-Done when: <exact pass check>. Then write the handoff with the next Kickoff and end the session.
-```
-
-### Worker-mode Kickoff blocks (dispatched by coordinator to parallel workers)
-
-**With an active `PLAN-*` record:**
-
-```text
-Project: this clone, the current directory; never another checkout. Read AGENTS.md, then fyr record get <PLAN-ID>; do <phase name> of <PLAN-ID> only, as a worker.
-Files: <the phase's files: line, verbatim>
-Model: <the phase's model: line's value, trimmed; the line left out when the phase has none>
-Standing approvals (closed set): the phase's boxes marked who: AI and the tests they name; the change record; commit on the current branch work/<short>-<phase>[-r2]; the closing handoff.
-Never: push; tick the plan record or TODO.md; store a record of any kind but the change record and the closing handoff (draft it under .agents/scratch/agents/ and name the draft in the handoff); merge; touch main; a who: user box; an Open: row; a release; a deploy; a real-home install; fyr metrics ingest; anything outside the files named.
-Done when: <the phase's Checkpoint expect, verbatim>. Where Done when names an item under Never, Never wins: name it in the handoff for the coordinator. Then write the handoff and end.
-```
-
-**Task wave without a `PLAN-*` record:**
-
-```text
-Project: this clone, the current directory; never another checkout. Read AGENTS.md; do this task only, as a worker, with no plan: <the task, one line>.
-Files: <the task's Files: from the coordinator's table>
-Model: <the task's model ID from the coordinator's table>
-Standing approvals (closed set): the task and the tests Done when names; the change record; commit on the current branch work/<name>[-r2]; the closing handoff.
-Never: push; tick a plan record or TODO.md; store a record of any kind but the change record and the closing handoff (draft it under .agents/scratch/agents/ and name the draft in the handoff); merge; touch main; a design question (stop and name it in the handoff); a release; a deploy; a real-home install; fyr metrics ingest; anything outside the files named.
-Done when: <the task's Done when from the coordinator's table>. Where Done when names an item under Never, Never wins: name it in the handoff for the coordinator. Then write the handoff and end.
-```
-
-</details>
-
-## 4. From Feature to Finish (Single-Track, Parallel Swarm, Bugs & Releases)
-
-Once a `PLAN-*` record clears its cold-reader review and pre-build interview, `/fyr-feature` drives red-first code delivery through either single-track phase loops or parallel `/fyr-swarm` worker waves until end-to-end verification, multi-lens review, and DoD close the feature. Defect fixes (`/fyr-bug`) and releases (`/fyr-preflight`) run specialized variants of the same state pipeline.
-
-```mermaid
-stateDiagram-v2
-    [*] --> Scoping: Request approved
-    Scoping --> PlanDrafted: Recon via slice or explorer
-    PlanDrafted --> ColdReaderChecked: PLAN stored in brain.db
-    ColdReaderChecked --> InterviewApproved: Single interview closes Open rows
-    InterviewApproved --> PhaseBuilding: workers no - fresh session runs Phase 1
-    InterviewApproved --> SwarmWave: workers yes - planner becomes coordinator
-    PhaseBuilding --> PhaseCheckpointed: Red-first tests + Checkpoint pass
-    SwarmWave --> PhaseCheckpointed: fyr gate + judge + fyr land
-    PhaseCheckpointed --> PhaseBuilding: Next phase via Kickoff
-    PhaseCheckpointed --> SwarmWave: Next parallel wave
-    PhaseCheckpointed --> E2EAndReviewed: Final phase passes
-    E2EAndReviewed --> Closed: verifier + reviewer + DoD + close
-    Closed --> [*]
-```
-
-### 4.1 Single-track phase execution (`/fyr-feature` Step 4)
-
-For single-track phases (`workers: no`, `1`–`6` tightly coupled files), each fresh session executes one phase strictly in order:
-
-1. **Write the failing test first (`review-standards` § 2, § 8):** Add a unit or integration test reproducing the target behavior (and both `must-pass` and `must-fail` inputs for validators or checks) and confirm it fails for the expected reason before editing implementation files.
-2. **Implement the smallest passing change:** Write cohesive Go/TS modules obeying `rules/code-modularity.md` without speculative abstractions or unrelated refactors.
-3. **Run task verification and tick `PLAN-*`:** Execute the task's `verify:` command and immediately update `- [x]` on `PLAN-*` via `fyr record edit <PLAN-ID>` so progress survives interruptions.
-4. **Verify phase checkpoint:** Run the bare full test suite (`fyr verify`), verify the phase's `**Checkpoint:**` criteria (`— expect:` + `— evidence:`), store the `change` record, update `TODO.md`, and run `/fyr-handoff` if more phases remain (or proceed to E2E + multi-lens review on the final phase).
-
-### 4.2 Multi-agent parallel swarm (`/fyr-swarm`)
-
-When a plan has `2+` AI-only phases (`workers: yes`) or backlog triage produces disjoint work slices, the coordinator orchestrates parallel execution via `/fyr-swarm` (`rules/agy-dispatch.md`, `internal/gate`):
+Use `/fyr-swarm` ([`skills/fyr-swarm/SKILL.md`](skills/fyr-swarm/SKILL.md), [`rules/agy-dispatch.md`](rules/agy-dispatch.md)) for `2+` AI-only slices with disjoint `Files:` leases.
 
 ```mermaid
 flowchart LR
-    quota["1. Quota & Models\nagy -p /usage\nfyr models --pick"] --> spawn["2. Spawn Workers\nworkspace=share (work/<name>)\ndisjoint Files: leases"]
-    spawn --> build["3. Worker Build\nRed-first edits + commit\n+ fyr verify (<= 60% knee)"]
-    build --> gate["4. Mechanical Gate\nfyr gate --lease <glob> <worktree>\n(lease, modes, secrets, trailers)"]
-    gate --> judge["5. Cross-Family Judge\nCross-family model checks\ndiff + test output only"]
-    judge --> land["6. Sequential Land\nfyr land --lease <glob> <branch>\n(detached squash + verify + ff)"]
-    land --> knee["7. Wave Audit\nfyr metrics ingest +\nfyr metrics trajectory"]
+    quota["1. Pick Models\nfyr models --pick"] --> spawn["2. Spawn Workers\nworkspace=share\ndisjoint Files: leases"]
+    spawn --> build["3. Worker Build\nRed-first + commit\n+ verify"]
+    build --> gate["4. Mechanical Gate\nfyr gate --lease <glob>"]
+    gate --> judge["5. Cross-Family Judge\nDiff + test output only"]
+    judge --> land["6. Sequential Land\nfyr land --lease <glob>"]
+    land --> knee["7. Wave Audit\nfyr metrics ingest +\ntrajectory"]
 ```
 
-- **Dedicated `builder` & automated phase loop (`workflows/phase_loop.py`):** Parallel build waves dispatch the lean `builder` subagent (`agents/builder/agent.md`, `workspace="share"`, `Files:` lease only, search-first, red-first tests, zero-trailer commits on `work/<slice>`, detached HEAD) directly or through `workflows/phase_loop.py`. `phase_loop.py` validates pairwise-disjoint `files` leases up front, runs stateful `builder` workers in parallel, gates each slice with `fyr gate` (`--lease`, `--max-lines`, `--judge`) plus optional scoped `reviewer`/`security`/`verifier` (`model="pro"`), loops back structured `DefectPacket` findings (`round`, `source`, `findings`, `error_hash`, `required_fixes`) into the same stateful builder (`<= 2` rounds), halts fail-closed (`ESCALATE`) on out-of-lease edits, repeating `error_hash`, builder `BLOCKED`, or round-2 `FAIL`, and executes `fyr land` strictly sequentially followed by one `fyr verify` on `main`.
-- **Width-based orchestration (`fyr-swarm`):** Route width `<= 2` independent slices through `invoke_subagent` (`builder`) or `workflows/phase_loop.py`; route width `>= 3` through `run_workflow` (`workflows/phase_loop.py` / `parallel()` / `pipeline()`) or Antigravity native `swarm` (`workspace="share"`).
-- **Model selection & `PreToolUse` enforcement:** Pick builder and cross-family judge IDs once via `fyr models --pick` against `~/.config/fyr/models.json` (and `agy -p "/usage"` quota pools, falling back to equivalent-tier Gemini models when weekly quota `< 20%` or 5-hour quota `< 30%`). At dispatch time, `PreToolUse` validates prefix-named workers (`planner`, `builder`, `mechanical` vs `judge`, `reviewer`, `verifier`) and rejects weak/fast overrides on guarded roles.
-- **Write leases (`Files:`):** Every worker brief declares exact writable path globs. `fyr gate` mechanically rejects diffs touching files outside the lease, forbidden `120000` (symlink) or `160000` (gitlink) modes, numstat spikes (default `50` files / `1,500` lines), secret filenames or added-line secrets (`internal/redact`), and commit trailers.
-- **Cross-family judging, sequential landing & wave telemetry:** Workers commit locally on `work/<name>`, write worker-mode `handoff` drafts (`change` optional) without pushing or editing `TODO.md`, and face an isolated cross-family judge reading only diff and test output. The coordinator then runs `fyr land --lease <glob> <branch>` one branch at a time (squashing and running `fyr verify` inside an isolated detached scratch worktree before fast-forwarding `main`, deleting the branch, and refreshing `.agents/scratch/verify.stamp`), followed by `fyr metrics ingest` and `fyr metrics trajectory` to confirm sessions stayed under the calibrated `[40%..60%]` per-model context knee (`KNEE_EXCEEDED`).
+1. **Pick models once:** Run `fyr models --pick builder` and `fyr models --pick judge`. `PreToolUse` blocks weak overrides on guarded roles.
+2. **Assign disjoint write leases:** Declare exact `Files:` globs per slice. Dispatch `builder` ([`agents/builder/agent.md`](agents/builder/agent.md)) for `<= 2` slices, or run [`workflows/phase_loop.py`](workflows/phase_loop.py) / native `swarm` for `>= 3` slices.
+3. **Gate worker branches:** Workers commit on `work/<slice>`, detach `HEAD`, and never push or touch `main`. Run `fyr gate` to reject out-of-lease files, forbidden modes, numstat spikes, secrets, and trailers.
+4. **Judge across families:** Give a cross-family judge only the diff and test output. Route defect packets back to the same worker for at most `2` rounds.
+5. **Land sequentially and audit:** Run `fyr land` one branch at a time. Each land squash-verifies in a detached worktree, fast-forwards `main`, deletes the branch, and refreshes `verify.stamp`. Finish with `fyr metrics ingest` and `fyr metrics trajectory`.
 
-### 4.3 Specialized finish paths: bugs (`/fyr-bug`) and releases (`/fyr-preflight`)
+### 4.3 Bugs and releases
 
-- **Bug-to-Finish (`/fyr-bug`):** Replaces upfront feature interviews with a **Problem note** -> `bug` record & AST call-graph lookup (`fyr search --slice` / `--affected` / `--path`) -> blind **goldfish diagnosis** (`explorer` receives only symptom and repro, never your hypothesis) -> **failing test first** -> **smallest fix** across every call site matching a class defect -> mandatory `reviewer` diff inspection -> `BUG-NNN` record capturing root cause, `path:start-end (Symbol)`, and a concrete **prevention rule** (`fixed`, or `graduated` once encoded in tests or rules).
-- **Release-to-Finish (`/fyr-preflight`):** Triggered only by the operator's direct turn (`"ship it"`, `"release"`, `"cut vX.Y.Z"`). Completes DoD on any dirty work first, then dispatches `workflows/preflight_gate.py` (`reviewer` `--code --docs`, `security`, and `verifier` on the strongest model) plus trail/docs freshness checks and changed-row `fyr eval` suites. Writes a `PREFLIGHT-*` `review` record ending in `VERDICT: SHIP` or `VERDICT: NO-SHIP`. Only on `SHIP` does it write `RELEASE NOTES`, bump tracked versions, verify secret scans and `check-trailers.sh`, create an unsigned annotated tag (`git tag -a <tag> -m "<tag>"`), push, upload checksum-verified assets, and execute documented `DEPLOY-*` steps with rollback protection.
+- **Bug to finish (`/fyr-bug`):** Follow [`skills/fyr-bug/SKILL.md`](skills/fyr-bug/SKILL.md). Write a Problem note, query `fyr search --slice` and `--affected`, and run blind `explorer` diagnosis without sharing your hypothesis. Add a failing test, apply the smallest fix across matching call sites, run diff `reviewer`, and store a `BUG-*` record.
+- **Release to finish (`/fyr-preflight`):** Follow [`skills/fyr-preflight/SKILL.md`](skills/fyr-preflight/SKILL.md) on a direct operator turn only. Complete dirty-tree DoD first, then run [`workflows/preflight_gate.py`](workflows/preflight_gate.py) and affected `fyr eval` rows. On `VERDICT: SHIP`, create an unsigned annotated tag, push, publish checksum-verified assets, and run `DEPLOY-*` steps.
 
-## 5. Definition of Done (DoD) — Step by Step
+## 5. Definition of Done (DoD)
 
-No task, bug fix, phase, or feature counts as done until it clears the three ordered Definition of Done steps in `context/AGENTS.md`: **Step 1 (Verify)**, **Step 2 (Review, Docs & Trail)**, and **Step 3 (Close)**. Execute these steps in order—fixing review findings before stamping verification and closing—so every shipped commit carries matching tests, clean docs, and an accurate trail.
+Every task, bug fix, phase, or feature clears three ordered steps before closing. Fix review findings before stamping verification and pushing.
 
 ```mermaid
 flowchart LR
-    step1["Step 1: Verify\nfyr verify (fmt, vet, race, check)\nwrites verify.stamp"] --> e2eCheck["Optional Step 1b\nverifier subagent (testing record)\nwhen e2e or container smoke owed"]
-    step1 --> step2a["Step 2a: Review & Security\nreviewer (50+ L / 5+ F / bug)\nsecurity (auth, secrets, parsing, deps)"]
+    step1["Step 1: Verify\nfyr verify -> verify.stamp"] --> e2eCheck["Optional Step 1b\nverifier (e2e / smoke)"]
+    step1 --> step2a["Step 2a: Review\nreviewer + security"]
     e2eCheck --> step2a
-    step2a --> step2b["Step 2b: Docs & Trail\nREADME / SDD / TDD / SPEC\n+ brain.db records + TODO.md"]
-    step2b --> step3a["Step 3a: Clean Git Push\ngit diff --cached --stat\ncheck-trailers.sh + push"]
-    step3a --> step3b["Step 3b: Immutable Close\nfyr close (single task)\nor /fyr-handoff (phase / session)"]
+    step2a --> step2b["Step 2b: Docs & Trail\ndocs + brain.db + TODO.md"]
+    step2b --> step3a["Step 3a: Stage & Push\nexplicit git add + push"]
+    step3a --> step3b["Step 3b: Close\nfyr close or /fyr-handoff"]
 ```
 
-### Step 1: Verify (`fyr verify` & `verifier`)
+### Step 1: Verify
 
-1. **Deterministic repository gate (`fyr verify`):** Run `fyr verify` with no flags after final edits. It verifies formatting (`gofmt -l`), static analysis (`go vet ./...`), race-enabled tests (`go test -race ./...`), and documentation/spec/requirement parity plus dual-track docs hygiene (`fyr check`: `docs-style`, `AGENTS.md` `budget`, `spec-structure`, and advisory `docs-style-note`), confirms no Go files mutated mid-run, and writes `.agents/scratch/verify.stamp` (`0600`) tied to the Go tree SHA-256. If Go files change without a fresh matching stamp, the `Stop` hook emits a `[VERIFY_STAMP]` continuation reminder.
-   - *Explicit operator override:* If the operator explicitly instructs a narrower test command (such as running `go test ./...` once), run `gofmt -l .`, `go vet ./...`, and that exact test command without forcing `fyr verify` or `fyr check`.
-2. **End-to-end & container verification (`verifier` subagent):** Dispatch `verifier` only when browser e2e (Playwright against the running binary), container build/smoke (`docker build`, `docker run`, `/healthz`), or live local HTTP smoke (`DEPLOY-local`) is owed per `GUIDE-testing` / `testing-strategy` (applying its Boundary Contract Checklist whenever hooks, CLI subprocess runners, `internal/gate/`, or `workflows/*.py` change). Store its output artifact via `fyr record add testing`.
+1. **Run `fyr verify`:** Execute `fyr verify` with no flags after final edits. It runs `gofmt`, `go vet ./...`, `go test -race ./...`, and `fyr check`, then writes `.agents/scratch/verify.stamp`.
+2. **Honor explicit test overrides:** When the operator requests one narrower test command, run `gofmt -l .`, `go vet ./...`, and that command.
+3. **Dispatch `verifier` only when owed:** Run `verifier` for browser e2e, container smoke, or live HTTP smoke. Store its report with `fyr record add testing`.
 
-### Step 2: Review, Docs & Trail Records
+### Step 2: Review, Docs, and Trail
 
-1. **Independent review (`reviewer` & `security`):**
-   - Dispatch `reviewer` (passing the diff only, never intent) once per task when the diff reaches `50+` lines, touches `5+` files, or fixes a bug (`/fyr-bug`). Add `--docs` whenever interfaces, CLI commands, or deploy paths change; for multi-lens `/fyr-review` sweeps, run `workflows/review_parallel.py`. Smaller diffs get a documented self-review inside the `change` record.
-   - Dispatch `security` regardless of diff size whenever a changed path touches authentication, cryptography, secrets, IAM, input parsing, frontmatter/tool allowlists, or dependencies.
-   - Store review drafts via `fyr record add review`. Fix confirmed issues (adding failing-first tests for every security trigger, capped at `2` rounds) or document reasoned rebuttals/defers in an appended `## Outcome` section on the review record (`fyr record edit <ID>`).
-2. **Living documentation (`<= 30` lines self / `> 30` lines `documentation`):** Update git Track 1 human docs (`README.md`, `SDD.md`, `TDD.md`) and 100% agent-only `brain.db` records (`SPEC-*`, `GUIDE-*`, `DEPLOY-*`) only when behavior, interfaces, active plans, or deploy paths change, following the 5-track git-human vs agent-only DB split verified by `fyr check` (`docs-style`, root `AGENTS.md` `budget`, `spec-structure`, and git-only advisory `docs-style-note`, `ADR-535`, `ADR-536`) and projected by `fyr search --contracts`. Run `bash ~/.gemini/config/skills/fyr-review/scripts/restatement-grep.sh` on changed claims so no stale copies remain; dispatch `documentation` (passing `fyr search --refs <path>` output) for edits over `30` lines.
-3. **Trail records & `TODO.md` synchronization:** Draft record bodies under `.agents/scratch/` and commit them to `brain.db`:
-   - `change` (`fyr record add change`): record commit hash, modified `path:start-end (Symbol)` ranges, checks run, and agents dispatched (never rewrite existing `change` or `adr` records).
-   - `adr` (`fyr record add adr`) on structural decisions; `bug` (`fyr record add bug` or `fyr record edit <ID> --status fixed|graduated`) on escaped failures.
-   - `plan` (`fyr record edit <ID>`): tick completed tasks/checkpoints or mark closed when all phases finish.
-   - `TODO.md`: keep `Now`, `Next` (`<= 3` items), and `Backlog` synchronized with active work.
-   - Run `fyr git-check` after any write-capable subagent dispatch to confirm no unexpected dirty files, unpushed commits, or tags exist.
+1. **Dispatch `reviewer`:** Pass the diff only when changes reach `50+` lines, touch `5+` files, or fix a bug. Add `--docs` for interface, CLI, or deploy changes, or run [`workflows/review_parallel.py`](workflows/review_parallel.py) for multi-lens sweeps.
+2. **Dispatch `security`:** Run `security` on any diff touching auth, crypto, credentials, IAM, parsing, allowlists, or dependencies. Fix confirmed issues (max `2` rounds) and log outcomes on the `review` record.
+3. **Update living docs:** Edit Track 1 docs (`README.md`, `SDD.md`, `TDD.md`, `Workflow.md`, `features/`) and `brain.db` specs/guides only when behavior changes. Handle `<= 30`-line edits directly; dispatch `documentation` for larger edits.
+4. **Sync trail and `TODO.md`:** Record `change` and any `adr` or `bug` (never rewrite `change` or `adr`). Tick `PLAN-*`, sync `TODO.md`, and run `fyr git-check` after write subagents.
 
-### Step 3: Close (`fyr close` vs `/fyr-handoff`)
+### Step 3: Close
 
-1. **Stage, check secrets & trailers, commit, and push:** If `.agents/trail.jsonl` is tracked in git for multi-machine trail sync, run `fyr record export` before staging so `.agents/trail.jsonl` commits alongside your changes (and run `fyr record sync` after `fyr resume` when pulling changes on another machine; `--global` memory/feedback stays local in `brain.db`). Inspect `git diff --numstat`, stage files explicitly by name after reviewing `git diff --cached --stat` (never `git add -A`), abort immediately if any secret file appears (`.env*`, `*.pem`, `*.key`, `*.tfvars`, `*.tfstate`), commit using local `git config` identity with zero trailers, verify `bash ~/.gemini/config/skills/fyr-handoff/scripts/check-trailers.sh` passes, and run `git push` (respecting any explicit no-commit or no-push instruction).
-2. **Record the closure cleanly:**
-   - **Single self-contained task -> `fyr close`:** When finishing one task with a valid `.agents/scratch/verify.stamp`, run `fyr close --id <ID> --title <title> --body-file <path>` (or `fyr record add handoff` when Trivial DoD or an explicit test override skipped `verify.stamp`). `fyr close` checks that `verify.stamp` matches the current Go source tree, appends an immutable `HANDOFF-*` record embedding `## Verification Digest`, preserves prior records, and skips `/fyr-handoff` and `fyr metrics ingest`.
-   - **Phase checkpoint, context limit, or multi-session pause -> `/fyr-handoff`:** Run `/fyr-handoff` to audit trail parity first, write a `HANDOFF-*` record with the verbatim `## Kickoff` block, pass its 6-question cold-reader self-check, commit, push, and run `fyr metrics ingest` once so `metrics.db` captures the completed session shape (workers running worker-mode `/fyr-handoff` commit locally without pushing, ticking `TODO.md`, or ingesting metrics).
+1. **Export, stage, commit, and push:** If `.agents/trail.jsonl` is tracked, run `fyr record export` first. Inspect `git diff --numstat` and `git diff --cached --stat`, then stage files by name (never `git add -A`). Abort on credential files (`.env*`, `*.pem`, `*.key`, `*.tfvars`, `*.tfstate`), commit with zero trailers, and push.
+2. **Choose the close command:**
+   - **Single self-contained task:** Run `fyr close --title <title> --body-file <path>` when `.agents/scratch/verify.stamp` is fresh. If `verify.stamp` was skipped on a Trivial edit or test override, run `fyr record add handoff`.
+   - **Phase checkpoint, `TokenKnee`, or pause:** Run `/fyr-handoff` to audit trail parity and write `HANDOFF-*` with a verbatim `## Kickoff`. Commit, push, and run `fyr metrics ingest` once.
 
-<details>
-<summary>Definition of Done checklist & gate ownership matrix</summary>
+### DoD Ownership Matrix
 
-| DoD Step | Gate / Action | Trigger Condition | Owner | Proof / Artifact |
+| Step | Action | Trigger | Owner | Artifact |
 |---|---|---|---|---|
-| **1a** | `fyr verify` | Every standard task/phase/feature completion | Main agent | `.agents/scratch/verify.stamp` (`0600`) |
-| **1b** | Targeted `gofmt` + `go vet` + test override | Operator explicitly specifies a test override | Main agent | Terminal pass output |
-| **1c** | `verifier` subagent | Browser e2e, container smoke, or live HTTP smoke owed | `verifier` | `TESTING-*` record (`PASS`) |
-| **2a** | `reviewer` (`--code` / `--docs`) | `50+` lines, `5+` files, or `/fyr-bug` fix (`--docs` if interfaces/CLI/deploy changed) | `reviewer` | `REVIEW-*` record (+ `## Outcome` if fixed) |
-| **2b** | `security` subagent | Changed path touches auth, crypto, secrets, IAM, parsing, allowlists, or deps | `security` | `REVIEW-*` record (max 2 rounds) |
-| **2c** | Living docs update | Behavior, interface, plan, or deploy path changed | Main (`<= 30` L) or `documentation` (`> 30` L) | Updated docs + `fyr check` `0` findings |
-| **2d** | `fyr git-check` | Any write-capable subagent or workflow ran | Main agent | Clean git status, branches, and tags |
-| **2e** | `brain.db` + `TODO.md` sync | Every task/phase/feature | Main agent | `CHANGE-*`, ticked `PLAN-*`, optional `ADR-*`/`BUG-*`, synced `TODO.md` |
-| **3a** | Explicit stage + `check-trailers.sh` + push | Clean tracked diff ready to land | Main agent | Committed SHA on `origin/main`, zero trailers |
-| **3b** | `fyr close` / `record add handoff` / `/fyr-handoff` | `fyr close` (single task with stamp); `fyr record add handoff` (no stamp); `/fyr-handoff` (checkpoints/session end) | Main agent | Immutable `HANDOFF-*` record (plus `metrics.db` ingest on standard `/fyr-handoff`) |
-
-</details>
+| **1a** | `fyr verify` | Standard task, phase, or feature | Main agent | `.agents/scratch/verify.stamp` |
+| **1b** | `verifier` | Browser e2e, container, or HTTP smoke owed | `verifier` | `TESTING-*` record |
+| **2a** | `reviewer` | `50+` lines, `5+` files, or `/fyr-bug` fix | `reviewer` | `REVIEW-*` record |
+| **2b** | `security` | Auth, crypto, credentials, IAM, parsing, allowlists, deps | `security` | `REVIEW-*` record |
+| **2c** | Living docs + `fyr check` | Behavior, interface, plan, or deploy changed | Main (`<= 30` L) / `documentation` | Updated docs (`0` findings) |
+| **2d** | `fyr git-check` + trail | After write subagents and before commit | Main agent | `CHANGE-*`, `PLAN-*`, `TODO.md` |
+| **3a** | Stage, check trailers, push | Clean tracked diff ready to land | Main agent | Zero-trailer remote commit |
+| **3b** | `fyr close` / `/fyr-handoff` | Single task (`close`) or checkpoint (`handoff`) | Main agent | Immutable `HANDOFF-*` record |
