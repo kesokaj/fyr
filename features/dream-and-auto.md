@@ -109,6 +109,8 @@ sequenceDiagram
 
 ## Next steps
 
+Preview automation gates safely, check full CLI flags, or inspect recent session ratings:
+
 - Run `fyr auto status`, `fyr auto log`, or `fyr auto run --dry-run` to preview gates safely.
 - Check all `fyr dream` and `fyr auto` flags in [CLI Reference](../docs/cli-reference.md).
 - View conversation ratings and background runs in `fyr report --web` or `fyr report --md`.

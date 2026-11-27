@@ -59,6 +59,9 @@ Run `fyr update` to pull updates on a clean checkout, or `fyr update --check` to
 
 Release binaries (`fyr-linux-amd64`, `fyr-darwin-arm64`, `fyr-linux-arm64`) embed all six harness directories. Pin `V` from a trusted source and verify `SHA256SUMS` over HTTPS.
 
+> [!NOTE]
+> The cleanup step `rm -r "$D"` removes only the fresh temporary directory created by `mktemp -d`.
+
 ```bash
 V=vX.Y.Z && ASSET=fyr-linux-amd64 \
 && D=$(mktemp -d) && cd "$D" \
@@ -112,7 +115,7 @@ After `fyr status` reports `drift none`, run these steps inside any repository. 
 
 ## Top-10 Daily CLI Commands
 
-Use these ten commands in daily work. See [`docs/cli-reference.md`](docs/cli-reference.md) for every command and flag, or run `fyr help <command>`. Global flags (`-C`, `--dir`, `--home`, `--repo`, `--json`) work across commands.
+Use these ten commands in daily work. See [`docs/cli-reference.md`](docs/cli-reference.md) for every command and flag, or run `fyr help <command>`. Global flags (`-C`, `--dir`, `--home`, `--repo`, `--help`) work across commands.
 
 | Command | Purpose |
 |---|---|
@@ -241,7 +244,7 @@ A dashed line marks a manual step or single-machine gap. See [`SDD.md`](SDD.md) 
 
 ## Customizing for Your Stack
 
-Global defaults target Go, TypeScript/Tailwind, and Google Cloud, while project rules always win. Override per project in `AGENTS.md`, `.agents/rules/`, and `.agents/skills/`, or edit this checkout and run `fyr install`. `internal/harness/size_test.go` keeps global rules under `24,000` bytes and pinned by `GANNET` ([Delivery & Customization](features/delivery-and-customization.md)).
+Global defaults target Go, TypeScript/Tailwind, and Google Cloud, while project rules always win. Override per project in `AGENTS.md`, `.agents/rules/`, and `.agents/skills/`, or edit this checkout and run `fyr install`. `internal/harness/size_test.go` keeps global rules within `19,500` bytes (inside Antigravity's `24,000`-byte block) and pinned by `GANNET` ([Delivery & Customization](features/delivery-and-customization.md)).
 
 ## Working on the Harness
 

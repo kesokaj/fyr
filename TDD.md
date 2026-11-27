@@ -51,7 +51,7 @@ Implements: M4 · Spec: `SPEC-fyr-delivery` (`fyr record get SPEC-fyr-delivery`)
 
 ## T5 — The CLI
 
-Exposes all `31` commands (`30` with `--json` parity plus `help`), global flags, and help text in `cmd/fyr`. See [docs/cli-reference.md](docs/cli-reference.md) for the generated verb and flag reference.
+Exposes all `31` CLI commands (`30` action verbs plus `help`), global flags, and help text in `cmd/fyr`. Action verbs support `--json`, excluding write and transfer subcommands (`memory add`, `record add`/`edit`/`export`/`import`/`sync`, `metrics export`/`ingest`). See [docs/cli-reference.md](docs/cli-reference.md) for the generated reference.
 
 Implements: M5 · Spec: `SPEC-fyr-delivery` and per-domain `SPEC-fyr-*` records · Guide: [Delivery & Customization](features/delivery-and-customization.md)
 

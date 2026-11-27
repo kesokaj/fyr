@@ -79,6 +79,8 @@ An unknown tool in `agents/<name>/agent.md` hangs Antigravity subagents. `knownT
 
 ## Next steps
 
+Explore runtime hooks, read the delivery contract, or inspect installer CLI flags:
+
 - Read [CLI Hooks, Prompt Vetting & AST Graph](hooks-and-ast-graph.md) to see how hooks run in under `250 ms`.
 - Run `fyr record get SPEC-fyr-delivery` for the normative delivery contract.
 - Check all delivery flags in [CLI Reference](../docs/cli-reference.md).

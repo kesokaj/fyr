@@ -89,6 +89,8 @@ Each memory record tracks `provenance`, `memory_kind`, `verified_at`, `evidence_
 
 ## Next steps
 
+Inspect live project memory, explore store flags, or review automated memory consolidation:
+
 - Run `fyr resume` and `fyr memory show` to inspect active records and scores.
 - Browse all command flags in [CLI Reference](../docs/cli-reference.md).
 - Read [Dream Consolidation & Auto Mode](dream-and-auto.md) to see how stale memories consolidate.
