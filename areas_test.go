@@ -289,3 +289,95 @@ func trackedTestFuncs(t *testing.T) map[string][]string {
 	}
 	return funcs
 }
+
+var activeRootDocs = []string{"AGENTS.md", "PRD.md", "README.md", "SDD.md", "SECURITY.md", "TDD.md", "TODO.md", "Workflow.md"}
+
+// TestAreasPackageParity pins that skills/fyr-harness-audit/references/areas.md
+// names every tracked internal/* package dir, every root *_test.go (including
+// arch_fitness_test.go), every features/*.md, and every active root doc.
+func TestAreasPackageParity(t *testing.T) {
+	requireGitCheckout(t)
+	textBytes, err := os.ReadFile(areasPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(textBytes)
+	want := collectAreasParityTargets(t)
+	for _, m := range missingAreaRefs(text, want) {
+		t.Errorf("%s does not reference %q", areasPath, m)
+	}
+	for _, probe := range []string{"internal/relay", "arch_fitness_test.go", "features/brain-and-memory.md", "SDD.md"} {
+		mutated := strings.ReplaceAll(text, probe, "REDACTED_TARGET")
+		if mutated != text && !slices.Contains(missingAreaRefs(mutated, want), probe) {
+			t.Errorf("dropping %q from %s was not caught", probe, areasPath)
+		}
+	}
+}
+
+func collectAreasParityTargets(t *testing.T) []string {
+	t.Helper()
+	out, err := exec.Command("git", "ls-files", "-z", "-co", "--exclude-standard").Output()
+	if err != nil {
+		t.Fatalf("git ls-files: %v", err)
+	}
+	seen := map[string]bool{"arch_fitness_test.go": true}
+	for _, d := range activeRootDocs {
+		seen[d] = true
+	}
+	for _, raw := range bytes.Split(bytes.TrimRight(out, "\x00"), []byte{0}) {
+		p := string(raw)
+		if p == "" {
+			continue
+		}
+		if _, err := os.Stat(p); err != nil {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(p, "internal/") && strings.HasSuffix(p, ".go"):
+			if parts := strings.Split(p, "/"); len(parts) >= 3 {
+				seen[parts[0]+"/"+parts[1]] = true
+			}
+		case !strings.Contains(p, "/") && strings.HasSuffix(p, "_test.go"):
+			seen[p] = true
+		case strings.HasPrefix(p, "features/") && strings.HasSuffix(p, ".md") && strings.Count(p, "/") == 1:
+			seen[p] = true
+		}
+	}
+	targets := make([]string, 0, len(seen))
+	for k := range seen {
+		targets = append(targets, k)
+	}
+	slices.Sort(targets)
+	return targets
+}
+
+func missingAreaRefs(text string, targets []string) []string {
+	var missing []string
+	for _, target := range targets {
+		if !areasMentionsTarget(text, target) {
+			missing = append(missing, target)
+		}
+	}
+	return missing
+}
+
+func areasMentionsTarget(text, target string) bool {
+	hasSlash := strings.Contains(target, "/")
+	isWord := func(b byte) bool {
+		return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_' || b == '-' || b == '.'
+	}
+	for off := 0; off < len(text); {
+		idx := strings.Index(text[off:], target)
+		if idx < 0 {
+			return false
+		}
+		start, end := off+idx, off+idx+len(target)
+		beforeOK := start == 0 || (!isWord(text[start-1]) && (hasSlash || text[start-1] != '/'))
+		afterOK := end == len(text) || !isWord(text[end])
+		if beforeOK && afterOK {
+			return true
+		}
+		off = start + 1
+	}
+	return false
+}

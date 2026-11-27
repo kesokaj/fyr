@@ -130,9 +130,16 @@ var metricsFlags = map[string]map[string]bool{
 	"record-run": {"json-in": true, "json": true},
 }
 
+// memoryFlags lists the non-global flags accepted by each memory subverb,
+// matching the subverb guards in verb_search_memory.go.
+var memoryFlags = map[string]map[string]bool{
+	"add":  {"type": true, "name": true, "description": true, "body-file": true, "global": true, "json-in": true, "provenance": true},
+	"show": {"global": true, "include-low": true, "json": true, "limit": true},
+}
+
 // vocabulary is the running binary's verbs, subverbs and flags, read from
-// the same FlagSets run parses (plan fyr-check D14): record, state, auto and
-// metrics subverbs take their per-subverb flag maps; memory's take the verb's.
+// the same FlagSets run parses (plan fyr-check D14): record, state, auto,
+// metrics and memory subverbs take their per-subverb flag maps.
 // Every verb and subverb also takes the four global flags (--home, --repo,
 // --dir, -C) and --help, which the flag package answers.
 func vocabulary() check.Vocabulary {
@@ -159,7 +166,7 @@ func vocabulary() check.Vocabulary {
 		case "metrics":
 			spec.Subverbs = subverbFlagMap(metricsFlags)
 		case "memory":
-			spec.Subverbs = subverbsTaking(memorySubverbs, flags)
+			spec.Subverbs = subverbFlagMap(memoryFlags)
 		}
 		v[name] = spec
 	}
@@ -174,18 +181,6 @@ func subverbFlagMap(src map[string]map[string]bool) map[string]map[string]bool {
 			own[f] = true
 		}
 		out[sub] = own
-	}
-	return out
-}
-
-func subverbsTaking(subs []string, flags map[string]bool) map[string]map[string]bool {
-	out := map[string]map[string]bool{}
-	for _, s := range subs {
-		cp := make(map[string]bool, len(flags))
-		for k, v := range flags {
-			cp[k] = v
-		}
-		out[s] = cp
 	}
 	return out
 }

@@ -234,6 +234,48 @@ func TestDocsRuleSkipsVendoredAndNoIndex(t *testing.T) {
 	same(t, run(t, dir).Findings)
 }
 
+// Local SKILL.md for a fork row in skills/VENDORED.md (either marked with
+// "fork" in the row or under a Forks section) is checked, while verbatim
+// vendored skills and forked skills' vendored references remain skipped.
+func TestDocsRuleChecksForkSkillMDButSkipsVendored(t *testing.T) {
+	vendored := strings.Join([]string{
+		"| Skill | Source |",
+		"|-------|--------|",
+		"| grilling | upstream verbatim |",
+		"| inline-fork | upstream fork |",
+		"",
+		"## Forks",
+		"",
+		"| Skill | Publisher / author | Derived from |",
+		"|-------|--------------------|--------------|",
+		"| headed-fork | Author | github.com/o/r (`<upstream>/skills/x`) |",
+	}, "\n") + "\n"
+	dir := repo(t, map[string]string{
+		"skills/VENDORED.md":                  vendored,
+		"skills/grilling/SKILL.md":            "---\nname: grilling\ndescription: verbatim\n---\n`fyr frobnicate` `skills/missing/x`\n",
+		"skills/inline-fork/SKILL.md":         "---\nname: inline-fork\ndescription: inline fork\n---\n`fyr frobnicate` `skills/missing/a`\n",
+		"skills/inline-fork/references/up.md": "`fyr frobnicate` `skills/missing/ref`\n",
+		"skills/headed-fork/SKILL.md":         "---\nname: headed-fork\ndescription: headed fork\n---\n`skills/missing/b`\n",
+		"skills/headed-fork/references/up.md": "`fyr frobnicate` `skills/missing/ref2`\n",
+		"skills/clean-fork/SKILL.md":          "---\nname: clean-fork\ndescription: clean fork\n---\nDerived from `<upstream>/skills/engineering/triage`.\n",
+	})
+	same(t, run(t, dir).Findings,
+		"skills/headed-fork/SKILL.md:5 path",
+		"skills/inline-fork/SKILL.md:5 verb",
+		"skills/inline-fork/SKILL.md:5 path",
+	)
+
+	// Positive case: replacing broken local path with <upstream>/... clears fork SKILL.md.
+	cleanDir := repo(t, map[string]string{
+		"skills/VENDORED.md":                  vendored,
+		"skills/grilling/SKILL.md":            "---\nname: grilling\ndescription: verbatim\n---\n`fyr frobnicate`\n",
+		"skills/inline-fork/SKILL.md":         "---\nname: inline-fork\ndescription: inline fork\n---\n`<upstream>/skills/engineering/triage`\n",
+		"skills/inline-fork/references/up.md": "`fyr frobnicate`\n",
+		"skills/headed-fork/SKILL.md":         "---\nname: headed-fork\ndescription: headed fork\n---\n`<upstream>/skills/engineering/triage`\n",
+	})
+	same(t, run(t, cleanDir).Findings)
+}
+
 // A current spec, guide or deploy record is checked; a change record and a
 // retired spec are not. A bad trail line is a refusal naming the line.
 func TestDocsRuleRecords(t *testing.T) {

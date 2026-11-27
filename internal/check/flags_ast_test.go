@@ -94,3 +94,69 @@ func TestUndocumentedFlagsMixedCaseAndShortFlag(t *testing.T) {
 	}
 	same(t, repClean.Findings)
 }
+
+func TestUndocumentedFlagsScopedPerVerbAndSubverb(t *testing.T) {
+	v := Vocabulary{
+		"help":  {Flags: map[string]bool{"home": true, "repo": true, "help": true}},
+		"alpha": {Flags: map[string]bool{"home": true, "repo": true, "help": true, "shared": true}},
+		"beta":  {Flags: map[string]bool{"home": true, "repo": true, "help": true, "shared": true, "only-beta": true}},
+		"store": {
+			Flags: map[string]bool{"home": true, "repo": true, "help": true, "format": true, "strict": true},
+			Subverbs: map[string]map[string]bool{
+				"put": {"home": true, "repo": true, "help": true, "format": true, "strict": true},
+				"get": {"home": true, "repo": true, "help": true, "format": true},
+			},
+		},
+	}
+	cmdSrc := "package main\nimport \"flag\"\nfunc reg(fs *flag.FlagSet) {\n" +
+		"\tfs.Bool(\"shared\", false, \"s\")\n" +
+		"\tfs.Bool(\"only-beta\", false, \"b\")\n" +
+		"\tfs.String(\"format\", \"\", \"f\")\n" +
+		"\tfs.Bool(\"strict\", false, \"st\")\n}\n"
+
+	// Must-fail 1: documenting --shared on alpha must NOT mask beta --shared,
+	// even when both commands appear on the same line.
+	missBeta := repo(t, map[string]string{
+		"cmd/fyr/main.go": cmdSrc,
+		"README.md": "Use `fyr alpha --shared` and `fyr beta --only-beta`.\n" +
+			"Also `fyr store put --format json --strict` and `fyr store get --format json`.\n",
+	})
+	rep1, err := Run(missBeta, v)
+	if err != nil {
+		t.Fatalf("Run missBeta: %v", err)
+	}
+	same(t, rep1.Findings, "cmd/fyr/main.go:4 flag-undoc")
+
+	// Must-fail 2: documenting --format on store put must NOT mask store get --format.
+	missSub := repo(t, map[string]string{
+		"cmd/fyr/main.go": cmdSrc,
+		"README.md": "Use `fyr alpha --shared` and `fyr beta --shared --only-beta`.\n" +
+			"Also `fyr store put --format json --strict`.\n",
+	})
+	rep2, err := Run(missSub, v)
+	if err != nil {
+		t.Fatalf("Run missSub: %v", err)
+	}
+	same(t, rep2.Findings, "cmd/fyr/main.go:6 flag-undoc")
+
+	// Positive case: every (verb, subverb, flag) documented across README and verbPage help_text.
+	clean := repo(t, map[string]string{
+		"cmd/fyr/main.go": cmdSrc,
+		"cmd/fyr/help_text.go": "package main\ntype verbPage struct{ synopsis, about []string }\n" +
+			"var pages = map[string]verbPage{\n" +
+			"\t\"store\": {\n" +
+			"\t\tsynopsis: []string{\n" +
+			"\t\t\t\"usage: fyr store put [--format F]\",\n" +
+			"\t\t\t\"                     [--strict]\",\n" +
+			"\t\t\t\"       fyr store get [--format F]\",\n" +
+			"\t\t},\n" +
+			"\t},\n" +
+			"}\n",
+		"README.md": "Use `fyr alpha --shared` and `fyr beta --shared --only-beta`.\n",
+	})
+	repClean, err := Run(clean, v)
+	if err != nil {
+		t.Fatalf("Run clean: %v", err)
+	}
+	same(t, repClean.Findings)
+}

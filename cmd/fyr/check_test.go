@@ -333,6 +333,64 @@ func TestVocabularyMetricsRecordRunFlags(t *testing.T) {
 	}
 }
 
+func TestVocabularyMemorySubverbFlags(t *testing.T) {
+	v := vocabulary()
+	mem := v["memory"]
+	add := mem.Subverbs["add"]
+	show := mem.Subverbs["show"]
+	for _, want := range []string{"type", "name", "description", "body-file", "global", "json-in", "provenance", "home", "repo", "dir", "C", "help"} {
+		if !add[want] {
+			t.Errorf("memory add missing --%s", want)
+		}
+	}
+	for _, forbid := range []string{"json", "include-low", "limit"} {
+		if add[forbid] {
+			t.Errorf("memory add must not accept --%s", forbid)
+		}
+	}
+	for _, want := range []string{"global", "include-low", "json", "limit", "home", "repo", "dir", "C", "help"} {
+		if !show[want] {
+			t.Errorf("memory show missing --%s", want)
+		}
+	}
+	for _, forbid := range []string{"type", "name", "description", "body-file", "json-in", "provenance"} {
+		if show[forbid] {
+			t.Errorf("memory show must not accept --%s", forbid)
+		}
+	}
+	covered := map[string]bool{}
+	for _, sub := range memorySubverbs {
+		for f := range mem.Subverbs[sub] {
+			covered[f] = true
+			if !mem.Flags[f] {
+				t.Errorf("memory %s lists unknown flag --%s not on memory FlagSet", sub, f)
+			}
+		}
+	}
+	for f := range mem.Flags {
+		if !covered[f] {
+			t.Errorf("memory flag --%s is not mapped to any memory subverb", f)
+		}
+	}
+	// End-to-end check.Run: valid subverb flags pass; cross-subverb misuse fails.
+	good := checkRepo(t, map[string]string{
+		"README.md": "Use `fyr memory add --type procedural --name k --description d --provenance operator --global` and `fyr memory show --global --include-low --limit 5 --json`.\n",
+	})
+	if rep, err := check.Run(good, v); err != nil || len(rep.Findings) != 0 {
+		t.Fatalf("good memory docs: err=%v findings=%+v", err, rep.Findings)
+	}
+	bad := checkRepo(t, map[string]string{
+		"README.md": "Bad: `fyr memory add --json` and `fyr memory show --type semantic`.\n",
+	})
+	rep, err := check.Run(bad, v)
+	if err != nil {
+		t.Fatalf("bad memory docs: %v", err)
+	}
+	if len(rep.Findings) != 2 || rep.Findings[0].Rule != "flag" || rep.Findings[1].Rule != "flag" {
+		t.Fatalf("bad memory docs findings = %+v, want 2 flag findings", rep.Findings)
+	}
+}
+
 func TestCheckDocsStyleBudgetAndSpecStructureCLI(t *testing.T) {
 	home := t.TempDir()
 	specJSON := func(id, body string) string {

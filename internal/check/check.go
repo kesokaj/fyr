@@ -174,7 +174,8 @@ func (k *checker) rootDocsRules(rep *Report, recs []brain.Record, ok bool) {
 
 // docsFiles is the docs set's files (Interfaces § The docs set): every
 // tracked *.md, minus a directory holding a noindex marker (tracked or
-// not) and the vendored skills and catalogs skills/VENDORED.md names.
+// not) and the vendored skills and catalogs skills/VENDORED.md names
+// (keeping local SKILL.md for fork rows checked).
 func (k *checker) docsFiles() []string {
 	skip := k.vendoredSkips()
 	isMarked := k.noIndexed()
@@ -185,7 +186,7 @@ next:
 			continue
 		}
 		for _, s := range skip {
-			if strings.HasPrefix(p, s) {
+			if strings.HasPrefix(p, s.prefix) && (!s.fork || p != s.prefix+"SKILL.md") {
 				continue next
 			}
 		}
@@ -197,15 +198,31 @@ next:
 	return files
 }
 
+type vendoredSkip struct {
+	prefix string
+	fork   bool
+}
+
 // vendoredSkips is the skills/<name>/ prefix of every vendored skill and
-// catalog skills/VENDORED.md names.
-func (k *checker) vendoredSkips() []string {
-	var skip []string
-	if data, err := k.readFile(filepath.Join("skills", "VENDORED.md")); err == nil {
-		for _, l := range strings.Split(string(data), "\n") {
-			if m := vendoredRow.FindStringSubmatch(l); m != nil && m[1] != "Skill" {
-				skip = append(skip, "skills/"+m[1]+"/")
-			}
+// catalog skills/VENDORED.md names, tagging rows marked as forks (either
+// under a Forks heading or containing "fork" in the row) so their local
+// SKILL.md stays checked while verbatim vendored files stay skipped.
+func (k *checker) vendoredSkips() []vendoredSkip {
+	var skip []vendoredSkip
+	data, err := k.readFile(filepath.Join("skills", "VENDORED.md"))
+	if err != nil {
+		return skip
+	}
+	inForks := false
+	for _, l := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(l)
+		if strings.HasPrefix(trimmed, "#") {
+			inForks = strings.Contains(strings.ToLower(trimmed), "fork")
+			continue
+		}
+		if m := vendoredRow.FindStringSubmatch(l); m != nil && m[1] != "Skill" {
+			isFork := inForks || strings.Contains(strings.ToLower(l), "fork")
+			skip = append(skip, vendoredSkip{prefix: "skills/" + m[1] + "/", fork: isFork})
 		}
 	}
 	return skip
