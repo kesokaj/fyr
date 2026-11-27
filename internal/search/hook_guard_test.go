@@ -135,19 +135,19 @@ func TestCheckTurnOrMidTurn(t *testing.T) {
 }
 
 func TestSD59PureGoIgnoreCommonDirAndIndexChecks(t *testing.T) {
-	// 1. ignoreFileCoversScratch handles leading /, /**, and unrelated ! negations.
+	// 1. ignoreFileScratchState handles leading /, /**, and unrelated ! negations.
 	giDir := t.TempDir()
 	giPath := filepath.Join(giDir, ".gitignore")
 	if err := os.WriteFile(giPath, []byte("/.agents/scratch/**\n!*.md\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !ignoreFileCoversScratch(giPath) {
+	if ignoreFileScratchState(giPath, patternCoversRootScratch) != 1 {
 		t.Fatalf("expected /.agents/scratch/** + !*.md to cover scratch")
 	}
 	if err := os.WriteFile(giPath, []byte("/.agents/**\n!.agents/scratch/search.db\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if ignoreFileCoversScratch(giPath) {
+	if ignoreFileScratchState(giPath, patternCoversRootScratch) == 1 {
 		t.Fatalf("expected explicit !.agents/scratch/search.db negation to fail cover check")
 	}
 
@@ -466,11 +466,20 @@ func TestResolveGitWorktreeDir(t *testing.T) {
 	})
 }
 
+func testCheckTurnOrMidTurnInput(dir string, in HookInput, rawPrompt string) (SessionState, bool, error) {
+	st, _, err := openLedgerStore(dir)
+	if err != nil {
+		return SessionState{}, false, err
+	}
+	defer st.close()
+	return checkTurnOrMidTurnWithStore(context.Background(), st, in, rawPrompt)
+}
+
 func TestAdvanceOrSkipTurnConsecutiveIdenticalPromptVsF002MidTurn(t *testing.T) {
 	dir := setupHookRepo(t)
 	prompt := "continue"
 	// Turn 1: inv 1, initialNumSteps=4, stepIdx=4 (fresh user turn).
-	st1, skip1, err := checkTurnOrMidTurnInput(dir, HookInput{
+	st1, skip1, err := testCheckTurnOrMidTurnInput(dir, HookInput{
 		ConversationID: "conv-ident", InvocationNum: 1, InitialNumSteps: 4, StepIdx: 4,
 	}, prompt)
 	if err != nil || skip1 || st1.TurnCount != 1 {
@@ -478,14 +487,14 @@ func TestAdvanceOrSkipTurnConsecutiveIdenticalPromptVsF002MidTurn(t *testing.T) 
 	}
 	// Turn 2: consecutive IDENTICAL prompt, inv 2 > lastInvNum(1), but explicit new-turn cue
 	// (ContinuationActive=false, ExecutionNum=0, InitialNumSteps=8, StepIdx=8) MUST NOT skip.
-	st2, skip2, err := checkTurnOrMidTurnInput(dir, HookInput{
+	st2, skip2, err := testCheckTurnOrMidTurnInput(dir, HookInput{
 		ConversationID: "conv-ident", InvocationNum: 2, InitialNumSteps: 8, StepIdx: 8,
 	}, prompt)
 	if err != nil || skip2 || st2.TurnCount != 2 {
 		t.Fatalf("consecutive identical prompt new turn: state=%+v skip=%v err=%v, want skip=false turn=2", st2, skip2, err)
 	}
 	// F-002 mid-turn continuation: inv 3 > lastInvNum(2) with InitialNumSteps=0 MUST still skip.
-	st3, skip3, err := checkTurnOrMidTurnInput(dir, HookInput{
+	st3, skip3, err := testCheckTurnOrMidTurnInput(dir, HookInput{
 		ConversationID: "conv-ident", InvocationNum: 3, InitialNumSteps: 0, StepIdx: 0,
 	}, prompt)
 	if err != nil || !skip3 || st3.TurnCount != 2 {
@@ -527,7 +536,7 @@ func TestScanTranscriptCheckpointTailJumpPartialLineAndStrictJSON(t *testing.T) 
 	if err := os.WriteFile(tr1, b.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, _, _, cps, ok := scanTranscriptCheckpoint(tr1, 0)
+	_, _, cps, ok := scanTranscriptCheckpoint(tr1, 0)
 	if !ok || cps != 0 {
 		t.Fatalf("tail-jump partial line fake CHECKPOINT: cps=%d ok=%v, want 0, true", cps, ok)
 	}
@@ -537,7 +546,7 @@ func TestScanTranscriptCheckpointTailJumpPartialLineAndStrictJSON(t *testing.T) 
 	if err := os.WriteFile(tr2, []byte(`{"type":"CHECKPOINT", "broken": `+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, _, _, cps2, ok2 := scanTranscriptCheckpoint(tr2, 0)
+	_, _, cps2, ok2 := scanTranscriptCheckpoint(tr2, 0)
 	if !ok2 || cps2 != 0 {
 		t.Fatalf("malformed JSON CHECKPOINT: cps=%d ok=%v, want 0, true", cps2, ok2)
 	}
@@ -550,7 +559,7 @@ func TestScanTranscriptCheckpointTailJumpPartialLineAndStrictJSON(t *testing.T) 
 	if err := os.WriteFile(tr3, b3.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, _, _, cps3, ok3 := scanTranscriptCheckpoint(tr3, 0)
+	_, _, cps3, ok3 := scanTranscriptCheckpoint(tr3, 0)
 	if !ok3 || cps3 != 1 {
 		t.Fatalf("valid CHECKPOINT after tail jump: cps=%d ok=%v, want 1, true", cps3, ok3)
 	}
@@ -825,25 +834,25 @@ func TestZeroIndexedInvocationNumAndBypassedSkillDigests(t *testing.T) {
 	prompt := "fix ReconcileProjectIndex in service.go"
 
 	// 1. 0-indexed InvocationNum=0 followed by InvocationNum=1 (same prompt, no new-turn cue) returns skip=true.
-	st1, skip1, err := checkTurnOrMidTurnInput(dir, HookInput{ConversationID: "conv-zero-mid", InvocationNum: 0}, prompt)
+	st1, skip1, err := testCheckTurnOrMidTurnInput(dir, HookInput{ConversationID: "conv-zero-mid", InvocationNum: 0}, prompt)
 	if err != nil || skip1 || st1.TurnCount != 1 {
 		t.Fatalf("inv=0 first call: state=%+v skip=%v err=%v", st1, skip1, err)
 	}
-	st2, skip2, err := checkTurnOrMidTurnInput(dir, HookInput{ConversationID: "conv-zero-mid", InvocationNum: 1}, prompt)
+	st2, skip2, err := testCheckTurnOrMidTurnInput(dir, HookInput{ConversationID: "conv-zero-mid", InvocationNum: 1}, prompt)
 	if err != nil || !skip2 || st2.TurnCount != 1 {
 		t.Errorf("0-indexed inv=0 -> inv=1 mid-turn: state=%+v skip=%v err=%v, want skip=true turn=1", st2, skip2, err)
 	}
 
 	// 2. InvocationNum=0 -> InvocationNum=0 still returns skip=false.
-	_, _, _ = checkTurnOrMidTurnInput(dir, HookInput{ConversationID: "conv-zero-repeat", InvocationNum: 0}, prompt)
-	stRep, skipRep, err := checkTurnOrMidTurnInput(dir, HookInput{ConversationID: "conv-zero-repeat", InvocationNum: 0}, prompt)
+	_, _, _ = testCheckTurnOrMidTurnInput(dir, HookInput{ConversationID: "conv-zero-repeat", InvocationNum: 0}, prompt)
+	stRep, skipRep, err := testCheckTurnOrMidTurnInput(dir, HookInput{ConversationID: "conv-zero-repeat", InvocationNum: 0}, prompt)
 	if err != nil || skipRep || stRep.TurnCount != 2 {
 		t.Errorf("inv=0 -> inv=0: state=%+v skip=%v err=%v, want skip=false turn=2", stRep, skipRep, err)
 	}
 
 	// 3. InvocationNum=0 -> InvocationNum=1 with explicit new-turn cue still returns skip=false.
-	_, _, _ = checkTurnOrMidTurnInput(dir, HookInput{ConversationID: "conv-zero-cue", InvocationNum: 0}, prompt)
-	stCue, skipCue, err := checkTurnOrMidTurnInput(dir, HookInput{
+	_, _, _ = testCheckTurnOrMidTurnInput(dir, HookInput{ConversationID: "conv-zero-cue", InvocationNum: 0}, prompt)
+	stCue, skipCue, err := testCheckTurnOrMidTurnInput(dir, HookInput{
 		ConversationID: "conv-zero-cue", InvocationNum: 1, InitialNumSteps: 4, StepIdx: 4,
 	}, prompt)
 	if err != nil || skipCue || stCue.TurnCount != 2 {

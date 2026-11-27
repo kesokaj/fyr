@@ -348,7 +348,6 @@ func TestKickoffGuardMixedSessionClearsOnInteractiveTurn(t *testing.T) {
 		t.Run("non-main wd.role", func(t *testing.T) {
 			isAuto, src := detectKickoffOrWorkerSessionCtx(
 				context.Background(),
-				Options{Home: home},
 				dir,
 				watchdogPreState{role: "builder"},
 				nil,
@@ -378,7 +377,6 @@ func TestKickoffGuardMixedSessionClearsOnInteractiveTurn(t *testing.T) {
 			// Direct call with empty wd (simulating watchdog skipped) must still block via session_meta.agent_role before LastUserInput!
 			isAuto, src := detectKickoffOrWorkerSessionCtx(
 				context.Background(),
-				Options{Home: home},
 				dir,
 				watchdogPreState{},
 				nil,

@@ -384,7 +384,7 @@ func parseAwkNRBound(clause string) (bool, int, bool) {
 	var n int
 	var err error
 	if m[1] != "" {
-		op, n, err = m[2], 0, nil
+		op = m[2]
 		n, err = strconv.Atoi(m[3])
 	} else {
 		n, err = strconv.Atoi(m[4])

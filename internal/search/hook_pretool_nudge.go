@@ -274,7 +274,7 @@ func extractCodeSymbolQuery(raw string) string {
 		return ""
 	}
 	for i := 0; i < len(s); i++ {
-		if c := s[i]; !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.') {
+		if c := s[i]; (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' && c != '.' {
 			return ""
 		}
 	}

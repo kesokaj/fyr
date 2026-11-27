@@ -2,6 +2,7 @@ package search
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -109,9 +110,22 @@ func TestRegisterCapsulePivotsAndCompactionReset(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	st0, _, err := checkTurnOrMidTurn(root, "conv-compact", transcript, 0, "turn-0")
+	checkTurn := func(rawPrompt string) (SessionState, error) {
+		st, _, err := openLedgerStore(root)
+		if err != nil {
+			return SessionState{}, err
+		}
+		defer st.close()
+		state, _, err := checkTurnOrMidTurnWithStore(context.Background(), st, HookInput{
+			ConversationID: "conv-compact",
+			TranscriptPath: transcript,
+		}, rawPrompt)
+		return state, err
+	}
+
+	st0, err := checkTurn("turn-0")
 	if err != nil {
-		t.Fatalf("checkTurnOrMidTurn initial: %v", err)
+		t.Fatalf("checkTurnOrMidTurnWithStore initial: %v", err)
 	}
 	if st0.GenerationID != 0 || st0.Compacted || st0.LastTranscriptBytes != 2000 {
 		t.Fatalf("initial SessionState = %+v, want Gen=0, Compacted=false, Bytes=2000", st0)
@@ -154,9 +168,9 @@ func TestRegisterCapsulePivotsAndCompactionReset(t *testing.T) {
 	if err := os.WriteFile(transcript, []byte(strings.Repeat("x", 2500)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	st1, _, err := checkTurnOrMidTurn(root, "conv-compact", transcript, 0, "turn-1")
+	st1, err := checkTurn("turn-1")
 	if err != nil {
-		t.Fatalf("checkTurnOrMidTurn grow: %v", err)
+		t.Fatalf("checkTurnOrMidTurnWithStore grow: %v", err)
 	}
 	if st1.GenerationID != 0 || st1.Compacted {
 		t.Fatalf("after growth SessionState = %+v, want Gen=0, Compacted=false", st1)
@@ -166,9 +180,9 @@ func TestRegisterCapsulePivotsAndCompactionReset(t *testing.T) {
 	if err := os.WriteFile(transcript, []byte(strings.Repeat("x", 1500)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	st2, _, err := checkTurnOrMidTurn(root, "conv-compact", transcript, 0, "turn-2")
+	st2, err := checkTurn("turn-2")
 	if err != nil {
-		t.Fatalf("checkTurnOrMidTurn shrink: %v", err)
+		t.Fatalf("checkTurnOrMidTurnWithStore shrink: %v", err)
 	}
 	if st2.GenerationID != 1 || !st2.Compacted || st2.LastTranscriptBytes != 1500 {
 		t.Fatalf("after >20%% shrinkage SessionState = %+v, want Gen=1, Compacted=true, Bytes=1500", st2)
@@ -266,38 +280,36 @@ func TestParseBashFileReadAndInterception(t *testing.T) {
 		{cmd: "bat --paging=never -r 10:80 foo.go", wantTool: "bat", wantPath: "foo.go", wantStart: 10, wantEnd: 80},
 	}
 	for _, tc := range valid {
-		got, ok := ParseBashFileRead(tc.cmd)
-		if !ok {
-			t.Errorf("ParseBashFileRead(%q) = false, want true", tc.cmd)
+		reads := ParseBashFileReads(tc.cmd)
+		if len(reads) != 1 {
+			t.Errorf("ParseBashFileReads(%q) = %+v, want 1 read", tc.cmd, reads)
 			continue
 		}
+		got := reads[0]
 		if got.Tool != tc.wantTool || got.Path != tc.wantPath || got.StartLine != tc.wantStart || got.EndLine != tc.wantEnd {
-			t.Errorf("ParseBashFileRead(%q) = %+v, want tool=%s path=%s %d..%d",
+			t.Errorf("ParseBashFileReads(%q)[0] = %+v, want tool=%s path=%s %d..%d",
 				tc.cmd, got, tc.wantTool, tc.wantPath, tc.wantStart, tc.wantEnd)
 		}
 	}
 
 	bypass := []string{
-		"cat foo.go | grep bar",
-		"sed -n '1,120p' foo.go | wc -l",
+		"cat foo.go | tee out.txt",
+		"sed -n '1,120p' foo.go | xargs echo",
 		"cat foo.go > out.txt",
 		"cat foo.go >> out.txt",
 		"cat < foo.go",
-		"cat foo.go && rm foo.go",
-		"cat foo.go; ls",
-		"cat a.go b.go",
 		"sed '1,120p' foo.go",
 		"sed -i '1,10d' foo.go",
 		"tail -f foo.go",
 		"go test ./...",
 	}
 	for _, cmd := range bypass {
-		if got, ok := ParseBashFileRead(cmd); ok {
-			t.Errorf("ParseBashFileRead(%q) = %+v, true; want bypass (false)", cmd, got)
+		if got := ParseBashFileReads(cmd); len(got) != 0 {
+			t.Errorf("ParseBashFileReads(%q) = %+v; want empty (bypass)", cmd, got)
 		}
 	}
 
-	// Route single-file cat and sed -n through ParseBashFileRead + CheckAndRecordReadInSession.
+	// Route single-file cat and sed -n through ParseBashFileReads + CheckAndRecordReadInSession.
 	root := newRepo(t)
 	var lines strings.Builder
 	lines.WriteString("package main\n\nfunc MainRun() {\n")
@@ -308,28 +320,30 @@ func TestParseBashFileReadAndInterception(t *testing.T) {
 	writeFile(t, root, "foo.go", lines.String())
 	commitAll(t, root, "add foo.go")
 
-	bfr1, intercepted := ParseBashFileRead("cat foo.go")
-	if !intercepted {
-		t.Fatalf("ParseBashFileRead(cat foo.go) = false, want true")
+	reads1 := ParseBashFileReads("cat foo.go")
+	if len(reads1) != 1 {
+		t.Fatalf("ParseBashFileReads(cat foo.go) = %+v, want 1 read", reads1)
 	}
+	bfr1 := reads1[0]
 	dec1, err := CheckAndRecordReadInSession(root, "", root, "conv-bash", bfr1.Path, bfr1.StartLine, bfr1.EndLine, 1)
 	if err != nil || !dec1.Allowed {
 		t.Fatalf("1st bash cat foo.go = %+v, err=%v; want Allowed=true", dec1, err)
 	}
 
 	// 2nd bash read via sed -n '1,120p' foo.go is covered by full cat foo.go and denied with [UNCHANGED].
-	bfr2, intercepted := ParseBashFileRead("sed -n '1,120p' foo.go")
-	if !intercepted {
-		t.Fatalf("ParseBashFileRead(sed -n '1,120p' foo.go) = false, want true")
+	reads2 := ParseBashFileReads("sed -n '1,120p' foo.go")
+	if len(reads2) != 1 {
+		t.Fatalf("ParseBashFileReads(sed -n '1,120p' foo.go) = %+v, want 1 read", reads2)
 	}
+	bfr2 := reads2[0]
 	dec2, err := CheckAndRecordReadInSession(root, "", root, "conv-bash", bfr2.Path, bfr2.StartLine, bfr2.EndLine, 2)
 	if err != nil || dec2.Allowed || !strings.HasPrefix(dec2.Reason, "[UNCHANGED]") {
 		t.Fatalf("2nd bash sed -n '1,120p' foo.go = %+v, err=%v; want Denied [UNCHANGED]", dec2, err)
 	}
 
-	// Pipeline bypasses interception safely.
-	if _, intercepted := ParseBashFileRead("sed -n '1,120p' foo.go | head -n 5"); intercepted {
-		t.Fatalf("pipeline should bypass read ledger, got intercepted=true")
+	// Non-read-only pipeline bypasses interception safely.
+	if got := ParseBashFileReads("sed -n '1,120p' foo.go | tee out.txt"); len(got) != 0 {
+		t.Fatalf("non-read-only pipeline should bypass read ledger, got %+v", got)
 	}
 }
 
@@ -587,13 +601,13 @@ func TestParseBashFileReadsIgnoresComplexShell(t *testing.T) {
 	}
 }
 
-func TestSplitSimpleShellChains(t *testing.T) {
-	if segs, ok := splitSimpleShellChains(`cd sub && sed -n '1,10p;11q' "a;b.go" ; cat c\;d.go`); !ok || len(segs) != 3 {
-		t.Fatalf("splitSimpleShellChains = %v, %v; want 3 segments", segs, ok)
+func TestSplitBashReadStatements(t *testing.T) {
+	if stmts, ok := splitBashReadStatements(`cd sub && sed -n '1,10p;11q' "a;b.go" ; cat c\;d.go`, false); !ok || len(stmts) != 3 {
+		t.Fatalf("splitBashReadStatements = %+v, %v; want 3 statements", stmts, ok)
 	}
-	for _, bad := range []string{"", "  ; && ", "cat a.go | head", "cat a.go > out", "cat a.go &", "cat a.go &&& b", "cat 'open"} {
-		if segs, ok := splitSimpleShellChains(bad); ok || len(segs) != 0 {
-			t.Errorf("splitSimpleShellChains(%q) = %v, %v; want nil, false", bad, segs, ok)
+	for _, bad := range []string{"", "  ; && ", "cat a.go &", "cat a.go &&& b", "cat a.go || b", "cat a.go |& head", "cat $(echo a.go)", "cat 'open", "(cd sub && cat a.go)"} {
+		if stmts, ok := splitBashReadStatements(bad, false); ok || len(stmts) != 0 {
+			t.Errorf("splitBashReadStatements(%q, false) = %+v, %v; want nil, false", bad, stmts, ok)
 		}
 	}
 }

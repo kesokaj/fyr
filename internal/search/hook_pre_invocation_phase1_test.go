@@ -708,7 +708,7 @@ func runV910CompactionT(t *testing.T) {
 	if err := os.Symlink(tr, symTr); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, _, ok := scanTranscriptCheckpoint(symTr, 0); ok {
+	if _, _, _, ok := scanTranscriptCheckpoint(symTr, 0); ok {
 		t.Fatalf("scanTranscriptCheckpoint followed symlink")
 	}
 

@@ -64,10 +64,6 @@ func matchWatchdogPromptPreamble(lastInput string) string {
 	return ""
 }
 
-func lookupWatchdogSummaryRole(home, convID string) (string, string, bool) {
-	return lookupWatchdogSummaryRoleCtx(context.Background(), home, convID)
-}
-
 func lookupWatchdogSummaryRoleCtx(ctx context.Context, home, convID string) (string, string, bool) {
 	h := strings.TrimSpace(home)
 	agyDir, summaryPath, ok := checkWatchdogSummaryFiles(h)

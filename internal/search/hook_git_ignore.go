@@ -169,10 +169,6 @@ func scratchIgnoredFast(root, commonDir string) bool {
 	return ignored
 }
 
-func ignoreFileCoversScratch(path string) bool {
-	return ignoreFileScratchState(path, patternCoversRootScratch) == 1
-}
-
 func ignoreFileScratchState(path string, coverFn func(string) bool) int {
 	fi, err := os.Lstat(path)
 	if err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() || fi.Size() > maxFileBytes {

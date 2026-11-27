@@ -90,10 +90,6 @@ func scanSingleQuotedPythonString(src string, qStart, limit int, isF bool) (int,
 	return limit, false
 }
 
-func findMatchingParen(src string, openIdx int) int {
-	return findMatchingParenBounded(src, openIdx, len(src))
-}
-
 func findMatchingParenBounded(src string, openIdx, limit int) int {
 	depth := 0
 	for i := openIdx; i < limit; {
@@ -101,9 +97,10 @@ func findMatchingParenBounded(src string, openIdx, limit int) int {
 			i = next
 			continue
 		}
-		if src[i] == '(' {
+		switch src[i] {
+		case '(':
 			depth++
-		} else if src[i] == ')' {
+		case ')':
 			depth--
 			if depth == 0 {
 				return i

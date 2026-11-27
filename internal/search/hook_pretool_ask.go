@@ -24,7 +24,7 @@ func handlePreToolAskQuestionCtx(ctx context.Context, o Options, dir string, wd 
 	if ctx.Err() != nil || hookBypassedForEvent(o.Home, dir, "pre-tool-use") {
 		return writeDecision(out, "allow", "")
 	}
-	isAuto, source := detectKickoffOrWorkerSessionCtx(ctx, o, dir, wd, wdSt, wdRoot, in)
+	isAuto, source := detectKickoffOrWorkerSessionCtx(ctx, dir, wd, wdSt, wdRoot, in)
 	if !isAuto {
 		return writeDecision(out, "allow", "")
 	}
@@ -64,7 +64,7 @@ func detectStatelessHeadlessAsk(ctx context.Context, wd watchdogPreState) (bool,
 	return false, ""
 }
 
-func detectKickoffOrWorkerSessionCtx(ctx context.Context, o Options, dir string, wd watchdogPreState, wdSt *store, wdRoot string, in HookInput) (bool, string) {
+func detectKickoffOrWorkerSessionCtx(ctx context.Context, dir string, wd watchdogPreState, wdSt *store, wdRoot string, in HookInput) (bool, string) {
 	if ok, src := detectStatelessHeadlessAsk(ctx, wd); ok {
 		return true, src
 	}

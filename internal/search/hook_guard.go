@@ -56,25 +56,6 @@ func hasAutonomousWaiver(lowPrompt string) bool {
 	return false
 }
 
-// checkTurnOrMidTurn stats transcriptPath, checks compaction, and determines
-// whether this PreInvocation is a mid-turn tool-loop continuation.
-func checkTurnOrMidTurn(dir, conversationID, transcriptPath string, invocationNum int, rawPrompt string) (SessionState, bool, error) {
-	return checkTurnOrMidTurnInput(dir, HookInput{
-		ConversationID: conversationID,
-		TranscriptPath: transcriptPath,
-		InvocationNum:  invocationNum,
-	}, rawPrompt)
-}
-
-func checkTurnOrMidTurnInput(dir string, in HookInput, rawPrompt string) (SessionState, bool, error) {
-	st, _, err := openLedgerStore(dir)
-	if err != nil {
-		return SessionState{}, false, err
-	}
-	defer st.close()
-	return checkTurnOrMidTurnWithStore(context.Background(), st, in, rawPrompt)
-}
-
 func checkTurnOrMidTurnWithStore(ctx context.Context, st *store, in HookInput, rawPrompt string) (SessionState, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return SessionState{}, false, err
@@ -99,7 +80,7 @@ func checkTurnOrMidTurnWithStore(ctx context.Context, st *store, in HookInput, r
 }
 
 func initSessionMetaTurn(ctx context.Context, st *store, conversationID string, in HookInput, promptSum string) (SessionState, bool, error) {
-	curBytes64, _, cpOff, _, _ := scanTranscriptCheckpoint(in.TranscriptPath, 0)
+	curBytes64, cpOff, _, _ := scanTranscriptCheckpoint(in.TranscriptPath, 0)
 	curBytes := int(curBytes64)
 	cpOffset := int(cpOff)
 	est := calcEstTokens(curBytes, cpOffset)
@@ -134,7 +115,7 @@ func calcEstTokens(curBytes, checkpointOffset int) int {
 }
 
 func advanceOrSkipTurn(ctx context.Context, st *store, conversationID string, genID, lastBytes, turnCount, est, lastInvNum, lastCPOff int, in HookInput, promptSum string) (SessionState, bool, error) {
-	curBytes64, _, newCPOff, cps, hasSize := scanTranscriptCheckpoint(in.TranscriptPath, int64(lastBytes))
+	curBytes64, newCPOff, cps, hasSize := scanTranscriptCheckpoint(in.TranscriptPath, int64(lastBytes))
 	curBytes := int(curBytes64)
 	truncated := hasSize && lastBytes > 0 && curBytes < lastBytes*80/100
 	compacted := truncated || (hasSize && cps > 0)
@@ -192,28 +173,28 @@ func resolveCheckpointOffset(prevOff, newOff, curBytes int, truncated, sawCheckp
 
 // scanTranscriptCheckpoint safely inspects regular transcript JSONL files from
 // fromOffset (capped at 512 KiB/call, tail-scanning on larger jumps) and returns
-// the current byte length, new scan offset, offset immediately after the last
-// CHECKPOINT record, checkpoint count, and whether path was a readable regular file.
-func scanTranscriptCheckpoint(path string, fromOffset int64) (curBytes, newOffset, lastCheckpointOffset int64, checkpoints int, ok bool) {
+// the current byte length, offset immediately after the last CHECKPOINT record,
+// checkpoint count, and whether path was a readable regular file.
+func scanTranscriptCheckpoint(path string, fromOffset int64) (curBytes, lastCheckpointOffset int64, checkpoints int, ok bool) {
 	p := strings.TrimSpace(path)
 	if p == "" {
-		return 0, 0, 0, 0, false
+		return 0, 0, 0, false
 	}
 	fi, err := os.Lstat(p)
 	if err != nil || !fi.Mode().IsRegular() {
-		return 0, 0, 0, 0, false
+		return 0, 0, 0, false
 	}
 	curBytes = fi.Size()
 	f, err := trail.OpenRegular(p)
 	if err != nil {
-		return 0, 0, 0, 0, false
+		return 0, 0, 0, false
 	}
 	defer f.Close()
 	if fromOffset < 0 || fromOffset > curBytes {
 		fromOffset = 0
 	}
 	if fromOffset == curBytes {
-		return curBytes, curBytes, 0, 0, true
+		return curBytes, 0, 0, true
 	}
 	scanStart := fromOffset
 	if curBytes-fromOffset > maxCheckpointScanBytes {
@@ -222,20 +203,20 @@ func scanTranscriptCheckpoint(path string, fromOffset int64) (curBytes, newOffse
 	skipFirst := false
 	if scanStart > 0 {
 		if _, err := f.Seek(scanStart-1, io.SeekStart); err != nil {
-			return curBytes, fromOffset, 0, 0, true
+			return curBytes, 0, 0, true
 		}
 		var prev [1]byte
 		if _, err := io.ReadFull(f, prev[:]); err != nil {
-			return curBytes, fromOffset, 0, 0, true
+			return curBytes, 0, 0, true
 		}
 		skipFirst = prev[0] != '\n'
 	}
 	buf, err := io.ReadAll(io.LimitReader(f, maxCheckpointScanBytes))
 	if err != nil {
-		return curBytes, fromOffset, 0, 0, true
+		return curBytes, 0, 0, true
 	}
 	lastCheckpointOffset, checkpoints = scanCheckpointLines(buf, scanStart, skipFirst)
-	return curBytes, scanStart + int64(len(buf)), lastCheckpointOffset, checkpoints, true
+	return curBytes, lastCheckpointOffset, checkpoints, true
 }
 
 func scanCheckpointLines(buf []byte, baseOffset int64, skipFirst bool) (int64, int) {
@@ -296,10 +277,6 @@ func sha256PromptHex(rawPrompt string) string {
 	}
 	sum := sha256.Sum256([]byte(rawPrompt))
 	return hex.EncodeToString(sum[:])
-}
-
-func upsertPreInvocationStamp(st *store, conversationID string, genID, turnCount int, promptSum string) {
-	upsertPreInvocationStampCtx(context.Background(), st, conversationID, genID, turnCount, promptSum)
 }
 
 func upsertPreInvocationStampCtx(ctx context.Context, st *store, conversationID string, genID, turnCount int, promptSum string) {

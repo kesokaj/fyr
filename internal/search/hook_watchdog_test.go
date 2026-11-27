@@ -2,6 +2,7 @@ package search
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -411,15 +412,15 @@ func TestInteractiveBashGuard(t *testing.T) {
 	for _, args := range []map[string]any{{"CommandLine": "vim foo.go"}, {"commandLine": "git push origin work"}} {
 		var buf bytes.Buffer
 		in := HookInput{ConversationID: "conv-nohooks", ToolCall: HookToolCall{Name: "run_command", Args: args}}
-		if err := handlePreToolBash(home, noHooksDir, in, &buf); err != nil {
-			t.Fatalf("handlePreToolBash: %v", err)
+		if err := handlePreToolBashCtx(context.Background(), home, noHooksDir, nil, "", in, &buf); err != nil {
+			t.Fatalf("handlePreToolBashCtx: %v", err)
 		}
 		var dec HookDecisionOutput
 		if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &dec); err != nil {
 			t.Fatalf("unmarshal %q: %v", buf.String(), err)
 		}
 		if dec.Decision != "allow" || dec.Reason != "" || len(dec.Overwrite) != 0 {
-			t.Fatalf("handlePreToolBash with no-hooks should allow without overwrite/reason (%v), got %+v", args, dec)
+			t.Fatalf("handlePreToolBashCtx with no-hooks should allow without overwrite/reason (%v), got %+v", args, dec)
 		}
 	}
 }
@@ -485,9 +486,9 @@ func TestLookupWatchdogSummaryRoleROAndSymlinkReject(t *testing.T) {
 	seedWatchdogSummaryDB(t, home)
 
 	// Direct roDSN query must not create state dir or watchdog-agy temp dirs.
-	role, name, found := lookupWatchdogSummaryRole(home, "conv-self")
+	role, name, found := lookupWatchdogSummaryRoleCtx(context.Background(), home, "conv-self")
 	if !found || role != "self" || name != "self" {
-		t.Fatalf("lookupWatchdogSummaryRole(conv-self) = (%q, %q, %v), want (self, self, true)", role, name, found)
+		t.Fatalf("lookupWatchdogSummaryRoleCtx(conv-self) = (%q, %q, %v), want (self, self, true)", role, name, found)
 	}
 	entries, err := os.ReadDir(home)
 	if err != nil {
@@ -499,9 +500,9 @@ func TestLookupWatchdogSummaryRoleROAndSymlinkReject(t *testing.T) {
 		}
 	}
 	// Missing conversation returns sql.ErrNoRows handled cleanly without copy fallback.
-	roleMiss, _, foundMiss := lookupWatchdogSummaryRole(home, "conv-missing")
+	roleMiss, _, foundMiss := lookupWatchdogSummaryRoleCtx(context.Background(), home, "conv-missing")
 	if foundMiss || roleMiss != "main" {
-		t.Fatalf("lookupWatchdogSummaryRole(conv-missing) = (%q, %v), want (main, false)", roleMiss, foundMiss)
+		t.Fatalf("lookupWatchdogSummaryRoleCtx(conv-missing) = (%q, %v), want (main, false)", roleMiss, foundMiss)
 	}
 
 	// Symlinked -wal companion must be refused fail-closed.
@@ -515,7 +516,7 @@ func TestLookupWatchdogSummaryRoleROAndSymlinkReject(t *testing.T) {
 	if err := os.Symlink(walTarget, walLink); err != nil {
 		t.Fatal(err)
 	}
-	if r, _, ok := lookupWatchdogSummaryRole(home, "conv-self"); ok || r != "main" {
+	if r, _, ok := lookupWatchdogSummaryRoleCtx(context.Background(), home, "conv-self"); ok || r != "main" {
 		t.Fatalf("expected symlinked -wal to be refused, got (%q, %v)", r, ok)
 	}
 }

@@ -46,10 +46,6 @@ func classifyHookModel(home, modelName string) (fam, tier, eff string, isOrch bo
 	return fam, tier, eff, isOrch
 }
 
-func isFastExecutionModel(modelName string) bool {
-	return isFastExecutionModelForHome("", modelName)
-}
-
 func isFastExecutionModelForHome(home, modelName string) bool {
 	s := strings.TrimSpace(modelName)
 	if s == "" || strings.EqualFold(s, "auto") {
@@ -71,10 +67,6 @@ func isFastExecutionModelForHome(home, modelName string) bool {
 	return eff != "high" && eff != "xhigh" && eff != "max"
 }
 
-func needsGuardedProUpgrade(modelName string) bool {
-	return needsGuardedProUpgradeForHome("", modelName)
-}
-
 func needsGuardedProUpgradeForHome(home, modelName string) bool {
 	s := strings.TrimSpace(modelName)
 	if s == "" {
@@ -85,10 +77,6 @@ func needsGuardedProUpgradeForHome(home, modelName string) bool {
 	}
 	_, _, _, isOrch := classifyHookModel(home, s)
 	return isOrch || isFastExecutionModelForHome(home, s)
-}
-
-func suggestSessionModelNudge(sc *scope, convID string, genID, turnNum int, modelName string, res VetResult) string {
-	return suggestSessionModelNudgeForHome("", sc, convID, genID, turnNum, modelName, res)
 }
 
 func suggestSessionModelNudgeForHome(home string, sc *scope, convID string, genID, turnNum int, modelName string, res VetResult) string {

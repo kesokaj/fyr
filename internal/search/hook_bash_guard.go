@@ -134,7 +134,7 @@ func unwrapEnvOrExec(kind string, toks []string) []string {
 func isEnvAssignToken(tok string) bool {
 	eq := strings.IndexByte(tok, '=')
 	for i := 0; eq > 0 && i < eq; i++ {
-		if c := tok[i]; !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || (i > 0 && c >= '0' && c <= '9')) {
+		if c := tok[i]; (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && c != '_' && (i == 0 || c < '0' || c > '9') {
 			return false
 		}
 	}
@@ -212,10 +212,6 @@ func hasNonInteractiveCommitFlag(args []string) bool {
 		}
 	}
 	return false
-}
-
-func hasGitShortOrLongFlag(args []string, shorts string, longs ...string) bool {
-	return hasGitFlagWithValues(args, shorts, "XsxC", "S", []string{"--onto", "--strategy", "--strategy-option", "--exec", "--whitespace", "--empty", "--chmod", "--pathspec-from-file"}, longs...)
 }
 
 func hasGitFlagWithValues(args []string, shorts, valShorts, optShorts string, valLongs []string, longs ...string) bool {

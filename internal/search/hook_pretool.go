@@ -189,10 +189,6 @@ func resolveReusableReadLedgerStore(sessionDir, home, toolDir string, wdSt *stor
 	return nil, "", false
 }
 
-func handlePreToolBash(home, dir string, in HookInput, out io.Writer) error {
-	return handlePreToolBashCtx(context.Background(), home, dir, nil, "", in, out)
-}
-
 func handlePreToolBashCtx(ctx context.Context, home, dir string, wdSt *store, wdRoot string, in HookInput, out io.Writer) error {
 	if !isRelaySession() && (hooksDisabledGlobal(home) || bashDirHooksDisabled(dir, in)) {
 		return writeDecision(out, "allow", "")
