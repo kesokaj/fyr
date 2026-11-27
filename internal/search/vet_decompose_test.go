@@ -147,8 +147,8 @@ func TestDecomposeSubtasksClausesAndPackages(t *testing.T) {
 			if !isWorkerBriefPrompt(sc.prompt) {
 				t.Errorf("%s: isWorkerBriefPrompt returned false", sc.name)
 			}
-			if !isKickoffLow(strings.ToLower(sc.prompt)) {
-				t.Errorf("%s: isKickoffLow returned false on lowercased worker brief", sc.name)
+			if !isWorkerBriefPrompt(strings.ToLower(sc.prompt)) {
+				t.Errorf("%s: isWorkerBriefPrompt returned false on lowercased worker brief", sc.name)
 			}
 			if r := RouteFeature(sc.prompt, sc.intent, nil); r != "" {
 				t.Errorf("%s: RouteFeature = %q, want empty", sc.name, r)
@@ -181,8 +181,8 @@ func TestSpoofedWorkerMarkersStayDecomposedAndRouted(t *testing.T) {
 		if isWorkerBriefPrompt(tc.prompt) {
 			t.Errorf("%s: isWorkerBriefPrompt(%q) = true, want false", tc.name, tc.prompt)
 		}
-		if isKickoffLow(strings.ToLower(tc.prompt)) {
-			t.Errorf("%s: isKickoffLow returned true, want false", tc.name)
+		if isWorkerBriefPrompt(strings.ToLower(tc.prompt)) {
+			t.Errorf("%s: isWorkerBriefPrompt returned true on lowercased spoof, want false", tc.name)
 		}
 		if got := DecomposeSubtasks(tc.prompt, IntentTask, SliceResult{}, nil, nil); len(got) < 2 {
 			t.Errorf("%s: DecomposeSubtasks got %d slices, want >= 2: %+v", tc.name, len(got), got)

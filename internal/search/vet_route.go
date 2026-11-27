@@ -104,10 +104,6 @@ func isConstraintClause(lowClause string) bool {
 	return false
 }
 
-func isKickoffLow(low string) bool {
-	return isWorkerBriefPrompt(low)
-}
-
 func hasLookupCues(low string) bool {
 	return containsAnySubstr(low, "where is", "where are") ||
 		containsAnyWord(low, "find", "trace", "caller", "callers", "reference", "references")

@@ -22,11 +22,11 @@ type indexStat struct{ size, sec, nsec int64 }
 // With -z a name holding a newline could forge another file's stat lines
 // (security review of BUG-165's fix, finding 2).
 func indexStats(root string) (map[string]indexStat, time.Time) {
-	out, err := git(root, nil, "ls-files", "-s", "--debug")
+	out, err := git(root, "ls-files", "-s", "--debug")
 	if err != nil {
 		return nil, time.Time{}
 	}
-	idx, err := git(root, nil, "rev-parse", "--git-path", "index")
+	idx, err := git(root, "rev-parse", "--git-path", "index")
 	if err != nil {
 		return nil, time.Time{}
 	}

@@ -9,10 +9,36 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
+func testRenderProcessArtifactForHome(home, convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {
+	cat, hasCat := loadModelsCatalog(home)
+	return renderProcessTelemetryMarkdownWithCatalog(home, cat, hasCat, convID, stage, rows, records)
+}
+
+func TestSafeBacktickTextFenceAndParseFenceHexToken(t *testing.T) {
+	if got := safeBacktickTextFence("hello\n```\nworld\n"); got != "````text\nhello\n```\nworld\n````" {
+		t.Errorf("safeBacktickTextFence upgraded fence = %q", got)
+	}
+	if got := safeBacktickTextFence("plain"); got != "```text\nplain\n```" {
+		t.Errorf("safeBacktickTextFence plain = %q", got)
+	}
+	if hexPart, ok := parseFenceHexToken("=====0123456789abcdef01====="); !ok || hexPart != "0123456789abcdef01" {
+		t.Errorf("parseFenceHexToken valid = (%q, %v), want valid hex", hexPart, ok)
+	}
+	for _, bad := range []string{
+		"=====0123456789ABCDEF01=====",
+		"=====0123456789abcdef0g=====",
+		"=====short=====",
+	} {
+		if hexPart, ok := parseFenceHexToken(bad); ok {
+			t.Errorf("parseFenceHexToken(%q) = (%q, true), want false", bad, hexPart)
+		}
+	}
+}
+
 func TestRenderProcessArtifactModelCatalog(t *testing.T) {
 	// 1. Missing models.json renders role-family policy with zero hardcoded model IDs.
 	emptyHome := t.TempDir()
-	gotPolicy := RenderProcessArtifactForHome(emptyHome, "conv-1", "2. Vet", nil, nil)
+	gotPolicy := testRenderProcessArtifactForHome(emptyHome, "conv-1", "2. Vet", nil, nil)
 	for _, want := range []string{
 		"# fyr Turn Telemetry",
 		"- **Conversation:** `conv-1`",
@@ -50,7 +76,7 @@ func TestRenderProcessArtifactModelCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	gotCached := RenderProcessArtifactForHome(home, "conv-2", "4. Build", nil, nil)
+	gotCached := testRenderProcessArtifactForHome(home, "conv-2", "4. Build", nil, nil)
 	for _, want := range []string{
 		"- **Conversation:** `conv-2`",
 		"- **Stage:** `BUILD`",
@@ -122,7 +148,7 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 	}
 
 	// 3. Control characters are scrubbed, Markdown cells/spans stay escaped, and fenced content with ``` upgrades outer fences.
-	out := RenderProcessArtifactForHome("", "conv\x00|```evil", "4.`Build`", []VetHistoryRow{{
+	out := testRenderProcessArtifactForHome("", "conv\x00|```evil", "4.`Build`", []VetHistoryRow{{
 		TurnNum:         1,
 		Intent:          "feat|x",
 		Gate:            "ALLOW`y",
@@ -149,7 +175,7 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 
 	// 4. appendProcessImprovedPrompts scrubs C0, C1, BiDi Cf, and Zl/Zp control runes while keeping newlines.
 	bidiPrompt := "line1\x1b[31mred\nline2\u009bCSI\nline3\u202eRLO\u2028zl\u2029zp\u200bzw"
-	outBidi := RenderProcessArtifactForHome("", "conv-bidi", "4. Build", []VetHistoryRow{{
+	outBidi := testRenderProcessArtifactForHome("", "conv-bidi", "4. Build", []VetHistoryRow{{
 		TurnNum:        2,
 		Intent:         "task",
 		Gate:           "ENRICH_AND_PROCEED",

@@ -86,7 +86,7 @@ func (sc *scope) collectTermMatches(o Options, ti int, term string, rowLimit int
 		if err := rows.Scan(&h.project, &h.path, &h.oid, &h.line, &h.id, &score); err != nil {
 			return err
 		}
-		if sc.kindMatches(o, h.project, h.path) {
+		if sc.kindMatches(o, h.path) {
 			recordChunkMatch(files, h.project+"\x00"+h.path, ti, h, score)
 			kept++
 			if kept >= rowLimit {

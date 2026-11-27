@@ -151,7 +151,7 @@ func TestGitViewUnmergedPath(t *testing.T) {
 	gitT(t, root, "checkout", "-q", "main")
 	writeFile(t, root, "a.md", "ours\n")
 	commitAll(t, root, "ours")
-	if _, err := git(root, nil, "merge", "-q", "other"); err == nil {
+	if _, err := git(root, "merge", "-q", "other"); err == nil {
 		t.Fatal("the merge did not conflict")
 	}
 	if out := gitT(t, root, "ls-files", "-u", "a.md"); strings.Count(out, "\n") != 3 {

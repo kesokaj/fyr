@@ -618,7 +618,7 @@ func TestDetectDirtyPathsFastNonRegularAndAlreadyDeletedOrOversized(t *testing.T
 	if !gotDel["gone.go"] || !gotDel["symmed.go"] {
 		t.Fatalf("1st fast scan dirty=%+v, want deleted entries for both gone.go and symmed.go", dirty1)
 	}
-	if _, err := st.applyDirtyPaths(context.Background(), dir, dirty1, 10); err != nil {
+	if err := st.applyDirtyPaths(context.Background(), dir, dirty1, 10); err != nil {
 		t.Fatalf("applyDirtyPaths: %v", err)
 	}
 
@@ -677,7 +677,7 @@ func TestGitCtxAndBrainTurnContextCtxCancellation(t *testing.T) {
 	dir, home := setupHookRepo(t), t.TempDir()
 	cctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := gitCtx(cctx, dir, nil, "status"); err == nil {
+	if _, err := gitCtx(cctx, dir, "status"); err == nil {
 		t.Fatal("gitCtx with canceled context returned nil error")
 	}
 	// Verify startParallelTurnWork invokes BrainTurnContextCtx with a bounded ctx when provided.
@@ -815,17 +815,17 @@ func TestBrainTurnContextCtxUsedAcrossHookPaths(t *testing.T) {
 		t.Fatalf("runVet did not invoke BrainTurnContextCtx: out=%s", vetOut.String())
 	}
 
-	// 4. buildHookEnvelopeWithModelTimed uses BrainTurnContextCtx with active ctx.
+	// 4. handleParallelHookTurn uses BrainTurnContextCtx with active ctx.
 	prevCalls := calls
-	_, _ = buildHookEnvelopeWithModelTimed(
+	_, _ = handleParallelHookTurn(
 		context.WithValue(context.Background(), ctxKey{}, wantCtxVal),
-		optsOnlyCtx, modelsCatalogFile{}, false, nil, dir, "conv-env", resolvedModelInfo{},
+		optsOnlyCtx, nil, dir,
 		HookInput{ConversationID: "conv-env"}, SessionState{TurnCount: 1},
 		"fix ReconcileProjectIndex in service.go", "fix ReconcileProjectIndex in service.go",
-		SliceResult{Files: []string{"service.go"}, SymbolHits: 1}, nil, TurnBannerMeta{}, time.Time{},
+		time.Time{},
 	)
 	if calls <= prevCalls || sawCtxKey != 2 {
-		t.Fatalf("buildHookEnvelopeWithModelTimed did not invoke BrainTurnContextCtx with active ctx: calls=%d->%d sawCtxKey=%d", prevCalls, calls, sawCtxKey)
+		t.Fatalf("handleParallelHookTurn did not invoke BrainTurnContextCtx with active ctx: calls=%d->%d sawCtxKey=%d", prevCalls, calls, sawCtxKey)
 	}
 }
 

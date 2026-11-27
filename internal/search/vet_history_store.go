@@ -96,19 +96,18 @@ func (st *store) lastVetHistoryCtx(ctx context.Context, convID string, beforeTur
 	return row, err
 }
 
-func (st *store) recentSuggestedSkills(convID string, beforeTurn, window int) (map[string]bool, []string, error) {
+const recentSuggestedSkillsWindow = 3
+
+func (st *store) recentSuggestedSkills(convID string, beforeTurn int) (map[string]bool, []string, error) {
 	if st == nil || st.db == nil {
 		return nil, nil, nil
 	}
 	convID = normalizeLedgerConvID(convID)
-	if window <= 0 {
-		window = 3
-	}
 	query := `SELECT suggested_skills, pivot_files FROM vet_history WHERE conversation_id = ? ORDER BY turn_num DESC LIMIT ?`
-	args := []any{convID, window}
+	args := []any{convID, recentSuggestedSkillsWindow}
 	if beforeTurn > 0 {
 		query = `SELECT suggested_skills, pivot_files FROM vet_history WHERE conversation_id = ? AND turn_num < ? ORDER BY turn_num DESC LIMIT ?`
-		args = []any{convID, beforeTurn, window}
+		args = []any{convID, beforeTurn, recentSuggestedSkillsWindow}
 	}
 	rows, err := st.db.Query(query, args...)
 	if err != nil {

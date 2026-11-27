@@ -265,7 +265,7 @@ func loadTurnHistoryCtx(ctx context.Context, sc *scope, convID string, state Ses
 	if state.Compacted {
 		return prev, nil, nil
 	}
-	recSk, recPiv, _ := sc.st.recentSuggestedSkills(convID, state.TurnCount, 3)
+	recSk, recPiv, _ := sc.st.recentSuggestedSkills(convID, state.TurnCount)
 	return prev, recSk, recPiv
 }
 

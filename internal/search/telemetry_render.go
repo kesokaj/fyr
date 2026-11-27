@@ -63,7 +63,7 @@ func renderPreInvocationBanner(b PreInvocationBanner) string {
 	if hasEnrichmentDetails(b.Enrichment) {
 		appendPreInvocationEnrichment(&sb, b.Enrichment)
 	}
-	return safeBacktickFenceWithLang(strings.TrimRight(sb.String(), "\n"), "text")
+	return safeBacktickTextFence(strings.TrimRight(sb.String(), "\n"))
 }
 
 func writeBannerHeader(sb *strings.Builder, b PreInvocationBanner) {
@@ -279,7 +279,7 @@ func renderSessionStartCapsule(cap *sessionStartCapsule) string {
 			indentListItem(&sb, item)
 		}
 	}
-	return safeBacktickFenceWithLang(strings.TrimRight(sb.String(), "\n"), "text")
+	return safeBacktickTextFence(strings.TrimRight(sb.String(), "\n"))
 }
 
 func formatSessionGitSummary(s sessionGitSummary) string {
@@ -388,7 +388,7 @@ func parseFenceHexToken(tok string) (string, bool) {
 	hexPart := tok[5:23]
 	for i := 0; i < len(hexPart); i++ {
 		c := hexPart[i]
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return "", false
 		}
 	}

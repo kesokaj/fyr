@@ -26,12 +26,12 @@ type entry struct {
 // git runs in dir through trail.Command, the hardened builder: the checkout's
 // own config is untrusted (no lock, no fsmonitor, no signature program, no
 // lazy fetch; BUG-164, BUG-165).
-func git(dir string, stdin []byte, args ...string) ([]byte, error) {
-	return gitCtx(context.Background(), dir, stdin, args...)
+func git(dir string, args ...string) ([]byte, error) {
+	return gitCtx(context.Background(), dir, args...)
 }
 
 // gitCtx runs git with ctx cancellation while preserving trail.Command hardening.
-func gitCtx(ctx context.Context, dir string, stdin []byte, args ...string) ([]byte, error) {
+func gitCtx(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -44,9 +44,6 @@ func gitCtx(ctx context.Context, dir string, stdin []byte, args ...string) ([]by
 	// Git's messages in its C locale: dropReason matches "not a git
 	// repository", which a translated catalogue would reword.
 	cmd.Env = append(base.Env, "LC_ALL=C", "LANGUAGE=")
-	if stdin != nil {
-		cmd.Stdin = bytes.NewReader(stdin)
-	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -58,7 +55,7 @@ func gitCtx(ctx context.Context, dir string, stdin []byte, args ...string) ([]by
 
 // checkoutRoot returns the top of the git work tree holding dir.
 func checkoutRoot(dir string) (string, error) {
-	out, err := git(dir, nil, "rev-parse", "--show-toplevel")
+	out, err := git(dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", err
 	}
@@ -105,14 +102,14 @@ func gitView(root string) ([]entry, []string, error) {
 		return nil, nil, err
 	}
 	defer fsRoot.Close()
-	out, err := git(root, nil, "ls-files", "-s", "-z")
+	out, err := git(root, "ls-files", "-s", "-z")
 	if err != nil {
 		return nil, nil, err
 	}
 	order, view, markers := trackedView(out)
 	dropGoneMarkers(fsRoot, markers)
 	refreshTracked(root, fsRoot, order, view)
-	out, err = git(root, nil, "ls-files", "-z", "--others", "--exclude-standard")
+	out, err = git(root, "ls-files", "-z", "--others", "--exclude-standard")
 	if err != nil {
 		return nil, nil, err
 	}

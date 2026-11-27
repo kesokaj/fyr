@@ -236,7 +236,7 @@ Use jittered backoff delays when transient 503 responses interrupt downstream de
 		t.Fatalf("expected FTS5 fallback capsule to cite sendOutboundEvent or Dispatch Timing, got:\n%s", sys)
 	}
 
-	sc, _, _, err := prepareHookScope(dir)
+	sc, err := prepareHookScope(dir)
 	if err != nil {
 		t.Fatalf("prepareHookScope: %v", err)
 	}

@@ -418,7 +418,7 @@ func TestBoundedSymGraphPriorityHopsAndSingleWordFTS(t *testing.T) {
 		t.Fatalf("Index: %v", err)
 	}
 
-	sc, _, _, err := prepareHookScope(dir)
+	sc, err := prepareHookScope(dir)
 	if err != nil {
 		t.Fatalf("prepareHookScope: %v", err)
 	}

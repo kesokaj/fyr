@@ -463,7 +463,7 @@ func TestZeroEmojisAndStructuredTelemetrySurfaces(t *testing.T) {
 	}
 
 	// 3. ProcessTelemetry artifact is emoji-free and renders structured Markdown.
-	procMD := RenderProcessArtifactForHome("", "conv-json", "Build", []VetHistoryRow{{
+	procMD := testRenderProcessArtifactForHome("", "conv-json", "Build", []VetHistoryRow{{
 		TurnNum: 1, Intent: IntentBug, Gate: GateEnrichAndProceed, Score: 88, SuggestedSkills: nil, PivotFiles: []string{"a.go"},
 	}}, nil)
 	if emojiRe.MatchString(procMD) {

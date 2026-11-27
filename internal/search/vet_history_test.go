@@ -45,7 +45,7 @@ func TestVetHistoryTableAndHelpers(t *testing.T) {
 		t.Errorf("unexpected prev row: %+v", prev)
 	}
 
-	recentSkills, recentPivots, err := st.recentSuggestedSkills("conv-hist", 2, 3)
+	recentSkills, recentPivots, err := st.recentSuggestedSkills("conv-hist", 2)
 	if err != nil {
 		t.Fatalf("recentSuggestedSkills: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestBuildVetSliceFiltersUnconfidentShellFiles(t *testing.T) {
 		t.Fatalf("Index: %v", err)
 	}
 
-	sc, _, _, err := prepareHookScope(dir)
+	sc, err := prepareHookScope(dir)
 	if err != nil {
 		t.Fatalf("prepareHookScope: %v", err)
 	}

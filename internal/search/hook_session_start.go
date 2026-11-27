@@ -179,7 +179,7 @@ func fitSessionStartCapsule(cap *sessionStartCapsule, maxBytes int) string {
 			return rendered
 		}
 		if !trimSessionStartCapsuleStep(cap) {
-			if minimal := safeBacktickFenceWithLang("fyr · SESSION_START · "+cap.Date, "text"); len(minimal) <= maxBytes {
+			if minimal := safeBacktickTextFence("fyr · SESSION_START · " + cap.Date); len(minimal) <= maxBytes {
 				return minimal
 			}
 			return truncateUTF8Bytes(rendered, maxBytes)

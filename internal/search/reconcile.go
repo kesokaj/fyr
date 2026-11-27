@@ -182,46 +182,46 @@ func (s *store) applyLocked(src source, now int64, files map[string]string, blob
 
 // applyDirtyPaths incrementally updates only the supplied modified, untracked,
 // restored, or deleted paths in search.db without scanning the full files/blobs tables.
-func (s *store) applyDirtyPaths(ctx context.Context, root string, dirtyPaths []entry, existingFiles int) (int, error) {
+func (s *store) applyDirtyPaths(ctx context.Context, root string, dirtyPaths []entry, existingFiles int) error {
 	if len(dirtyPaths) == 0 {
-		return 0, nil
+		return nil
 	}
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return err
 	}
 	fsRoot, err := os.OpenRoot(root)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer fsRoot.Close()
 	if _, err := s.db.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
 		if isBusy(err) {
-			return 0, errBusy
+			return errBusy
 		}
-		return 0, err
+		return err
 	}
 	n, goChanged, err := s.applyDirtyPathsLocked(ctx, root, fsRoot, dirtyPaths, nowFunc().Unix())
 	if err != nil {
 		_, _ = s.db.Exec(`ROLLBACK`)
 		if isBusy(err) {
-			return 0, errBusy
+			return errBusy
 		}
-		return 0, err
+		return err
 	}
 	if n > 0 && goChanged && existingFiles < 2000 && ctx.Err() == nil {
 		if err := s.reconcileGoInterfaces(root); err != nil {
 			_, _ = s.db.Exec(`ROLLBACK`)
-			return 0, err
+			return err
 		}
 	}
 	if _, err := s.db.Exec(`COMMIT`); err != nil {
 		_, _ = s.db.Exec(`ROLLBACK`)
 		if isBusy(err) {
-			return 0, errBusy
+			return errBusy
 		}
-		return 0, err
+		return err
 	}
-	return n, nil
+	return nil
 }
 
 func (s *store) applyDirtyPathsLocked(ctx context.Context, root string, fsRoot *os.Root, dirtyPaths []entry, now int64) (int, bool, error) {

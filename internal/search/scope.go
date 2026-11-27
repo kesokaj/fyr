@@ -43,18 +43,18 @@ func (sc *scope) status() string {
 	return s
 }
 
-func (sc *scope) kind(project, path string) string {
+func (sc *scope) kind(path string) string {
 	return kindOf(path, "")
 }
 
-func (sc *scope) kindMatches(o Options, project, path string) bool {
-	return o.Kind == "" || sc.kind(project, path) == o.Kind
+func (sc *scope) kindMatches(o Options, path string) bool {
+	return o.Kind == "" || sc.kind(path) == o.Kind
 }
 
-func (sc *scope) label(project, path string, line int) string {
-	return printable(sc.rawLabel(project, path, line))
+func (sc *scope) label(path string, line int) string {
+	return printable(sc.rawLabel(path, line))
 }
 
-func (sc *scope) rawLabel(project, path string, line int) string {
-	return fmt.Sprintf("%s:%d  %s", path, line, sc.kind(project, path))
+func (sc *scope) rawLabel(path string, line int) string {
+	return fmt.Sprintf("%s:%d  %s", path, line, sc.kind(path))
 }

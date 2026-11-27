@@ -7,10 +7,10 @@ import (
 	"unicode"
 )
 
-func safeBacktickFenceWithLang(text, lang string) string {
+func safeBacktickTextFence(text string) string {
 	body := strings.TrimRight(text, "\n")
 	fence := safeBacktickFence(body)
-	return fence + lang + "\n" + body + "\n" + fence
+	return fence + "text\n" + body + "\n" + fence
 }
 
 func turnBannerMetaFromExtras(extraSections, extraBanners []string) TurnBannerMeta {

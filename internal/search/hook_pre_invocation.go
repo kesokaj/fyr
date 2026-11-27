@@ -54,44 +54,16 @@ func handlePreInvocation(ctx context.Context, o Options, dir string, in HookInpu
 	return nil
 }
 
-func preparePreInvocationState(ctx context.Context, dir string, in HookInput, rawPrompt string) (*scope, SessionState, bool, string, bool, error) {
+func prepareHookScope(dir string) (*scope, error) {
 	if err := ensureHookProjectReady(dir); err != nil {
-		return nil, SessionState{}, false, "", false, err
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, SessionState{}, false, "", false, err
-	}
-	st, root, err := openLedgerStore(dir)
-	if err != nil {
-		return nil, SessionState{}, false, "", false, err
-	}
-	ownSt := true
-	defer func() {
-		if ownSt && st != nil {
-			st.close()
-		}
-	}()
-	state, skip, err := checkTurnOrMidTurnWithStore(ctx, st, in, rawPrompt)
-	if err != nil || skip {
-		return nil, state, skip, "", false, err
-	}
-	sc, dirtySummary, fast, err := prepareHookScopeReady(ctx, root, st)
-	if err != nil {
-		return nil, SessionState{}, false, "", false, err
-	}
-	ownSt = false
-	return sc, state, false, dirtySummary, fast, nil
-}
-
-func prepareHookScope(dir string) (*scope, string, bool, error) {
-	if err := ensureHookProjectReady(dir); err != nil {
-		return nil, "", false, err
+		return nil, err
 	}
 	root, _, ok := findGitRootFast(dir)
 	if !ok {
-		return nil, "", false, errNotCheckout
+		return nil, errNotCheckout
 	}
-	return prepareHookScopeReady(context.Background(), root, nil)
+	sc, _, _, err := prepareHookScopeReady(context.Background(), root, nil)
+	return sc, err
 }
 
 func dynamicDirtyFastPathCap(ctx context.Context, existingFiles int) int {
@@ -166,7 +138,7 @@ func tryDirtyFastReconcile(ctx context.Context, root string, st *store, existing
 	if len(dirtyEntries) > capLimit {
 		return &scope{st: st, projects: []string{root}}, formatDirtyFastPath(dirtyLabels, len(dirtyEntries), capLimit), true, true, nil
 	}
-	if _, err := st.applyDirtyPaths(ctx, root, dirtyEntries, existingFiles); err != nil {
+	if err := st.applyDirtyPaths(ctx, root, dirtyEntries, existingFiles); err != nil {
 		return nil, "", false, true, err
 	}
 	if existingFiles <= maxWarmSigEntries {
@@ -309,7 +281,7 @@ func scanDirtyUntrackedEntries(ctx context.Context, root string, fsRoot *os.Root
 	if ctx.Err() != nil {
 		return nil, nil, false
 	}
-	out, err := gitCtx(ctx, root, nil, "ls-files", "-z", "--others", "--exclude-standard")
+	out, err := gitCtx(ctx, root, "ls-files", "-z", "--others", "--exclude-standard")
 	if err != nil {
 		return nil, nil, false
 	}
@@ -381,9 +353,10 @@ func reconcileHookScopeView(ctx context.Context, root string, st *store, existin
 func collectDirtyPaths(view []entry) []string {
 	var out []string
 	for _, e := range view {
-		if e.state == "modified" {
+		switch e.state {
+		case "modified":
 			out = append(out, "M "+e.path)
-		} else if e.state == "untracked" {
+		case "untracked":
 			out = append(out, "?? "+e.path)
 		}
 	}
@@ -413,7 +386,7 @@ func (sc *scope) runVet(o Options, out io.Writer) error {
 	var recentPivots []string
 	if sc != nil && sc.st != nil && o.Session != "" {
 		prev, _ = sc.st.lastVetHistory(o.Session, 0)
-		recentSkills, recentPivots, _ = sc.st.recentSuggestedSkills(o.Session, 0, 3)
+		recentSkills, recentPivots, _ = sc.st.recentSuggestedSkills(o.Session, 0)
 	}
 	intent := ClassifyIntent(cleanPrompt, slice.SymbolHits)
 	var brainCtx TurnBrainContext

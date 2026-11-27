@@ -35,7 +35,7 @@ func (sc *scope) refs(o Options, out io.Writer) error {
 		if g.count > 1 {
 			times = fmt.Sprintf("  ×%d", g.count)
 		}
-		fmt.Fprintf(out, "%s%s\n    %s\n", sc.label(g.project, g.path, g.line), times, markTarget(sc.lineText(g.oid, g.line), g.target))
+		fmt.Fprintf(out, "%s%s\n    %s\n", sc.label(g.path, g.line), times, markTarget(sc.lineText(g.oid, g.line), g.target))
 	}
 	return nil
 }
@@ -94,7 +94,7 @@ func (sc *scope) refRows(o Options, where string, args []any) ([]refRow, error) 
 			rows.Close()
 			return nil, err
 		}
-		if sc.kindMatches(o, r.project, r.path) {
+		if sc.kindMatches(o, r.path) {
 			raw = append(raw, r)
 		}
 	}
@@ -226,8 +226,4 @@ func placeholders(n int) string {
 		return ""
 	}
 	return strings.Repeat("?,", n-1) + "?"
-}
-
-func (sc *scope) coChangeHintsForPaths(paths map[string]bool) []string {
-	return sc.queryCoChangeHints(paths, "", 3, 0)
 }

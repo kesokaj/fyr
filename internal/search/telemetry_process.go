@@ -179,13 +179,8 @@ func appendProcessImprovedPrompts(sb *strings.Builder, rows []VetHistoryRow) {
 			sb.WriteString("\n## Synthesized Improved Prompts\n")
 			wrotePromptHeader = true
 		}
-		fmt.Fprintf(sb, "\n### Turn %d\n\n%s\n", r.TurnNum, safeBacktickFenceWithLang(prompt, "text"))
+		fmt.Fprintf(sb, "\n### Turn %d\n\n%s\n", r.TurnNum, safeBacktickTextFence(prompt))
 	}
-}
-
-func renderProcessTelemetryMarkdown(home, convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {
-	cat, hasCat := loadModelsCatalog(home)
-	return renderProcessTelemetryMarkdownWithCatalog(home, cat, hasCat, convID, stage, rows, records)
 }
 
 func renderProcessTelemetryMarkdownWithCatalog(home string, cat modelsCatalogFile, hasCat bool, convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {

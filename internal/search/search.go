@@ -192,7 +192,7 @@ func Search(o Options, out io.Writer) error {
 		return RunHook(o, o.HookIn, out)
 	}
 	if o.Vet != "" && !o.Global {
-		sc, _, _, err := prepareHookScope(o.Dir)
+		sc, err := prepareHookScope(o.Dir)
 		if err != nil {
 			return (&scope{}).runVet(o, out)
 		}

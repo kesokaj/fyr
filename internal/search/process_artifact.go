@@ -16,41 +16,6 @@ import (
 	"github.com/kesokaj/fyr/internal/models"
 )
 
-func buildHealthyHookTurn(o Options, sc *scope, dir, convID, sessionModel, rawPrompt, cleanPrompt string, state SessionState, dirtySummary string, fastPath bool) ([]string, TurnBannerMeta, SliceResult) {
-	var sections []string
-	var meta TurnBannerMeta
-	if state.Compacted {
-		if o.BrainReprime != nil {
-			if rep := strings.TrimSpace(o.BrainReprime(dir, o.Home)); rep != "" {
-				sections = append(sections, rep)
-			}
-		}
-		meta.CompactedGeneration = max(1, state.GenerationID)
-	}
-	if fastPath && dirtySummary != "" {
-		sections = append(sections, dirtySummary)
-		meta.DirtyFastPath = true
-	}
-	var slice SliceResult
-	bypassed := strings.HasPrefix(strings.TrimSpace(rawPrompt), "!")
-	initIntent := ClassifyIntent(cleanPrompt, 1)
-	skipHeavy := !state.Compacted && !bypassed && (initIntent == IntentApproval || initIntent == IntentTrivial)
-	if !skipHeavy {
-		sliceOpts := o
-		sliceOpts.Dir = dir
-		sliceOpts.Session = convID
-		slice = sc.buildVetSlice(sliceOpts, cleanPrompt, state, true)
-		if slice.Capsule != "" {
-			meta.PivotCount = slice.Pivots
-		}
-	}
-	if warnFull, warnShort := dedupContextKneeWarning(o.Home, sc, convID, sessionModel, state); warnFull != "" {
-		sections = append(sections, warnFull)
-		meta.ContextKneeWarning = warnShort
-	}
-	return sections, meta, slice
-}
-
 func dedupContextKneeWarning(home string, sc *scope, convID, sessionModel string, state SessionState) (string, string) {
 	knee := models.ContextKneeTokensForHome(home, sessionModel)
 	if knee <= 0 || int64(state.EstTokens) < knee {
@@ -72,48 +37,6 @@ func dedupContextKneeWarning(home string, sc *scope, convID, sessionModel string
 	full := fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= %s 60%% model knee) — %s (or /compact).", state.EstTokens/1000, kneeLabel, contextKneeHandoffCue)
 	short := fmt.Sprintf("%dk tokens (>= %s 60%% model knee) — %s", state.EstTokens/1000, kneeLabel, contextKneeHandoffCue)
 	return full, short
-}
-
-func buildHookEnvelopeWithModelTimed(ctx context.Context, o Options, cat modelsCatalogFile, hasCat bool, sc *scope, dir, convID string, modelInfo resolvedModelInfo, in HookInput, state SessionState, rawPrompt, cleanPrompt string, slice SliceResult, sections []string, meta TurnBannerMeta, start time.Time) (string, string) {
-	if (ctx != nil && ctx.Err() != nil) || (rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" && !meta.hasSignals()) {
-		return "", ""
-	}
-	turnNum := state.TurnCount
-	var prev *VetHistoryRow
-	var recentSkills map[string]bool
-	var recentPivots []string
-	if sc != nil && sc.st != nil {
-		prev, _ = sc.st.lastVetHistory(convID, turnNum)
-		if !state.Compacted {
-			recentSkills, recentPivots, _ = sc.st.recentSuggestedSkills(convID, turnNum, 3)
-		}
-	}
-	intent := ClassifyIntent(cleanPrompt, slice.SymbolHits)
-	bypassed := strings.HasPrefix(strings.TrimSpace(rawPrompt), "!")
-	skipBrainAndSkills := !state.Compacted && !bypassed && (intent == IntentApproval || intent == IntentTrivial)
-	var brainCtx TurnBrainContext
-	if !skipBrainAndSkills && hasBrainTurnContext(o) {
-		bctx := ctx
-		if bctx == nil {
-			bctx = context.Background()
-		}
-		brainCtx = invokeBrainTurnContext(bctx, o, dir, cleanPrompt, slice.Files)
-	}
-	var catalog []SkillMeta
-	if !skipBrainAndSkills && o.SkillCatalog != nil {
-		catalog = o.SkillCatalog(o.Home)
-	}
-	vetRes := vetPromptCoreWithHistory(rawPrompt, intent, slice, brainCtx, catalog, prev, recentSkills, recentPivots)
-	vetRes.SessionModel, vetRes.SessionModelDisplay, vetRes.SessionThinking = modelInfo.ID, modelInfo.Display, modelInfo.Thinking
-	if sc != nil && sc.st != nil {
-		filterSessionDedupTurn(sc.st, convID, state.GenerationID, turnNum, &vetRes, &brainCtx)
-	}
-	if nudge := suggestSessionModelNudgeForHome(o.Home, sc, convID, state.GenerationID, turnNum, modelInfo.ID, vetRes); nudge != "" {
-		meta.ModelTip = strings.TrimSpace(strings.TrimPrefix(nudge, "model tip: "))
-	}
-	meta.ExtraSections = sections
-	meta.SessionModelResolved = true
-	return finalizeHookEnvelope(ctx, o.Home, cat, hasCat, sc, dir, convID, turnNum, rawPrompt, cleanPrompt, in, state, vetRes, slice, brainCtx, meta, sections, start)
 }
 
 func finalizeHookEnvelope(ctx context.Context, home string, cat modelsCatalogFile, hasCat bool, sc *scope, dir, convID string, turnNum int, rawPrompt, cleanPrompt string, in HookInput, state SessionState, vetRes VetResult, slice SliceResult, brainCtx TurnBrainContext, meta TurnBannerMeta, sections []string, start time.Time) (string, string) {
@@ -364,12 +287,6 @@ func writeProcessArtifactAtomic(target string, data []byte) error {
 	}
 	cleanup = false
 	return nil
-}
-
-// RenderProcessArtifactForHome formats fyr-process.md using cached <home>/.config/fyr/models.json
-// picks when present (< 1 ms, never spawning agy) and role-family policy otherwise.
-func RenderProcessArtifactForHome(home, convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {
-	return renderProcessTelemetryMarkdown(home, convID, stage, rows, records)
 }
 
 func safeBacktickFence(text string) string {
