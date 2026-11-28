@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/kesokaj/fyr/internal/metrics/report"
 )
 
 // evalHead is the view's columns, in the order of the eval-metrics plan
@@ -81,7 +83,7 @@ func (m *EvalMeans) cells() []string {
 	}
 	// A mean of tokens is shown in whole tokens: short prints a fraction
 	// below 1000.
-	tok := func(v float64) string { return short(math.Round(v)) }
+	tok := func(v float64) string { return report.Short(math.Round(v)) }
 	return []string{fmt.Sprintf("%.1f", m.Turns), fmt.Sprintf("%.1f", m.ToolCalls),
 		tok(m.TokensIn) + "/" + tok(m.TokensOut) + "/" + tok(m.TokensCache), secs,
 		fmt.Sprintf("%.1f", m.ActiveSeconds), errRate, fmt.Sprintf("%.1f", m.Retries), tok(m.PeakContext)}

@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -278,62 +277,4 @@ func accumulateCohortSteps(cm *CohortMetrics, x sess, steps []stp, seen map[stri
 			}
 		}
 	}
-}
-
-func tagCohortSection(tc *TagCohort) reportSection {
-	tag := printable(tc.Tag)
-	t := table{
-		Head: []string{"Metric", "Pre-tag (< " + tag + ")", "Post-tag (>= " + tag + ")"},
-		Rows: [][]string{
-			{"Sessions", fmt.Sprint(tc.Pre.Sessions), fmt.Sprint(tc.Post.Sessions)},
-			{"Tool calls", fmt.Sprint(tc.Pre.ToolCalls), fmt.Sprint(tc.Post.ToolCalls)},
-			{"Search : grep ratio", fmtCohortSearchGrep(tc.Pre), fmtCohortSearchGrep(tc.Post)},
-			{"Bash read bypasses", fmt.Sprint(tc.Pre.BashReadSkips), fmt.Sprint(tc.Post.BashReadSkips)},
-			{"PreInvocation timeout %", fmtPctRatio(tc.Pre.PreInvocationTimeoutPct, tc.Pre.PreInvocationTimedOut, tc.Pre.TurnVets), fmtPctRatio(tc.Post.PreInvocationTimeoutPct, tc.Post.PreInvocationTimedOut, tc.Post.TurnVets)},
-			{"PreInvocation latency (p50 / p95)", fmtP50P95MS(tc.Pre.PreInvocationP50MS, tc.Pre.PreInvocationP95MS), fmtP50P95MS(tc.Post.PreInvocationP50MS, tc.Post.PreInvocationP95MS)},
-		},
-	}
-	return reportSection{
-		Title: "Tag Cohort (" + tag + ")",
-		Note:  fmt.Sprintf("Pre-tag history (< %s) vs post-tag window (>= %s).", tc.Cutoff, tc.Cutoff),
-		Table: t,
-	}
-}
-
-func agentRolesSection(roles []AgentRoleMetrics) reportSection {
-	t := table{Head: []string{"Role", "Sessions", "Tool calls", "Tool error %", "Hook denials", "Search : grep", "PreInvocation timeouts"}}
-	for _, r := range roles {
-		t.Rows = append(t.Rows, []string{
-			printable(r.Role),
-			fmt.Sprint(r.Sessions),
-			fmt.Sprint(r.ToolCalls),
-			fmtScaledFloatPtr(r.ToolErrorRate, 100.0, "%.2f%%"),
-			fmt.Sprint(r.HookDenials),
-			fmtRatioCounts(r.SearchGrepRatio, r.SQLiteVerbs, r.GrepCalls),
-			fmtPctRatio(r.TimeoutRatePct, r.TimedOutTurns, r.TurnVets),
-		})
-	}
-	return reportSection{
-		Title: "Agent Roles",
-		Note:  "Per-role activity across filtered sessions (empty agent_type normalized to main; hook denials excluded from tool errors).",
-		Table: t,
-	}
-}
-
-func fmtCohortSearchGrep(c CohortMetrics) string {
-	return fmtRatioCounts(c.SearchGrepRatio, c.SQLiteVerbs, c.GrepCalls)
-}
-
-func fmtRatioCounts(ratio *float64, num, den int) string {
-	if ratio == nil {
-		return fmt.Sprintf("n/a (%d : %d)", num, den)
-	}
-	return fmt.Sprintf("%.2f (%d : %d)", *ratio, num, den)
-}
-
-func fmtScaledFloatPtr(p *float64, scale float64, format string) string {
-	if p == nil {
-		return "n/a"
-	}
-	return fmt.Sprintf(format, *p*scale)
 }

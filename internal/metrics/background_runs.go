@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/metrics/report"
 )
 
 // BackgroundRunRow records one shape-only dream or auto background run in
@@ -24,17 +26,7 @@ type BackgroundRunRow struct {
 }
 
 // BackgroundKindStats aggregates shape-only background_runs rows for one kind.
-type BackgroundKindStats struct {
-	Runs             int     `json:"runs"`
-	Passed           int     `json:"passed"`
-	Failed           int     `json:"failed"`
-	MeanDurationMS   float64 `json:"mean_duration_ms,omitempty"`
-	ProjectsChecked  int     `json:"projects_checked,omitempty"`
-	ProposalsWritten int     `json:"proposals_written,omitempty"`
-	RatingsWritten   int     `json:"ratings_written,omitempty"`
-	WorkersRan       int     `json:"workers_ran,omitempty"`
-	Applied          int     `json:"applied,omitempty"`
-}
+type BackgroundKindStats = report.BackgroundKindStats
 
 const bgRunTSMSExpr = `(CASE WHEN ts >= 100000000 AND ts < 100000000000 THEN ts * 1000 ELSE ts END)`
 

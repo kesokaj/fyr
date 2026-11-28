@@ -1,4 +1,4 @@
-package metrics
+package report
 
 import (
 	"database/sql"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 var (
@@ -19,8 +20,8 @@ var (
 )
 
 func collectDigestActions(home, repoRoot, day string, curSum *Summary, prev, today *DailyDigest, signals []DigestAction) []DigestAppliedAction {
-	cutoffDay := priorDayString(day)
-	raw := readBrainAppliedActions(home, repoRoot, cutoffDay)
+	cutoffDay := PriorDayString(day)
+	raw := ReadBrainAppliedActions(home, repoRoot, cutoffDay)
 	if today != nil {
 		raw = append(raw, today.Actions...)
 	}
@@ -35,11 +36,11 @@ func collectDigestActions(home, repoRoot, day string, curSum *Summary, prev, tod
 	return merged
 }
 
-func readBrainAppliedActions(home, repoRoot, sinceDay string) []DigestAppliedAction {
+func ReadBrainAppliedActions(home, repoRoot, sinceDay string) []DigestAppliedAction {
 	if strings.TrimSpace(home) == "" {
 		return nil
 	}
-	db, cleanup, ok := openCopySQLiteFile(home, home, harness.StateDir, "brain.db")
+	db, cleanup, ok := OpenCopySQLiteFile(home, home, harness.StateDir, "brain.db")
 	if !ok {
 		return nil
 	}
@@ -64,14 +65,14 @@ func scanBrainActionRows(rows *sql.Rows, repoRoot string) []DigestAppliedAction 
 		if cleanRoot != "" && proj != "" && filepath.Clean(proj) != cleanRoot {
 			continue
 		}
-		if act, ok := parseAppliedActionRecord(id, kind, status, date, title, body); ok {
+		if act, ok := ParseAppliedActionRecord(id, kind, status, date, title, body); ok {
 			out = append(out, act)
 		}
 	}
 	return out
 }
 
-func parseAppliedActionRecord(id, kind, status, date, title, body string) (DigestAppliedAction, bool) {
+func ParseAppliedActionRecord(id, kind, status, date, title, body string) (DigestAppliedAction, bool) {
 	if len(date) < 10 {
 		return DigestAppliedAction{}, false
 	}
@@ -90,19 +91,19 @@ func parseAppliedActionRecord(id, kind, status, date, title, body string) (Diges
 	default:
 		return DigestAppliedAction{}, false
 	}
-	day := printable(date[:10])
+	day := search.Printable(date[:10])
 	sigID := sigIDRe.FindString(title + "\n" + body)
 	if sigID == "" {
-		sigID = printable(id)
+		sigID = search.Printable(id)
 	}
-	scope := scopeProposeOnly
+	scope := ScopeProposeOnly
 	if strings.Contains(body, "skills/") || strings.Contains(title, "skills/") {
-		scope = scopeAutoSkill
+		scope = ScopeAutoSkill
 	}
 	revertCmd, sha := extractAppliedCommitHints(body, markerVal)
 	summary := "auto commit recorded"
 	if kind == "proposal" {
-		summary = "proposal " + printable(status)
+		summary = "proposal " + search.Printable(status)
 	}
 	return DigestAppliedAction{
 		SignalID: sigID, ReportDate: day, ActionScope: scope, Status: StatusPendingData,
@@ -148,7 +149,8 @@ func extractAppliedCommitHints(body, markerVal string) (revertCmd, sha string) {
 	return revertCmd, sha
 }
 
-func priorDayString(day string) string {
+// PriorDayString returns the YYYY-MM-DD calendar day immediately before day.
+func PriorDayString(day string) string {
 	t, err := time.Parse("2006-01-02", day)
 	if err != nil {
 		return day
@@ -174,7 +176,7 @@ func dedupAppliedActions(in []DigestAppliedAction) []DigestAppliedAction {
 	for _, a := range in {
 		id := a.SignalID + "|" + a.ReportDate + "|" + a.RevertCmd
 		if prev, ok := byID[id]; ok {
-			byID[id] = mergeAppliedAction(prev, a)
+			byID[id] = MergeAppliedAction(prev, a)
 		} else {
 			byID[id] = a
 		}
@@ -192,7 +194,7 @@ func dedupAppliedActions(in []DigestAppliedAction) []DigestAppliedAction {
 	return out
 }
 
-func mergeAppliedAction(base, incoming DigestAppliedAction) DigestAppliedAction {
+func MergeAppliedAction(base, incoming DigestAppliedAction) DigestAppliedAction {
 	if base.ActionScope == "" {
 		base.ActionScope = incoming.ActionScope
 	}
@@ -234,7 +236,7 @@ func upsertDigestAppliedAction(existing []DigestAppliedAction, act DigestApplied
 		sameKey := cur.SignalID == act.SignalID && cur.ReportDate == act.ReportDate &&
 			(cur.RevertCmd == act.RevertCmd || (act.AppliedSHA != "" && cur.AppliedSHA == act.AppliedSHA) || cur.RevertCmd == "" || act.RevertCmd == "")
 		if sameKey && !replaced {
-			out = append(out, mergeAppliedAction(act, cur))
+			out = append(out, MergeAppliedAction(act, cur))
 			replaced = true
 			continue
 		}
@@ -246,25 +248,25 @@ func upsertDigestAppliedAction(existing []DigestAppliedAction, act DigestApplied
 	return dedupAppliedActions(out)
 }
 
-func normalizeAppliedAction(act DigestAppliedAction, day string, nowMS int64) DigestAppliedAction {
-	act.SignalID = printable(strings.TrimSpace(act.SignalID))
-	act.ReportDate = printable(strings.TrimSpace(act.ReportDate))
+func NormalizeAppliedAction(act DigestAppliedAction, day string, nowMS int64) DigestAppliedAction {
+	act.SignalID = search.Printable(strings.TrimSpace(act.SignalID))
+	act.ReportDate = search.Printable(strings.TrimSpace(act.ReportDate))
 	if act.ReportDate == "" {
 		act.ReportDate = day
 	}
-	act.ActionScope = printable(strings.TrimSpace(act.ActionScope))
+	act.ActionScope = search.Printable(strings.TrimSpace(act.ActionScope))
 	if act.ActionScope == "" {
-		act.ActionScope = scopeAutoSkill
+		act.ActionScope = ScopeAutoSkill
 	}
-	act.Status = printable(strings.TrimSpace(act.Status))
+	act.Status = search.Printable(strings.TrimSpace(act.Status))
 	if act.Status == "" {
 		act.Status = StatusPendingData
 	}
-	act.RevertCmd = printable(strings.TrimSpace(act.RevertCmd))
-	act.Summary = printable(strings.TrimSpace(act.Summary))
-	act.AppliedSHA = printable(strings.TrimSpace(act.AppliedSHA))
-	act.Metric = printable(strings.TrimSpace(act.Metric))
-	act.PolicyModel = clipPrintable(act.PolicyModel, trialText)
+	act.RevertCmd = search.Printable(strings.TrimSpace(act.RevertCmd))
+	act.Summary = search.Printable(strings.TrimSpace(act.Summary))
+	act.AppliedSHA = search.Printable(strings.TrimSpace(act.AppliedSHA))
+	act.Metric = search.Printable(strings.TrimSpace(act.Metric))
+	act.PolicyModel = ClipPrintable(act.PolicyModel, TrialTextLimit)
 	if act.AppliedAt <= 0 {
 		act.AppliedAt = nowMS
 	}
@@ -273,25 +275,25 @@ func normalizeAppliedAction(act DigestAppliedAction, day string, nowMS int64) Di
 
 // EvaluateActionRecovery determines post-fix recovery status for one applied action.
 func EvaluateActionRecovery(act DigestAppliedAction, curSum *Summary, prev *DailyDigest, day string, postSessions int, activeSignals []DigestAction) string {
-	if act.ReportDate == "" || day <= act.ReportDate || postSessions < minRecoverySessions || curSum == nil {
+	if act.ReportDate == "" || day <= act.ReportDate || postSessions < MinRecoverySessions || curSum == nil {
 		return StatusPendingData
 	}
-	rule := extractRuleFromSignalID(act.SignalID)
+	rule := ExtractRuleFromSignalID(act.SignalID)
 	if rule != "" && hasRuleSignal(activeSignals, rule) {
 		return StatusStillRegressing
 	}
 	if act.BaselineValue != nil && strings.TrimSpace(act.Metric) != "" {
-		if curVal, ok := lookupSummaryMetric(curSum, act.Metric); ok {
+		if curVal, ok := LookupSummaryMetric(curSum, act.Metric); ok {
 			if curVal == 0 && !isHigherBetterMetric(act.Metric) && !hasRuleSignal(activeSignals, rule) {
 				return StatusRecovered
 			}
-			return pickSev(isMetricBetter(act.Metric, curVal, *act.BaselineValue), StatusRecovered, StatusStillRegressing)
+			return PickSev(IsMetricBetter(act.Metric, curVal, *act.BaselineValue), StatusRecovered, StatusStillRegressing)
 		}
 	}
 	if rule == "" {
-		return pickSev(hasHighSignal(activeSignals), StatusStillRegressing, StatusRecovered)
+		return PickSev(hasHighSignal(activeSignals), StatusStillRegressing, StatusRecovered)
 	}
-	return pickSev(isMetricImprovingForRule(rule, curSum, prev), StatusRecovered, StatusStillRegressing)
+	return PickSev(isMetricImprovingForRule(rule, curSum, prev), StatusRecovered, StatusStillRegressing)
 }
 
 func hasRuleSignal(signals []DigestAction, rule string) bool {
@@ -312,7 +314,7 @@ func hasHighSignal(signals []DigestAction) bool {
 	return false
 }
 
-func lookupSummaryMetric(sum *Summary, metric string) (float64, bool) {
+func LookupSummaryMetric(sum *Summary, metric string) (float64, bool) {
 	switch metric {
 	case "E.timeout_rate_pct":
 		if sum.E.TimeoutRatePct != nil {
@@ -327,8 +329,10 @@ func lookupSummaryMetric(sum *Summary, metric string) (float64, bool) {
 			return float64(sum.Health.SessionsOverKnee) / float64(sessions), true
 		}
 	}
-	if v, ok := sum.Numbers()[metric]; ok {
-		return v, true
+	if sum.NumbersFn != nil {
+		if v, ok := sum.NumbersFn()[metric]; ok {
+			return v, true
+		}
 	}
 	return 0, false
 }
@@ -343,14 +347,15 @@ func isHigherBetterMetric(metric string) bool {
 	return false
 }
 
-func isMetricBetter(metric string, cur, base float64) bool {
+// IsMetricBetter reports whether cur improved over base for metric.
+func IsMetricBetter(metric string, cur, base float64) bool {
 	if isHigherBetterMetric(metric) {
 		return cur > base
 	}
 	return cur < base || cur == 0
 }
 
-func extractRuleFromSignalID(sigID string) string {
+func ExtractRuleFromSignalID(sigID string) string {
 	if !strings.HasPrefix(sigID, "sig:") {
 		return ""
 	}
@@ -367,13 +372,13 @@ func isMetricImprovingForRule(rule string, cur *Summary, prev *DailyDigest) bool
 	}
 	switch rule {
 	case "pre_invocation_timeouts":
-		return cur.E.TimeoutRatePct == nil || *cur.E.TimeoutRatePct < minTimeoutRatePct ||
+		return cur.E.TimeoutRatePct == nil || *cur.E.TimeoutRatePct < MinTimeoutRatePct ||
 			(prev.PreInvocation.TimeoutRatePct != nil && *cur.E.TimeoutRatePct < *prev.PreInvocation.TimeoutRatePct)
-	case ruleDirectShellRead:
+	case RuleDirectShellRead:
 		return cur.C.BashReadSkips["agy"] == 0 || float64(cur.C.BashReadSkips["agy"]) < prev.Rolling7d.BashReadSkips.Current
 	case "structural_regression", "prod_pkg_cycles", "hidden_coupling":
 		st, p := cur.Health.Structural, prev.ASTSnapshot
-		return (st.ProdPkgCycles == 0 && st.HiddenCouplingEditPairs < minHiddenCouplingPairs) ||
+		return (st.ProdPkgCycles == 0 && st.HiddenCouplingEditPairs < MinHiddenCouplingPairs) ||
 			st.ProdPkgCycles < p.ProdPkgCycles || st.HiddenCouplingEditPairs < p.HiddenCouplingEditPairs
 	case "search_grep_low":
 		r := cur.C.SearchGrepRatio["agy"]

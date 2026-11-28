@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -10,51 +9,11 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/metrics/report"
 )
 
-// TriggerCoverage aggregates the autonomy and feature-use KPIs computed from
-// metrics.db for Summary and rendered in Markdown and HTML reports.
-type TriggerCoverage struct {
-	WorkerPhases              int      `json:"worker_phases"`
-	QualifyingPhases          int      `json:"qualifying_phases"`
-	QualifyingWorkerPhasePct  *float64 `json:"qualifying_worker_phase_pct"`
-	ConfiguredWorkerPhases    int      `json:"configured_worker_phases"`
-	ConfiguredWorkerPhasePct  *float64 `json:"configured_worker_phase_pct"`
-	WorkerPassed              int      `json:"worker_passed"`
-	BaseCheckPassed           int      `json:"base_check_passed"`
-	BaseCheckFailed           int      `json:"base_check_failed"`
-	JudgePassed               int      `json:"judge_passed"`
-	JudgeFailed               int      `json:"judge_failed"`
-	BuildTimeQuestions        int      `json:"build_time_questions"`
-	SearchCalls               int      `json:"search_calls"`
-	GrepCalls                 int      `json:"grep_calls"`
-	SearchGrepRatio           *float64 `json:"search_grep_ratio"`
-	ReadLedgerBlocks          int      `json:"read_ledger_blocks"`
-	AutoModelRuns             int      `json:"auto_model_runs"`
-	WindowWeeks               float64  `json:"window_weeks"`
-	AutoModelRunsPerWeek      float64  `json:"auto_model_runs_per_week"`
-	DoDClosedSessions         int      `json:"dod_closed_sessions"`
-	BuildSessions             int      `json:"build_sessions"`
-	DoDClosedPct              *float64 `json:"dod_closed_pct"`
-	SessionsOverKnee          int      `json:"sessions_over_knee"`
-	MainSessions              int      `json:"main_sessions"`
-	OrchestrationCalls        int      `json:"orchestration_calls"`
-	SwarmSkillLoads           int      `json:"swarm_skill_loads"`
-	GateVerbs                 int      `json:"gate_verbs"`
-	LandVerbs                 int      `json:"land_verbs"`
-	DeterministicGates        int      `json:"deterministic_gates"`
-	DeterministicGateSessions int      `json:"deterministic_gate_sessions"`
-	DeterministicGatePct      *float64 `json:"deterministic_gate_pct"`
-	PreInvocationTurnVets     int      `json:"pre_invocation_turn_vets"`
-	PreInvocationTimedOut     int      `json:"pre_invocation_timed_out"`
-	PreInvocationTimeoutPct   *float64 `json:"pre_invocation_timeout_pct"`
-	PreInvocationP50MS        *float64 `json:"pre_invocation_p50_ms"`
-	PreInvocationP95MS        *float64 `json:"pre_invocation_p95_ms"`
-	InstalledSkillsCount      int      `json:"installed_skills_count,omitempty"`
-	TriggeredSkillsCount      int      `json:"triggered_skills_count,omitempty"`
-	SkillCoveragePct          *float64 `json:"skill_coverage_pct,omitempty"`
-	UntriggeredSkills         []string `json:"untriggered_skills,omitempty"`
-}
+// TriggerCoverage aggregates the autonomy and feature-use KPIs computed from metrics.db.
+type TriggerCoverage = report.TriggerCoverage
 
 type installedSkillMeta struct {
 	name        string
@@ -371,73 +330,4 @@ func sessionCommitSummaryFromEvents(events []sessEvent) sessionCommitSummary {
 		}
 	}
 	return out
-}
-
-func triggerCoverageSection(s *Summary) reportSection {
-	tc := s.TriggerCoverage
-	h := s.Health
-	t := table{Head: []string{"KPI", "Value", "Target"}}
-	t.Rows = append(t.Rows,
-		[]string{"v9 orchestration (/fyr-swarm / gate / land)", fmt.Sprintf("swarm-skill:%d, gate:%d, land:%d (tools:%d)", tc.SwarmSkillLoads, tc.GateVerbs, tc.LandVerbs, h.OrchestrationCalls), "-"},
-		[]string{"Deterministic gate coverage", fmtPctRatio(tc.DeterministicGatePct, tc.DeterministicGateSessions, tc.BuildSessions), ">= 80%"},
-		[]string{"PreInvocation timeout rate", fmtPctRatio(s.E.TimeoutRatePct, s.E.TimedOutTurns, s.E.TurnVets), "= 0%"},
-		[]string{"PreInvocation latency (p50 / p95)", fmtP50P95MS(s.E.P50DurationMS, s.E.P95DurationMS), "< 250ms"},
-		[]string{"Judge verdicts (PASS / FAIL)", fmt.Sprintf("%d / %d", tc.JudgePassed, tc.JudgeFailed), "-"},
-		[]string{"Build-time questions", fmt.Sprint(tc.BuildTimeQuestions), "= 0"},
-		[]string{"Search : grep", fmtSearchGrepKPI(tc), ">= 1.0"},
-		[]string{"Read-ledger blocks", fmt.Sprint(tc.ReadLedgerBlocks), "> 0"},
-		[]string{"fyr auto model runs", fmt.Sprintf("%.2f/wk (%d in %.1f wk)", tc.AutoModelRunsPerWeek, tc.AutoModelRuns, tc.WindowWeeks), "> 0/wk"},
-		[]string{"DoD closed", fmtPctRatio(tc.DoDClosedPct, tc.DoDClosedSessions, tc.BuildSessions), ">= 80%"},
-	)
-	if tc.InstalledSkillsCount > 0 {
-		t.Rows = append(t.Rows, []string{"Skill catalog coverage", fmtPctRatio(tc.SkillCoveragePct, tc.TriggeredSkillsCount, tc.InstalledSkillsCount), "-"})
-	}
-	appendV9TriggerRows(&t, s)
-	return reportSection{
-		Title: "Trigger coverage",
-		Note:  "KPIs computed from metrics.db against the autonomy and feature-use targets.",
-		Table: t,
-	}
-}
-
-func fmtOptMS(p *float64) string {
-	if p == nil {
-		return "n/a"
-	}
-	return fmt.Sprintf("%.0fms", *p)
-}
-
-func fmtP50P95MS(p50, p95 *float64) string {
-	if p50 == nil && p95 == nil {
-		return "n/a"
-	}
-	return fmt.Sprintf("%s / %s", fmtOptMS(p50), fmtOptMS(p95))
-}
-
-func appendV9TriggerRows(t *table, s *Summary) {
-	h := s.Health
-	t.Rows = append(t.Rows,
-		[]string{"v9 orchestration", fmt.Sprintf("%d (agent:%d, workflow:%d, swarm:%d)", h.OrchestrationCalls, h.SubagentDispatches, h.WorkflowCalls, h.SwarmCalls), "-"},
-		[]string{"Deterministic gates", fmt.Sprint(h.DeterministicGates), "-"},
-		[]string{"Hook blocks (clamped / ledger / guards)", fmt.Sprintf("%d / %d / %d (total %d)", h.ClampedSaves, h.HookBlocksLedger, h.HookBlocksGuards, h.HookDenials), "-"},
-		[]string{"Model-family share", formatModelFamilyShare(h), "-"},
-		[]string{"Guarded subagent downgrades", fmt.Sprint(h.GuardedDowngrades), "= 0"},
-		[]string{"Live quota pools", formatPoolQuotas(h.PoolQuotas), "-"},
-		[]string{"Sessions >= 60% knee", fmt.Sprintf("%d / %d", h.SessionsOverKnee, h.MainSessions), "= 0"},
-		[]string{"Subagents over budget", fmt.Sprint(h.SubagentsOverBudget), "= 0"},
-	)
-}
-
-func fmtPctRatio(pct *float64, num, den int) string {
-	if pct == nil {
-		return fmt.Sprintf("n/a (%d / %d)", num, den)
-	}
-	return fmt.Sprintf("%.1f%% (%d / %d)", *pct, num, den)
-}
-
-func fmtSearchGrepKPI(tc TriggerCoverage) string {
-	if tc.SearchGrepRatio == nil {
-		return fmt.Sprintf("n/a (%d : %d)", tc.SearchCalls, tc.GrepCalls)
-	}
-	return fmt.Sprintf("%.2f (%d : %d)", *tc.SearchGrepRatio, tc.SearchCalls, tc.GrepCalls)
 }

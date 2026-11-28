@@ -5,33 +5,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/metrics/report"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-// MetricDelta compares a shape-only KPI in the current window against the equal
-// prior window [since - (until - since), since).
-type MetricDelta struct {
-	Current  float64 `json:"current"`
-	Previous float64 `json:"previous"`
-	Delta    float64 `json:"delta"`
-}
-
-// WindowDeltas holds shape-only window-over-window KPI deltas.
-type WindowDeltas struct {
-	PreviousWindow   map[string]string      `json:"previous_window"`
-	PreviousSessions int                    `json:"previous_sessions"`
-	Sessions         *MetricDelta           `json:"sessions,omitempty"`
-	Turns            *MetricDelta           `json:"turns,omitempty"`
-	ToolCalls        *MetricDelta           `json:"tool_calls,omitempty"`
-	KneeRatePct      *MetricDelta           `json:"knee_rate_pct,omitempty"`
-	OverTargetPct    *MetricDelta           `json:"over_target_pct,omitempty"`
-	SearchGrepRatio  *MetricDelta           `json:"search_grep_ratio,omitempty"`
-	RangedReadPct    *MetricDelta           `json:"ranged_read_pct,omitempty"`
-	ToolErrorRatePct *MetricDelta           `json:"tool_error_rate_pct,omitempty"`
-	RetryLoops       *MetricDelta           `json:"retry_loops,omitempty"`
-	MeanOutcomeScore *MetricDelta           `json:"mean_outcome_score,omitempty"`
-	Metrics          map[string]MetricDelta `json:"metrics,omitempty"`
-}
+type (
+	// MetricDelta compares a shape-only KPI in the current window against the equal prior window.
+	MetricDelta = report.MetricDelta
+	// WindowDeltas holds shape-only window-over-window KPI deltas.
+	WindowDeltas = report.WindowDeltas
+)
 
 func (s *Store) populateWindowDeltas(sum *Summary, o ShowOptions, since, now time.Time) error {
 	span := now.Sub(since)

@@ -1,44 +1,26 @@
-package metrics
+package report
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/search"
 )
 
-// WriteMarkdownReport renders sum and evals as Markdown to file (mode 0600);
-// an existing file is refused. Like WriteReport, it renders in memory first so
-// a failure leaves no partial file on disk.
-func WriteMarkdownReport(sum *Summary, evals *EvalRows, file string, now time.Time) error {
+// WriteMarkdownReport renders sum and evals as Markdown to file (mode 0600, O_EXCL).
+func WriteMarkdownReport(sum *Summary, evals *EvalView, file string, now time.Time) error {
 	var page bytes.Buffer
 	if err := RenderMarkdownReport(&page, sum, evals, now); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		return fmt.Errorf("refusing to overwrite %s", file)
-	}
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(page.Bytes()); err != nil {
-		f.Close()
-		os.Remove(file)
-		return err
-	}
-	return f.Close()
+	return writeExclusiveFile(file, page.Bytes())
 }
 
-// RenderMarkdownReport writes the Markdown usage report (Scorecard, sections 1-5, Background Autonomy, and Trigger coverage) to w.
-func RenderMarkdownReport(w io.Writer, sum *Summary, evals *EvalRows, now time.Time) error {
+// RenderMarkdownReport writes the Markdown usage report to w.
+func RenderMarkdownReport(w io.Writer, sum *Summary, evals *EvalView, now time.Time) error {
 	series := seriesOf(sum)
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Agent metrics (%s .. %s)\n\n",
@@ -76,7 +58,7 @@ func RenderMarkdownReport(w io.Writer, sum *Summary, evals *EvalRows, now time.T
 	return err
 }
 
-func writeMDTable(b *strings.Builder, t table) {
+func writeMDTable(b *strings.Builder, t Table) {
 	if len(t.Head) == 0 {
 		return
 	}
@@ -104,7 +86,7 @@ func writeMDRow(b *strings.Builder, cells []string) {
 }
 
 func mdCell(s string) string {
-	s = printable(s)
+	s = search.Printable(s)
 	s = strings.ReplaceAll(s, "|", `\|`)
 	return s
 }

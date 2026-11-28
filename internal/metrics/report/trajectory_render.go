@@ -1,4 +1,4 @@
-package metrics
+package report
 
 import (
 	"encoding/json"
@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/models"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 // WriteTrajectoriesJSON encodes trajectories as indented JSON to w.
@@ -35,12 +36,12 @@ func WriteTrajectoriesText(w io.Writer, list []SessionTrajectory) {
 
 func writeOneTrajectoryText(w io.Writer, t SessionTrajectory) {
 	status := printableList(t.Anomalies, "OK")
-	proj := printable(redactHomePath(t.Project))
+	proj := search.Printable(RedactHomePath(t.Project))
 	if proj == "" {
 		proj = "-"
 	}
 	fmt.Fprintf(w, "%s  %s  project=%s  model=%s  dur=%ds  steps=%d  peak=%s  cache=%.0f%%  [%s]\n",
-		printable(shortID(t.SessionID)), printable(t.StartedAt), proj, printable(t.Model), t.DurationSec, t.Steps,
+		search.Printable(shortID(t.SessionID)), search.Printable(t.StartedAt), proj, search.Printable(t.Model), t.DurationSec, t.Steps,
 		fmtTokens(t.PeakContextTok), t.CacheHitPct, status)
 	if len(t.TurnTokens) > 0 {
 		parts := make([]string, len(t.TurnTokens))
@@ -60,12 +61,12 @@ func writeOneTrajectoryText(w io.Writer, t SessionTrajectory) {
 
 func writeSubagentText(w io.Writer, sub SessionTrajectory) {
 	subStatus := printableList(sub.Anomalies, "OK")
-	agent := printable(sub.AgentType)
+	agent := search.Printable(sub.AgentType)
 	if agent == "" {
 		agent = "subagent"
 	}
 	fmt.Fprintf(w, "  └─ %s (%s)  model=%s  dur=%ds  steps=%d  peak=%s  cache=%.0f%%  [%s]\n",
-		printable(shortID(sub.SessionID)), agent, printable(sub.Model), sub.DurationSec, sub.Steps,
+		search.Printable(shortID(sub.SessionID)), agent, search.Printable(sub.Model), sub.DurationSec, sub.Steps,
 		fmtTokens(sub.PeakContextTok), sub.CacheHitPct, subStatus)
 }
 
@@ -75,7 +76,7 @@ func printableList(items []string, empty string) string {
 	}
 	parts := make([]string, len(items))
 	for i, item := range items {
-		parts[i] = printable(item)
+		parts[i] = search.Printable(item)
 	}
 	return strings.Join(parts, ",")
 }

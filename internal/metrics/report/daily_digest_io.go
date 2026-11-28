@@ -1,4 +1,4 @@
-package metrics
+package report
 
 import (
 	"database/sql"
@@ -15,9 +15,9 @@ import (
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
-const maxDailyDigestBytes = 64 << 10
+const MaxDailyDigestBytes = 64 << 10
 
-type digestASTCol struct {
+type DigestASTCol struct {
 	AST  search.StructuralSignals `json:"ast_snapshot"`
 	Diff ASTStructuralDiff        `json:"ast_diff"`
 }
@@ -36,8 +36,8 @@ type digestActionsCol struct {
 }
 
 // SaveDailyDigest persists d into the daily_digests table (upserting by day).
-func SaveDailyDigest(s *Store, d DailyDigest) error {
-	if s == nil || s.db == nil {
+func SaveDailyDigest(db *sql.DB, d DailyDigest) error {
+	if db == nil {
 		return errors.New("metrics: nil store")
 	}
 	if strings.TrimSpace(d.Day) == "" {
@@ -47,7 +47,7 @@ func SaveDailyDigest(s *Store, d DailyDigest) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(
+	_, err = db.Exec(
 		`INSERT INTO daily_digests(day, verdict, kpi_json, ast_json, preinv_json, actions_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(day) DO UPDATE SET verdict=excluded.verdict, kpi_json=excluded.kpi_json, ast_json=excluded.ast_json, preinv_json=excluded.preinv_json, actions_json=excluded.actions_json, created_at=excluded.created_at`,
 		d.Day, d.Verdict, kpiRaw, astRaw, preRaw, actRaw, d.CreatedAt,
@@ -60,7 +60,7 @@ func marshalDigestColumns(d DailyDigest) (kpiRaw, astRaw, preRaw, actRaw string,
 	if err != nil {
 		return "", "", "", "", err
 	}
-	b2, err := json.Marshal(digestASTCol{d.ASTSnapshot, d.ASTDiff})
+	b2, err := json.Marshal(DigestASTCol{d.ASTSnapshot, d.ASTDiff})
 	if err != nil {
 		return "", "", "", "", err
 	}
@@ -78,27 +78,28 @@ func marshalDigestColumns(d DailyDigest) (kpiRaw, astRaw, preRaw, actRaw string,
 	return string(b1), string(b2), string(b3), string(b4), nil
 }
 
-// LatestDailyDigest loads the most recent DailyDigest from daily_digests, or nil when empty.
-func LatestDailyDigest(s *Store) (*DailyDigest, error) {
-	return queryDailyDigest(s, `SELECT day, verdict, kpi_json, ast_json, preinv_json, actions_json, created_at FROM daily_digests ORDER BY day DESC LIMIT 1`)
+// LatestDailyDigest loads the most recent DailyDigest from daily_digests.
+func LatestDailyDigest(db *sql.DB) (*DailyDigest, error) {
+	return queryDailyDigest(db, `SELECT day, verdict, kpi_json, ast_json, preinv_json, actions_json, created_at FROM daily_digests ORDER BY day DESC LIMIT 1`)
 }
 
-// PreviousDailyDigest loads the newest DailyDigest strictly before beforeDay, or nil when none exists.
-func PreviousDailyDigest(s *Store, beforeDay string) (*DailyDigest, error) {
-	return queryDailyDigest(s, `SELECT day, verdict, kpi_json, ast_json, preinv_json, actions_json, created_at FROM daily_digests WHERE day < ? ORDER BY day DESC LIMIT 1`, beforeDay)
+// PreviousDailyDigest loads the newest DailyDigest strictly before beforeDay.
+func PreviousDailyDigest(db *sql.DB, beforeDay string) (*DailyDigest, error) {
+	return queryDailyDigest(db, `SELECT day, verdict, kpi_json, ast_json, preinv_json, actions_json, created_at FROM daily_digests WHERE day < ? ORDER BY day DESC LIMIT 1`, beforeDay)
 }
 
-func dailyDigestByDay(s *Store, day string) (*DailyDigest, error) {
-	return queryDailyDigest(s, `SELECT day, verdict, kpi_json, ast_json, preinv_json, actions_json, created_at FROM daily_digests WHERE day = ? LIMIT 1`, day)
+// DailyDigestByDay loads the DailyDigest for one exact day.
+func DailyDigestByDay(db *sql.DB, day string) (*DailyDigest, error) {
+	return queryDailyDigest(db, `SELECT day, verdict, kpi_json, ast_json, preinv_json, actions_json, created_at FROM daily_digests WHERE day = ? LIMIT 1`, day)
 }
 
-func queryDailyDigest(s *Store, q string, args ...any) (*DailyDigest, error) {
-	if s == nil || s.db == nil {
+func queryDailyDigest(db *sql.DB, q string, args ...any) (*DailyDigest, error) {
+	if db == nil {
 		return nil, errors.New("metrics: nil store")
 	}
 	var d DailyDigest
 	var kpiRaw, astRaw, preRaw, actRaw string
-	err := s.db.QueryRow(q, args...).Scan(&d.Day, &d.Verdict, &kpiRaw, &astRaw, &preRaw, &actRaw, &d.CreatedAt)
+	err := db.QueryRow(q, args...).Scan(&d.Day, &d.Verdict, &kpiRaw, &astRaw, &preRaw, &actRaw, &d.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -115,7 +116,7 @@ func decodeDigestColumns(d *DailyDigest, kpiRaw, astRaw, preRaw, actRaw string) 
 	if err := json.Unmarshal([]byte(kpiRaw), &d.Rolling7d); err != nil {
 		return err
 	}
-	var astWrap digestASTCol
+	var astWrap DigestASTCol
 	if err := json.Unmarshal([]byte(astRaw), &astWrap); err != nil {
 		return err
 	}
@@ -136,8 +137,8 @@ func decodeDigestColumns(d *DailyDigest, kpiRaw, astRaw, preRaw, actRaw string) 
 
 // RecordDigestAppliedAction persists one applied-action checkpoint into today's
 // daily_digests row and refreshes reports/latest-daily-digest.json when home is set.
-func RecordDigestAppliedAction(store *Store, home, repoRoot string, now time.Time, act DigestAppliedAction) error {
-	if store == nil || store.db == nil {
+func RecordDigestAppliedAction(db *sql.DB, home string, now time.Time, act DigestAppliedAction, buildToday func(time.Time) (DailyDigest, error)) error {
+	if db == nil {
 		return errors.New("metrics: nil store")
 	}
 	if now.IsZero() {
@@ -145,21 +146,21 @@ func RecordDigestAppliedAction(store *Store, home, repoRoot string, now time.Tim
 	}
 	nowUTC := now.UTC()
 	day := nowUTC.Format("2006-01-02")
-	act = normalizeAppliedAction(act, day, nowUTC.UnixMilli())
-	d, err := dailyDigestByDay(store, day)
+	act = NormalizeAppliedAction(act, day, nowUTC.UnixMilli())
+	d, err := DailyDigestByDay(db, day)
 	if err != nil {
 		return err
 	}
 	if d == nil {
-		built, berr := BuildDailyDigest(store, home, "", nowUTC)
+		built, berr := buildToday(nowUTC)
 		if berr != nil {
 			return berr
 		}
 		d = &built
 	}
 	d.Actions = upsertDigestAppliedAction(d.Actions, act)
-	d.Verdict = computeDigestVerdict(*d)
-	if err := SaveDailyDigest(store, *d); err != nil {
+	d.Verdict = ComputeDigestVerdict(*d)
+	if err := SaveDailyDigest(db, *d); err != nil {
 		return err
 	}
 	if strings.TrimSpace(home) != "" {
@@ -187,7 +188,7 @@ func WriteLatestDailyDigest(home string, d DailyDigest) error {
 		return err
 	}
 	data = append(data, '\n')
-	if len(data) > maxDailyDigestBytes {
+	if len(data) > MaxDailyDigestBytes {
 		compact, cerr := json.Marshal(d)
 		if cerr != nil {
 			return cerr
@@ -198,8 +199,7 @@ func WriteLatestDailyDigest(home string, d DailyDigest) error {
 }
 
 // ReadLatestDailyDigest reads latest-daily-digest.json fail-open (<= 64 KiB,
-// regular non-symlink file via trail.OpenRegular). Missing, non-regular,
-// oversized, or corrupt files return (nil, nil).
+// regular non-symlink file via trail.OpenRegular).
 func ReadLatestDailyDigest(home string) (*DailyDigest, error) {
 	if strings.TrimSpace(home) == "" {
 		return nil, nil
@@ -209,8 +209,8 @@ func ReadLatestDailyDigest(home string) (*DailyDigest, error) {
 		return nil, nil
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, maxDailyDigestBytes+1))
-	if err != nil || len(data) == 0 || len(data) > maxDailyDigestBytes {
+	data, err := io.ReadAll(io.LimitReader(f, MaxDailyDigestBytes+1))
+	if err != nil || len(data) == 0 || len(data) > MaxDailyDigestBytes {
 		return nil, nil
 	}
 	var d DailyDigest

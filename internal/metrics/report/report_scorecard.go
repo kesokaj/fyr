@@ -1,16 +1,18 @@
-package metrics
+package report
 
 import (
 	"fmt"
 	"math"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 func scorecardSection(s *Summary) reportSection {
 	return reportSection{
 		Title:    "0. Scorecard",
 		Note:     "Headline KPIs, equal-prior window deltas, and top diagnostic signals.",
-		Table:    table{Head: []string{"Category", "KPI", "Current", "Window Delta"}, Rows: buildScorecardRows(s)},
+		Table:    Table{Head: []string{"Category", "KPI", "Current", "Window Delta"}, Rows: buildScorecardRows(s)},
 		SubTitle: "Top-5 Diagnostic Signals",
 		SubTable: buildTopDiagnosticTable(s.Diagnostics),
 	}
@@ -36,8 +38,8 @@ func buildScorecardRows(s *Summary) [][]string {
 	}
 }
 
-func buildTopDiagnosticTable(rep *DiagnosticReport) table {
-	t := table{Head: []string{"Severity", "SignalID", "Metric", "Current -> Previous", "Delta", "Summary"}}
+func buildTopDiagnosticTable(rep *DiagnosticReport) Table {
+	t := Table{Head: []string{"Severity", "SignalID", "Metric", "Current -> Previous", "Delta", "Summary"}}
 	if rep == nil || len(rep.Signals) == 0 {
 		t.Rows = append(t.Rows, []string{"none", "-", "-", "-", "-", "no active diagnostic signals in window"})
 		return t
@@ -45,12 +47,12 @@ func buildTopDiagnosticTable(rep *DiagnosticReport) table {
 	limit := min(5, len(rep.Signals))
 	for _, sig := range rep.Signals[:limit] {
 		t.Rows = append(t.Rows, []string{
-			printable(sig.Severity),
-			printable(sig.SignalID),
-			printable(sig.Metric),
+			search.Printable(sig.Severity),
+			search.Printable(sig.SignalID),
+			search.Printable(sig.Metric),
 			fmt.Sprintf("%s -> %s", fmtSignalNum(sig.Current), fmtSignalNum(sig.Previous)),
 			fmtSignedNum(sig.Delta),
-			printable(sig.Summary),
+			search.Printable(sig.Summary),
 		})
 	}
 	return t
@@ -69,24 +71,25 @@ func fmtTargetShort(target int64) string {
 func fmtPeakContextKPI(s *Summary) string {
 	peak := s.B.PeakContext["agy"]
 	kneeStr := "n/a"
-	if pct, ok := kneePct(s); ok {
+	if pct, ok := KneePct(s); ok {
 		kneeStr = fmt.Sprintf("%.1f%% (%d/%d)", pct, s.Health.SessionsOverKnee, s.Health.MainSessions)
 	}
 	targetStr := "n/a"
-	if pct, ok := overTargetPct(s); ok {
+	if pct, ok := OverTargetPct(s); ok {
 		targetStr = fmt.Sprintf("%.1f%% (%d/%d)", pct, *s.B.SessionsOverContextTarget["agy"], len(s.B.SessionPeaks["agy"]))
 	}
 	return fmt.Sprintf("%d (knee %s, target %s)", peak, kneeStr, targetStr)
 }
 
 func fmtScorecardSearchGrep(s *Summary) string {
-	return fmt.Sprintf("%s (%d : %d)", fmtFloatPtr(s.C.SearchGrepRatio["agy"], "%.2f"), s.C.SQLiteVerbs["agy"], s.C.GrepCalls["agy"])
+	return fmt.Sprintf("%s (%d : %d)", FmtFloatPtr(s.C.SearchGrepRatio["agy"], "%.2f"), s.C.SQLiteVerbs["agy"], s.C.GrepCalls["agy"])
 }
 
-func repeatReadsCounts(s *Summary) (pct float64, red, total int, ok bool) {
+// RepeatReadsCounts returns the redundant-read percentage and underlying counts.
+func RepeatReadsCounts(s *Summary) (pct float64, red, total int, ok bool) {
 	red = s.C.RedundantReads["agy"]
-	if s.readCalls != nil {
-		total = s.readCalls["agy"]
+	if s.ReadCalls != nil {
+		total = s.ReadCalls["agy"]
 	}
 	if total == 0 && s.B.ToolCallsByTool != nil {
 		total = s.B.ToolCallsByTool["agy"]["Read"]
@@ -94,11 +97,11 @@ func repeatReadsCounts(s *Summary) (pct float64, red, total int, ok bool) {
 	if total <= 0 {
 		return 0, red, 0, false
 	}
-	return round4(float64(red) * 100.0 / float64(total)), red, total, true
+	return Round4(float64(red) * 100.0 / float64(total)), red, total, true
 }
 
 func fmtRepeatReadsKPI(s *Summary) string {
-	pct, red, total, ok := repeatReadsCounts(s)
+	pct, red, total, ok := RepeatReadsCounts(s)
 	if !ok {
 		if red > 0 {
 			return fmt.Sprintf("n/a (%d / 0)", red)
@@ -108,10 +111,8 @@ func fmtRepeatReadsKPI(s *Summary) string {
 	return fmt.Sprintf("%.1f%% (%d / %d)", pct, red, total)
 }
 
-// dedupLedgerSaves reconciles the overlapping ledger-block counters
-// (turn_vets.ledger_saved from search.db and hook_block(ledger) from
-// transcripts) so 1 ledger block reports 1 rather than 2 (F-028).
-func dedupLedgerSaves(s *Summary) int {
+// DedupLedgerSaves reconciles the overlapping ledger-block counters.
+func DedupLedgerSaves(s *Summary) int {
 	if s == nil {
 		return 0
 	}
@@ -119,15 +120,15 @@ func dedupLedgerSaves(s *Summary) int {
 }
 
 func fmtLedgerClampKPI(s *Summary) string {
-	ledger := dedupLedgerSaves(s)
+	ledger := DedupLedgerSaves(s)
 	clamp := s.Health.ClampedSaves
 	return fmt.Sprintf("%d (ledger:%d, clamp:%d)", ledger+clamp, ledger, clamp)
 }
 
 func fmtPreInvocationScorecardKPI(s *Summary) string {
 	return fmt.Sprintf("%s (p50 %s, p95 %s)",
-		fmtPctRatio(s.E.TimeoutRatePct, s.E.TimedOutTurns, s.E.TurnVets),
-		fmtOptMS(s.E.P50DurationMS), fmtOptMS(s.E.P95DurationMS))
+		FmtPctRatio(s.E.TimeoutRatePct, s.E.TimedOutTurns, s.E.TurnVets),
+		FmtOptMS(s.E.P50DurationMS), FmtOptMS(s.E.P95DurationMS))
 }
 
 func fmtToolErrorRateKPI(s *Summary) string {
@@ -142,7 +143,7 @@ func fmtPriorWindowKPI(d *WindowDeltas) string {
 	if d == nil {
 		return "n/a"
 	}
-	return fmt.Sprintf("%s .. %s (%d sessions)", printable(d.PreviousWindow["since"]), printable(d.PreviousWindow["until"]), d.PreviousSessions)
+	return fmt.Sprintf("%s .. %s (%d sessions)", search.Printable(d.PreviousWindow["since"]), search.Printable(d.PreviousWindow["until"]), d.PreviousSessions)
 }
 
 func fmtOutcomeScoreDelta(d *WindowDeltas) string {
@@ -211,7 +212,7 @@ func fmtSavesDelta(d *WindowDeltas) string {
 	}
 	cur := max(l1.Current, l2.Current) + cl.Current
 	prev := max(l1.Previous, l2.Previous) + cl.Previous
-	return fmtMetricDeltaVal(newMetricDelta(cur, prev), "%.0f")
+	return fmtMetricDeltaVal(NewMetricDelta(cur, prev), "%.0f")
 }
 
 func fmtMetricDeltaVal(md MetricDelta, format string) string {

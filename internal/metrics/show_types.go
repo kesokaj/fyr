@@ -1,8 +1,6 @@
 package metrics
 
-import (
-	"github.com/kesokaj/fyr/internal/search"
-)
+import r "github.com/kesokaj/fyr/internal/metrics/report"
 
 // Summary is `show --json` (spec § Output). A metric the CLI cannot produce
 // is nil for its column and named in Notes, never 0.
@@ -45,260 +43,30 @@ type Summary struct {
 	evalRows       []EvalRow
 }
 
-type Outcome struct {
-	DoDClosed           map[string]Closed `json:"dod_closed"`
-	Verifier            map[string]int    `json:"verifier"`
-	ReviewFindings      map[string]int    `json:"review_findings"`
-	EscapedBugs         int               `json:"escaped_bugs"`
-	Corrections         int               `json:"corrections"`
-	PassK               map[string]PassK  `json:"pass_k"`
-	RatingsCount        int               `json:"ratings_count"`
-	MeanOutcomeScore    *float64          `json:"mean_outcome_score"`
-	MeanTokenEfficiency *float64          `json:"mean_token_efficiency"`
-}
-
-type Closed struct {
-	Closed    int `json:"closed"`
-	Ambiguous int `json:"ambiguous"`
-	Of        int `json:"of"`
-}
-
-// PassK is A6 for one label (spec § Metric definitions): the keys the
-// first consumers read, k, passed and pass_k (1 when all k passed), and
-// per trial (the eval-metrics plan D2, D3) n graded trials, c passed, the
-// error trials, pass@k and pass^k for k in 1, 3, 5 up to n, the Wilson 95 %
-// interval of c of n and flip, 1 when the label both passed and failed.
-// Rates are rounded to four decimals.
-type PassK struct {
-	K        int                `json:"k"`
-	Passed   int                `json:"passed"`
-	PassK    int                `json:"pass_k"`
-	N        int                `json:"n"`
-	C        int                `json:"c"`
-	Errors   int                `json:"errors"`
-	PassAt   map[string]float64 `json:"pass_at,omitempty"`
-	PassPow  map[string]float64 `json:"pass_pow,omitempty"`
-	Wilson95 [2]float64         `json:"wilson95"`
-	Flip     int                `json:"flip"`
-}
-
-type Tokens struct {
-	In         int64 `json:"in"`
-	Out        int64 `json:"out"`
-	CacheRead  int64 `json:"cache_read"`
-	CacheWrite int64 `json:"cache_write"`
-}
-
-type Efficiency struct {
-	ToolCalls       map[string]int            `json:"tool_calls"`
-	ToolCallsByTool map[string]map[string]int `json:"tool_calls_by_tool"`
-	Turns           map[string]int            `json:"turns"`
-	Tokens          map[string]*Tokens        `json:"tokens"`
-	CostUSD         map[string]*float64       `json:"cost_usd"`
-	WallMin         map[string]float64        `json:"wall_min"`
-	ActiveMin       map[string]float64        `json:"active_min"`
-	ModelMin        map[string]float64        `json:"model_min"`
-	ToolMin         map[string]float64        `json:"tool_min"`
-	WaitMin         map[string]float64        `json:"wait_min"`
-	IdleMin         map[string]float64        `json:"idle_min"`
-	PeakContext     map[string]int64          `json:"peak_context"`
-	Compactions     map[string]*int           `json:"compactions"`
-	// ContextTarget is the target the next two fields are measured against.
-	ContextTarget int64 `json:"context_target"`
-	// SessionsOverContextTarget counts the main sessions whose peak passed
-	// the target; nil, named in Notes, for a vendor with no main session in
-	// the window that carries a context value (spec B3).
-	SessionsOverContextTarget map[string]*int `json:"sessions_over_context_target"`
-	// SessionPeaks is every main session's peak context, largest first,
-	// for the vendors that have one; no content, no path (plan D6, D16).
-	SessionPeaks map[string][]SessionPeak `json:"session_peaks"`
-}
-
-// SessionPeak is one main session's peak context: the session's id, the UTC
-// day it started and the largest context one of its model calls saw.
-type SessionPeak struct {
-	Session string `json:"session"`
-	Date    string `json:"date"`
-	Peak    int64  `json:"peak"`
-}
-
-type Adherence struct {
-	SQLiteVerbs     map[string]int            `json:"sqlite_verbs"`
-	GrepCalls       map[string]int            `json:"grep_calls"`
-	SearchGrepRatio map[string]*float64       `json:"search_grep_ratio"`
-	RedundantReads  map[string]int            `json:"redundant_reads"`
-	RangedReadPct   map[string]*float64       `json:"ranged_read_pct"`
-	Forbidden       map[string]int            `json:"forbidden"`
-	FirstReads      map[string]int            `json:"first_reads"`
-	Skills          map[string]map[string]int `json:"skills"`
-	BashReadSkips   map[string]int            `json:"bash_read_bypasses,omitempty"`
-	TopBashVerbs    []VerbCount               `json:"top_bash_verbs,omitempty"`
-}
-
-// VerbCount is one normalized Bash verb from step_verbs and its count.
-type VerbCount struct {
-	Verb  string `json:"verb"`
-	Count int    `json:"count"`
-}
-
-type Reliability struct {
-	ToolErrorRate     map[string]*float64       `json:"tool_error_rate"`
-	ToolErrors        map[string]int            `json:"tool_errors,omitempty"`
-	Denials           map[string]*int           `json:"denials"`
-	HookDenials       map[string]int            `json:"hook_denials,omitempty"`
-	Interrupts        map[string]*int           `json:"interrupts"`
-	RetryLoops        map[string]int            `json:"retry_loops"`
-	SubagentToolCalls map[string]map[string]int `json:"subagent_tool_calls"`
-}
-
-// SecondBrain aggregates PreInvocation vetting and PreToolUse read-ledger
-// savings from turn_vets (schema 6 and schema 11).
-type SecondBrain struct {
-	TurnVets          int      `json:"turn_vets"`
-	MeanVetScore      *float64 `json:"mean_vet_score"`
-	VetFirstTurns     int      `json:"vet_first_turns"`
-	BypassedTurns     int      `json:"bypassed_turns"`
-	PivotsSeeded      int      `json:"pivots_seeded"`
-	LedgerSaved       int      `json:"ledger_saved"`
-	TimedOutTurns     int      `json:"timed_out_turns"`
-	TimeoutRatePct    *float64 `json:"timeout_rate_pct"`
-	P50DurationMS     *float64 `json:"p50_duration_ms"`
-	P95DurationMS     *float64 `json:"p95_duration_ms"`
-	MeanInjectedBytes *float64 `json:"mean_injected_bytes"`
-	PivotsUsed        int      `json:"pivots_used"`
-	SkillsLoaded      int      `json:"skills_loaded"`
-}
-
-// CohortMetrics holds comparable KPIs for one side of a TagCohort split.
-type CohortMetrics struct {
-	Since                   string   `json:"since,omitempty"`
-	Until                   string   `json:"until,omitempty"`
-	Sessions                int      `json:"sessions"`
-	ToolCalls               int      `json:"tool_calls"`
-	SQLiteVerbs             int      `json:"sqlite_verbs"`
-	GrepCalls               int      `json:"grep_calls"`
-	SearchGrepRatio         *float64 `json:"search_grep_ratio"`
-	BashReadSkips           int      `json:"bash_read_bypasses"`
-	TurnVets                int      `json:"turn_vets"`
-	PreInvocationTimedOut   int      `json:"pre_invocation_timed_out"`
-	PreInvocationTimeoutPct *float64 `json:"pre_invocation_timeout_pct"`
-	PreInvocationP50MS      *float64 `json:"pre_invocation_p50_ms"`
-	PreInvocationP95MS      *float64 `json:"pre_invocation_p95_ms"`
-}
-
-// TagCohort compares pre-tag vs post-tag metrics around a git tag cutoff.
-type TagCohort struct {
-	Tag    string        `json:"tag"`
-	Cutoff string        `json:"cutoff"`
-	Pre    CohortMetrics `json:"pre"`
-	Post   CohortMetrics `json:"post"`
-}
-
-// AgentRoleMetrics summarizes activity for one agent_type role across
-// filtered sessions (empty agent_type normalized to "main").
-type AgentRoleMetrics struct {
-	Role            string   `json:"role"`
-	Sessions        int      `json:"sessions"`
-	ToolCalls       int      `json:"tool_calls"`
-	ToolErrors      int      `json:"tool_errors"`
-	HookDenials     int      `json:"hook_denials,omitempty"`
-	ToolErrorRate   *float64 `json:"tool_error_rate"`
-	SQLiteVerbs     int      `json:"sqlite_verbs"`
-	GrepCalls       int      `json:"grep_calls"`
-	SearchGrepRatio *float64 `json:"search_grep_ratio"`
-	TurnVets        int      `json:"turn_vets"`
-	TimedOutTurns   int      `json:"timed_out_turns"`
-	TimeoutRatePct  *float64 `json:"timeout_rate_pct"`
-}
-
-// WorkSummary aggregates fyr work wave, Base-Check, and cross-family Judge
-// verdicts from work_waves (schema 6).
-type WorkSummary struct {
-	Waves           int `json:"waves"`
-	Workers         int `json:"workers"`
-	Passed          int `json:"passed"`
-	Failed          int `json:"failed"`
-	BaseCheckPassed int `json:"base_check_passed"`
-	BaseCheckFailed int `json:"base_check_failed"`
-	JudgePassed     int `json:"judge_passed"`
-	JudgeFailed     int `json:"judge_failed"`
-	JudgeFallback   int `json:"judge_fallback"`
-}
-
-// ProjectRow summarizes one project's activity for the global report's
-// per-project breakdown.
-type ProjectRow struct {
-	Project         string   `json:"project"`
-	Sessions        int      `json:"sessions"`
-	ActiveMin       float64  `json:"active_min"`
-	Tokens          int64    `json:"tokens"`
-	SearchGrepRatio *float64 `json:"search_grep_ratio"`
-	MeanVetScore    *float64 `json:"mean_vet_score"`
-	Corrections     int      `json:"corrections"`
-	EscapedBugs     int      `json:"escaped_bugs"`
-	LastActive      string   `json:"last_active"`
-	AutoFindings    int      `json:"auto_findings"`
-	HandoffLagDays  *int     `json:"handoff_lag_days,omitempty"`
-}
-
-// PoolQuota mirrors one quota pool from <home>/<StateDir>/models.json.
-type PoolQuota struct {
-	Name string `json:"name"`
-	Five int    `json:"five"`
-	Week int    `json:"week"`
-}
-
-// HealthSignals aggregates v9 orchestration, deterministic gate, quota,
-// compaction, knee, subagent budget, and hook block health metrics.
-type HealthSignals struct {
-	OrchestrationCalls  int                      `json:"orchestration_calls"`
-	SubagentDispatches  int                      `json:"subagent_dispatches"`
-	WorkflowCalls       int                      `json:"workflow_calls"`
-	SwarmCalls          int                      `json:"swarm_calls"`
-	DeterministicGates  int                      `json:"deterministic_gates"`
-	JudgePassed         int                      `json:"judge_passed"`
-	JudgeFailed         int                      `json:"judge_failed"`
-	JudgeFallback       int                      `json:"judge_fallback"`
-	AutoRunsPresent     bool                     `json:"auto_runs_present,omitempty"`
-	AutoModelRuns       int                      `json:"auto_model_runs"`
-	AutoOpenAsks        int                      `json:"auto_open_asks"`
-	AutoLastVerdict     string                   `json:"auto_last_verdict,omitempty"`
-	AutoProjectCount    int                      `json:"auto_project_count"`
-	SearchDBCompactions int                      `json:"search_db_compactions"`
-	StepCompactions     int                      `json:"step_compactions"`
-	MainSessions        int                      `json:"main_sessions"`
-	SessionsOverKnee    int                      `json:"sessions_over_knee"`
-	SubagentsOverBudget int                      `json:"subagents_over_budget"`
-	HookDenials         int                      `json:"hook_denials"`
-	ClampedSaves        int                      `json:"clamped_saves"`
-	HookBlocksLedger    int                      `json:"hook_blocks_ledger"`
-	HookBlocksGuards    int                      `json:"hook_blocks_guards"`
-	ModelFamilyCounts   map[string]int           `json:"model_family_counts,omitempty"`
-	ModelFamilyShare    map[string]float64       `json:"model_family_share,omitempty"`
-	GuardedDowngrades   int                      `json:"guarded_downgrades"`
-	PoolQuotas          []PoolQuota              `json:"pool_quotas,omitempty"`
-	QuotaUpdatedAt      string                   `json:"quota_updated_at,omitempty"`
-	Structural          search.StructuralSignals `json:"structural"`
-	DreamRuns           BackgroundKindStats      `json:"dream_runs"`
-	AutoRuns            BackgroundKindStats      `json:"auto_runs"`
-	KeptAutoBranches    int                      `json:"kept_auto_branches"`
-	ProposalsQueued     int                      `json:"proposals_queued"`
-	ProposalsClosed     int                      `json:"proposals_closed"`
-}
-
-// Day is one calendar day (UTC) of the window, per vendor: the report's
-// trend charts read these.
-type Day struct {
-	Date        string             `json:"date"`
-	Sessions    map[string]int     `json:"sessions"`
-	ToolCalls   map[string]int     `json:"tool_calls"`
-	Tokens      map[string]int64   `json:"tokens"`
-	CostUSD     map[string]float64 `json:"cost_usd"`
-	SQLiteVerbs map[string]int     `json:"sqlite_verbs"`
-	GrepCalls   map[string]int     `json:"grep_calls"`
-	Errors      map[string]int     `json:"errors"`
-	Denials     map[string]int     `json:"denials,omitempty"`
-}
+type (
+	Outcome              = r.Outcome
+	Closed               = r.Closed
+	PassK                = r.P
+	Tokens               = r.Tok
+	Efficiency           = r.Efficiency
+	SessionPeak          = r.SessionPeak
+	Adherence            = r.Adherence
+	VerbCount            = r.VerbCount
+	Reliability          = r.Reliability
+	SecondBrain          = r.SecondBrain
+	CohortMetrics        = r.CohortMetrics
+	TagCohort            = r.TagCohort
+	AgentRoleMetrics     = r.AgentRoleMetrics
+	WorkSummary          = r.WorkSummary
+	ProjectRow           = r.ProjectRow
+	PoolQuota            = r.PoolQuota
+	HealthSignals        = r.HealthSignals
+	Day                  = r.Day
+	OrchestrationSummary = r.OrchestrationSummary
+	SIMSummary           = r.SIMSummary
+	SkillTelemetry       = r.SkillTelemetry
+	RuleTelemetry        = r.RuleTelemetry
+)
 
 type sess struct {
 	id, vendor, root, parent, agent, model, label, outcome, run string
@@ -336,60 +104,6 @@ func (st stp) firstNonCDVerbIdx() int {
 		return i
 	}
 	return -1
-}
-
-// OrchestrationSummary aggregates shape-only orchestration_runs rows (schema 14, F-032).
-type OrchestrationSummary struct {
-	Runs           int            `json:"runs"`
-	ByKind         map[string]int `json:"by_kind,omitempty"`
-	ByStatus       map[string]int `json:"by_status,omitempty"`
-	Units          int            `json:"units"`
-	DefectRounds   int            `json:"defect_rounds"`
-	Succeeded      int            `json:"succeeded"`
-	Failed         int            `json:"failed"`
-	MeanDurationMS float64        `json:"mean_duration_ms,omitempty"`
-	JudgeOK        int            `json:"judge_ok,omitempty"`
-	JudgeFailed    int            `json:"judge_failed,omitempty"`
-	Halts          map[string]int `json:"halts,omitempty"`
-}
-
-// SIMSummary aggregates Self-Improvement Memory ledger counts from brain.db (F-051).
-type SIMSummary struct {
-	Available         bool           `json:"available"`
-	ActiveProblems    int            `json:"active_problems"`
-	ResolvedProblems  int            `json:"resolved_problems"`
-	MergedProblems    int            `json:"merged_problems,omitempty"`
-	Workarounds       int            `json:"workarounds"`
-	ActiveWorkarounds int            `json:"active_workarounds"`
-	Attempts          int            `json:"attempts"`
-	AttemptsByVerdict map[string]int `json:"attempts_by_verdict,omitempty"`
-	FieldStatusCounts map[string]int `json:"field_status_counts,omitempty"`
-}
-
-// SkillTelemetry aggregates per-skill suggestion/load conversion, session
-// outcome, tool error rate, and rewrite-skill flags (F-042).
-type SkillTelemetry struct {
-	Skill             string   `json:"skill"`
-	Suggested         int      `json:"suggested"`
-	Loaded            int      `json:"loaded"`
-	Converted         int      `json:"converted"`
-	ConversionRatePct *float64 `json:"conversion_rate_pct,omitempty"`
-	Sessions          int      `json:"sessions"`
-	RatedSessions     int      `json:"rated_sessions,omitempty"`
-	MeanOutcomeScore  *float64 `json:"mean_outcome_score,omitempty"`
-	ToolCalls         int      `json:"tool_calls"`
-	ToolErrors        int      `json:"tool_errors"`
-	ToolErrorRatePct  *float64 `json:"tool_error_rate_pct,omitempty"`
-	RewriteSkillCount int      `json:"rewrite_skill_count"`
-	NewSkillCount     int      `json:"new_skill_count,omitempty"`
-}
-
-// RuleTelemetry aggregates rule/guard enforcement and violation counts (F-042).
-type RuleTelemetry struct {
-	Rule     string `json:"rule"`
-	Kind     string `json:"kind"`
-	Count    int    `json:"count"`
-	Severity string `json:"severity,omitempty"`
 }
 
 type sessEvent struct {

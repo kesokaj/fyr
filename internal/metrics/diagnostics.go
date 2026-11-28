@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/metrics/report"
 )
 
 const (
@@ -35,27 +37,12 @@ const (
 	godNodeHitsPerSessHigh     = 2.00
 )
 
-// DiagnosticSignal is one strictly shape-only ranked diagnostic finding.
-type DiagnosticSignal struct {
-	SignalID          string  `json:"signal_id"`
-	Severity          string  `json:"severity"`
-	Rule              string  `json:"rule"`
-	Metric            string  `json:"metric"`
-	Current           float64 `json:"current"`
-	Previous          float64 `json:"previous"`
-	Delta             float64 `json:"delta"`
-	SampleSize        int     `json:"sample_size"`
-	Summary           string  `json:"summary"`
-	ActionScope       string  `json:"action_scope,omitempty"`
-	RecommendedAction string  `json:"recommended_action,omitempty"`
-}
-
-// DiagnosticReport holds ranked, deduplicated, shape-only diagnostic signals.
-type DiagnosticReport struct {
-	Scope       string             `json:"scope"`
-	GeneratedAt string             `json:"generated_at"`
-	Signals     []DiagnosticSignal `json:"signals"`
-}
+type (
+	// DiagnosticSignal is one strictly shape-only ranked diagnostic finding.
+	DiagnosticSignal = report.DiagnosticSignal
+	// DiagnosticReport holds ranked, deduplicated, shape-only diagnostic signals.
+	DiagnosticReport = report.DiagnosticReport
+)
 
 // BuildDiagnosticReport computes a deterministic, deduplicated, strictly
 // shape-only DiagnosticReport with zero raw paths, prose, labels, or tool args.

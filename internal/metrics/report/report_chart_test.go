@@ -1,4 +1,4 @@
-package metrics
+package report
 
 import (
 	"reflect"
@@ -6,13 +6,9 @@ import (
 	"testing"
 )
 
-// lineChart's drawing, pinned after the Phase 3 review (its finding 3): a
-// one-day chart centres its marker and draws no line; a series with no
-// value is "n/a" and gets no end label; end labels sort by height and the
-// lower of two close ones is nudged 13px down.
 func TestLineChartDrawing(t *testing.T) {
 	t.Parallel()
-	series := []serie{{Key: "a", Label: "A", Class: "s1"}, {Key: "b", Label: "B", Class: "s2"}}
+	series := []Serie{{Key: "a", Label: "A", Class: "s1"}, {Key: "b", Label: "B", Class: "s2"}}
 	get := func(vals map[string]map[string]float64) func(Day, string) (float64, bool) {
 		return func(d Day, k string) (float64, bool) {
 			v, ok := vals[d.Date][k]
@@ -20,7 +16,7 @@ func TestLineChartDrawing(t *testing.T) {
 		}
 	}
 
-	one := lineChart("t", "", series, []Day{{Date: "2026-10-08"}},
+	one := LineChart("t", "", series, []Day{{Date: "2026-10-08"}},
 		get(map[string]map[string]float64{"2026-10-08": {"a": 10}}), "%.0f")
 	if want := [][]string{{"2026-10-08", "10", "n/a"}}; !reflect.DeepEqual(one.Table.Rows, want) {
 		t.Errorf("rows %q, want %q", one.Table.Rows, want)
@@ -37,7 +33,7 @@ func TestLineChartDrawing(t *testing.T) {
 		}
 	}
 
-	two := lineChart("t", "", series, []Day{{Date: "2026-10-08"}, {Date: "2026-10-09"}},
+	two := LineChart("t", "", series, []Day{{Date: "2026-10-08"}, {Date: "2026-10-09"}},
 		get(map[string]map[string]float64{"2026-10-08": {"a": 1, "b": 1}, "2026-10-09": {"a": 10, "b": 9.5}}), "%.1f")
 	svg = string(two.SVG)
 	for _, want := range []string{

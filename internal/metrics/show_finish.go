@@ -61,7 +61,7 @@ func (s *Summary) passK(all []sess, trials []trial, claimed map[string]bool) {
 		}
 	}
 	for l, p := range labels {
-		p.estimate()
+		estimatePassK(p)
 		s.A.PassK[l] = *p
 	}
 }
@@ -69,7 +69,7 @@ func (s *Summary) passK(all []sess, trials []trial, claimed map[string]bool) {
 // estimate fills a label's rates from n and c: the first consumers' keys
 // (all n passed), pass@k and pass^k for k in 1, 3, 5 that n reaches, the
 // Wilson 95 % interval and flip. A k above n is omitted, never a number.
-func (p *PassK) estimate() {
+func estimatePassK(p *PassK) {
 	p.K, p.Passed = p.N, p.C
 	if p.N > 0 && p.C == p.N {
 		p.PassK = 1

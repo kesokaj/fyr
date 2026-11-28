@@ -27,7 +27,7 @@ Five mechanics keep metrics accurate, private, and portable across hosts:
 
 ## Wall-time decomposition and trajectory anomaly detection
 
-`fyr metrics show` splits session wall time into four buckets (`model`, `tool`, `wait`, `idle`) alongside `search : grep` and ranged-read rates. `fyr metrics trajectory` (`internal/metrics/trajectory.go`) rebuilds parent-to-child subagent trees and detects three performance anomalies automatically.
+`fyr metrics show` splits session wall time into four buckets (`model`, `tool`, `wait`, `idle`) alongside `search : grep` and ranged-read rates. `fyr metrics trajectory` (`internal/metrics/report/trajectory.go`) rebuilds parent-to-child subagent trees and detects three performance anomalies automatically.
 
 ```mermaid
 flowchart TD
@@ -50,15 +50,15 @@ During consolidation, `Store.DreamTrajectoryDigest` (`internal/metrics/dream_dig
 
 | Section | What It Measures |
 |---|---|
-| **0. Scorecard** (`internal/metrics/report_scorecard.go`) | Four KPI blocks (`Volume & Context`, `Second-Brain`, `Reliability`, `Window Deltas`) plus `Top-5 Diagnostic Signals` (`DiagnosticReport`) |
+| **0. Scorecard** (`internal/metrics/report/report_scorecard.go`) | Four KPI blocks (`Volume & Context`, `Second-Brain`, `Reliability`, `Window Deltas`) plus `Top-5 Diagnostic Signals` (`DiagnosticReport`) |
 | **1. Executive Pulse** | Sessions, subagents, turns, tool calls, `model`/`tool`/`wait`/`idle` split, token breakdown, peak context, knee hits, and compactions |
 | **2. Second-Brain Leverage** | `Search : grep` ratio, ranged read %, redundant reads, bash read bypasses, `PreInvocation` p50/p95 latency, timeouts, vet scores, pivots, skills, and clamp saves |
 | **3. Quality & Learning Loop** | DoD closure rate, verifier verdicts, review findings, escaped bugs, `FEEDBACK-*` corrections, `session_ratings`, tool errors, hook denials, `pass^k` evals, and SIM counts |
 | **4. Autonomy & Model Routing** | Work waves, `orchestration_runs`, deterministic gates, model-family share, guarded downgrades, over-budget subagents, quota pools, `fyr auto` asks, and judge verdicts |
-| **Background Autonomy** (`internal/metrics/report_autonomy.go`) | Dream runs, duration and outputs, `fyr auto` runs, applied commits, session ratings, kept `work/auto-*` branches, and `PROPOSAL-*` counts |
+| **Background Autonomy** (`internal/metrics/report/report_autonomy.go`) | Dream runs, duration and outputs, `fyr auto` runs, applied commits, session ratings, kept `work/auto-*` branches, and `PROPOSAL-*` counts |
 | **Trigger coverage** (`internal/metrics/trigger_coverage.go`) | Live KPI coverage vs targets (`>= 80%` worker phases, `0` build questions, `>= 1.0` `Search : grep`, read-ledger blocks, `fyr auto` cadence, `>= 80%` DoD closed) |
 | **5. Project Breakdown** | Cross-project table in `--global` mode (`Auto findings`, `Handoff lag`, excluding sandboxes by default), or top skills and subagents in `--project` mode |
-| **Conditional Breakdowns** (`internal/metrics/report_sections.go`) | `Agent Roles`, `SIM` (problems, attempts, workarounds), `Skill & Rule Telemetry`, and `Tag Cohort` (`--since-tag` pre/post window) |
+| **Conditional Breakdowns** (`internal/metrics/report/report_sections.go`) | `Agent Roles`, `SIM` (problems, attempts, workarounds), `Skill & Rule Telemetry`, and `Tag Cohort` (`--since-tag` pre/post window) |
 
 ## Next steps
 

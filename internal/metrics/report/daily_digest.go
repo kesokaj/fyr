@@ -1,10 +1,8 @@
-package metrics
+package report
 
 import (
-	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/search"
@@ -19,7 +17,7 @@ const (
 	StatusRecovered       = "recovered"
 	StatusStillRegressing = "still_regressing"
 
-	minRecoverySessions = 2
+	MinRecoverySessions = 2
 )
 
 // DailyDigest holds one strictly shape-only daily quality digest snapshot.
@@ -108,87 +106,65 @@ type DigestAction struct {
 	Summary           string `json:"summary"`
 }
 
-// BuildDailyDigest computes today's shape-only DailyDigest from store, brain.db, and prior snapshots.
-func BuildDailyDigest(store *Store, home, repoRoot string, now time.Time) (DailyDigest, error) {
-	if store == nil || store.db == nil {
-		return DailyDigest{}, errors.New("metrics: nil store")
-	}
-	if now.IsZero() {
-		now = time.Now()
-	}
-	nowUTC := now.UTC()
-	day := nowUTC.Format("2006-01-02")
-	since7 := nowUTC.Add(-7 * 24 * time.Hour)
-	curSum, err := store.Show(ShowOptions{Home: home, Project: repoRoot, Since: since7, Now: nowUTC})
-	if err != nil {
-		return DailyDigest{}, err
-	}
-	prevSum, err := store.Show(ShowOptions{Home: home, Project: repoRoot, Since: since7.Add(-7 * 24 * time.Hour), Now: since7, skipDeltas: true})
-	if err != nil {
-		return DailyDigest{}, err
-	}
-	var prevDigest, todayDigest *DailyDigest
-	if strings.TrimSpace(repoRoot) == "" {
-		prevDigest, err = PreviousDailyDigest(store, day)
-		if err != nil {
-			return DailyDigest{}, err
-		}
-		todayDigest, _ = dailyDigestByDay(store, day)
-	}
-	return assembleDailyDigest(store, day, nowUTC, home, repoRoot, curSum, prevSum, prevDigest, todayDigest), nil
+// DigestSignalHooks provides diagnostic scope/signal decoration from internal/metrics.
+type DigestSignalHooks struct {
+	MakeStructuralSignal func(astSnap search.StructuralSignals, astDiff ASTStructuralDiff, repoRoot, msg, sev string) DiagnosticSignal
+	FinalizeSignals      func([]DiagnosticSignal) []DiagnosticSignal
 }
 
-func assembleDailyDigest(store *Store, day string, nowUTC time.Time, home, repoRoot string, curSum, prevSum *Summary, prevDigest, todayDigest *DailyDigest) DailyDigest {
-	astSnap, preSnap := curSum.Health.Structural, preInvFromSummary(curSum)
-	astDiff, preDiff := buildASTDiff(astSnap, prevDigest), buildPreInvDiff(preSnap, prevDigest)
-	signals := collectDigestSignals(curSum, astSnap, astDiff, repoRoot)
-	if shift := detectModelShiftAudit(store, home, repoRoot, nowUTC); shift != nil {
-		signals = append(signals, *shift)
-	}
-	actions := collectDigestActions(home, repoRoot, day, curSum, prevDigest, todayDigest, signals)
-	newReg, resolved, persistHigh := computeSignalTransitions(signals, prevDigest)
+// DigestInput holds pre-queried inputs for AssembleDailyDigest.
+type DigestInput struct {
+	Day          string
+	NowUTC       time.Time
+	Home         string
+	RepoRoot     string
+	CurSum       *Summary
+	PrevSum      *Summary
+	PrevDigest   *DailyDigest
+	TodayDigest  *DailyDigest
+	ExtraSignals []DigestAction
+	Hooks        DigestSignalHooks
+}
+
+// AssembleDailyDigest builds a DailyDigest from pre-queried window summaries and prior snapshots.
+func AssembleDailyDigest(in DigestInput) DailyDigest {
+	astSnap, preSnap := in.CurSum.Health.Structural, preInvFromSummary(in.CurSum)
+	astDiff, preDiff := buildASTDiff(astSnap, in.PrevDigest), buildPreInvDiff(preSnap, in.PrevDigest)
+	signals := collectDigestSignals(in.CurSum, astSnap, astDiff, in.RepoRoot, in.Hooks)
+	signals = append(signals, in.ExtraSignals...)
+	actions := collectDigestActions(in.Home, in.RepoRoot, in.Day, in.CurSum, in.PrevDigest, in.TodayDigest, signals)
+	newReg, resolved, persistHigh := ComputeSignalTransitions(signals, in.PrevDigest)
 	d := DailyDigest{
-		Day: day, CreatedAt: nowUTC.UnixMilli(),
-		Rolling7d:   buildRolling7d(curSum, prevSum),
+		Day: in.Day, CreatedAt: in.NowUTC.UnixMilli(),
+		Rolling7d:   buildRolling7d(in.CurSum, in.PrevSum),
 		ASTSnapshot: astSnap, ASTDiff: astDiff,
 		PreInvocation: preSnap, PreInvocationDiff: preDiff,
 		Actions: actions, Signals: signals,
 		NewRegressions: newReg, ResolvedSignals: resolved, PersistentHigh: persistHigh,
 	}
-	d.Verdict = computeDigestVerdict(d)
+	d.Verdict = ComputeDigestVerdict(d)
 	return d
 }
 
-func computeSignalTransitions(signals []DigestAction, prev *DailyDigest) (newReg, resolved, persistHigh []string) {
+// ComputeSignalTransitions classifies non-info signals into new regressions,
+// resolved signals, and persistent high signals relative to prev.
+func ComputeSignalTransitions(signals []DigestAction, prev *DailyDigest) (newReg, resolved, persistHigh []string) {
 	if prev == nil {
 		return nil, nil, nil
 	}
-	prevByID := make(map[string]DigestAction, len(prev.Signals))
-	for _, s := range prev.Signals {
-		if s.Severity == severityInfo {
-			continue
-		}
-		prevByID[s.SignalID] = s
-	}
-	curByID := make(map[string]bool, len(signals))
-	for _, s := range signals {
-		if s.Severity == severityInfo {
-			continue
-		}
-		curByID[s.SignalID] = true
-		p, existed := prevByID[s.SignalID]
+	prevByID := nonInfoSignalMap(prev.Signals)
+	curByID := nonInfoSignalMap(signals)
+	for id, s := range curByID {
+		p, existed := prevByID[id]
 		if !existed {
-			newReg = append(newReg, s.SignalID)
+			newReg = append(newReg, id)
 		} else if s.Severity == "high" && p.Severity == "high" {
-			persistHigh = append(persistHigh, s.SignalID)
+			persistHigh = append(persistHigh, id)
 		}
 	}
-	for _, s := range prev.Signals {
-		if s.Severity == severityInfo {
-			continue
-		}
-		if !curByID[s.SignalID] {
-			resolved = append(resolved, s.SignalID)
+	for id := range prevByID {
+		if _, exists := curByID[id]; !exists {
+			resolved = append(resolved, id)
 		}
 	}
 	sort.Strings(newReg)
@@ -197,20 +173,30 @@ func computeSignalTransitions(signals []DigestAction, prev *DailyDigest) (newReg
 	return newReg, resolved, persistHigh
 }
 
+func nonInfoSignalMap(signals []DigestAction) map[string]DigestAction {
+	out := make(map[string]DigestAction, len(signals))
+	for _, s := range signals {
+		if s.Severity != SeverityInfo {
+			out[s.SignalID] = s
+		}
+	}
+	return out
+}
+
 func buildRolling7d(cur, prev *Summary) RollingKPIDeltas {
 	r := RollingKPIDeltas{
-		Sessions:             newMetricDelta(float64(cur.Sessions["agy"]), float64(prev.Sessions["agy"])),
-		SearchGrepRatio:      ptrOptionalDelta(cur.C.SearchGrepRatio["agy"], prev.C.SearchGrepRatio["agy"], 1),
-		BashReadSkips:        newMetricDelta(float64(cur.C.BashReadSkips["agy"]), float64(prev.C.BashReadSkips["agy"])),
-		ToolErrorRatePct:     ptrOptionalDelta(cur.D.ToolErrorRate["agy"], prev.D.ToolErrorRate["agy"], 100),
-		PreInvTimeoutRatePct: ptrOptionalDelta(cur.E.TimeoutRatePct, prev.E.TimeoutRatePct, 1),
-		PreInvP50MS:          ptrOptionalDelta(cur.E.P50DurationMS, prev.E.P50DurationMS, 1),
-		PreInvP95MS:          ptrOptionalDelta(cur.E.P95DurationMS, prev.E.P95DurationMS, 1),
+		Sessions:             NewMetricDelta(float64(cur.Sessions["agy"]), float64(prev.Sessions["agy"])),
+		SearchGrepRatio:      PtrOptionalDelta(cur.C.SearchGrepRatio["agy"], prev.C.SearchGrepRatio["agy"], 1),
+		BashReadSkips:        NewMetricDelta(float64(cur.C.BashReadSkips["agy"]), float64(prev.C.BashReadSkips["agy"])),
+		ToolErrorRatePct:     PtrOptionalDelta(cur.D.ToolErrorRate["agy"], prev.D.ToolErrorRate["agy"], 100),
+		PreInvTimeoutRatePct: PtrOptionalDelta(cur.E.TimeoutRatePct, prev.E.TimeoutRatePct, 1),
+		PreInvP50MS:          PtrOptionalDelta(cur.E.P50DurationMS, prev.E.P50DurationMS, 1),
+		PreInvP95MS:          PtrOptionalDelta(cur.E.P95DurationMS, prev.E.P95DurationMS, 1),
 	}
-	curRR, _, _, ok1 := repeatReadsCounts(cur)
-	prevRR, _, _, ok2 := repeatReadsCounts(prev)
+	curRR, _, _, ok1 := RepeatReadsCounts(cur)
+	prevRR, _, _, ok2 := RepeatReadsCounts(prev)
 	if ok1 && ok2 {
-		r.RedundantReadRatePct = ptrMetricDelta(curRR, prevRR)
+		r.RedundantReadRatePct = PtrMetricDelta(curRR, prevRR)
 	}
 	return r
 }
@@ -233,7 +219,7 @@ func buildASTDiff(cur search.StructuralSignals, prev *DailyDigest) ASTStructural
 		HiddenCouplingReadPairs: cur.HiddenCouplingReadPairs - p.HiddenCouplingReadPairs,
 		ProdPkgCycles:           cur.ProdPkgCycles - p.ProdPkgCycles,
 		LargeFilesOver350:       cur.LargeFilesOver350 - p.LargeFilesOver350,
-		HubConcentration:        round4(cur.HubConcentration - p.HubConcentration),
+		HubConcentration:        Round4(cur.HubConcentration - p.HubConcentration),
 	}
 }
 
@@ -255,37 +241,35 @@ func optFloatDiff(cur, prev *float64) *float64 {
 	if cur == nil || prev == nil {
 		return nil
 	}
-	v := round4(*cur - *prev)
+	v := Round4(*cur - *prev)
 	return &v
 }
 
-func collectDigestSignals(curSum *Summary, astSnap search.StructuralSignals, astDiff ASTStructuralDiff, repoRoot string) []DigestAction {
+func collectDigestSignals(curSum *Summary, astSnap search.StructuralSignals, astDiff ASTStructuralDiff, repoRoot string, hooks DigestSignalHooks) []DigestAction {
 	var raw []DiagnosticSignal
 	if curSum.Diagnostics != nil {
 		raw = append(raw, curSum.Diagnostics.Signals...)
 	}
-	if astDiff.HasPrevious && (astDiff.ProdPkgCycles > 0 || astDiff.LargeFilesOver350 > 0 || astDiff.HiddenCouplingEditPairs > 0) {
-		scope := pickSev(strings.TrimSpace(repoRoot) != "", "project", "global")
-		_, pfx := resolveDiagnosticScope(scope, repoRoot)
-		sev := pickSev(astDiff.ProdPkgCycles > 0 || astDiff.HiddenCouplingEditPairs > 0, "high", "medium")
+	if astDiff.HasPrevious && (astDiff.ProdPkgCycles > 0 || astDiff.LargeFilesOver350 > 0 || astDiff.HiddenCouplingEditPairs > 0) && hooks.MakeStructuralSignal != nil {
+		sev := PickSev(astDiff.ProdPkgCycles > 0 || astDiff.HiddenCouplingEditPairs > 0, "high", "medium")
 		msg := fmt.Sprintf("day-over-day structural regression (cycles %+d, co_edit %+d, large_files %+d)",
 			astDiff.ProdPkgCycles, astDiff.HiddenCouplingEditPairs, astDiff.LargeFilesOver350)
-		raw = append(raw, makeSignal(pfx, "structural_regression", sev, "H.structural.regression",
-			float64(astSnap.ProdPkgCycles+astSnap.HiddenCouplingEditPairs+astSnap.LargeFilesOver350), 0, max(1, astSnap.TotalCodeFiles), msg))
+		raw = append(raw, hooks.MakeStructuralSignal(astSnap, astDiff, repoRoot, msg, sev))
 	}
-	dedup := dedupAndSortSignals(raw)
-	assignDiagnosticActions(dedup)
-	out := make([]DigestAction, 0, len(dedup))
-	for _, s := range dedup {
+	if hooks.FinalizeSignals != nil {
+		raw = hooks.FinalizeSignals(raw)
+	}
+	out := make([]DigestAction, 0, len(raw))
+	for _, s := range raw {
 		out = append(out, DigestAction{
-			SignalID: printable(s.SignalID), Severity: printable(s.Severity), Rule: printable(s.Rule),
-			ActionScope: printable(s.ActionScope), RecommendedAction: printable(s.RecommendedAction), Summary: printable(s.Summary),
+			SignalID: search.Printable(s.SignalID), Severity: search.Printable(s.Severity), Rule: search.Printable(s.Rule),
+			ActionScope: search.Printable(s.ActionScope), RecommendedAction: search.Printable(s.RecommendedAction), Summary: search.Printable(s.Summary),
 		})
 	}
 	return out
 }
 
-func computeDigestVerdict(d DailyDigest) string {
+func ComputeDigestVerdict(d DailyDigest) string {
 	if hasDigestRegression(d) {
 		return VerdictRegress
 	}
@@ -296,17 +280,7 @@ func computeDigestVerdict(d DailyDigest) string {
 }
 
 func hasDigestRegression(d DailyDigest) bool {
-	if d.PreInvocationDiff.TimeoutRatePctDelta != nil && *d.PreInvocationDiff.TimeoutRatePctDelta > 0 {
-		return true
-	}
-	if d.Rolling7d.PreInvTimeoutRatePct != nil && d.Rolling7d.PreInvTimeoutRatePct.Delta > 0 && d.PreInvocation.TimeoutRatePct != nil && *d.PreInvocation.TimeoutRatePct >= minTimeoutRatePct {
-		return true
-	}
-	if d.PreInvocationDiff.P95DurationMSDelta != nil && *d.PreInvocationDiff.P95DurationMSDelta >= 20 && d.PreInvocation.P95DurationMS != nil && *d.PreInvocation.P95DurationMS >= 100 {
-		return true
-	}
-	if d.Rolling7d.BashReadSkips.Delta > 0 && d.Rolling7d.BashReadSkips.Current >= float64(minDirectShellReads) &&
-		(d.Rolling7d.Sessions.Current <= 0 || d.Rolling7d.BashReadSkips.Current/d.Rolling7d.Sessions.Current >= directShellReadMedRate) {
+	if hasPreInvRegression(d) || hasShellReadRegression(d) {
 		return true
 	}
 	if d.ASTDiff.HasPrevious && (d.ASTDiff.HiddenCouplingEditPairs > 0 || d.ASTDiff.ProdPkgCycles > 0) {
@@ -318,6 +292,23 @@ func hasDigestRegression(d DailyDigest) bool {
 		}
 	}
 	return false
+}
+
+func hasPreInvRegression(d DailyDigest) bool {
+	if d.PreInvocationDiff.TimeoutRatePctDelta != nil && *d.PreInvocationDiff.TimeoutRatePctDelta > 0 {
+		return true
+	}
+	if d.Rolling7d.PreInvTimeoutRatePct != nil && d.Rolling7d.PreInvTimeoutRatePct.Delta > 0 && d.PreInvocation.TimeoutRatePct != nil && *d.PreInvocation.TimeoutRatePct >= MinTimeoutRatePct {
+		return true
+	}
+	return d.PreInvocationDiff.P95DurationMSDelta != nil && *d.PreInvocationDiff.P95DurationMSDelta >= 20 && d.PreInvocation.P95DurationMS != nil && *d.PreInvocation.P95DurationMS >= 100
+}
+
+func hasShellReadRegression(d DailyDigest) bool {
+	if d.Rolling7d.BashReadSkips.Delta <= 0 || d.Rolling7d.BashReadSkips.Current < float64(MinDirectShellReads) {
+		return false
+	}
+	return d.Rolling7d.Sessions.Current <= 0 || d.Rolling7d.BashReadSkips.Current/d.Rolling7d.Sessions.Current >= DirectShellReadMedRate
 }
 
 func hasDigestImprovement(d DailyDigest) bool {

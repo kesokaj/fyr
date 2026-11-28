@@ -1,10 +1,12 @@
-package metrics
+package report
 
 import (
 	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 type dailyBannerView struct {
@@ -31,7 +33,7 @@ func RenderDailyDigestJSON(w io.Writer, d DailyDigest) error {
 // RenderDailyDigestText renders a human-readable summary of d.
 func RenderDailyDigestText(d DailyDigest) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Daily Health Digest (%s): %s\n", printable(d.Day), printable(d.Verdict))
+	fmt.Fprintf(&b, "Daily Health Digest (%s): %s\n", search.Printable(d.Day), search.Printable(d.Verdict))
 	fmt.Fprintf(&b, "  7d sessions: %.0f (%+.0f vs prior 7d) | bash_read_skips: %.0f (%+.0f)\n",
 		d.Rolling7d.Sessions.Current, d.Rolling7d.Sessions.Delta,
 		d.Rolling7d.BashReadSkips.Current, d.Rolling7d.BashReadSkips.Delta)
@@ -41,8 +43,8 @@ func RenderDailyDigestText(d DailyDigest) string {
 		d.ASTSnapshot.LargeFilesOver350, d.ASTSnapshot.TotalCodeFiles, d.ASTDiff.LargeFilesOver350)
 	fmt.Fprintf(&b, "  PreInvocation: vets=%d timeouts=%d (%s) p50=%s p95=%s\n",
 		d.PreInvocation.TurnVets, d.PreInvocation.TimedOutTurns,
-		fmtFloatPtr(d.PreInvocation.TimeoutRatePct, "%.1f%%"),
-		fmtOptMS(d.PreInvocation.P50DurationMS), fmtOptMS(d.PreInvocation.P95DurationMS))
+		FmtFloatPtr(d.PreInvocation.TimeoutRatePct, "%.1f%%"),
+		FmtOptMS(d.PreInvocation.P50DurationMS), FmtOptMS(d.PreInvocation.P95DurationMS))
 	appendDigestActionLines(&b, d)
 	appendDigestSignalLines(&b, d)
 	return b.String()
@@ -62,7 +64,7 @@ func appendDigestActionLines(b *strings.Builder, d DailyDigest) {
 func appendDigestSignalLines(b *strings.Builder, d DailyDigest) {
 	var actionSigs, infoSigs []DigestAction
 	for _, s := range d.Signals {
-		if s.Severity == severityInfo {
+		if s.Severity == SeverityInfo {
 			infoSigs = append(infoSigs, s)
 		} else {
 			actionSigs = append(actionSigs, s)
@@ -85,12 +87,12 @@ func appendDigestSignalLines(b *strings.Builder, d DailyDigest) {
 }
 
 func formatDigestSignalLine(s DigestAction) string {
-	act := printable(s.RecommendedAction)
+	act := search.Printable(s.RecommendedAction)
 	if act == "" {
-		act = printable(s.Summary)
+		act = search.Printable(s.Summary)
 	}
 	return fmt.Sprintf("[%s/%s] %s (%s): %s",
-		printable(s.Severity), printable(s.ActionScope), printable(s.Rule), printable(s.SignalID), act)
+		search.Printable(s.Severity), search.Printable(s.ActionScope), search.Printable(s.Rule), search.Printable(s.SignalID), act)
 }
 
 func buildDailyBannerView(d *DailyDigest) *dailyBannerView {
@@ -98,8 +100,8 @@ func buildDailyBannerView(d *DailyDigest) *dailyBannerView {
 		return nil
 	}
 	v := &dailyBannerView{
-		Day:             printable(d.Day),
-		Verdict:         printable(d.Verdict),
+		Day:             search.Printable(d.Day),
+		Verdict:         search.Printable(d.Verdict),
 		NewRegressions:  joinPrintableList(d.NewRegressions),
 		ResolvedSignals: joinPrintableList(d.ResolvedSignals),
 		PersistentHigh:  joinPrintableList(d.PersistentHigh),
@@ -118,7 +120,7 @@ func joinPrintableList(items []string) string {
 	}
 	cleaned := make([]string, 0, len(items))
 	for _, item := range items {
-		if c := printable(strings.TrimSpace(item)); c != "" {
+		if c := search.Printable(strings.TrimSpace(item)); c != "" {
 			cleaned = append(cleaned, c)
 		}
 	}
@@ -131,10 +133,10 @@ func formatBannerAction(a DigestAppliedAction) string {
 		pend = " [install pending]"
 	}
 	if a.RevertCmd != "" {
-		rev = " revert=" + printable(a.RevertCmd)
+		rev = " revert=" + search.Printable(a.RevertCmd)
 	}
 	return fmt.Sprintf("[%s] %s (%s, %s)%s%s",
-		printable(a.Status), printable(a.SignalID), printable(a.ActionScope), printable(a.ReportDate), pend, rev)
+		search.Printable(a.Status), search.Printable(a.SignalID), search.Printable(a.ActionScope), search.Printable(a.ReportDate), pend, rev)
 }
 
 func formatBannerSignals(signals []DigestAction, limit int) []string {
@@ -154,7 +156,7 @@ func formatBannerSignals(signals []DigestAction, limit int) []string {
 func formatBannerInfoSignals(signals []DigestAction, limit int) []string {
 	var out []string
 	for _, s := range signals {
-		if s.Severity != severityInfo {
+		if s.Severity != SeverityInfo {
 			continue
 		}
 		out = append(out, formatDigestSignalLine(s))

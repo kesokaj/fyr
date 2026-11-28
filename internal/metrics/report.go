@@ -1,263 +1,379 @@
 package metrics
 
 import (
-	"bytes"
+	"database/sql"
 	"errors"
-	"fmt"
-	"html/template"
 	"io"
-	"os"
-	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/metrics/report"
+	"github.com/kesokaj/fyr/internal/search"
 )
-
-// The report is one self-contained HTML file: inline SVG drawn here, no
-// script, no URL to any host, light and dark through prefers-color-scheme
-// (D26, spec § Report). Hover tooltips are SVG <title> elements, which every
-// browser shows without script; each chart has its numbers as a table.
-
-// serie is one column in every chart, with a fixed colour: colour follows
-// the CLI, never its rank (dataviz: categorical slots 1, 2), so Antigravity
-// keeps the slot it had beside Claude Code.
-type serie struct{ Key, Label, Class string }
-
-// seriesOf are the summary's columns as chart series: Antigravity, then the
-// historical Claude Code rows only when the window holds them (plan fyr D7).
-func seriesOf(sum *Summary) []serie {
-	var out []serie
-	for _, v := range sum.columns() {
-		if v == historical {
-			out = append(out, serie{v, "Claude Code (historical)", "s1"})
-		} else {
-			out = append(out, serie{v, "Antigravity", "s2"})
-		}
-	}
-	return out
-}
-
-// head is a table header: first, then a cell per series.
-func head(first string, series []serie) []string {
-	h := []string{first}
-	for _, s := range series {
-		h = append(h, s.Label)
-	}
-	return h
-}
 
 const (
-	chartW, chartH         = 640.0, 220.0
-	padL, padR, padT, padB = 56.0, 96.0, 16.0, 28.0
+	VerdictImproving = report.VerdictImproving
+	VerdictSteady    = report.VerdictSteady
+	VerdictRegress   = report.VerdictRegress
+
+	StatusPendingData     = report.StatusPendingData
+	StatusRecovered       = report.StatusRecovered
+	StatusStillRegressing = report.StatusStillRegressing
+
+	DefaultTrajectoryLimit = report.DefaultTrajectoryLimit
+
+	minRecoverySessions = report.MinRecoverySessions
 )
 
-// ReportPath is the default report file under home, stamped to the minute.
-func ReportPath(home string, now time.Time) string {
-	return filepath.Join(home, harness.StateDir, "reports", now.Format("2006-01-02-1504")+"-metrics.html")
-}
+type (
+	DailyDigest           = report.DailyDigest
+	RollingKPIDeltas      = report.RollingKPIDeltas
+	ASTStructuralDiff     = report.ASTStructuralDiff
+	PreInvocationSnapshot = report.PreInvocationSnapshot
+	PreInvocationDiff     = report.PreInvocationDiff
+	DigestAppliedAction   = report.DigestAppliedAction
+	DigestAction          = report.DigestAction
+	TrajectoryOptions     = report.TrajectoryOptions
+	SessionTrajectory     = report.SessionTrajectory
+	JSONScorecard         = report.JSONScorecard
+	JSONAutonomy          = report.JSONAutonomy
+	digestASTCol          = report.DigestASTCol
+)
 
-// DailyReportPath returns <home>/.config/fyr/reports/YYYY-MM-DD-daily-metrics.html.
-func DailyReportPath(home string, now time.Time) string {
-	return filepath.Join(home, harness.StateDir, "reports", now.Format("2006-01-02")+"-daily-metrics.html")
-}
-
-// WriteDailyReport writes the daily HTML report once per calendar day (0600,
-// O_EXCL), treating os.ErrExist as a quiet nil no-op (ADR-528, D5, D14).
-func WriteDailyReport(sum *Summary, evals *EvalRows, home string, now time.Time) error {
-	file := DailyReportPath(home, now)
-	if _, err := os.Lstat(file); err == nil {
-		return nil
-	}
-	var page bytes.Buffer
-	if err := renderReport(&page, sum, evals, now); err != nil {
-		return err
-	}
-	repDir := filepath.Dir(file)
-	if err := os.MkdirAll(repDir, 0o700); err != nil {
-		return err
-	}
-	if fi, err := os.Lstat(repDir); err != nil || !fi.IsDir() {
-		return fmt.Errorf("reports path %s is not a directory", repDir)
-	}
-	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(page.Bytes()); err != nil {
-		f.Close()
-		os.Remove(file)
-		return err
-	}
-	return f.Close()
-}
-
-// WriteReport renders sum and the per-row view evals (nil for none) to
-// file (mode 0600); an existing file is refused. The page is rendered in
-// memory first, so a render that fails leaves no partial file for the rerun
-// to refuse (SD57 of the 2026-10-27 audit).
-func WriteReport(sum *Summary, evals *EvalRows, file string, now time.Time) error {
-	var page bytes.Buffer
-	if err := renderReport(&page, sum, evals, now); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		return fmt.Errorf("refusing to overwrite %s", file)
-	}
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(page.Bytes()); err != nil {
-		f.Close()
-		os.Remove(file)
-		return err
-	}
-	return f.Close()
+// JSONReport is the JSON payload written by RenderJSONReport and WriteJSONReport.
+type JSONReport struct {
+	GeneratedAt string `json:"generated_at"`
+	*Summary
+	Scorecard          JSONScorecard `json:"scorecard"`
+	BackgroundAutonomy JSONAutonomy  `json:"background_autonomy"`
+	Evals              *EvalRows     `json:"evals,omitempty"`
 }
 
 // renderReport is RenderReport; a test replaces it with one that fails.
 var renderReport = RenderReport
 
-type chart struct {
-	Title, Note string
-	SVG         template.HTML
-	Table       table
+// ReportPath is the default report file under home, stamped to the minute.
+func ReportPath(home string, now time.Time) string { return report.ReportPath(home, now) }
+
+// DailyReportPath returns <home>/.config/fyr/reports/YYYY-MM-DD-daily-metrics.html.
+func DailyReportPath(home string, now time.Time) string { return report.DailyReportPath(home, now) }
+
+// WriteDailyReport writes the daily HTML report once per calendar day (0600, O_EXCL).
+func WriteDailyReport(sum *Summary, evals *EvalRows, home string, now time.Time) error {
+	return report.WriteDailyReportWith(adaptRender(sum, evals), toReportSummary(sum), toReportEvalView(evals), home, now)
 }
 
-type table struct {
-	Head []string
-	Rows [][]string
+// WriteReport renders sum and evals (nil for none) to file (mode 0600, O_EXCL).
+func WriteReport(sum *Summary, evals *EvalRows, file string, now time.Time) error {
+	return report.WriteReportWith(adaptRender(sum, evals), toReportSummary(sum), toReportEvalView(evals), file, now)
 }
 
-// RenderReport writes the report's HTML for sum (including Trigger coverage and
-// the numbered report sections), with the per-row view evals under the pass^k
-// chart when it holds a row (nil for none).
+// RenderReport writes the report's HTML for sum and evals (nil for none).
 func RenderReport(w io.Writer, sum *Summary, evals *EvalRows, now time.Time) error {
-	series := seriesOf(sum)
-	var charts []chart
-	day := func(title, note string, get func(Day, string) (float64, bool), format string) {
-		charts = append(charts, lineChart(title, note, series, sum.Daily, get, format))
+	return report.RenderReport(w, toReportSummary(sum), toReportEvalView(evals), now)
+}
+
+// RenderJSONReport writes the JSON usage report for sum and evals to w.
+func RenderJSONReport(w io.Writer, sum *Summary, evals *EvalRows, now time.Time) error {
+	return report.RenderJSONReport(w, toReportSummary(sum), toReportEvalView(evals), now)
+}
+
+// WriteJSONReport renders sum and evals as JSON to file (mode 0600, O_EXCL).
+func WriteJSONReport(sum *Summary, evals *EvalRows, file string, now time.Time) error {
+	return report.WriteJSONReport(toReportSummary(sum), toReportEvalView(evals), file, now)
+}
+
+// RenderMarkdownReport writes the Markdown usage report to w.
+func RenderMarkdownReport(w io.Writer, sum *Summary, evals *EvalRows, now time.Time) error {
+	return report.RenderMarkdownReport(w, toReportSummary(sum), toReportEvalView(evals), now)
+}
+
+// WriteMarkdownReport renders sum and evals as Markdown to file (mode 0600, O_EXCL).
+func WriteMarkdownReport(sum *Summary, evals *EvalRows, file string, now time.Time) error {
+	return report.WriteMarkdownReport(toReportSummary(sum), toReportEvalView(evals), file, now)
+}
+
+// ReportEvalsWithDevFallback returns eval rows from s, falling back read-only to
+// <home>/<StateDir>/dev/fyr-eval/<StateDir>/metrics.db when empty.
+func ReportEvalsWithDevFallback(s *Store, home string, o ShowOptions) (*EvalRows, error) {
+	if o.Project != "" || o.Label != "" {
+		return nil, nil
 	}
-	always := func(f func(Day, string) float64) func(Day, string) (float64, bool) {
-		return func(d Day, v string) (float64, bool) { return f(d, v), true }
+	ev, err := s.Evals(EvalOptions{Since: o.Since, Now: o.Now})
+	if err != nil || len(ev.Rows) > 0 {
+		return ev, err
 	}
-	day("Tool calls per day", "", always(func(d Day, v string) float64 { return float64(d.ToolCalls[v]) }), "%.0f")
-	day("Tokens per day", "input, output and cache", always(func(d Day, v string) float64 { return float64(d.Tokens[v]) }), "%.0f")
-	if hasAnyCost(sum, series) {
-		day("Cost per day (USD)", costNote(sum), func(d Day, v string) (float64, bool) {
-			// A CLI that exposes no cost has no line, never a line at 0.
-			return d.CostUSD[v], sum.B.CostUSD[v] != nil
-		}, "%.2f")
+	h := resolveMetricsHome(ShowOptions{Home: home}, s.path)
+	if h == "" {
+		return ev, nil
 	}
-	day("fyr search : grep per day", "searches of the index divided by grep, rg and Grep calls; a day with no grep call has no point", func(d Day, v string) (float64, bool) {
-		if d.GrepCalls[v] == 0 {
-			return 0, false
-		}
-		return float64(d.SQLiteVerbs[v]) / float64(d.GrepCalls[v]), true
-	}, "%.3f")
-	day("Tool errors per day", "", always(func(d Day, v string) float64 { return float64(d.Errors[v]) }), "%.0f")
-	charts = append(charts, barChart("Tool calls by tool", "the ten most used", series, topKeys(sum.B.ToolCallsByTool, 10), sum.B.ToolCallsByTool))
-	charts = append(charts, barChart("Subagent tool calls by type", "", series, topKeys(sum.D.SubagentToolCalls, 12), sum.D.SubagentToolCalls))
-	if len(sum.A.PassK) > 0 {
-		charts = append(charts, passKChart(sum.A.PassK))
+	devStore, cleanup, ok := OpenDevEvalFallbackRO(h)
+	if !ok {
+		return ev, nil
 	}
-	return reportTmpl.Execute(w, map[string]any{
-		"Sum": sum, "Charts": charts, "Generated": now.UTC().Format("2006-01-02 15:04 UTC"),
-		"Outcome": outcomeTable(sum, series), "Sections": reportSections(sum, series, evals),
-		"Series": series, "Evals": evalsSectionOf(evals),
-		"DailyBanner": buildDailyBannerView(sum.DailyDigest),
+	defer cleanup()
+	devEv, derr := devStore.Evals(EvalOptions{Since: o.Since, Now: o.Now})
+	if derr != nil || len(devEv.Rows) == 0 {
+		return ev, nil
+	}
+	return devEv, nil
+}
+
+// OpenDevEvalFallbackRO opens <home>/<StateDir>/dev/fyr-eval/<StateDir>/metrics.db
+// via a symlink-safe read-only copy when present and schema >= 5.
+func OpenDevEvalFallbackRO(home string) (*Store, func(), bool) {
+	db, devPath, cleanup, ok := report.OpenDevEvalDB(home, len(migrations))
+	if !ok {
+		return nil, nil, false
+	}
+	return &Store{db: db, path: devPath}, cleanup, true
+}
+
+// BuildDailyDigest computes today's shape-only DailyDigest from store, brain.db, and prior snapshots.
+func BuildDailyDigest(store *Store, home, repoRoot string, now time.Time) (DailyDigest, error) {
+	if store == nil || store.db == nil {
+		return DailyDigest{}, errors.New("metrics: nil store")
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	nowUTC := now.UTC()
+	day := nowUTC.Format("2006-01-02")
+	since7 := nowUTC.Add(-7 * 24 * time.Hour)
+	curSum, err := store.Show(ShowOptions{Home: home, Project: repoRoot, Since: since7, Now: nowUTC})
+	if err != nil {
+		return DailyDigest{}, err
+	}
+	prevSum, err := store.Show(ShowOptions{Home: home, Project: repoRoot, Since: since7.Add(-7 * 24 * time.Hour), Now: since7, skipDeltas: true})
+	if err != nil {
+		return DailyDigest{}, err
+	}
+	prevDigest, todayDigest, err := loadPriorDigests(store, repoRoot, day)
+	if err != nil {
+		return DailyDigest{}, err
+	}
+	var extra []DigestAction
+	if shift := detectModelShiftAudit(store, home, repoRoot, nowUTC); shift != nil {
+		extra = append(extra, *shift)
+	}
+	return report.AssembleDailyDigest(report.DigestInput{
+		Day: day, NowUTC: nowUTC, Home: home, RepoRoot: repoRoot,
+		CurSum: toReportSummary(curSum), PrevSum: toReportSummary(prevSum),
+		PrevDigest: prevDigest, TodayDigest: todayDigest, ExtraSignals: extra,
+		Hooks: digestSignalHooks(),
+	}), nil
+}
+
+// SaveDailyDigest persists d into the daily_digests table (upserting by day).
+func SaveDailyDigest(s *Store, d DailyDigest) error { return report.SaveDailyDigest(storeDB(s), d) }
+
+// LatestDailyDigest loads the most recent DailyDigest from daily_digests.
+func LatestDailyDigest(s *Store) (*DailyDigest, error) { return report.LatestDailyDigest(storeDB(s)) }
+
+// PreviousDailyDigest loads the newest DailyDigest strictly before beforeDay.
+func PreviousDailyDigest(s *Store, beforeDay string) (*DailyDigest, error) {
+	return report.PreviousDailyDigest(storeDB(s), beforeDay)
+}
+
+// RecordDigestAppliedAction persists one applied-action checkpoint into today's row.
+func RecordDigestAppliedAction(store *Store, home, repoRoot string, now time.Time, act DigestAppliedAction) error {
+	return report.RecordDigestAppliedAction(storeDB(store), home, now, act, func(t time.Time) (DailyDigest, error) {
+		return BuildDailyDigest(store, home, "", t)
 	})
 }
 
-func costNote(sum *Summary) string {
-	if sum.B.CostUSD["agy"] == nil {
-		return "Antigravity exposes no cost"
-	}
-	return ""
+// LatestDailyDigestPath returns the path of the fail-open digest brief under home.
+func LatestDailyDigestPath(home string) string { return report.LatestDailyDigestPath(home) }
+
+// WriteLatestDailyDigest atomically writes d as compact 0600 JSON under home.
+func WriteLatestDailyDigest(home string, d DailyDigest) error {
+	return report.WriteLatestDailyDigest(home, d)
 }
 
-func hasAnyCost(sum *Summary, series []serie) bool {
-	for _, s := range series {
-		if sum.B.CostUSD[s.Key] != nil {
-			return true
-		}
-	}
-	return false
+// ReadLatestDailyDigest reads latest-daily-digest.json fail-open.
+func ReadLatestDailyDigest(home string) (*DailyDigest, error) {
+	return report.ReadLatestDailyDigest(home)
 }
 
-// outcomeTable is the summary's headline numbers, a row per metric and a
-// column per series; n/a is a metric the CLI cannot produce.
-func outcomeTable(s *Summary, series []serie) table {
-	t := table{Head: head("metric", series)}
-	row := func(name string, f func(v string) string) {
-		r := []string{name}
-		for _, sr := range series {
-			r = append(r, f(sr.Key))
-		}
-		t.Rows = append(t.Rows, r)
-	}
-	row("main sessions", func(v string) string { return fmt.Sprint(s.Sessions[v]) })
-	row("DoD closed (ambiguous) of", func(v string) string {
-		c := s.A.DoDClosed[v]
-		return fmt.Sprintf("%d (%d) of %d", c.Closed, c.Ambiguous, c.Of)
-	})
-	row("rated sessions", agyCol(fmt.Sprint(s.A.RatingsCount)))
-	row("mean outcome / token efficiency", agyCol(fmt.Sprintf("%s / %s",
-		fmtFloatPtr(s.A.MeanOutcomeScore, "%.2f"), fmtFloatPtr(s.A.MeanTokenEfficiency, "%.2f"))))
-	row("tool calls", func(v string) string { return fmt.Sprint(s.B.ToolCalls[v]) })
-	row("cost USD", optFloatCol(s.B.CostUSD, "%.2f"))
-	row("peak context", func(v string) string { return fmt.Sprint(s.B.PeakContext[v]) })
-	row(fmt.Sprintf("sessions over context target (%d)", s.B.ContextTarget), s.overTarget)
-	row("fyr search : grep", optFloatCol(s.C.SearchGrepRatio, "%.3f"))
-	row("bash read bypasses", agyCol(fmt.Sprint(s.C.BashReadSkips["agy"])))
-	row("PreInvocation timeouts / p50 / p95", agyCol(fmtPreInvocationScorecardKPI(s)))
-	row("tool error rate", optFloatCol(s.D.ToolErrorRate, "%.3f"))
-	row("denials", agyFallbackCol(s.D.Denials, fmt.Sprint(s.Health.HookDenials)))
-	row("interrupts", optIntCol(s.D.Interrupts))
-	row("compactions", agyFallbackCol(s.B.Compactions, fmt.Sprintf("%d (steps:%d)", s.Health.SearchDBCompactions, s.Health.StepCompactions)))
-	appendOutcomeHealthRows(row, s)
-	return t
+// EvaluateActionRecovery determines post-fix recovery status for one applied action.
+func EvaluateActionRecovery(act DigestAppliedAction, curSum *Summary, prev *DailyDigest, day string, postSessions int, activeSignals []DigestAction) string {
+	return report.EvaluateActionRecovery(act, toReportSummary(curSum), prev, day, postSessions, activeSignals)
 }
 
-func optFloatCol(m map[string]*float64, format string) func(string) string {
-	return func(v string) string {
-		if m[v] == nil {
-			return "n/a"
-		}
-		return fmt.Sprintf(format, *m[v])
-	}
+// RenderDailyDigestJSON writes d as indented JSON to w.
+func RenderDailyDigestJSON(w io.Writer, d DailyDigest) error {
+	return report.RenderDailyDigestJSON(w, d)
 }
 
-func optIntCol(m map[string]*int) func(string) string {
-	return func(v string) string {
-		if m[v] == nil {
-			return "n/a"
-		}
-		return fmt.Sprint(*m[v])
+// RenderDailyDigestText renders a human-readable summary of d.
+func RenderDailyDigestText(d DailyDigest) string { return report.RenderDailyDigestText(d) }
+
+// Trajectories returns session trajectories matching o, newest first.
+func (s *Store) Trajectories(o TrajectoryOptions) ([]SessionTrajectory, error) {
+	deps := report.TrajectoryDeps{
+		Home: resolveMetricsHome(ShowOptions{}, s.path),
+		StepsOf: func(sessionID string) ([]report.TrajectoryStep, error) {
+			steps, err := s.stepsOf(sessionID)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]report.TrajectoryStep, len(steps))
+			for i, st := range steps {
+				out[i] = report.TrajectoryStep{
+					Kind: st.kind, Tool: st.tool, Hash: st.hash,
+					IsErr: st.isErr, Denied: st.denied,
+					In: st.in, CR: st.cr, CW: st.cw, Ctx: st.ctx,
+				}
+			}
+			return out, nil
+		},
+		ParseFileHashRange: parseFileHashRange,
+		RecordReadInterval: recordReadInterval,
 	}
+	return report.Trajectories(s.db, o, deps)
 }
 
-func agyFallbackCol(m map[string]*int, agyVal string) func(string) string {
-	return func(v string) string {
-		if m[v] != nil {
-			return fmt.Sprint(*m[v])
-		}
-		if v == "agy" {
-			return agyVal
-		}
-		return "n/a"
+// WriteTrajectoriesJSON encodes trajectories as indented JSON to w.
+func WriteTrajectoriesJSON(w io.Writer, list []SessionTrajectory) error {
+	return report.WriteTrajectoriesJSON(w, list)
+}
+
+// WriteTrajectoriesText renders trajectories in human-readable form to w.
+func WriteTrajectoriesText(w io.Writer, list []SessionTrajectory) {
+	report.WriteTrajectoriesText(w, list)
+}
+
+func storeDB(s *Store) *sql.DB {
+	if s == nil {
+		return nil
+	}
+	return s.db
+}
+
+func adaptRender(sum *Summary, evals *EvalRows) report.RenderFunc {
+	return func(w io.Writer, _ *report.Summary, _ *report.EvalView, now time.Time) error {
+		return renderReport(w, sum, evals, now)
 	}
 }
 
-func appendOutcomeHealthRows(row func(string, func(string) string), s *Summary) {
-	row("sessions >= 60% knee", agyCol(fmt.Sprintf("%d of %d", s.Health.SessionsOverKnee, s.Health.MainSessions)))
-	row("search.db compactions", agyCol(fmt.Sprint(s.Health.SearchDBCompactions)))
-	row("hook denials (excl. from errors)", agyCol(fmt.Sprint(s.Health.HookDenials)))
-	row("guarded subagent downgrades", agyCol(fmt.Sprint(s.Health.GuardedDowngrades)))
+func toReportSummary(s *Summary) *report.Summary {
+	if s == nil {
+		return nil
+	}
+	return &report.Summary{
+		Window: s.Window, Columns: s.Columns, Sessions: s.Sessions, Subagents: s.Subagents,
+		A: s.A, B: s.B, C: s.C, D: s.D, E: s.E, F: s.F,
+		TriggerCoverage: s.TriggerCoverage, Health: s.Health,
+		Orchestration: s.Orchestration, SIM: s.SIM,
+		SkillTelemetry: s.SkillTelemetry, RuleTelemetry: s.RuleTelemetry,
+		TagCohort: s.TagCohort, AgentRoles: s.AgentRoles,
+		Deltas: s.Deltas, Diagnostics: s.Diagnostics, DailyDigest: s.DailyDigest,
+		Projects: s.Projects, Daily: s.Daily, Notes: s.Notes,
+		ReadCalls: s.readCalls, NumbersFn: s.Numbers,
+	}
+}
+
+func toReportEvalView(e *EvalRows) *report.EvalView {
+	if e == nil || len(e.Rows) == 0 {
+		return nil
+	}
+	return &report.EvalView{
+		Head: evalHead, Rows: e.Table(), Lines: e.Suite.lines(),
+		RowCount: e.Suite.Rows, Trials: e.Suite.Trials, RawJSON: e,
+	}
+}
+
+func loadPriorDigests(store *Store, repoRoot, day string) (*DailyDigest, *DailyDigest, error) {
+	if strings.TrimSpace(repoRoot) != "" {
+		return nil, nil, nil
+	}
+	prev, err := PreviousDailyDigest(store, day)
+	if err != nil {
+		return nil, nil, err
+	}
+	today, _ := report.DailyDigestByDay(store.db, day)
+	return prev, today, nil
+}
+
+func digestSignalHooks() report.DigestSignalHooks {
+	return report.DigestSignalHooks{
+		MakeStructuralSignal: func(astSnap search.StructuralSignals, _ ASTStructuralDiff, repoRoot, msg, sev string) DiagnosticSignal {
+			scope := pickSev(strings.TrimSpace(repoRoot) != "", "project", "global")
+			_, pfx := resolveDiagnosticScope(scope, repoRoot)
+			return makeSignal(pfx, "structural_regression", sev, "H.structural.regression",
+				float64(astSnap.ProdPkgCycles+astSnap.HiddenCouplingEditPairs+astSnap.LargeFilesOver350), 0, max(1, astSnap.TotalCodeFiles), msg)
+		},
+		FinalizeSignals: func(raw []DiagnosticSignal) []DiagnosticSignal {
+			dedup := dedupAndSortSignals(raw)
+			assignDiagnosticActions(dedup)
+			return dedup
+		},
+	}
+}
+
+func populateAutonomySignals(sum *Summary, home string, o ShowOptions, all []sess) {
+	sum.Health.KeptAutoBranches = report.CountKeptAutoBranches(home, o.Project, o.IncludeSandboxes, distinctProjectRoots(o, home, all), isSandboxProjectRoot)
+	if home != "" {
+		q, c := report.CountProposalsFromBrainDB(home, o.Project)
+		sum.Health.ProposalsQueued = q
+		sum.Health.ProposalsClosed = c
+	}
+}
+
+func mergeDevEvalPassK(sum *Summary, home string, since, now time.Time) {
+	devStore, cleanup, ok := OpenDevEvalFallbackRO(home)
+	if !ok {
+		return
+	}
+	defer cleanup()
+	devOpt := ShowOptions{Since: since, Now: now, AllLabels: true}
+	devAll, err := devStore.sessionsIn(showQuery(devOpt, since, now))
+	if err != nil {
+		return
+	}
+	devTrials, err := devStore.trialsIn(devOpt, since, now)
+	if err != nil {
+		return
+	}
+	devClaimed, err := devStore.trialRuns()
+	if err != nil {
+		return
+	}
+	m := map[string]PassK{}
+	tmp := &Summary{A: Outcome{PassK: m}}
+	tmp.passK(devAll, devTrials, devClaimed)
+	merged, changed := report.MergeUnseenPassK(sum.A.PassK, tmp.A.PassK, evalPrefix)
+	m = merged
+	sum.A.PassK = m
+	if changed {
+		sum.Notes = append(sum.Notes, "evals: merged pass^k from dev/fyr-eval store")
+	}
+}
+
+func openCopySQLiteFile(scratchHome, base string, relParts ...string) (*sql.DB, func(), bool) {
+	return report.OpenCopySQLiteFile(scratchHome, base, relParts...)
+}
+
+func openCopySQLiteFileWithPath(scratchHome, base string, relParts ...string) (*sql.DB, string, func(), bool) {
+	return report.OpenCopySQLiteFileWithPath(scratchHome, base, relParts...)
+}
+
+func readBoundedRegularFile(base string, relParts ...string) ([]byte, bool) {
+	return report.ReadBoundedRegularFile(base, relParts...)
+}
+
+func tableCols(db *sql.DB, table string) map[string]bool { return report.TableCols(db, table) }
+
+func redactHomePath(p string) string { return report.RedactHomePath(p) }
+
+func dedupLedgerSaves(s *Summary) int { return report.DedupLedgerSaves(toReportSummary(s)) }
+
+func priorDayString(day string) string { return report.PriorDayString(day) }
+
+func isMetricBetter(metric string, cur, base float64) bool {
+	return report.IsMetricBetter(metric, cur, base)
+}
+
+func lookupSummaryMetric(sum *Summary, metric string) (float64, bool) {
+	return report.LookupSummaryMetric(toReportSummary(sum), metric)
 }

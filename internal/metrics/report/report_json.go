@@ -1,13 +1,9 @@
-package metrics
+package report
 
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -53,17 +49,17 @@ type JSONReport struct {
 	*Summary
 	Scorecard          JSONScorecard `json:"scorecard"`
 	BackgroundAutonomy JSONAutonomy  `json:"background_autonomy"`
-	Evals              *EvalRows     `json:"evals,omitempty"`
+	Evals              any           `json:"evals,omitempty"`
 }
 
 // RenderJSONReport writes the JSON usage report for sum and evals to w.
-func RenderJSONReport(w io.Writer, sum *Summary, evals *EvalRows, now time.Time) error {
+func RenderJSONReport(w io.Writer, sum *Summary, evals *EvalView, now time.Time) error {
 	if sum == nil {
 		sum = &Summary{}
 	}
-	var ev *EvalRows
+	var ev any
 	if evals != nil && len(evals.Rows) > 0 {
-		ev = evals
+		ev = evals.RawJSON
 	}
 	doc := JSONReport{
 		GeneratedAt:        now.UTC().Format(time.RFC3339),
@@ -80,29 +76,13 @@ func RenderJSONReport(w io.Writer, sum *Summary, evals *EvalRows, now time.Time)
 	return err
 }
 
-// WriteJSONReport renders sum and evals as JSON to file (mode 0600, O_EXCL);
-// an existing file is refused without overwriting.
-func WriteJSONReport(sum *Summary, evals *EvalRows, file string, now time.Time) error {
+// WriteJSONReport renders sum and evals as JSON to file (mode 0600, O_EXCL).
+func WriteJSONReport(sum *Summary, evals *EvalView, file string, now time.Time) error {
 	var page bytes.Buffer
 	if err := RenderJSONReport(&page, sum, evals, now); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		return fmt.Errorf("refusing to overwrite %s", file)
-	}
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(page.Bytes()); err != nil {
-		f.Close()
-		os.Remove(file)
-		return err
-	}
-	return f.Close()
+	return writeExclusiveFile(file, page.Bytes())
 }
 
 func buildJSONScorecard(s *Summary) JSONScorecard {
@@ -113,7 +93,7 @@ func buildJSONScorecard(s *Summary) JSONScorecard {
 		PeakContext:             s.B.PeakContext["agy"],
 		SearchGrepRatio:         s.C.SearchGrepRatio["agy"],
 		RedundantReads:          s.C.RedundantReads["agy"],
-		BlockedLedgerSave:       dedupLedgerSaves(s),
+		BlockedLedgerSave:       DedupLedgerSaves(s),
 		ClampSaves:              s.Health.ClampedSaves,
 		BashReadSkips:           s.C.BashReadSkips["agy"],
 		PreInvocationTimeoutPct: s.E.TimeoutRatePct,
@@ -124,17 +104,17 @@ func buildJSONScorecard(s *Summary) JSONScorecard {
 		Deltas:                  s.Deltas,
 		TopSignals:              []DiagnosticSignal{},
 	}
-	if v, ok := kneePct(s); ok {
+	if v, ok := KneePct(s); ok {
 		sc.KneeRatePct = &v
 	}
-	if v, ok := overTargetPct(s); ok {
+	if v, ok := OverTargetPct(s); ok {
 		sc.OverTargetPct = &v
 	}
-	if pct, _, _, ok := repeatReadsCounts(s); ok {
+	if pct, _, _, ok := RepeatReadsCounts(s); ok {
 		sc.RepeatReadsPct = &pct
 	}
 	if r := s.D.ToolErrorRate["agy"]; r != nil {
-		ep := round4(*r * 100.0)
+		ep := Round4(*r * 100.0)
 		sc.ToolErrorRatePct = &ep
 	}
 	if s.Diagnostics != nil && len(s.Diagnostics.Signals) > 0 {

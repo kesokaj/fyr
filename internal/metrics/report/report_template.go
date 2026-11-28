@@ -1,4 +1,4 @@
-package metrics
+package report
 
 import "html/template"
 
