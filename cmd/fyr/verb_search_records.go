@@ -13,7 +13,7 @@ import (
 // ID or path, for --open the open records (D30). Nothing when there are
 // none, and a one-line note when the records could not be searched (a
 // trail.jsonl that does not parse), so the file search still answers.
-func recordHits(c *ctx, o search.Options) {
+func recordHits(c *runtimeCtx, o search.Options) {
 	hits, head, err := recordHitsData(o)
 	if err != nil {
 		fmt.Fprintln(c.out, search.Printable("records: not searched: "+err.Error()))

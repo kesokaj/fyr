@@ -279,7 +279,7 @@ func TestHelpListsRecord(t *testing.T) {
 // fyr prints from the trail.
 func TestRecordErrFiltersOtherErrors(t *testing.T) {
 	var out bytes.Buffer
-	err := recordErr(&ctx{out: &out}, errors.New("open /x/\x1b[31mevil/.agents: permission denied"))
+	err := recordErr(&runtimeCtx{out: &out}, errors.New("open /x/\x1b[31mevil/.agents: permission denied"))
 	if err == nil || strings.ContainsRune(err.Error(), 0x1b) {
 		t.Fatalf("a non-refusal error reached main unfiltered: %q", err)
 	}

@@ -190,7 +190,7 @@ func applySIMRecordDefaults(in *brain.SIMRecordInput, set map[string]bool) error
 	return nil
 }
 
-func autoSIMErr(c *ctx, err error) error {
+func autoSIMErr(c *runtimeCtx, err error) error {
 	switch {
 	case err == nil:
 		return nil

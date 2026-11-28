@@ -42,7 +42,11 @@ func reportOptsOf(c *runtimeCtx) *reportOpts {
 	case *metricsOpts:
 		return &o.reportOpts
 	}
-	return &reportOpts{}
+	o := &reportOpts{}
+	if c.opts == nil {
+		c.opts = o
+	}
+	return o
 }
 
 func reportVerb() verb {

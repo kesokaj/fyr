@@ -14,7 +14,7 @@ import (
 // recordEval stores every trial and ingests its sandbox, then writes the
 // testing record and the summary line; any trial not PASS, failed trial
 // write or ingest, or unrun trial is exit 1.
-func recordEval(c *ctx, root string, o eval.Options, src harness.Source, key string, rows []eval.Row, results []eval.Result) error {
+func recordEval(c *runtimeCtx, root string, o eval.Options, src harness.Source, key string, rows []eval.Row, results []eval.Result) error {
 	cli := agyVersion()
 	byID := map[string]eval.Row{}
 	for _, row := range rows {
@@ -54,7 +54,7 @@ func recordEval(c *ctx, root string, o eval.Options, src harness.Source, key str
 // recordEvalTrials ingests each started trial (so sessions.model can populate
 // trials.policy_model when --model was not set) and records its trials row,
 // returning true when any trial failed or failed to ingest/record.
-func recordEvalTrials(c *ctx, explicitModel, key, cli string, byID map[string]eval.Row, results []eval.Result) bool {
+func recordEvalTrials(c *runtimeCtx, explicitModel, key, cli string, byID map[string]eval.Row, results []eval.Result) bool {
 	failed := false
 	for _, r := range results {
 		if r.Status != eval.StatusPass {

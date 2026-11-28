@@ -19,7 +19,7 @@ import (
 // allFlags is a FlagSet holding the global flags and every verb's flags, for
 // the reorder tests: the value flags are read from it, as run does per verb.
 func allFlags() *flag.FlagSet {
-	c := &ctx{fs: flag.NewFlagSet("all", flag.ContinueOnError)}
+	c := &runtimeCtx{fs: flag.NewFlagSet("all", flag.ContinueOnError)}
 	c.fs.StringVar(&c.repoFlag, "repo", "", "")
 	c.fs.StringVar(&c.homeFlag, "home", "", "")
 	c.fs.StringVar(&c.dirFlag, "dir", "", "")
@@ -30,7 +30,7 @@ func allFlags() *flag.FlagSet {
 		}
 		// each verb registers only its own flags; a name two verbs share
 		// (dry-run, global) would panic on the second definition
-		sub := &ctx{fs: flag.NewFlagSet("verb", flag.ContinueOnError)}
+		sub := &runtimeCtx{fs: flag.NewFlagSet("verb", flag.ContinueOnError)}
 		v.flags(sub)
 		sub.fs.VisitAll(func(f *flag.Flag) {
 			if c.fs.Lookup(f.Name) == nil {
@@ -645,5 +645,42 @@ func TestReportNoIngestWritesState(t *testing.T) {
 				t.Errorf("%s writesState() = %v, want %v", tc.name, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRecordAndReportOptsOfCacheOnNil(t *testing.T) {
+	rc := &runtimeCtx{}
+	rec1 := recordOptsOf(rc)
+	if rc.opts != rec1 {
+		t.Fatalf("recordOptsOf did not cache fallback on nil c.opts: got %T", rc.opts)
+	}
+	rec1.dryRun = true
+	if rec2 := recordOptsOf(rc); rec2 != rec1 || !rec2.dryRun {
+		t.Fatalf("recordOptsOf did not return cached opts: same=%v dryRun=%v", rec2 == rec1, rec2.dryRun)
+	}
+
+	pc := &runtimeCtx{}
+	rep1 := reportOptsOf(pc)
+	if pc.opts != rep1 {
+		t.Fatalf("reportOptsOf did not cache fallback on nil c.opts: got %T", pc.opts)
+	}
+	rep1.noIngest = true
+	if rep2 := reportOptsOf(pc); rep2 != rep1 || !rep2.noIngest {
+		t.Fatalf("reportOptsOf did not return cached opts: same=%v noIngest=%v", rep2 == rep1, rep2.noIngest)
+	}
+
+	other := &jsonOpts{jsonOut: true}
+	oc := &runtimeCtx{opts: other}
+	if _ = recordOptsOf(oc); oc.opts != other {
+		t.Fatalf("recordOptsOf overwrote non-nil foreign c.opts: got %T", oc.opts)
+	}
+	if _ = reportOptsOf(oc); oc.opts != other {
+		t.Fatalf("reportOptsOf overwrote non-nil foreign c.opts: got %T", oc.opts)
+	}
+
+	mc := &metricsOpts{}
+	mctx := &runtimeCtx{opts: mc}
+	if got := reportOptsOf(mctx); got != &mc.reportOpts || mctx.opts != mc {
+		t.Fatalf("reportOptsOf on *metricsOpts returned unexpected ptr or mutated opts")
 	}
 }

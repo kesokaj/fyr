@@ -104,7 +104,7 @@ func hasAutoSIMHelp(simArgs []string) bool {
 
 // parseAutoSIMArgs parses global flags for `fyr auto sim ...`, answers `-h`
 // before the real-home guard, and leaves the sim arguments in c.args.
-func (c *ctx) parseAutoSIMArgs(rest []string) (bool, error) {
+func (c *runtimeCtx) parseAutoSIMArgs(rest []string) (bool, error) {
 	globals, simArgs := splitAutoSIMGlobals(rest)
 	gfs := flag.NewFlagSet("auto", flag.ContinueOnError)
 	gfs.SetOutput(c.out)
@@ -121,14 +121,14 @@ func (c *ctx) parseAutoSIMArgs(rest []string) (bool, error) {
 	return false, nil
 }
 
-func newSIMFlagSet(name string, c *ctx) *flag.FlagSet {
+func newSIMFlagSet(name string, c *runtimeCtx) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(c.out)
 	fs.Usage = func() {}
 	return fs
 }
 
-func parseSIMFlagSet(fs *flag.FlagSet, rest []string, c *ctx) (bool, error) {
+func parseSIMFlagSet(fs *flag.FlagSet, rest []string, c *runtimeCtx) (bool, error) {
 	if err := fs.Parse(reorder(fs, rest)); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(c.out, autoSIMHelp())
@@ -139,7 +139,7 @@ func parseSIMFlagSet(fs *flag.FlagSet, rest []string, c *ctx) (bool, error) {
 	return false, nil
 }
 
-func runAutoSIM(c *ctx, args []string) error {
+func runAutoSIM(c *runtimeCtx, args []string) error {
 	if len(args) == 0 {
 		return autoSIMUsageErr(c.out, "")
 	}
@@ -158,7 +158,7 @@ func runAutoSIM(c *ctx, args []string) error {
 	}
 }
 
-func runAutoSIMList(c *ctx, rest []string) error {
+func runAutoSIMList(c *runtimeCtx, rest []string) error {
 	fs := newSIMFlagSet("auto sim list", c)
 	var sig, pathPrefix, status string
 	var limit int
@@ -189,7 +189,7 @@ func runAutoSIMList(c *ctx, rest []string) error {
 	return renderAutoSIMList(c.out, items, asJSON)
 }
 
-func runAutoSIMShow(c *ctx, rest []string) error {
+func runAutoSIMShow(c *runtimeCtx, rest []string) error {
 	fs := newSIMFlagSet("auto sim show", c)
 	var asJSON bool
 	fs.BoolVar(&asJSON, "json", false, "")
@@ -206,7 +206,7 @@ func runAutoSIMShow(c *ctx, rest []string) error {
 	return renderAutoSIMShow(c.out, detail, asJSON)
 }
 
-func runAutoSIMRecord(c *ctx, rest []string) error {
+func runAutoSIMRecord(c *runtimeCtx, rest []string) error {
 	in, asJSON, stop, err := parseAutoSIMRecordFlags(c, rest)
 	if stop || err != nil {
 		return err
@@ -222,7 +222,7 @@ func runAutoSIMRecord(c *ctx, rest []string) error {
 	return nil
 }
 
-func parseAutoSIMRecordFlags(c *ctx, rest []string) (brain.SIMRecordInput, bool, bool, error) {
+func parseAutoSIMRecordFlags(c *runtimeCtx, rest []string) (brain.SIMRecordInput, bool, bool, error) {
 	fs := newSIMFlagSet("auto sim record", c)
 	var in brain.SIMRecordInput
 	var filesCSV, predRowsCSV, predSigsCSV, fixedCSV, missedCSV, regCSV string
@@ -277,7 +277,7 @@ func registerSIMRecordFlags(fs *flag.FlagSet, in *brain.SIMRecordInput, files, p
 	fs.BoolVar(asJSON, "json", false, "")
 }
 
-func runAutoSIMMerge(c *ctx, rest []string) error {
+func runAutoSIMMerge(c *runtimeCtx, rest []string) error {
 	fs := newSIMFlagSet("auto sim merge", c)
 	var prov string
 	var asJSON bool

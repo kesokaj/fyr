@@ -267,14 +267,14 @@ func TestAutoDreamHarnessRepoResolution(t *testing.T) {
 	if got := autoDreamHarnessRepo("", home, repo); got != "" {
 		t.Fatalf("uninstalled home leaked %q, want empty", got)
 	}
-	if opts := (&ctx{home: home}).autoRunOptions(auto.Options{Home: home}); opts.Repo != "" {
+	if opts := (&runtimeCtx{home: home}).autoRunOptions(auto.Options{Home: home}); opts.Repo != "" {
 		t.Fatalf("uninstalled autoRunOptions().Repo = %q, want empty", opts.Repo)
 	}
 	if got := autoDreamHarnessRepo(repo, home, repo); got != repo {
 		t.Fatalf("explicit --repo = %q, want %q", got, repo)
 	}
 	checkout := repoRoot(t)
-	if opts := (&ctx{home: home, repoFlag: checkout}).autoRunOptions(auto.Options{Home: home}); opts.Repo == "" {
+	if opts := (&runtimeCtx{home: home, repoFlag: checkout}).autoRunOptions(auto.Options{Home: home}); opts.Repo == "" {
 		t.Fatalf("explicit --repo autoRunOptions().Repo is empty")
 	}
 	t.Setenv("FYR_REPO", repo)
@@ -282,7 +282,7 @@ func TestAutoDreamHarnessRepoResolution(t *testing.T) {
 		t.Fatalf("FYR_REPO = %q, want %q", got, repo)
 	}
 	t.Setenv("FYR_REPO", checkout)
-	if opts := (&ctx{home: home}).autoRunOptions(auto.Options{Home: home}); opts.Repo == "" {
+	if opts := (&runtimeCtx{home: home}).autoRunOptions(auto.Options{Home: home}); opts.Repo == "" {
 		t.Fatalf("FYR_REPO autoRunOptions().Repo is empty")
 	}
 }
@@ -300,7 +300,7 @@ func TestAutoDreamHarnessRepoIgnoresUnrelatedCWDCheckout(t *testing.T) {
 	if got := autoDreamHarnessRepo("", home, unrelatedRepo); got != "" {
 		t.Fatalf("autoDreamHarnessRepo leaked unrelated CWD repo %q, want empty", got)
 	}
-	opts := (&ctx{home: home}).autoRunOptions(auto.Options{Home: home})
+	opts := (&runtimeCtx{home: home}).autoRunOptions(auto.Options{Home: home})
 	if !trail.SameDir(opts.Repo, legitRepo) || trail.SameDir(opts.Repo, unrelatedRepo) {
 		t.Fatalf("autoRunOptions().Repo = %q, want %q (not %q)", opts.Repo, legitRepo, unrelatedRepo)
 	}
@@ -309,14 +309,14 @@ func TestAutoDreamHarnessRepoIgnoresUnrelatedCWDCheckout(t *testing.T) {
 	if err := harness.SaveState(home, harness.State{Repo: filepath.Join(t.TempDir(), "missing")}); err != nil {
 		t.Fatalf("SaveState missing: %v", err)
 	}
-	if opts := (&ctx{home: home}).autoRunOptions(auto.Options{Home: home}); opts.Repo != "" {
+	if opts := (&runtimeCtx{home: home}).autoRunOptions(auto.Options{Home: home}); opts.Repo != "" {
 		t.Fatalf("missing st.Repo leaked CWD repo %q, want empty", opts.Repo)
 	}
 	for _, repoVal := range []string{"", harness.ZipPrefix + "sha256:abcd;verified v1.0.0"} {
 		if err := harness.SaveState(home, harness.State{Repo: repoVal}); err != nil {
 			t.Fatalf("SaveState(%q): %v", repoVal, err)
 		}
-		if opts := (&ctx{home: home}).autoRunOptions(auto.Options{Home: home}); opts.Repo != "" {
+		if opts := (&runtimeCtx{home: home}).autoRunOptions(auto.Options{Home: home}); opts.Repo != "" {
 			t.Fatalf("origin %q leaked CWD repo %q, want empty", repoVal, opts.Repo)
 		}
 	}

@@ -24,7 +24,11 @@ func recordOptsOf(c *runtimeCtx) *recordOpts {
 	if o, ok := c.opts.(*recordOpts); ok {
 		return o
 	}
-	return &recordOpts{}
+	o := &recordOpts{}
+	if c.opts == nil {
+		c.opts = o
+	}
+	return o
 }
 
 func recordVerb() verb {

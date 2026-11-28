@@ -220,7 +220,7 @@ func TestEvalRechecksItsHomeBeforeWriting(t *testing.T) {
 		t.Errorf("the real metrics store was opened: %v", err)
 	}
 	var out bytes.Buffer
-	c := &ctx{home: home, homeFlag: home, out: &out}
+	c := &runtimeCtx{home: home, homeFlag: home, out: &out}
 	err := recordEval(c, r.project, eval.Options{}, harness.Source{}, "k", nil, nil)
 	var code exitCode
 	if !errors.As(err, &code) || code != 1 || !strings.Contains(out.String(), "eval: record: not written") {

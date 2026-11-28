@@ -34,9 +34,6 @@ type runtimeCtx struct {
 	src harness.Source
 }
 
-// ctx is a temporary alias for unmigrated helper/test files.
-type ctx = runtimeCtx
-
 // repo is the tree on disk, "" for the files embedded in a release binary;
 // no git helper is ever called with "" (D17).
 func (c *runtimeCtx) repo() string { return c.src.Dir }

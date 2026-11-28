@@ -27,7 +27,7 @@ var guardFree = map[string]bool{
 // resolveGuardedHome resolves the home, then refuses an unflagged one to a
 // build that is not its installed fyr: before anything opens, the old state
 // directory's migration included (BUG-507).
-func (c *ctx) resolveGuardedHome() error {
+func (c *runtimeCtx) resolveGuardedHome() error {
 	if err := c.resolveHome(); err != nil {
 		return err
 	}
@@ -42,7 +42,7 @@ func (c *ctx) resolveGuardedHome() error {
 // identity, runs a guarded verb on the real home unflagged; an explicit
 // --home, the real one included, is the operator's choice and passes. Exit
 // 2, before the old state directory moves or any store opens.
-func (c *ctx) refuseRealHomeWrite() error {
+func (c *runtimeCtx) refuseRealHomeWrite() error {
 	if c.homeFlag != "" || guardFree[c.cmd] {
 		return nil
 	}
