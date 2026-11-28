@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/sqliteutil"
 )
 
 // agyTools maps Antigravity's tool names to the store's vocabulary, the
@@ -127,7 +127,7 @@ func (w *writer) agyTool(c agyConv, ext string, ts int64, st agyStep, f fields, 
 			ts = excluded.ts, tool = excluded.tool, skill = excluded.skill, target_kind = excluded.target_kind,
 			is_error = excluded.is_error, denied = excluded.denied, cmd_hash = excluded.cmd_hash,
 			started_ms = excluded.started_ms, ended_ms = excluded.ended_ms, wait_ms = excluded.wait_ms`,
-		c.id, ext, ts, tool, skill, kind, search.BoolInt(isErr), search.BoolInt(denied), hash, started, ended, wait)
+		c.id, ext, ts, tool, skill, kind, sqliteutil.BoolInt(isErr), sqliteutil.BoolInt(denied), hash, started, ended, wait)
 	if denied {
 		w.exec(`INSERT INTO events(session_id, ts, kind, ref, value) VALUES (?, ?, 'hook_block', ?, ?)
 			ON CONFLICT(session_id, kind, ref) DO UPDATE SET ts = excluded.ts, value = excluded.value`,

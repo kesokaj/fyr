@@ -12,7 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/harness"
-	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/sqliteutil"
 )
 
 func TestSD122ToSD129IngestAndSyncFixes(t *testing.T) {
@@ -31,7 +31,7 @@ func TestSD122ToSD129IngestAndSyncFixes(t *testing.T) {
 		"INSERT INTO vet_history VALUES ('C1\x1b', 1, 'FIX', 'PROCEED', 70, 'p1', '', '', 100)",
 		"INSERT INTO read_ledger_stats VALUES (' C1\x1b ', 99, 5)",
 	)
-	db, err := sql.Open("sqlite", search.DSN(sdb))
+	db, err := sql.Open("sqlite", sqliteutil.DSN(sdb))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestSD122SizeChangeZeroModifiedAndSD124ModelUpdate(t *testing.T) {
 		"INSERT INTO steps VALUES (1, 15, 5, X'', NULL, NULL)",
 	)
 	// Write a gen_metadata proto with model=gemini-4-carbon, then add gemini-4-hydrogen.
-	db, err := sql.Open("sqlite", search.DSN(cdb))
+	db, err := sql.Open("sqlite", sqliteutil.DSN(cdb))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestSD122SizeChangeZeroModifiedAndSD124ModelUpdate(t *testing.T) {
 	}
 
 	// Add second generation while c.modified remains 0: must re-ingest and upgrade model.
-	db2, err := sql.Open("sqlite", search.DSN(cdb))
+	db2, err := sql.Open("sqlite", sqliteutil.DSN(cdb))
 	if err != nil {
 		t.Fatal(err)
 	}

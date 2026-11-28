@@ -18,10 +18,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/sqliteutil"
 )
 
 // migrations[i] takes the store from schema i to i+1 (PRAGMA user_version).
@@ -182,18 +182,18 @@ func openStore(home string) (*store, error) {
 }
 
 // openWait is how long a busy open is retried.
-var openWait = 10 * time.Second
+var openWait = sqliteutil.OpenWait
 
 func openDBBusyRetry(fn func() (*sql.DB, error)) error {
-	_, err := search.OpenDBWithRetry(openWait, fn)
-	if err != nil && search.IsBusy(err) {
+	_, err := sqliteutil.OpenDBWithRetry(openWait, fn)
+	if err != nil && sqliteutil.IsBusy(err) {
 		return refuse("the brain store is busy (another fyr holds its write lock); retry")
 	}
 	return err
 }
 
 func tryOpen(path string) (*store, error) {
-	db, err := sql.Open("sqlite", search.DSN(path))
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path))
 	if err != nil {
 		return nil, err
 	}
@@ -306,12 +306,8 @@ func (s *store) close() error {
 	return err
 }
 
-func (s *store) version(q interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}) (int, error) {
-	var v int
-	err := q.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&v)
-	return v, err
+func (s *store) version(q sqliteutil.RowQuerier) (int, error) {
+	return sqliteutil.UserVersion(context.Background(), q)
 }
 
 func (s *store) migrate() error {
@@ -359,7 +355,7 @@ func (s *store) tx(fn func(c *sql.Conn) error) error {
 	}
 	defer c.Close()
 	if _, err := c.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
-		if search.IsBusy(err) {
+		if sqliteutil.IsBusy(err) {
 			return refuse("the brain store is busy (another fyr holds its write lock); retry")
 		}
 		return err

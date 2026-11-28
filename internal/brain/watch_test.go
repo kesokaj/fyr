@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/sqliteutil"
 )
 
 // TestSnapshotScopes verifies that SnapshotScopes hashes only watched project
@@ -142,7 +142,7 @@ func TestSnapshotScopesFallbacksAndSchema1(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(v1Path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open("sqlite", search.DSN(v1Path))
+	db, err := sql.Open("sqlite", sqliteutil.DSN(v1Path))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestSnapshotScopesFallbacksAndSchema1(t *testing.T) {
 	if d, ok := SnapshotScopes(v1Path, scratch, []string{watched}); !ok || d == "" {
 		t.Fatalf("schema-1 SnapshotScopes: digest=%q ok=%v, want ok=true", d, ok)
 	}
-	db2, err := sql.Open("sqlite", search.DSN(v1Path))
+	db2, err := sql.Open("sqlite", sqliteutil.DSN(v1Path))
 	if err != nil {
 		t.Fatal(err)
 	}

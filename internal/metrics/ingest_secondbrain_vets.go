@@ -2,81 +2,25 @@ package metrics
 
 import (
 	"database/sql"
-	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/sqliteutil"
 )
 
-func vetHistoryColumns(db *sql.DB) (map[string]bool, error) {
-	rows, err := db.Query(`PRAGMA table_info(vet_history)`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	cols := map[string]bool{}
-	for rows.Next() {
-		var cid, notNull, pk int
-		var name, colType string
-		var dflt sql.NullString
-		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
-			return nil, err
-		}
-		cols[strings.ToLower(strings.TrimSpace(name))] = true
-	}
-	return cols, rows.Err()
-}
-
-func buildVetHistoryQuery(cols map[string]bool) string {
-	sel := func(col, def string) string {
-		if cols[col] {
-			return "COALESCE(" + col + ", " + def + ")"
-		}
-		return def
-	}
-	return fmt.Sprintf(
-		`SELECT %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s FROM vet_history ORDER BY turn_num, created_at, rowid`,
-		sel("conversation_id", "''"),
-		sel("turn_num", "0"),
-		sel("intent", "''"),
-		sel("gate", "''"),
-		sel("score", "0"),
-		sel("raw_prompt", "''"),
-		sel("suggested_skills", "''"),
-		sel("pivot_files", "''"),
-		sel("created_at", "0"),
-		sel("directive", "''"),
-		sel("subtask_count", "0"),
-		sel("duration_ms", "0"),
-		sel("timed_out", "0"),
-		sel("injected_bytes", "0"),
-		sel("pivots_used_count", "0"),
-		sel("skills_loaded_count", "0"),
-	)
-}
-
 func (s *Store) readVetHistoryRows(db *sql.DB, root, repoID string, ledger map[turnKey]int) ([]turnVetRow, error) {
-	cols, err := vetHistoryColumns(db)
-	if err != nil {
+	rawRows, err := search.ReadVetHistoryForIngest(db)
+	if err != nil || len(rawRows) == 0 {
 		return nil, err
-	}
-	if len(cols) == 0 {
-		return nil, nil
 	}
 	readFiles := readLedgerPathsByConv(db, root)
 	loadedSkills := s.readLoadedSkillsByConv()
-	rows, err := db.Query(buildVetHistoryQuery(cols))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []turnVetRow
+	out := make([]turnVetRow, 0, len(rawRows))
 	lastIdx := map[string]int{}
-	for rows.Next() {
-		r, err := scanVetHistoryRow(rows, root, repoID, cols, ledger, readFiles, loadedSkills)
-		if err != nil {
-			return nil, err
-		}
+	for _, raw := range rawRows {
+		r := convertVetHistoryIngestRow(raw, root, repoID, ledger, readFiles, loadedSkills)
 		lastIdx[r.convID] = len(out)
 		out = append(out, r)
 	}
@@ -85,55 +29,42 @@ func (s *Store) readVetHistoryRows(db *sql.DB, root, repoID string, ledger map[t
 			out[idx].ledger += saved
 		}
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
-func scanVetHistoryRow(
-	rows *sql.Rows,
+func convertVetHistoryIngestRow(
+	raw search.VetHistoryIngestRow,
 	root, repoID string,
-	cols map[string]bool,
 	ledger map[turnKey]int,
 	readFiles map[string]map[string]bool,
 	loadedSkills map[string]map[string]bool,
-) (turnVetRow, error) {
-	var convID, intent, gate, rawPrompt, skillsCSV, pivotsCSV, directive string
-	var turnNum, score, subtaskCnt, durMS, timedOut, injBytes, pivotsUsed, skillsLoaded int
-	var createdAt int64
-	if err := rows.Scan(
-		&convID, &turnNum, &intent, &gate, &score, &rawPrompt, &skillsCSV, &pivotsCSV, &createdAt,
-		&directive, &subtaskCnt, &durMS, &timedOut, &injBytes, &pivotsUsed, &skillsLoaded,
-	); err != nil {
-		return turnVetRow{}, err
-	}
-	convID = printable(strings.TrimSpace(convID))
-	byp := 0
-	if strings.HasPrefix(strings.TrimSpace(rawPrompt), "!") {
-		byp = 1
-	}
-	if timedOut != 0 {
-		timedOut = 1
-	}
-	k := turnKey{convID: convID, turnNum: turnNum}
+) turnVetRow {
+	convID := printable(strings.TrimSpace(raw.ConversationID))
+	byp := sqliteutil.BoolInt(strings.HasPrefix(strings.TrimSpace(raw.RawPrompt), "!"))
+	timedOut := sqliteutil.BoolInt(raw.TimedOut)
+	k := turnKey{convID: convID, turnNum: raw.TurnNum}
 	saved := ledger[k]
 	delete(ledger, k)
-	if !cols["pivots_used_count"] && pivotsUsed == 0 {
-		pivotsUsed = countMatchedItems(pivotsCSV, readFiles[convID], false)
+	pivotsUsed := raw.PivotsUsedCount
+	if !raw.HasPivotsUsedCol && pivotsUsed == 0 {
+		pivotsUsed = countMatchedItems(raw.PivotFiles, readFiles[convID], false)
 	}
-	if matched := countMatchedItems(skillsCSV, loadedSkills[convID], true); matched > skillsLoaded {
+	skillsLoaded := raw.SkillsLoadedCount
+	if matched := countMatchedItems(raw.SuggestedSkills, loadedSkills[convID], true); matched > skillsLoaded {
 		skillsLoaded = matched
 	}
 	return turnVetRow{
-		projectRoot: root, repoID: repoID, convID: convID, turnNum: turnNum,
-		intent: clipPrintable(intent, 64), gate: clipPrintable(gate, 64),
-		suggestedSkills: normalizeSuggestedSkillsCSV(skillsCSV),
-		score:           min(100, max(0, score)), bypassed: byp,
-		skillsCount: countCSVItems(skillsCSV), pivotsCount: countCSVItems(pivotsCSV),
-		ledger: max(0, saved), directive: clipPrintable(directive, 128),
-		subtaskCount: max(0, subtaskCnt), durationMS: max(0, durMS),
-		timedOut: timedOut, injectedBytes: max(0, injBytes),
+		projectRoot: root, repoID: repoID, convID: convID, turnNum: raw.TurnNum,
+		intent: clipPrintable(raw.Intent, 64), gate: clipPrintable(raw.Gate, 64),
+		suggestedSkills: normalizeSuggestedSkillsCSV(raw.SuggestedSkills),
+		score:           min(100, max(0, raw.Score)), bypassed: byp,
+		skillsCount: countCSVItems(raw.SuggestedSkills), pivotsCount: countCSVItems(raw.PivotFiles),
+		ledger: max(0, saved), directive: clipPrintable(raw.Directive, 128),
+		subtaskCount: max(0, raw.SubtaskCount), durationMS: max(0, raw.DurationMS),
+		timedOut: timedOut, injectedBytes: max(0, raw.InjectedBytes),
 		pivotsUsedCount: max(0, pivotsUsed), skillsLoadedCount: max(0, skillsLoaded),
-		createdAt: createdAt,
-	}, nil
+		createdAt: raw.CreatedAt,
+	}
 }
 
 // maxSuggestedSkillsBytes caps persisted and transferred turn_vets.suggested_skills

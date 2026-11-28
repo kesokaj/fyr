@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"go/ast"
 	"go/token"
+
+	"github.com/kesokaj/fyr/internal/sqliteutil"
 )
 
 // inserter holds the four insert statements, prepared once per reconcile:
@@ -81,15 +83,7 @@ func (s *store) gc(now int64) error {
 	return err
 }
 
-// BoolInt converts b to SQLite's 1/0 integer representation.
-func BoolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-func boolInt(b bool) int { return BoolInt(b) }
+func boolInt(b bool) int { return sqliteutil.BoolInt(b) }
 
 func dedupSymRefs(refs []symRefRow) []symRefRow {
 	type key struct {

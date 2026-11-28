@@ -5,9 +5,8 @@
 // first reconciles the index against git, so an answer never comes from
 // another branch or a stale tree, and deleting a database loses nothing.
 //
-// This package, internal/metrics (the metrics store, ADR-055) and
-// internal/brain (the brain store, ADR-063) are the three that import the
-// SQLite driver; the installer in internal/harness never does.
+// SQLite driver access is centralized in internal/sqliteutil; the installer in
+// internal/harness never imports it.
 package search
 
 import (
@@ -15,13 +14,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"time"
 
-	"modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
+	"github.com/kesokaj/fyr/internal/sqliteutil"
 )
 
 // schemaVersion is stored in meta; a database with any older value (< 9) is
@@ -79,41 +76,14 @@ type store struct {
 	path string
 }
 
-// dsn escapes the path: the driver splits the string at its first '?' and
-// runs every _pragma value as SQL, and SQLite decodes %XX in a file: URI, so
-// a raw '?', '#' or '%' in a checkout's path opened another file and could
-// inject a pragma (security review 2026-09-29, finding 1).
-func dsn(path string) string {
-	if abs, err := filepath.Abs(path); err == nil {
-		path = abs
-	}
-	u := url.URL{Scheme: "file", Path: filepath.ToSlash(path),
-		RawQuery: fmt.Sprintf("_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(0)", busyTimeoutMS)}
-	return u.String()
-}
+func dsn(path string) string { return sqliteutil.DSNWithBusyTimeout(path, busyTimeoutMS) }
 
-// sqliteCode returns the primary SQLite result code of err, or 0.
-func sqliteCode(err error) int {
-	var se *sqlite.Error
-	if errors.As(err, &se) {
-		return se.Code() & 0xff
-	}
-	return 0
-}
+// IsBusy reports whether err is SQLite's busy or locked answer.
+func IsBusy(err error) bool { return sqliteutil.IsBusy(err) }
 
-// IsBusy reports whether err is SQLite's busy or locked answer, for the
-// metrics and brain stores, which open their databases through DSN.
-func IsBusy(err error) bool { return isBusy(err) }
+func isBusy(err error) bool { return sqliteutil.IsBusy(err) }
 
-func isBusy(err error) bool {
-	c := sqliteCode(err)
-	return c == sqlite3.SQLITE_BUSY || c == sqlite3.SQLITE_LOCKED
-}
-
-func isUnreadable(err error) bool {
-	c := sqliteCode(err)
-	return c == sqlite3.SQLITE_CORRUPT || c == sqlite3.SQLITE_NOTADB
-}
+func isUnreadable(err error) bool { return sqliteutil.IsUnreadable(err) }
 
 // removeDB deletes the database at path and its two companion files, and
 // nothing else: the three names are this package's own.
@@ -194,37 +164,13 @@ type staleSchemaError struct{ found string }
 
 func (e staleSchemaError) Error() string { return "schema " + e.found }
 
-// OpenDBWithRetry calls openFn until it succeeds, returns a non-busy error,
-// or exceeds timeout (defaulting to busyTimeoutMS when timeout <= 0).
-func OpenDBWithRetry(timeout time.Duration, openFn func() (*sql.DB, error)) (*sql.DB, error) {
-	if openFn == nil {
-		return nil, errors.New("search: nil open function")
-	}
-	if timeout <= 0 {
-		timeout = time.Duration(busyTimeoutMS) * time.Millisecond
-	}
-	deadline := time.Now().Add(timeout)
-	for {
-		db, err := openFn()
-		if err == nil {
-			return db, nil
-		}
-		if db != nil {
-			_ = db.Close()
-		}
-		if !isBusy(err) || time.Now().After(deadline) {
-			return nil, err
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-}
-
 // tryOpenWaiting is tryOpen, retried while it fails busy, for as long as the
 // busy timeout. Two processes opening a new index at once race to switch it
 // to WAL, and SQLite answers that race with SQLITE_BUSY without waiting on
 // the busy timeout (BUG-187; the brain store's openStore retries the same way).
 func tryOpenWaiting(path string) (*store, error) {
-	db, err := OpenDBWithRetry(0, func() (*sql.DB, error) {
+	timeout := time.Duration(busyTimeoutMS) * time.Millisecond
+	db, err := sqliteutil.OpenDBWithRetry(timeout, func() (*sql.DB, error) {
 		s, err := tryOpen(path)
 		if err != nil {
 			return nil, err

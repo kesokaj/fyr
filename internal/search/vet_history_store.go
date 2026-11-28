@@ -4,8 +4,139 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 )
+
+// VetHistoryIngestRow is one row read from a search.db vet_history table for
+// downstream metrics ingest, carrying raw CSV fields and optional-column
+// presence across pre-v10, v10, and v11/v12 search.db schemas.
+type VetHistoryIngestRow struct {
+	ConversationID     string
+	TurnNum            int
+	Intent             string
+	Gate               string
+	Score              int
+	RawPrompt          string
+	SuggestedSkills    string
+	PivotFiles         string
+	CreatedAt          int64
+	Directive          string
+	SubtaskCount       int
+	DurationMS         int
+	TimedOut           bool
+	InjectedBytes      int
+	PivotsUsedCount    int
+	SkillsLoadedCount  int
+	HasPivotsUsedCol   bool
+	HasSkillsLoadedCol bool
+}
+
+// ReadVetHistoryForIngest reads all vet_history rows from db in deterministic
+// turn_num, created_at, rowid order, defaulting columns absent in older schemas.
+// A nil db or missing vet_history table returns nil, nil.
+func ReadVetHistoryForIngest(db *sql.DB) ([]VetHistoryIngestRow, error) {
+	if db == nil {
+		return nil, nil
+	}
+	cols, err := vetHistoryTableCols(db)
+	if err != nil {
+		return nil, err
+	}
+	if len(cols) == 0 {
+		return nil, nil
+	}
+	rows, err := db.Query(buildVetHistoryIngestQuery(cols))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	hasPivots := cols["pivots_used_count"]
+	hasSkills := cols["skills_loaded_count"]
+	var out []VetHistoryIngestRow
+	for rows.Next() {
+		r, err := scanVetHistoryIngestRow(rows, hasPivots, hasSkills)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func vetHistoryTableCols(db *sql.DB) (map[string]bool, error) {
+	rows, err := db.Query(`PRAGMA table_info(vet_history)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, colType string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			return nil, err
+		}
+		cols[strings.ToLower(strings.TrimSpace(name))] = true
+	}
+	return cols, rows.Err()
+}
+
+func buildVetHistoryIngestQuery(cols map[string]bool) string {
+	sel := func(col, def string) string {
+		if cols[col] {
+			return "COALESCE(" + col + ", " + def + ")"
+		}
+		return def
+	}
+	orderTurn := "0"
+	if cols["turn_num"] {
+		orderTurn = "turn_num"
+	}
+	orderCreated := "0"
+	if cols["created_at"] {
+		orderCreated = "created_at"
+	}
+	return fmt.Sprintf(
+		`SELECT %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s FROM vet_history ORDER BY %s, %s, rowid`,
+		sel("conversation_id", "''"),
+		sel("turn_num", "0"),
+		sel("intent", "''"),
+		sel("gate", "''"),
+		sel("score", "0"),
+		sel("raw_prompt", "''"),
+		sel("suggested_skills", "''"),
+		sel("pivot_files", "''"),
+		sel("created_at", "0"),
+		sel("directive", "''"),
+		sel("subtask_count", "0"),
+		sel("duration_ms", "0"),
+		sel("timed_out", "0"),
+		sel("injected_bytes", "0"),
+		sel("pivots_used_count", "0"),
+		sel("skills_loaded_count", "0"),
+		orderTurn,
+		orderCreated,
+	)
+}
+
+func scanVetHistoryIngestRow(rows *sql.Rows, hasPivotsUsed, hasSkillsLoaded bool) (VetHistoryIngestRow, error) {
+	var r VetHistoryIngestRow
+	var timedOut int
+	if err := rows.Scan(
+		&r.ConversationID, &r.TurnNum, &r.Intent, &r.Gate, &r.Score,
+		&r.RawPrompt, &r.SuggestedSkills, &r.PivotFiles, &r.CreatedAt,
+		&r.Directive, &r.SubtaskCount, &r.DurationMS, &timedOut,
+		&r.InjectedBytes, &r.PivotsUsedCount, &r.SkillsLoadedCount,
+	); err != nil {
+		return VetHistoryIngestRow{}, err
+	}
+	r.TimedOut = timedOut != 0
+	r.HasPivotsUsedCol = hasPivotsUsed
+	r.HasSkillsLoadedCol = hasSkillsLoaded
+	return r, nil
+}
 
 type vetTurnMetrics struct {
 	durationMS    int

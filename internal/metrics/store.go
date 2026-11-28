@@ -17,12 +17,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
-
-	_ "modernc.org/sqlite"
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/sqliteutil"
 )
 
 // Store is one open metrics store.
@@ -210,25 +208,30 @@ func Open(path string) (*Store, error) {
 	// and SQLite answers that race with SQLITE_BUSY without waiting on the
 	// busy timeout: the open is retried for as long as that timeout, as the
 	// brain store and the search index do (BUG-187).
-	deadline := time.Now().Add(openWait)
-	for {
-		s, err := open(path)
-		if err == nil || !search.IsBusy(err) || time.Now().After(deadline) {
-			return s, err
+	var s *Store
+	_, err := sqliteutil.OpenDBWithRetry(openWait, func() (*sql.DB, error) {
+		opened, err := open(path)
+		if err != nil {
+			return nil, err
 		}
-		time.Sleep(50 * time.Millisecond)
+		s = opened
+		return opened.db, nil
+	})
+	if err != nil {
+		return nil, err
 	}
+	return s, nil
 }
 
 // openWait is how long a busy open is retried.
-var openWait = 10 * time.Second
+var openWait = sqliteutil.OpenWait
 
 // open is one attempt of Open.
 func open(path string) (*Store, error) {
 	// _txlock=immediate: every transaction here writes, and the join's opens
 	// with reads; a deferred one would fail at its first write, without
 	// waiting, when another ingest committed in between.
-	db, err := sql.Open("sqlite", search.DSN(path)+"&_txlock=immediate")
+	db, err := sql.Open("sqlite", sqliteutil.DSN(path)+"&_txlock=immediate")
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +239,7 @@ func open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	s := &Store{db: db, path: path}
 	if err := s.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
