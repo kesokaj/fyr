@@ -1,4 +1,4 @@
-package brain
+package sim
 
 import (
 	"context"
@@ -9,44 +9,44 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/redact"
-	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
-// RetrieveSIMSlice runs read-only 4-tier priority retrieval over the global
-// SIM ledger, returning a bounded, redacted text slice for optimizer prompts.
-// Missing or pre-v5 stores return an empty SIMSlice and nil error.
-func RetrieveSIMSlice(home string, q SIMQuery) (SIMSlice, error) {
-	st, err := openSIMReadOnly(home)
-	if err != nil || st == nil {
-		return SIMSlice{}, err
+// RetrieveSlice runs read-only 4-tier priority retrieval over the global SIM
+// ledger, returning a bounded, redacted text slice for optimizer prompts.
+// Missing or pre-v5 stores return an empty Slice and nil error.
+func RetrieveSlice(deps StoreDeps, home string, q Query) (Slice, error) {
+	r := runner{d: deps}
+	dbq, closeFn, err := r.openRO(home)
+	if err != nil || dbq == nil {
+		return Slice{}, err
 	}
-	defer st.close()
-	cfg := normalizeSIMQuery(q)
+	defer closeFn()
+	cfg := simNormalizeQuery(q)
 	ctx := context.Background()
-	aliasMap, err := loadSIMAliasMap(ctx, st.db)
+	aliasMap, err := simLoadAliasMap(ctx, dbq)
 	if err != nil {
-		return SIMSlice{}, err
+		return Slice{}, err
 	}
-	col, err := collectSIMTierProblems(ctx, st.db, aliasMap, cfg)
+	col, err := r.collectTierProblems(ctx, dbq, aliasMap, cfg)
 	if err != nil || len(col.probs) == 0 {
-		return SIMSlice{Truncated: col.truncated}, err
+		return Slice{Truncated: col.truncated}, err
 	}
-	return renderSIMSlice(ctx, st.db, home, aliasMap, col, cfg)
+	return r.renderSlice(ctx, dbq, home, aliasMap, col, cfg)
 }
 
-func normalizeSIMQuery(q SIMQuery) SIMQuery {
+func simNormalizeQuery(q Query) Query {
 	if q.MaxBytes <= 0 {
-		q.MaxBytes = defaultSIMMaxBytes
+		q.MaxBytes = defaultMaxBytes
 	}
 	if q.MaxProblems <= 0 {
-		q.MaxProblems = defaultSIMMaxProblems
+		q.MaxProblems = defaultMaxProblems
 	}
 	if q.MaxAttemptsPerProblem <= 0 {
-		q.MaxAttemptsPerProblem = defaultSIMMaxAttempts
+		q.MaxAttemptsPerProblem = defaultMaxAttempts
 	}
 	if q.RecentFailedDays <= 0 {
-		q.RecentFailedDays = defaultSIMRecentFailedDays
+		q.RecentFailedDays = defaultRecentFailedDays
 	}
 	if q.Now.IsZero() {
 		q.Now = time.Now()
@@ -56,21 +56,21 @@ func normalizeSIMQuery(q SIMQuery) SIMQuery {
 
 type simIDCollector struct {
 	ctx       context.Context
-	q         sqlQuerier
+	q         Querier
 	aliases   map[string]string
 	limit     int
 	seen      map[string]bool
-	probs     []SIMProblem
+	probs     []Problem
 	truncated bool
 }
 
 func (c *simIDCollector) addAll(rawIDs []string) error {
 	for _, rawID := range rawIDs {
-		canonID, ok := resolveAliasInMap(c.aliases, rawID)
+		canonID, ok := simResolveAliasInMap(c.aliases, rawID)
 		if !ok || c.seen[canonID] {
 			continue
 		}
-		prob, exists, err := lookupSIMProblem(c.ctx, c.q, canonID)
+		prob, exists, err := simLookupProblem(c.ctx, c.q, canonID)
 		if err != nil {
 			return err
 		}
@@ -87,24 +87,36 @@ func (c *simIDCollector) addAll(rawIDs []string) error {
 	return nil
 }
 
-func collectSIMTierProblems(ctx context.Context, q sqlQuerier, aliases map[string]string, cfg SIMQuery) (*simIDCollector, error) {
+func (c *simIDCollector) queryIDs(sqlq string, args ...any) error {
+	rows, err := c.q.QueryContext(c.ctx, sqlq, args...)
+	if err != nil {
+		return err
+	}
+	ids, err := simScanIDRows(rows)
+	if err != nil {
+		return err
+	}
+	return c.addAll(ids)
+}
+
+func (r runner) collectTierProblems(ctx context.Context, q Querier, aliases map[string]string, cfg Query) (*simIDCollector, error) {
 	col := &simIDCollector{ctx: ctx, q: q, aliases: aliases, limit: cfg.MaxProblems, seen: map[string]bool{}}
-	if err := collectTierSignals(col, cfg.Signals); err != nil {
+	if err := simCollectTierSignals(col, cfg.Signals); err != nil {
 		return col, err
 	}
-	if err := collectTierPaths(col, cfg.TargetPaths); err != nil {
+	if err := simCollectTierPaths(col, cfg.TargetPaths); err != nil {
 		return col, err
 	}
-	if err := collectTierRecentFailed(col, cfg.Now, cfg.RecentFailedDays); err != nil {
+	if err := simCollectTierRecentFailed(col, cfg.Now, cfg.RecentFailedDays); err != nil {
 		return col, err
 	}
-	if err := collectTierFTS(col, cfg.Terms); err != nil {
+	if err := r.collectTierFTS(col, cfg.Terms); err != nil {
 		return col, err
 	}
 	return col, nil
 }
 
-func nonEmptyTrimmed(items []string) []string {
+func simTrimNonEmpty(items []string) []string {
 	var out []string
 	for _, s := range items {
 		if t := strings.TrimSpace(s); t != "" {
@@ -114,20 +126,8 @@ func nonEmptyTrimmed(items []string) []string {
 	return out
 }
 
-func (c *simIDCollector) queryIDs(sqlq string, args ...any) error {
-	rows, err := c.q.QueryContext(c.ctx, sqlq, args...)
-	if err != nil {
-		return err
-	}
-	ids, err := scanIDRows(rows)
-	if err != nil {
-		return err
-	}
-	return c.addAll(ids)
-}
-
-func collectTierSignals(col *simIDCollector, signals []string) error {
-	clean := nonEmptyTrimmed(signals)
+func simCollectTierSignals(col *simIDCollector, signals []string) error {
+	clean := simTrimNonEmpty(signals)
 	if len(clean) == 0 {
 		return nil
 	}
@@ -139,8 +139,8 @@ func collectTierSignals(col *simIDCollector, signals []string) error {
 	return col.queryIDs(`SELECT id FROM sim_problems WHERE signal_id IN (`+ph+`) ORDER BY updated_at DESC, pid DESC`, args...)
 }
 
-func collectTierPaths(col *simIDCollector, prefixes []string) error {
-	clean := nonEmptyTrimmed(prefixes)
+func simCollectTierPaths(col *simIDCollector, prefixes []string) error {
+	clean := simTrimNonEmpty(prefixes)
 	if len(clean) == 0 {
 		return nil
 	}
@@ -155,11 +155,8 @@ func collectTierPaths(col *simIDCollector, prefixes []string) error {
 			rows.Close()
 			return err
 		}
-		for _, pref := range clean {
-			if targetPathsMatchPrefix(tp, pref) {
-				matched = append(matched, id)
-				break
-			}
+		if simMatchesAnyPrefix(tp, clean) {
+			matched = append(matched, id)
 		}
 	}
 	err = rows.Err()
@@ -170,7 +167,16 @@ func collectTierPaths(col *simIDCollector, prefixes []string) error {
 	return col.addAll(matched)
 }
 
-func collectTierRecentFailed(col *simIDCollector, now time.Time, days int) error {
+func simMatchesAnyPrefix(targetPaths string, prefixes []string) bool {
+	for _, pref := range prefixes {
+		if simTargetPathsMatchPrefix(targetPaths, pref) {
+			return true
+		}
+	}
+	return false
+}
+
+func simCollectTierRecentFailed(col *simIDCollector, now time.Time, days int) error {
 	cutoff := now.UTC().Add(-time.Duration(days) * 24 * time.Hour).Format(time.RFC3339)
 	return col.queryIDs(`SELECT problem_id FROM sim_attempts
 		WHERE (eval_verdict = 'not_kept' OR field_status IN ('still_regressing', 'reverted'))
@@ -178,20 +184,8 @@ func collectTierRecentFailed(col *simIDCollector, now time.Time, days int) error
 		ORDER BY created_at DESC, id DESC`, cutoff)
 }
 
-func collectTierFTS(col *simIDCollector, terms []string) error {
-	var words []string
-	for _, raw := range terms {
-		for _, w := range strings.Fields(strings.ReplaceAll(raw, "\x00", " ")) {
-			words = append(words, w)
-			if len(words) >= 16 {
-				break
-			}
-		}
-		if len(words) >= 16 {
-			break
-		}
-	}
-	ftsQ := search.FTSQuery(words, " OR ")
+func (r runner) collectTierFTS(col *simIDCollector, terms []string) error {
+	ftsQ := r.ftsQuery(simCollectFTSWords(terms, 16), " OR ")
 	if ftsQ == "" {
 		return nil
 	}
@@ -201,17 +195,30 @@ func collectTierFTS(col *simIDCollector, terms []string) error {
 		ORDER BY bm25(sim_fts, 2.0, 1.0), p.updated_at DESC, p.pid DESC`, ftsQ)
 }
 
-func renderSIMSlice(ctx context.Context, q sqlQuerier, home string, aliases map[string]string, col *simIDCollector, cfg SIMQuery) (SIMSlice, error) {
+func simCollectFTSWords(terms []string, capWords int) []string {
+	var words []string
+	for _, raw := range terms {
+		for _, w := range strings.Fields(strings.ReplaceAll(raw, "\x00", " ")) {
+			words = append(words, w)
+			if len(words) >= capWords {
+				return words
+			}
+		}
+	}
+	return words
+}
+
+func (r runner) renderSlice(ctx context.Context, q Querier, home string, aliases map[string]string, col *simIDCollector, cfg Query) (Slice, error) {
 	var out strings.Builder
-	sl := SIMSlice{Truncated: col.truncated}
+	sl := Slice{Truncated: col.truncated}
 	cleanHome := filepath.Clean(home)
 	for _, prob := range col.probs {
-		allIDs := append([]string{prob.ID}, aliasesForCanonical(aliases, prob.ID)...)
-		atts, err := querySIMAttemptsForIDs(ctx, q, allIDs)
+		allIDs := append([]string{prob.ID}, simAliasesForCanonical(aliases, prob.ID)...)
+		atts, err := simQueryAttemptsForIDs(ctx, q, allIDs)
 		if err != nil {
-			return SIMSlice{}, err
+			return Slice{}, err
 		}
-		if !appendSIMProblemLines(&out, cleanHome, prob, atts, cfg.MaxAttemptsPerProblem, cfg.MaxBytes, &sl) {
+		if !r.appendProblemLines(&out, cleanHome, prob, atts, cfg.MaxAttemptsPerProblem, cfg.MaxBytes, &sl) {
 			sl.Truncated = true
 			break
 		}
@@ -220,8 +227,8 @@ func renderSIMSlice(ctx context.Context, q sqlQuerier, home string, aliases map[
 	return sl, nil
 }
 
-func appendSIMProblemLines(out *strings.Builder, cleanHome string, p SIMProblem, atts []SIMAttempt, maxAtt, maxBytes int, sl *SIMSlice) bool {
-	header := redactSIMLine(formatSIMProblemHeader(p), cleanHome) + "\n"
+func (r runner) appendProblemLines(out *strings.Builder, cleanHome string, p Problem, atts []Attempt, maxAtt, maxBytes int, sl *Slice) bool {
+	header := r.redactLine(simFormatProblemHeader(p), cleanHome) + "\n"
 	if out.Len()+len(header) > maxBytes {
 		if out.Len() == 0 {
 			out.WriteString(trail.TruncateUTF8(header, maxBytes))
@@ -231,12 +238,12 @@ func appendSIMProblemLines(out *strings.Builder, cleanHome string, p SIMProblem,
 	}
 	out.WriteString(header)
 	sl.ProblemCount++
-	show, older := atts, []SIMAttempt(nil)
+	show, older := atts, []Attempt(nil)
 	if len(atts) > maxAtt {
 		show, older = atts[:maxAtt], atts[maxAtt:]
 	}
 	for _, a := range show {
-		line := redactSIMLine(formatSIMAttemptLine(a), cleanHome) + "\n"
+		line := r.redactLine(simFormatAttemptLine(a), cleanHome) + "\n"
 		if out.Len()+len(line) > maxBytes {
 			sl.Truncated = true
 			return false
@@ -245,7 +252,7 @@ func appendSIMProblemLines(out *strings.Builder, cleanHome string, p SIMProblem,
 		sl.AttemptCount++
 	}
 	if len(older) > 0 {
-		rollup := redactSIMLine(formatSIMRollup(older), cleanHome) + "\n"
+		rollup := r.redactLine(simFormatRollup(older), cleanHome) + "\n"
 		if out.Len()+len(rollup) > maxBytes {
 			sl.Truncated = true
 			return false
@@ -255,7 +262,7 @@ func appendSIMProblemLines(out *strings.Builder, cleanHome string, p SIMProblem,
 	return true
 }
 
-func formatSIMProblemHeader(p SIMProblem) string {
+func simFormatProblemHeader(p Problem) string {
 	parts := []string{p.ID, p.Status}
 	if p.MechanismClass != "" {
 		parts = append(parts, p.MechanismClass)
@@ -272,7 +279,7 @@ func formatSIMProblemHeader(p SIMProblem) string {
 	return fmt.Sprintf("[%s] %s", strings.Join(parts, " | "), p.RootCause)
 }
 
-func formatSIMAttemptLine(a SIMAttempt) string {
+func simFormatAttemptLine(a Attempt) string {
 	day := a.CreatedAt
 	if len(day) >= 10 {
 		day = day[:10]
@@ -286,24 +293,28 @@ func formatSIMAttemptLine(a SIMAttempt) string {
 		fmt.Fprintf(&b, " eval=%d/%d", a.EvalPassed, a.EvalTotal)
 	}
 	if len(a.FieldModels) > 0 {
-		b.WriteString(" models=[")
-		for i, m := range a.FieldModels {
-			if i > 0 {
-				b.WriteByte(',')
-			}
-			if m.Status != "" {
-				fmt.Fprintf(&b, "%s:%s(%d)", m.Model, m.Status, m.Sessions)
-			} else {
-				b.WriteString(m.Model)
-			}
-		}
-		b.WriteByte(']')
+		simAppendFieldModels(&b, a.FieldModels)
 	}
 	fmt.Fprintf(&b, ": %s", a.What)
 	return b.String()
 }
 
-func formatSIMRollup(older []SIMAttempt) string {
+func simAppendFieldModels(b *strings.Builder, models []ModelStatus) {
+	b.WriteString(" models=[")
+	for i, m := range models {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		if m.Status != "" {
+			fmt.Fprintf(b, "%s:%s(%d)", m.Model, m.Status, m.Sessions)
+		} else {
+			b.WriteString(m.Model)
+		}
+	}
+	b.WriteByte(']')
+}
+
+func simFormatRollup(older []Attempt) string {
 	var kept, notKept, recovered, reverted int
 	for _, a := range older {
 		switch a.EvalVerdict {
@@ -323,9 +334,15 @@ func formatSIMRollup(older []SIMAttempt) string {
 		len(older), kept, notKept, recovered, reverted)
 }
 
-func redactSIMLine(line, cleanHome string) string {
+// RedactLine strips control characters, replaces home paths with "~", and
+// runs the redactor on one SIM slice line.
+func RedactLine(deps StoreDeps, line, cleanHome string) string {
+	return runner{d: deps}.redactLine(line, cleanHome)
+}
+
+func (r runner) redactLine(line, cleanHome string) string {
 	line = strings.ReplaceAll(strings.ReplaceAll(line, "\r", " "), "\n", " ")
-	line = search.Printable(line)
+	line = r.printable(line)
 	if len(cleanHome) > 1 {
 		line = strings.ReplaceAll(line, cleanHome, "~")
 	}

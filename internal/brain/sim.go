@@ -1,265 +1,182 @@
 package brain
 
 import (
-	"encoding/json"
-	"regexp"
-	"strings"
+	"database/sql"
+	"errors"
+	"os"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/sim"
 )
 
 const (
-	simSchemaVersion           = 5
-	maxSIMAliasDepth           = 16
-	maxSIMRootCauseBytes       = 240
-	maxSIMWhatBytes            = 400
-	maxSIMMetaBytes            = 128
-	maxSIMScopeBytes           = 256
-	maxSIMTargetPathsBytes     = 1024
-	maxSIMSliceItems           = 64
-	maxSIMSliceItemBytes       = 256
-	defaultSIMListLimit        = 20
-	defaultSIMMaxBytes         = 6144
-	defaultSIMMaxProblems      = 8
-	defaultSIMMaxAttempts      = 4
-	defaultSIMRecentFailedDays = 30
-)
-
-var (
-	simProblemIDRe = regexp.MustCompile(`^SIM-P([0-9]{3,9})$`)
-	simHexSHARe    = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+	simSchemaVersion = sim.SchemaVersion
+	maxSIMMetaBytes  = sim.MaxMetaBytes
 )
 
 // SIMModelStatus captures per-model stratified Stage B recovery for one attempt.
-type SIMModelStatus struct {
-	Model    string `json:"model"`
-	Status   string `json:"status"` // recovered | still_regressing | pending_data
-	Sessions int    `json:"sessions"`
-}
+type SIMModelStatus = sim.ModelStatus
 
 // SIMProblem is one root-cause entry in the global brain.db v5 SIM ledger.
-type SIMProblem struct {
-	ID             string `json:"id"`
-	RootCause      string `json:"root_cause"`
-	NormRootCause  string `json:"norm_root_cause,omitempty"`
-	MechanismClass string `json:"mechanism_class,omitempty"`
-	SignalID       string `json:"signal_id,omitempty"`
-	TargetPaths    string `json:"target_paths,omitempty"`
-	Status         string `json:"status"`
-	Provenance     string `json:"provenance"`
-	OpenedAt       string `json:"opened_at"`
-	UpdatedAt      string `json:"updated_at"`
-	OpenedHarness  string `json:"opened_harness,omitempty"`
-	OpenedModel    string `json:"opened_model,omitempty"`
-}
+type SIMProblem = sim.Problem
 
 // SIMAttempt is one recorded harness-edit attempt linked to a SIMProblem.
-type SIMAttempt struct {
-	ID               int64            `json:"id"`
-	ProblemID        string           `json:"problem_id"`
-	SourceKind       string           `json:"source_kind"`
-	ProposalID       string           `json:"proposal_id,omitempty"`
-	CommitSHA        string           `json:"commit_sha,omitempty"`
-	ParentSHA        string           `json:"parent_sha,omitempty"`
-	HarnessVersion   string           `json:"harness_version,omitempty"`
-	ProposerModel    string           `json:"proposer_model,omitempty"`
-	PolicyModel      string           `json:"policy_model,omitempty"`
-	ProjectScope     string           `json:"project_scope,omitempty"`
-	Files            []string         `json:"files,omitempty"`
-	What             string           `json:"what"`
-	PredictedRows    []string         `json:"predicted_rows,omitempty"`
-	PredictedSignals []string         `json:"predicted_signals,omitempty"`
-	EvalVerdict      string           `json:"eval_verdict"`
-	FixedRows        []string         `json:"fixed_rows,omitempty"`
-	MissedRows       []string         `json:"missed_rows,omitempty"`
-	RegressedRows    []string         `json:"regressed_rows,omitempty"`
-	EvalPassed       int              `json:"eval_passed"`
-	EvalTotal        int              `json:"eval_total"`
-	FieldStatus      string           `json:"field_status"`
-	FieldMetric      string           `json:"field_metric,omitempty"`
-	FieldBaseline    *float64         `json:"field_baseline,omitempty"`
-	FieldObserved    *float64         `json:"field_observed,omitempty"`
-	FieldModels      []SIMModelStatus `json:"field_models,omitempty"`
-	Provenance       string           `json:"provenance"`
-	CreatedAt        string           `json:"created_at"`
-	UpdatedAt        string           `json:"updated_at"`
-}
-
-// UnmarshalJSON decodes SIMAttempt while accepting either []SIMModelStatus or
-// legacy []string for field_models.
-func (a *SIMAttempt) UnmarshalJSON(data []byte) error {
-	type alias SIMAttempt
-	aux := struct {
-		*alias
-		FieldModels json.RawMessage `json:"field_models,omitempty"`
-	}{alias: (*alias)(a)}
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-	if len(aux.FieldModels) > 0 {
-		ms, err := parseSIMFieldModels(aux.FieldModels)
-		if err != nil {
-			return err
-		}
-		a.FieldModels = ms
-	}
-	return nil
-}
+type SIMAttempt = sim.Attempt
 
 // SIMAlias maps a merged SIM problem ID to its canonical target problem ID.
-type SIMAlias struct {
-	OldID    string `json:"old_id"`
-	TargetID string `json:"target_id"`
-	MergedAt string `json:"merged_at"`
-}
+type SIMAlias = sim.Alias
 
 // SIMRecordInput is the input payload for RecordSIMAttempt.
-type SIMRecordInput struct {
-	ProblemID, RootCause, MechanismClass, ProblemStatus string
-	SignalID, SourceKind, ProposalID                    string
-	CommitSHA, ParentSHA, HarnessVersion                string
-	ProposerModel, PolicyModel, ProjectScope            string
-	Files, PredictedRows, PredictedSignals              []string
-	What, EvalVerdict                                   string
-	FixedRows, MissedRows, RegressedRows                []string
-	EvalPassed, EvalTotal                               int
-	FieldStatus, FieldMetric                            string
-	FieldBaseline                                       *float64
-	Provenance                                          string
-	Now                                                 time.Time
-}
+type SIMRecordInput = sim.RecordInput
 
 // SIMRecordResult summarizes one RecordSIMAttempt write.
-type SIMRecordResult struct {
-	ProblemID      string `json:"problem_id"`
-	AttemptID      int64  `json:"attempt_id"`
-	CreatedProblem bool   `json:"created_problem"`
-	ResolvedAlias  bool   `json:"resolved_alias"`
-}
+type SIMRecordResult = sim.RecordResult
 
 // SIMListFilter filters ListSIMProblems.
-type SIMListFilter struct {
-	SignalID, PathPrefix, Status string
-	Limit                        int
-}
+type SIMListFilter = sim.ListFilter
 
 // SIMProblemSummary pairs one SIMProblem with aggregate attempt metadata.
-type SIMProblemSummary struct {
-	Problem      SIMProblem `json:"problem"`
-	AttemptCount int        `json:"attempt_count"`
-	LastVerdict  string     `json:"last_verdict,omitempty"`
-	LastField    string     `json:"last_field_status,omitempty"`
-	LastModel    string     `json:"last_policy_model,omitempty"`
-}
+type SIMProblemSummary = sim.ProblemSummary
 
 // SIMProblemDetail holds one canonical SIMProblem, its aliases, and attempts.
-type SIMProblemDetail struct {
-	Problem  SIMProblem   `json:"problem"`
-	Aliases  []string     `json:"aliases,omitempty"`
-	Attempts []SIMAttempt `json:"attempts"`
-}
+type SIMProblemDetail = sim.ProblemDetail
 
 // SIMMergeResult reports one MergeSIMProblem transition.
-type SIMMergeResult struct {
-	OldID    string `json:"old_id"`
-	TargetID string `json:"target_id"`
-	MergedAt string `json:"merged_at"`
-}
+type SIMMergeResult = sim.MergeResult
 
 // SIMFieldUpdate updates Stage B field status and stratified models on an attempt.
-type SIMFieldUpdate struct {
-	AttemptID     int64
-	CommitSHA     string
-	ProposalID    string
-	FieldStatus   string
-	FieldMetric   string
-	FieldObserved *float64
-	FieldModels   []SIMModelStatus
-	Now           time.Time
-}
+type SIMFieldUpdate = sim.FieldUpdate
 
 // SIMQuery configures bounded read-only retrieval via RetrieveSIMSlice.
-type SIMQuery struct {
-	Signals               []string
-	TargetPaths           []string
-	Terms                 []string
-	MaxBytes              int // default 6144 (6 KiB)
-	MaxProblems           int // default 8
-	MaxAttemptsPerProblem int // default 4
-	RecentFailedDays      int // default 30
-	Now                   time.Time
-}
+type SIMQuery = sim.Query
 
 // SIMSlice is the bounded, redacted text slice returned by RetrieveSIMSlice.
-type SIMSlice struct {
-	Text         string
-	ProblemCount int
-	AttemptCount int
-	Truncated    bool
-}
+type SIMSlice = sim.Slice
 
 // SIMStateExport holds portable SIM ledger rows for offline state bundles.
-type SIMStateExport struct {
-	Problems []SIMProblem `json:"problems"`
-	Attempts []SIMAttempt `json:"attempts"`
-	Aliases  []SIMAlias   `json:"aliases"`
-}
-
-func marshalSIMJSON(v any) string {
-	b, err := json.Marshal(v)
-	if err != nil || string(b) == "null" {
-		return "[]"
-	}
-	return string(b)
-}
-
-func unmarshalSIMStringSlice(raw string) []string {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" || trimmed == "[]" || trimmed == "null" {
-		return nil
-	}
-	var out []string
-	if err := json.Unmarshal([]byte(trimmed), &out); err != nil || len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func cleanSIMTimestamp(field, raw string) (string, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" || !titleText(s) {
-		return "", usage("sim: invalid %s timestamp %q", field, raw)
-	}
-	if _, err := time.Parse(time.RFC3339, s); err != nil {
-		if _, err2 := time.Parse(time.RFC3339Nano, s); err2 != nil {
-			return "", usage("sim: invalid %s RFC3339 timestamp %q", field, raw)
-		}
-	}
-	return s, nil
-}
-
-type simMetaField struct {
-	name string
-	dst  *string
-	max  int
-}
-
-func cleanSIMMetaFields(fields []simMetaField) error {
-	for _, f := range fields {
-		v, err := cleanSIMText(f.name, *f.dst, f.max, false)
-		if err != nil {
-			return err
-		}
-		*f.dst = v
-	}
-	return nil
-}
-
-func timeAtOrAfter(raw string, since time.Time) bool {
-	ts := parseTimeString(raw)
-	return !ts.IsZero() && !ts.Before(since)
-}
+type SIMStateExport = sim.StateExport
 
 // SIMStateImportOpts configures ImportStateSIM.
-type SIMStateImportOpts struct {
-	DryRun bool
+type SIMStateImportOpts = sim.StateImportOpts
+
+func simDeps() sim.StoreDeps {
+	return sim.StoreDeps{
+		OpenReadOnly: openSIMReadOnlyDeps,
+		WithTx:       withSIMTx,
+		StorePath:    Path,
+		FTSQuery:     search.FTSQuery,
+		Printable:    search.Printable,
+		TitleText:    titleText,
+		Refuse:       refuse,
+		Usage:        usage,
+	}
+}
+
+func openSIMReadOnlyDeps(home string) (sim.Querier, func() error, error) {
+	st, ver, err := openStoreReadOnly(home)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	if ver < simSchemaVersion {
+		_ = st.close()
+		return nil, nil, nil
+	}
+	return st.db, st.close, nil
+}
+
+func withSIMTx(home string, fn func(c *sql.Conn) error) error {
+	st, err := openStore(home)
+	if err != nil {
+		return err
+	}
+	defer st.close()
+	return st.tx(fn)
+}
+
+// RecordSIMAttempt records one attempt inside BEGIN IMMEDIATE, opening or
+// deterministically merging a SIMProblem, resolving alias chains, and
+// enforcing operator provenance immutability.
+func RecordSIMAttempt(home string, in SIMRecordInput) (SIMRecordResult, error) {
+	return sim.RecordAttempt(simDeps(), home, in)
+}
+
+// ListSIMProblems lists SIM problems filtered by signal, path prefix, status,
+// and limit, tolerating missing or pre-v5 brain stores read-only.
+func ListSIMProblems(home string, f SIMListFilter) ([]SIMProblemSummary, error) {
+	return sim.ListProblems(simDeps(), home, f)
+}
+
+// GetSIMProblem returns the canonical SIMProblem (resolving any alias chain
+// with a depth-16 cycle guard), its merged aliases, and all attempts.
+func GetSIMProblem(home, id string) (SIMProblemDetail, error) {
+	return sim.GetProblem(simDeps(), home, id)
+}
+
+// MergeSIMProblem marks oldID as merged and inserts an alias to targetID's
+// canonical problem, refusing cycles and derived merges of operator problems.
+func MergeSIMProblem(home, oldID, targetID, provenance string, now time.Time) (SIMMergeResult, error) {
+	return sim.MergeProblem(simDeps(), home, oldID, targetID, provenance, now)
+}
+
+// UpdateSIMAttemptFieldOutcome updates Stage B field status and stratified
+// model recovery on one attempt matched by AttemptID, ProposalID, or >=7-hex
+// CommitSHA prefix.
+func UpdateSIMAttemptFieldOutcome(home string, upd SIMFieldUpdate) (bool, error) {
+	return sim.UpdateAttemptFieldOutcome(simDeps(), home, upd)
+}
+
+// FindSIMAttemptByProposalOrSHA looks up the newest matching SIM attempt
+// read-only, matching exact proposal_id first and falling back to >=7-hex
+// commit_sha prefix matching.
+func FindSIMAttemptByProposalOrSHA(home, proposalID, commitSHA string) (*SIMAttempt, error) {
+	return sim.FindAttemptByProposalOrSHA(simDeps(), home, proposalID, commitSHA)
+}
+
+// FindSIMAttemptsForFieldSync returns non-reverted attempts eligible for Stage
+// B field outcome synchronization, tolerating missing or pre-v5 stores.
+func FindSIMAttemptsForFieldSync(home string) ([]SIMAttempt, error) {
+	return sim.FindAttemptsForFieldSync(simDeps(), home)
+}
+
+// RetrieveSIMSlice runs read-only 4-tier priority retrieval over the global
+// SIM ledger, returning a bounded, redacted text slice for optimizer prompts.
+func RetrieveSIMSlice(home string, q SIMQuery) (SIMSlice, error) {
+	return sim.RetrieveSlice(simDeps(), home, q)
+}
+
+// ExportStateSIM exports SIM ledger rows from brain.db read-only without
+// migrating a pre-v5 store.
+func ExportStateSIM(home string, since time.Time) (SIMStateExport, error) {
+	return sim.ExportState(simDeps(), home, since)
+}
+
+// ImportStateSIM idempotently merges SIM problems, aliases, and attempts into
+// brain.db under home.
+func ImportStateSIM(home string, exp SIMStateExport, opts SIMStateImportOpts) (StateImportStats, error) {
+	stats, err := sim.ImportState(simDeps(), home, exp, opts)
+	return StateImportStats(stats), err
+}
+
+// SIMValidProblemID reports whether id matches the SIM-PNNN problem ID format.
+func SIMValidProblemID(id string) bool {
+	return sim.ValidProblemID(id)
+}
+
+// SIMSHAPrefixMatch reports whether a and b are valid 7..40-char hex SHAs
+// where one is a prefix of the other.
+func SIMSHAPrefixMatch(a, b string) bool {
+	return sim.SHAPrefixMatch(a, b)
+}
+
+// SIMHasAlnum reports whether s contains at least one letter or digit.
+func SIMHasAlnum(s string) bool {
+	return sim.HasAlnum(s)
+}
+
+func redactSIMLine(line, cleanHome string) string {
+	return sim.RedactLine(simDeps(), line, cleanHome)
 }

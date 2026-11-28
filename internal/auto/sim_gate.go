@@ -287,7 +287,7 @@ func (r *run) fallbackSIMMeta(sc *gateSIMCtx) (rootCause, what string) {
 		base += " (" + strings.Join(extras, "; ") + ")"
 	}
 	rootCause = strings.TrimSpace(trail.TruncateUTF8(strings.TrimSpace(oneLine(base)), simManifestMaxRootCauseBytes))
-	if !hasSIMAlnum(rootCause) {
+	if !brain.SIMHasAlnum(rootCause) {
 		rootCause = "auto " + sc.task.Class
 	}
 	what = strings.TrimSpace(trail.TruncateUTF8("fallback ("+sc.task.Class+"): "+rootCause, simManifestMaxRationaleBytes))

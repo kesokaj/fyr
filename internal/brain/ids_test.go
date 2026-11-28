@@ -98,6 +98,7 @@ func TestHelperAdd(t *testing.T) {
 // Two processes allocating at once get distinct IDs: the number is taken
 // inside the write's transaction (D7, D20), and the export agrees.
 func TestTwoProcessesAllocateDistinctIDs(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	const each = 15
 	var wg sync.WaitGroup

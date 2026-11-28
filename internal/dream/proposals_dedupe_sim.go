@@ -8,6 +8,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/metrics"
+	"github.com/kesokaj/fyr/internal/sim"
 )
 
 const appliedSkillCooldown = 7 * 24 * time.Hour
@@ -163,7 +164,7 @@ func digestActionMatches(act metrics.DigestAppliedAction, proposalID, sha, origS
 	}
 	actSHA := actionAppliedSHA(act)
 	if sha != "" && actSHA != "" {
-		return shaPrefixMatch(actSHA, sha)
+		return sim.SHAPrefixMatch(actSHA, sha)
 	}
 	return origSignal != "" && act.SignalID == origSignal
 }
@@ -184,28 +185,6 @@ func actionAppliedSHA(act metrics.DigestAppliedAction) string {
 func isUnlockedFieldStatus(status string) bool {
 	s := strings.ToLower(strings.TrimSpace(status))
 	return s == metrics.StatusStillRegressing || s == "reverted"
-}
-
-func isHexSHA(s string) bool {
-	if len(s) < 7 || len(s) > 40 {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			return false
-		}
-	}
-	return true
-}
-
-func shaPrefixMatch(a, b string) bool {
-	a = strings.ToLower(strings.TrimSpace(a))
-	b = strings.ToLower(strings.TrimSpace(b))
-	if !isHexSHA(a) || !isHexSHA(b) {
-		return false
-	}
-	return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
 }
 
 func policyGenerationKey(model string) string {
@@ -268,6 +247,4 @@ func firstSignalInText(text string) string {
 	return ""
 }
 
-func isNotSignalRune(r rune) bool {
-	return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != ':' && r != '_' && r != '-'
-}
+func isNotSignalRune(r rune) bool { return sim.IsNotSignalRune(r) }

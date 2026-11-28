@@ -41,6 +41,7 @@ func seedDominantModelMetrics(t *testing.T, home, root, model string, now time.T
 }
 
 func testSIMEvalGateDominantModelAndOperatorID(t *testing.T) {
+	t.Parallel()
 	home, realHome := t.TempDir(), t.TempDir()
 	root, _, _ := initHarnessEvalGateFixture(t, home, realHome, "")
 	seedDominantModelMetrics(t, home, root, "gemini-fallback-model", runAt)
@@ -81,6 +82,7 @@ func testSIMEvalGateDominantModelAndOperatorID(t *testing.T) {
 }
 
 func testSIMEvalGateRecordFailOpen(t *testing.T) {
+	t.Parallel()
 	home, realHome := t.TempDir(), t.TempDir()
 	root, _, _ := initHarnessEvalGateFixture(t, home, realHome, "")
 	parentSHA := git(t, root, "rev-parse", "HEAD")
@@ -104,6 +106,7 @@ func testSIMEvalGateRecordFailOpen(t *testing.T) {
 }
 
 func testSIMEvalGatePredictedRowsCap(t *testing.T) {
+	t.Parallel()
 	extra := "| `extra-2` |  | use skills/beta/SKILL.md |  | `true` |  | named | 1 | capability | extra |  |\n"
 	home, realHome := t.TempDir(), t.TempDir()
 	root, holdoutPath, _ := initHarnessEvalGateFixture(t, home, realHome, extra)
@@ -119,6 +122,7 @@ func testSIMEvalGatePredictedRowsCap(t *testing.T) {
 }
 
 func testSIMEvalGateSessionCapVerdicts(t *testing.T) {
+	t.Parallel()
 	home, realHome := t.TempDir(), t.TempDir()
 	root, holdoutPath, propID := initHarnessEvalGateFixture(t, home, realHome, "")
 	parentSHA := git(t, root, "rev-parse", "HEAD")

@@ -246,6 +246,7 @@ func TestSIMDreamCollectAndPrompt(t *testing.T) {
 }
 
 func testSIMDreamCollectBoundAndClean(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	toolConversation(t, f)
 	s, err := metrics.Open(metrics.Path(f.home))
@@ -276,6 +277,7 @@ func testSIMDreamCollectBoundAndClean(t *testing.T) {
 }
 
 func testSIMDreamFitDropOrder(t *testing.T) {
+	t.Parallel()
 	base := []Input{
 		{Kind: kindMemory, Label: "memory/a.md", Text: "mem"},
 		{Kind: kindSkill, Label: "skill golang", Text: strings.Repeat("s", 900)},

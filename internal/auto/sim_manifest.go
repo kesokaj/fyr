@@ -6,7 +6,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"unicode"
+
+	"github.com/kesokaj/fyr/internal/brain"
 )
 
 const (
@@ -16,10 +17,7 @@ const (
 	simManifestMaxPredictedSigs  = 8
 )
 
-var (
-	simManifestProblemIDRe = regexp.MustCompile(`^SIM-P[0-9]{3,9}$`)
-	simManifestRowIDRe     = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
-)
+var simManifestRowIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // simManifest holds a validated pre-eval SIM prediction line from auto-drafts.jsonl.
 type simManifest struct {
@@ -152,14 +150,14 @@ func parseSIMTargetIdentity(rawID, rawCause string) (string, string, error) {
 	if id == "" && cause == "" {
 		return "", "", errors.New("sim_manifest requires problem_id or root_cause")
 	}
-	if id != "" && !simManifestProblemIDRe.MatchString(id) {
+	if id != "" && !brain.SIMValidProblemID(id) {
 		return "", "", fmt.Errorf("sim_manifest problem_id %q must match SIM-PNNN", id)
 	}
 	if cause != "" {
 		if len(cause) > simManifestMaxRootCauseBytes {
 			return "", "", fmt.Errorf("sim_manifest root_cause exceeds %d bytes", simManifestMaxRootCauseBytes)
 		}
-		if !hasSIMAlnum(cause) {
+		if !brain.SIMHasAlnum(cause) {
 			return "", "", errors.New("sim_manifest root_cause must contain alphanumeric characters")
 		}
 	}
@@ -220,13 +218,4 @@ func parseSIMPredictedSignals(raw string) ([]string, error) {
 		}
 	}
 	return out, nil
-}
-
-func hasSIMAlnum(s string) bool {
-	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return true
-		}
-	}
-	return false
 }

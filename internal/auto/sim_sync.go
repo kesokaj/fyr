@@ -15,10 +15,7 @@ import (
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
-var (
-	simHexSHARe      = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
-	revertedCommitRe = regexp.MustCompile(`(?i)\bThis reverts commit ([0-9a-f]{7,40})\b`)
-)
+var revertedCommitRe = regexp.MustCompile(`(?i)\bThis reverts commit ([0-9a-f]{7,40})\b`)
 
 // SyncSIMFieldOutcomes synchronizes Stage B online outcomes (git reverts,
 // DailyDigest recovery statuses, observed metrics, and Stage 3 per-model
@@ -150,20 +147,11 @@ func parseRevertedSHAs(logBody string) []string {
 
 func matchesAnySHAPrefix(commitSHA string, shas []string) bool {
 	for _, sha := range shas {
-		if simSHAPrefixMatch(commitSHA, sha) {
+		if brain.SIMSHAPrefixMatch(commitSHA, sha) {
 			return true
 		}
 	}
 	return false
-}
-
-func simSHAPrefixMatch(a, b string) bool {
-	a = strings.ToLower(strings.TrimSpace(a))
-	b = strings.ToLower(strings.TrimSpace(b))
-	if !simHexSHARe.MatchString(a) || !simHexSHARe.MatchString(b) {
-		return false
-	}
-	return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
 }
 
 type simObservedCache map[string]*float64
@@ -249,7 +237,7 @@ func computeStratifiedSIMModels(store *metrics.Store, metric string, baseline *f
 
 func matchDigestActionForAttempt(home string, probSigs map[string]string, att brain.SIMAttempt, actions []metrics.DigestAppliedAction) (metrics.DigestAppliedAction, bool) {
 	for _, act := range actions {
-		if strings.TrimSpace(act.AppliedSHA) != "" && simSHAPrefixMatch(att.CommitSHA, act.AppliedSHA) {
+		if strings.TrimSpace(act.AppliedSHA) != "" && brain.SIMSHAPrefixMatch(att.CommitSHA, act.AppliedSHA) {
 			return act, true
 		}
 	}

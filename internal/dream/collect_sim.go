@@ -6,7 +6,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/metrics"
-	"github.com/kesokaj/fyr/internal/trail"
+	"github.com/kesokaj/fyr/internal/sim"
 )
 
 const (
@@ -30,8 +30,8 @@ func buildSIMQuery(home string, installed []skill, metricsJSON string, c *Collec
 	signals := collectSIMSignals(home, metricsJSON, c)
 	return brain.SIMQuery{
 		Signals:     signals,
-		TargetPaths: collectSIMTargetPaths(installed, c),
-		Terms:       collectSIMTerms(c, signals),
+		TargetPaths: dreamSIMTargetPaths(installed, c),
+		Terms:       dreamSIMTerms(c, signals),
 		MaxBytes:    maxSIMSliceBytes,
 		Now:         upper,
 	}
@@ -46,88 +46,55 @@ func collectSIMSignals(home, metricsJSON string, c *Collected) []string {
 			out = append(out, sig)
 		}
 	}
-	extractSignalTokens(metricsJSON, push)
-	if d, err := metrics.ReadLatestDailyDigest(home); err == nil && d != nil {
-		for _, s := range d.Signals {
-			push(s.SignalID)
-		}
-		for _, a := range d.Actions {
-			if isUnlockedFieldStatus(a.Status) {
-				push(a.SignalID)
-			}
-		}
-	}
-	for _, in := range c.Inputs {
-		if in.Kind == kindTrail || in.Kind == kindFeedback {
-			extractSignalTokens(in.Text, push)
-		}
-	}
+	sim.ExtractSignalTokens(metricsJSON, push)
+	collectDigestSIMSignals(home, push)
+	collectInputSIMSignals(c.Inputs, push)
 	return out
 }
 
-func extractSignalTokens(text string, push func(string)) {
-	if text == "" {
+func collectDigestSIMSignals(home string, push func(string)) {
+	d, err := metrics.ReadLatestDailyDigest(home)
+	if err != nil || d == nil {
 		return
 	}
-	for _, tok := range strings.FieldsFunc(text, isNotSignalRune) {
-		if strings.HasPrefix(tok, "sig:") {
-			push(tok)
+	for _, s := range d.Signals {
+		push(s.SignalID)
+	}
+	for _, a := range d.Actions {
+		if isUnlockedFieldStatus(a.Status) {
+			push(a.SignalID)
 		}
 	}
 }
 
-func collectSIMTargetPaths(installed []skill, c *Collected) []string {
-	seen := map[string]bool{}
-	var out []string
-	push := func(p string) {
-		p = strings.TrimSpace(p)
-		if p != "" && !seen[p] {
-			seen[p] = true
-			out = append(out, p)
+func collectInputSIMSignals(inputs []Input, push func(string)) {
+	for _, in := range inputs {
+		if in.Kind == kindTrail || in.Kind == kindFeedback {
+			sim.ExtractSignalTokens(in.Text, push)
 		}
 	}
+}
+
+func dreamSIMTargetPaths(installed []skill, c *Collected) []string {
+	names := make([]string, 0, len(installed))
 	for _, s := range installed {
-		if name := strings.TrimSpace(s.name); name != "" {
-			push("skills/" + name + "/")
-		}
+		names = append(names, s.name)
 	}
+	var texts []string
 	for _, in := range c.Inputs {
-		if in.Kind != kindTrail && in.Kind != kindFeedback {
-			continue
-		}
-		for _, f := range strings.Fields(in.Text) {
-			tok := strings.Trim(f, "`\"'.,;:()[]")
-			if strings.HasPrefix(tok, "skills/") && len(tok) > len("skills/") {
-				push(tok)
-			}
+		if in.Kind == kindTrail || in.Kind == kindFeedback {
+			texts = append(texts, in.Text)
 		}
 	}
-	return out
+	return sim.CollectTargetPaths(names, texts)
 }
 
-func collectSIMTerms(c *Collected, signals []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	push := func(term string) {
-		term = strings.TrimSpace(term)
-		if term == "" || seen[term] || len(out) >= maxSIMTerms {
-			return
-		}
-		seen[term] = true
-		out = append(out, term)
-	}
-	push(c.Name)
-	for _, sig := range signals {
-		if i := strings.LastIndexByte(sig, ':'); i >= 0 && i+1 < len(sig) {
-			push(strings.NewReplacer("_", " ", "-", " ").Replace(sig[i+1:]))
-		}
-	}
+func dreamSIMTerms(c *Collected, signals []string) []string {
+	var texts []string
 	for _, in := range c.Inputs {
-		if in.Kind != kindTrail || in.Label == "hidden-coupling" {
-			continue
+		if in.Kind == kindTrail && in.Label != "hidden-coupling" {
+			texts = append(texts, in.Text)
 		}
-		first, _, _ := strings.Cut(strings.TrimSpace(in.Text), "\n")
-		push(trail.TruncateUTF8(first, 80))
 	}
-	return out
+	return sim.CollectTerms(c.Name, signals, texts, maxSIMTerms)
 }
