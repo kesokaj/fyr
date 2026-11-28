@@ -13,6 +13,7 @@ import (
 )
 
 func TestScoreCandidateMathAndHeadroomCurve(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		role, wantTier, candTier, effort string
 		want                             float64
@@ -50,6 +51,7 @@ func TestScoreCandidateMathAndHeadroomCurve(t *testing.T) {
 }
 
 func TestPhase1EvidenceMergeAndUnseenModelsCompete(t *testing.T) {
+	t.Parallel()
 	parsed := ParseModelsOutput("gemini-4-neon-high\tGemini 4 Neon (High)\ngemini-4-neon-medium\tGemini 4 Neon (Medium)\ngemini-5-nova-medium\tGemini 5 Nova (Medium)\nclaude-6-titan-high\tClaude 6 Titan (High)\n")
 	ev := map[string]ModelEvidence{
 		"gemini-4-neon":        {EvalRuns: 2, EvalPass: 2, TrialRuns: 2, TrialPass: 2, JudgeRuns: 3, JudgePass: 3, RatingRuns: 2, RatingScoreSum: 1.8, DecayedRuns: 5.5, DecayedSuccesses: 5.3},
@@ -81,6 +83,7 @@ func TestPhase1EvidenceMergeAndUnseenModelsCompete(t *testing.T) {
 }
 
 func TestVerifyBenchResponseAndRunBench(t *testing.T) {
+	t.Parallel()
 	if args := benchProbeArgs("gemini-3.8-flash-high", BenchPrompt); slices.Contains(args, "--json-schema") {
 		t.Errorf("gemini bench args unexpectedly included --json-schema: %v", args)
 	}
@@ -108,9 +111,7 @@ func TestVerifyBenchResponseAndRunBench(t *testing.T) {
 			t.Errorf("VerifyBenchResponse(%q) = (%q, %v), want %q", raw, why, ok, wantWhy)
 		}
 	}
-	oldRunner := BenchRunnerFunc
-	t.Cleanup(func() { BenchRunnerFunc = oldRunner })
-	BenchRunnerFunc = func(ctx context.Context, home, agyPath, modelID, prompt string, timeout time.Duration) (string, error) {
+	runner := func(ctx context.Context, home, agyPath, modelID, prompt string, timeout time.Duration) (string, error) {
 		if timeout != 45*time.Second {
 			t.Errorf("timeout = %s, want 45s", timeout)
 		}
@@ -135,7 +136,7 @@ func TestVerifyBenchResponseAndRunBench(t *testing.T) {
 	if _, err := SelectBenchTargets(cat, "gemini-pro-orchestrator", 1); err == nil {
 		t.Errorf("expected error on interactive orchestrator")
 	}
-	rep, err := RunBench(context.Background(), t.TempDir(), "", targets, func(BenchTrialRecord) error { return nil })
+	rep, err := RunBenchWithOptions(context.Background(), t.TempDir(), "", targets, func(BenchTrialRecord) error { return nil }, BenchOptions{Runner: runner})
 	if err != nil || rep.Probed != 3 || rep.Passed != 2 || rep.Failed != 1 {
 		t.Fatalf("RunBench = %+v (err=%v)", rep, err)
 	}

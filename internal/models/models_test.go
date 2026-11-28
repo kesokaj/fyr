@@ -14,6 +14,7 @@ import (
 )
 
 func TestModelsPackageDeps(t *testing.T) {
+	t.Parallel()
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)
@@ -143,6 +144,7 @@ esac
 }
 
 func TestRunAgyProbeCappedOverflow(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	script := filepath.Join(t.TempDir(), "fake-agy")
 	body := `#!/bin/sh

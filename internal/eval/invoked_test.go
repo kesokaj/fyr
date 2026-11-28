@@ -10,6 +10,7 @@ import (
 // database holds "TypeName":"<agent>"; another agent, a name that merely
 // starts the same, and the WAL (D24) do not count.
 func TestInvoked(t *testing.T) {
+	t.Parallel()
 	sb := t.TempDir()
 	conv := filepath.Join(sb, ".gemini", "antigravity-cli", "conversations")
 	if invokedOK(sb, "reviewer") {
@@ -55,6 +56,7 @@ func TestInvokedSkipsAnOversizedDatabase(t *testing.T) {
 }
 
 func TestInvokedIgnoresMainSessionWithSubagents(t *testing.T) {
+	t.Parallel()
 	sb := t.TempDir()
 	conv := filepath.Join(sb, ".gemini", "antigravity-cli", "conversations")
 	put(t, filepath.Join(conv, "main.db"), "SQLite format 3\x00<subagents>\n{\"TypeName\":\"reviewer\"}\x00", 0o600)

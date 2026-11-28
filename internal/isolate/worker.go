@@ -28,6 +28,8 @@ type WorkerOptions struct {
 	StopGrace                        time.Duration
 	Runner, RunnerReason             string
 	Auto, ACP, DraftsOnly            bool
+	HostOS                           string // optional GOOS override for tests; "" uses runtime.GOOS
+	Judge                            JudgeOptions
 	Capsule                          CapsuleDeps
 	TestRO, TestRW                   []string
 	TestUnconfined                   bool
@@ -178,7 +180,7 @@ func newWorker(o WorkerOptions, p prepared, stamp, dir string, seed *waveSeed) *
 	w.b = New(Config{
 		Dir: dir, Source: o.Root, RealHome: o.RealHome, Repo: o.Repo, Self: o.Self,
 		Grants: wideGrant, GitName: "agy-work", GitEmail: "agy-work@localhost",
-		Model: model, Zone: p.zone.name, Timeout: o.Timeout, SkipStores: true,
+		Model: model, Zone: p.zone.name, Timeout: o.Timeout, SkipStores: true, HostOS: o.HostOS,
 		PrintTimeout: fmt.Sprintf("%dm", pt), StopGrace: o.StopGrace,
 		Prefix: "auto: " + p.k.Name, Out: &w.notes, ACP: o.ACP,
 		TestRO: o.TestRO, TestRW: o.TestRW, TestUnconfined: o.TestUnconfined,

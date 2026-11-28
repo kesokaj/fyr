@@ -21,6 +21,7 @@ func defaulted(r Row) Row {
 }
 
 func TestSuiteGrammar(t *testing.T) {
+	t.Parallel()
 	body := "# GUIDE-eval\n\nProse before.\n\n| a | b |\n|---|---|\n| `x` | y |\n\n" + header +
 		"| `plain` |  | say hi |  | `test -s \"$OUT\"` |  | named |\n" +
 		"| `piped` (added 2026-10-26) | `echo a \\| tr a b` | p \\| q | second | `grep -c x \\| grep -q 1` | reviewer | wide: the skill pipes |\n" +
@@ -64,6 +65,7 @@ func TestSuiteGrammar(t *testing.T) {
 // TestSuiteGrammarLong: the long header's four cells, each empty or set
 // (ADR-085).
 func TestSuiteGrammarLong(t *testing.T) {
+	t.Parallel()
 	body := "Prose.\n\n" + longHeader +
 		"| `empty` |  | p |  | true |  | named |  |  |  |  |\n" +
 		"| `set` |  | p |  | true |  | named | 3 | `adversarial` | inject | Read, fyr record get ,view_file |\n" +
@@ -104,6 +106,7 @@ func TestSuiteGrammarLong(t *testing.T) {
 }
 
 func TestSuiteRefusals(t *testing.T) {
+	t.Parallel()
 	row := func(cells string) string { return header + cells + "\n" }
 	long := func(four string) string { return longHeader + "| `a` |  | p |  | true |  | named | " + four + " |\n" }
 	for name, c := range map[string]struct{ body, want string }{
@@ -162,6 +165,7 @@ func manyEntries(n int) string {
 }
 
 func TestSuiteSelectRows(t *testing.T) {
+	t.Parallel()
 	suite := []Row{{ID: "a"}, {ID: "b"}, {ID: "c"}}
 	got, err := SelectRows(suite, []string{"c", "a"})
 	if err != nil || len(got) != 2 || got[0].ID != "c" || got[1].ID != "a" {
@@ -181,6 +185,7 @@ func TestSuiteSelectRows(t *testing.T) {
 // item 10's three work-tasks rows, item 22's work-start and work-refuse rows,
 // and item 17's two reviewer-wide rows.
 func TestSuiteHarness(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -239,6 +244,7 @@ func TestSuiteHarness(t *testing.T) {
 
 // TestNoSQLiteDriver pins D10: internal/eval links no SQLite driver.
 func TestNoSQLiteDriver(t *testing.T) {
+	t.Parallel()
 	// GOPROXY=off: a cold module cache skips rather than fetches.
 	cmd := exec.Command("go", "list", "-deps", ".")
 	cmd.Env = append(os.Environ(), "GOPROXY=off")
@@ -254,6 +260,7 @@ func TestNoSQLiteDriver(t *testing.T) {
 // TestEvalSuiteFile pins D15: ReadSuiteFile reads a suite in GUIDE-eval's
 // format outside every checkout and refuses a file inside a checkout or a link.
 func TestEvalSuiteFile(t *testing.T) {
+	t.Parallel()
 	body := "| id | setup | prompt | prompt2 | check | agent | grants |\n|---|---|---|---|---|---|---|\n| `hold` |  | say hi |  | `true` |  | named |\n"
 	outDir := t.TempDir()
 	valid := filepath.Join(outDir, "holdout.md")
@@ -367,6 +374,7 @@ func splitShellSegments(line string) []string {
 // requirements reference) uses only commands in namedGrants, and no skill
 // offers a dead "when a headless run refuses" fallback.
 func TestNamedRowSkillCommands(t *testing.T) {
+	t.Parallel()
 	allowed := map[string]bool{}
 	for _, g := range namedGrants {
 		if cmd, ok := strings.CutPrefix(g, "command("); ok {

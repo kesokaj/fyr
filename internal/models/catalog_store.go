@@ -163,6 +163,10 @@ func writeTempAndRename(tmp *os.File, data []byte, target string) error {
 // PersistCatalogPoolsBestEffort updates quota_updated_at and pools inside an
 // existing <home>/.config/fyr/models.json file, ignoring errors.
 func PersistCatalogPoolsBestEffort(home string, pools []Pool) {
+	persistCatalogPoolsAt(home, pools, usageNowFunc())
+}
+
+func persistCatalogPoolsAt(home string, pools []Pool, now time.Time) {
 	if strings.TrimSpace(home) == "" || len(pools) == 0 || !CatalogExists(home) {
 		return
 	}
@@ -170,7 +174,7 @@ func PersistCatalogPoolsBestEffort(home string, pools []Pool) {
 	if err != nil || !ok {
 		return
 	}
-	cat.QuotaUpdatedAt = usageNowFunc().Format(time.RFC3339)
+	cat.QuotaUpdatedAt = now.UTC().Format(time.RFC3339)
 	cat.Pools = append([]Pool(nil), pools...)
 	_ = SaveCatalog(home, cat)
 }

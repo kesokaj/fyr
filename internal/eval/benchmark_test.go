@@ -17,6 +17,7 @@ const benchHeader = "| id | setup | prompt | prompt2 | check | agent | grants | 
 // its timeout (1m to 4h, whole minutes) and turns (1 to 12) cells
 // (ADR-509, Item 24 of PLAN-2026-11-02-1806-fyr-speed).
 func TestSuiteGrammarBenchmark(t *testing.T) {
+	t.Parallel()
 	body := "Prose.\n\n" + benchHeader +
 		"| `dflt` |  | p |  | true |  | named |  |  |  |  |  |  |\n" +
 		"| `one` |  | p |  | true |  | named | 1 | benchmark |  |  | 45m | 1 |\n" +

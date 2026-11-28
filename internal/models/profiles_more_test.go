@@ -60,6 +60,7 @@ esac
 }
 
 func TestAutoPickHelpersAndListedProfiles(t *testing.T) {
+	t.Parallel()
 	if !IsInteractiveOnlyID("gemini-pro-orchestrator") || IsInteractiveOnlyID("gemini-4-carbon-high") {
 		t.Fatal("IsInteractiveOnlyID mismatch")
 	}
@@ -84,6 +85,7 @@ func TestAutoPickHelpersAndListedProfiles(t *testing.T) {
 }
 
 func TestProbeWorkDirSaveCatalogAndEvidenceSecurity(t *testing.T) {
+	t.Parallel()
 	if _, _, err := probeWorkDir("/"); err == nil {
 		t.Fatal("probeWorkDir(/) succeeded")
 	}

@@ -38,7 +38,6 @@ func TestDecodeKeychainToken(t *testing.T) {
 }
 
 func TestKeychainSyncCheckAndChangedPathsIn(t *testing.T) {
-	defer SetHostOS("darwin")()
 	realHome := t.TempDir()
 	workHome := t.TempDir()
 
@@ -77,11 +76,11 @@ func TestKeychainSyncCheckAndChangedPathsIn(t *testing.T) {
 	sum := sha256.Sum256(data)
 	matchPrint := formatRegularEntryPrint(0o600, int64(len(data)), hex.EncodeToString(sum[:]))
 	tokKey := filepath.FromSlash(WorkTokenRel)
-	if changed := changedPathsIn(realHome, map[string]string{}, map[string]string{tokKey: matchPrint}); len(changed) != 0 {
+	if changed := changedPathsInForOS(realHome, map[string]string{}, map[string]string{tokKey: matchPrint}, "darwin"); len(changed) != 0 {
 		t.Fatalf("changedPathsIn kept valid Keychain sync: %v", changed)
 	}
 	tamperedPrint := formatRegularEntryPrint(0o644, int64(len(data)), hex.EncodeToString(sum[:]))
-	if changed := changedPathsIn(realHome, map[string]string{}, map[string]string{tokKey: tamperedPrint}); len(changed) != 1 {
+	if changed := changedPathsInForOS(realHome, map[string]string{}, map[string]string{tokKey: tamperedPrint}, "darwin"); len(changed) != 1 {
 		t.Fatalf("changedPathsIn missed tampered permissions: %v", changed)
 	}
 

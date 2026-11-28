@@ -10,15 +10,10 @@ import (
 )
 
 func TestResolveRoleModelForHome(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	oldUsage := UsageProbeFunc
-	oldList := ListModelsFunc
-	t.Cleanup(func() {
-		UsageProbeFunc = oldUsage
-		ListModelsFunc = oldList
-	})
 
-	ListModelsFunc = func(ctx context.Context, agy string) ([]string, error) {
+	listFn := func(ctx context.Context, agy string) ([]string, error) {
 		return []string{
 			"gemini-4-carbon-high",
 			"gemini-3.8-flash-high",
@@ -28,46 +23,46 @@ func TestResolveRoleModelForHome(t *testing.T) {
 	}
 
 	home := t.TempDir()
-	m, note, err := ResolveRoleModelForHome(ctx, home, "agy", "builder", "pro", "")
+	m, note, err := ResolveRoleModelWithOptions(ctx, ResolveRoleOptions{Home: home, AgyPath: "agy", Role: "builder", Tier: "pro", PersistPools: true, ListModels: listFn})
 	if err != nil || m != "gemini-4-carbon-high" || !strings.Contains(note, "Gemini") {
 		t.Fatalf("builder pro: got m=%q note=%q err=%v", m, note, err)
 	}
-	mFlash, _, err := ResolveRoleModelForHome(ctx, home, "agy", "builder", "flash", "")
+	mFlash, _, err := ResolveRoleModelWithOptions(ctx, ResolveRoleOptions{Home: home, AgyPath: "agy", Role: "builder", Tier: "flash", PersistPools: true, ListModels: listFn})
 	if err != nil || mFlash != "gemini-3.8-flash-high" {
 		t.Fatalf("builder flash: got %q err=%v, want gemini-3.8-flash-high", mFlash, err)
 	}
 
-	UsageProbeFunc = func(ctx context.Context, agy string) (string, error) {
+	usageFn := func(ctx context.Context, agy string) (string, error) {
 		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
 			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
 			"Claude and GPT models\tWeekly Limit Remaining\t45%\tx\n" +
 			"Claude and GPT models\tFive Hour Limit Remaining\t60%\tx\n", nil
 	}
-	jModel, jNote, err := ResolveRoleModelForHome(ctx, home, "agy", "judge", "pro", "")
+	jModel, jNote, err := ResolveRoleModelWithOptions(ctx, ResolveRoleOptions{Home: home, AgyPath: "agy", Role: "judge", Tier: "pro", PersistPools: true, ListModels: listFn, UsageProbe: usageFn})
 	if err != nil || jModel != "claude-opus-5-5-high" || !strings.Contains(jNote, "Anthropic") {
 		t.Fatalf("judge healthy quota: got m=%q note=%q err=%v", jModel, jNote, err)
 	}
-	vModel, _, err := ResolveRoleModelForHome(ctx, home, "agy", "verifier", "sonnet", "")
+	vModel, _, err := ResolveRoleModelWithOptions(ctx, ResolveRoleOptions{Home: home, AgyPath: "agy", Role: "verifier", Tier: "sonnet", PersistPools: true, ListModels: listFn, UsageProbe: usageFn})
 	if err != nil || vModel != "claude-sonnet-5-5-high" {
 		t.Fatalf("verifier sonnet healthy quota: got %q err=%v, want claude-sonnet-5-5-high", vModel, err)
 	}
 
-	UsageProbeFunc = func(ctx context.Context, agy string) (string, error) {
+	usageFn = func(ctx context.Context, agy string) (string, error) {
 		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
 			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
 			"Claude and GPT models\tWeekly Limit Remaining\t15%\tx\n" +
 			"Claude and GPT models\tFive Hour Limit Remaining\tdisabled\tx\n", nil
 	}
-	fbModel, fbNote, err := ResolveRoleModelForHome(ctx, home, "agy", "judge", "pro", "")
+	fbModel, fbNote, err := ResolveRoleModelWithOptions(ctx, ResolveRoleOptions{Home: home, AgyPath: "agy", Role: "judge", Tier: "pro", PersistPools: true, ListModels: listFn, UsageProbe: usageFn})
 	if err != nil || fbModel != "gemini-4-carbon-high" || !strings.Contains(fbNote, "fallback to Gemini") {
 		t.Fatalf("judge low quota fallback: got m=%q note=%q err=%v", fbModel, fbNote, err)
 	}
-	fbFlash, fbFlashNote, err := ResolveRoleModelForHome(ctx, home, "agy", "reviewer", "flash", "")
+	fbFlash, fbFlashNote, err := ResolveRoleModelWithOptions(ctx, ResolveRoleOptions{Home: home, AgyPath: "agy", Role: "reviewer", Tier: "flash", PersistPools: true, ListModels: listFn, UsageProbe: usageFn})
 	if err != nil || fbFlash != "gemini-3.8-flash-high" || !strings.Contains(fbFlashNote, "fallback to Gemini") {
 		t.Fatalf("reviewer flash low quota fallback: got m=%q note=%q err=%v", fbFlash, fbFlashNote, err)
 	}
 
-	expModel, expNote, _ := ResolveRoleModelForHome(ctx, home, "agy", "judge", "pro", "custom-model")
+	expModel, expNote, _ := ResolveRoleModelWithOptions(ctx, ResolveRoleOptions{Home: home, AgyPath: "agy", Role: "judge", Tier: "pro", ExplicitModel: "custom-model", PersistPools: true, ListModels: listFn, UsageProbe: usageFn})
 	if expModel != "custom-model" || !strings.Contains(expNote, "explicit") {
 		t.Fatalf("explicit override: got m=%q note=%q", expModel, expNote)
 	}
@@ -75,12 +70,6 @@ func TestResolveRoleModelForHome(t *testing.T) {
 
 func TestResolveRoleModelPreservesFailingWorkPassUnderEvalEvidence(t *testing.T) {
 	ctx := context.Background()
-	oldUsage := UsageProbeFunc
-	oldList := ListModelsFunc
-	t.Cleanup(func() {
-		UsageProbeFunc = oldUsage
-		ListModelsFunc = oldList
-	})
 
 	home := t.TempDir()
 
@@ -98,33 +87,34 @@ func TestResolveRoleModelPreservesFailingWorkPassUnderEvalEvidence(t *testing.T)
 		t.Fatal(err)
 	}
 
-	ListModelsFunc = func(ctx context.Context, agy string) ([]string, error) {
+	listFn := func(ctx context.Context, agy string) ([]string, error) {
 		return []string{"gemini-4-carbon-high", "gemini-4-carbon-medium", "claude-opus-5-5-high"}, nil
 	}
-	UsageProbeFunc = func(ctx context.Context, agy string) (string, error) {
+	usageFn := func(ctx context.Context, agy string) (string, error) {
 		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
 			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
 			"Claude and GPT models\tWeekly Limit Remaining\t10%\tx\n" +
 			"Claude and GPT models\tFive Hour Limit Remaining\t50%\tx\n", nil
 	}
 
-	bModel, _, err := ResolveRoleModelForHome(ctx, home, "agy", "builder", "pro", "")
+	bModel, _, err := ResolveRoleModelWithOptions(ctx, ResolveRoleOptions{Home: home, AgyPath: "agy", Role: "builder", Tier: "pro", PersistPools: true, ListModels: listFn, UsageProbe: usageFn})
 	if err != nil || bModel != "gemini-4-carbon-medium" {
 		t.Fatalf("builder pro with 7/16 work + 31/35 eval: got %q err=%v, want gemini-4-carbon-medium", bModel, err)
 	}
-	jFallback, jNote, err := ResolveRoleModelForHome(ctx, home, "agy", "judge", "pro", "")
+	jFallback, jNote, err := ResolveRoleModelWithOptions(ctx, ResolveRoleOptions{Home: home, AgyPath: "agy", Role: "judge", Tier: "pro", PersistPools: true, ListModels: listFn, UsageProbe: usageFn})
 	if err != nil || jFallback != "gemini-4-carbon-medium" || !strings.Contains(jNote, "fallback to Gemini") {
 		t.Fatalf("judge low-quota fallback: got %q note=%q err=%v, want gemini-4-carbon-medium", jFallback, jNote, err)
 	}
 
 	t.Setenv("HOME", t.TempDir())
-	bHomeModel, _, err := ResolveRoleModelForHome(ctx, home, "agy", "builder", "pro", "")
+	bHomeModel, _, err := ResolveRoleModelWithOptions(ctx, ResolveRoleOptions{Home: home, AgyPath: "agy", Role: "builder", Tier: "pro", PersistPools: true, ListModels: listFn, UsageProbe: usageFn})
 	if err != nil || bHomeModel != "gemini-4-carbon-medium" {
 		t.Fatalf("ResolveRoleModelForHome(home): got %q err=%v, want gemini-4-carbon-medium", bHomeModel, err)
 	}
 }
 
 func TestCheckHomeDir(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	if err := CheckHomeDir(home); err != nil {
 		t.Fatalf("clean home refused: %v", err)
@@ -143,6 +133,7 @@ func TestCheckHomeDir(t *testing.T) {
 }
 
 func TestCatalogPathAndStoreNormalizeWhitespace(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	padded := "  " + home + "/  "
 	if got, want := CatalogPath(padded), CatalogPath(home); got != want {

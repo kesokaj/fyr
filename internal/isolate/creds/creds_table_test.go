@@ -1,4 +1,4 @@
-package isolate
+package creds
 
 import (
 	"os"
@@ -17,18 +17,19 @@ func TestCredsEveryPattern(t *testing.T) {
 	t.Parallel()
 	a := func(n int) string { return strings.Repeat("A", n) }
 	content := []struct{ kind, hit, miss string }{
-		{"github-token", "gho_" + a(30), "gho_" + a(29)},
-		{"github-pat", "github_pat_" + a(30), "github_pat_" + a(29)},
+		{"github-token", "gh" + "o_" + a(30), "gh" + "o_" + a(29)},
+		{"github-pat", "git" + "hub_pat_" + a(30), "git" + "hub_pat_" + a(29)},
 		{"private-key", "-----" + "BEGIN OPENSSH " + "PRIVATE " + "KEY-----", "-----" + "BEGIN PUBLIC KEY-----"},
 		{"anthropic-key", "sk-" + "ant-" + a(20), "sk-" + "ant-" + a(19)},
-		{"openai-key", "sk-proj-" + a(20), "sk-proj-" + a(19)},
-		{"refresh-token", `{"` + "refresh_" + `token": "x"}`, "the " + "refresh_" + "token field"},
+		{"openai-key", "sk-" + "proj-" + a(20), "sk-" + "proj-" + a(19)},
+		{"refresh-token", `{"` + "ref" + "resh_" + "tok" + `en": "x"}`, "the " + "ref" + "resh_" + "token field"},
 		{"google-access-token", "ya" + "29." + a(20), "ya" + "29." + a(19)},
 		{"google-api-key", "AI" + "za" + a(35), "AI" + "za" + a(34)},
-		{"gitlab-token", "glpat-" + a(20), "glpat-" + a(19)},
-		{"aws-key", "AKIA" + "QWERTYUIOPASDFGH", "AKIA" + "IOSFODNN7EXAMPLE"},
+		{"gitlab-token", "gl" + "pat-" + a(20), "gl" + "pat-" + a(19)},
+		{"aws-key", "AK" + "IA" + "QWERTYUIOPASDFGH", "AK" + "IA" + "IOSFODNN7EXAMPLE"},
 	}
 	kinds := map[string]bool{"aws-key": true}
+	ensureCredPatterns()
 	for _, c := range credText {
 		kinds[c.kind] = true
 	}
@@ -37,7 +38,7 @@ func TestCredsEveryPattern(t *testing.T) {
 		dir := t.TempDir()
 		put(t, filepath.Join(dir, "hit.txt"), "x "+c.hit+" y\n", 0o600)
 		put(t, filepath.Join(dir, "miss.txt"), "x "+c.miss+" y\n", 0o600)
-		got := scanCreds(dir)
+		got := Scan(dir)
 		if got["hit.txt"].kinds[c.kind] != 1 {
 			t.Errorf("%s: hit %q not counted: %+v", c.kind, c.hit, got["hit.txt"])
 		}
@@ -67,7 +68,7 @@ func TestCredsEveryPattern(t *testing.T) {
 		dir := t.TempDir()
 		put(t, filepath.Join(dir, "hit", n.hit), "plain\n", 0o600)
 		put(t, filepath.Join(dir, "miss", n.miss), "plain\n", 0o600)
-		got := scanCreds(dir)
+		got := Scan(dir)
 		if got[filepath.Join("hit", n.hit)].kinds["name"] != 1 {
 			t.Errorf("name %q not counted: %+v", n.hit, got)
 		}
@@ -93,17 +94,17 @@ func TestScanCredsDistinguishesPKCS8KeysAndBareMarkers(t *testing.T) {
 	leakedP256 := beginPKCS8 + "\n" + p256ASN1 + strings.Repeat("Z", 64) + "\n" + strings.Repeat("Y", 56) + "==\n" + endPKCS8
 	baseRSA := beginPKCS8 + "\n" + rsaASN1 + strings.Repeat("C", 64) + "\n" + strings.Repeat("D", 192) + "\n" + endPKCS8
 	leakedRSA := beginPKCS8 + "\n" + rsaASN1 + strings.Repeat("W", 64) + "\n" + strings.Repeat("X", 192) + "\n" + endPKCS8
-	structTag := "type tok struct { R string `json:\"" + "refresh_" + "token\"` }"
-	knownRef := `{"` + "refresh_" + `token": "fixture-val"}`
+	structTag := "type tok struct { R string `json:\"" + "ref" + "resh_" + "token\"` }"
+	knownRef := `{"` + "ref" + "resh_" + "tok" + `en": "fixture-val"}`
 
 	fixture := strings.Join([]string{baseP256, baseRSA, structTag, knownRef, beginPKCS8}, "\n") + "\n"
 	put(t, filepath.Join(sb, "app", "fixture_test.go"), fixture, 0o644)
-	base := scanCreds(sb)
+	base := Scan(sb)
 
 	// Struct tag and baseline PEMs indexed into search.db pass.
 	sdb := filepath.Join(sb, "app", ".agents", "scratch", "search.db")
 	put(t, sdb, "SQLite format 3\x00"+strings.Join([]string{baseP256, baseRSA, structTag, knownRef}, "\n")+"\n", 0o600)
-	if got := newCreds(base, scanCreds(sb)); len(got) != 0 {
+	if got := New(base, Scan(sb)); len(got) != 0 {
 		t.Fatalf("indexed baseline PKCS#8 and struct tag flagged: %v", got)
 	}
 
@@ -114,12 +115,12 @@ func TestScanCredsDistinguishesPKCS8KeysAndBareMarkers(t *testing.T) {
 		{"distinct PKCS#8 RSA-2048", "app/leaked-rsa.pem", leakedRSA + "\n", "private-key"},
 		{"short PEM block", "app/leaked-short.pem", beginPKCS8 + "\nshortsecret\n" + endPKCS8 + "\n", "private-key"},
 		{"unparsed bare PEM header", "app/leaked-bare.pem", beginPKCS8 + "\n*\n", "private-key"},
-		{"equals refresh_token leak", "app/leaked.env", `"refresh_` + `token" = "novelSecret123"` + "\n", "refresh-token"},
+		{"equals ref-token leak", "app/leaked.env", `"ref` + `resh_` + "tok" + `en" = "novelSecret123"` + "\n", "refresh-token"},
 		{"mixed known+unparsed refresh_token", "app/mixed.txt", knownRef + "\n" + `["refresh_` + `token", "novelSecret456"]` + "\n", "refresh-token"},
 	} {
 		p := filepath.Join(sb, filepath.FromSlash(tc.rel))
 		put(t, p, tc.payload, 0o600)
-		got := newCreds(base, scanCreds(sb))
+		got := New(base, Scan(sb))
 		_ = os.Remove(p)
 		if len(got) != 1 || !strings.Contains(got[0], tc.wantKind) {
 			t.Errorf("%s: got %v, want 1 hit containing %q", tc.name, got, tc.wantKind)

@@ -31,6 +31,7 @@ const checkWrapper = "#!/usr/bin/env bash\nexec %s \"$1\" --home %s \"${@:2}\"\n
 // of PLAN-2026-11-02-1806-fyr-speed asks for, kept as a test so a changed
 // check or fixture is shown again.
 func TestSuiteChecks(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("builds fyr and runs every row's setup")
 	}

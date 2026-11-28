@@ -14,13 +14,8 @@ import (
 )
 
 func TestModelCatalogRefreshAndRoute(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	oldUsage := UsageProbeFunc
-	oldList := ListModelsFunc
-	t.Cleanup(func() {
-		UsageProbeFunc = oldUsage
-		ListModelsFunc = oldList
-	})
 
 	tmp := t.TempDir()
 	home := filepath.Join(tmp, "home")
@@ -109,20 +104,20 @@ func TestModelCatalogRefreshAndRoute(t *testing.T) {
 		t.Errorf("mechanical:flash = %q, want gemini-3.8-flash-high", got)
 	}
 
-	UsageProbeFunc = func(ctx context.Context, agy string) (string, error) {
+	usageFn := func(ctx context.Context, agy string) (string, error) {
 		return "Gemini\tWeekly Limit Remaining\t80%\tx\nGemini\tFive Hour Limit Remaining\t90%\tx\n" +
 			"Claude\tWeekly Limit Remaining\t50%\tx\nClaude\tFive Hour Limit Remaining\t70%\tx\n", nil
 	}
 	roleHome := t.TempDir()
-	jModel, jNote, err := ResolveRoleModelForHome(ctx, roleHome, agyScript, "judge", "pro", "")
+	jModel, jNote, err := ResolveRoleModelWithOptions(ctx, ResolveRoleOptions{Home: roleHome, AgyPath: agyScript, Role: "judge", Tier: "pro", PersistPools: true, UsageProbe: usageFn})
 	if err != nil || jModel != "claude-opus-5-5-high" || !strings.Contains(jNote, "Anthropic") {
 		t.Fatalf("ResolveRoleModelForHome judge healthy: m=%q note=%q err=%v", jModel, jNote, err)
 	}
 
-	UsageProbeFunc = func(ctx context.Context, agy string) (string, error) {
+	usageFn = func(ctx context.Context, agy string) (string, error) {
 		return "Claude\tWeekly Limit Remaining\t12%\tx\nClaude\tFive Hour Limit Remaining\t80%\tx\n", nil
 	}
-	fbModel, fbNote, err := ResolveRoleModelForHome(ctx, roleHome, agyScript, "judge", "pro", "")
+	fbModel, fbNote, err := ResolveRoleModelWithOptions(ctx, ResolveRoleOptions{Home: roleHome, AgyPath: agyScript, Role: "judge", Tier: "pro", PersistPools: true, UsageProbe: usageFn})
 	if err != nil || fbModel != "gemini-4-carbon-high" || !strings.Contains(fbNote, "fallback to Gemini") {
 		t.Fatalf("ResolveRoleModelForHome judge low quota: m=%q note=%q err=%v", fbModel, fbNote, err)
 	}
@@ -165,11 +160,11 @@ func TestModelCatalogRefreshAndRoute(t *testing.T) {
 		t.Errorf("judge:pro FallbackReason = %q, want mention of gone claude-opus-5-5-high", jp.FallbackReason)
 	}
 
-	UsageProbeFunc = func(ctx context.Context, agy string) (string, error) {
+	usageFn = func(ctx context.Context, agy string) (string, error) {
 		return "Claude\tWeekly Limit Remaining\t80%\tx\nClaude\tFive Hour Limit Remaining\t80%\tx\n", nil
 	}
 	for _, role := range []string{"builder", "judge", "reviewer", "verifier", "mechanical"} {
-		gotID, _, err := ResolveRoleModelForHome(ctx, roleHome, agyScript, role, "pro", "")
+		gotID, _, err := ResolveRoleModelWithOptions(ctx, ResolveRoleOptions{Home: roleHome, AgyPath: agyScript, Role: role, Tier: "pro", PersistPools: true, UsageProbe: usageFn})
 		if err != nil {
 			t.Fatalf("ResolveRoleModelForHome(%s): %v", role, err)
 		}
@@ -202,6 +197,7 @@ func TestModelCatalogRefreshAndRoute(t *testing.T) {
 }
 
 func TestCatalogJoinsBareEvalEvidenceOntoHighestEffort(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
 	parsed := ParseModelsOutput(
 		"gemini-4-argon-low\tGemini 4 Argon (Low)\n" +
@@ -273,6 +269,7 @@ func TestCatalogJoinsBareEvalEvidenceOntoHighestEffort(t *testing.T) {
 }
 
 func TestCatalogEvalPassDoesNotMaskFailingWorkPass(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
 	parsed := ParseModelsOutput(
 		"gemini-4-carbon-high\tGemini 4 Carbon (High)\n" +
@@ -313,6 +310,7 @@ func TestCatalogEvalPassDoesNotMaskFailingWorkPass(t *testing.T) {
 }
 
 func TestCatalogEvidenceEdgeCases(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
 	parsed := ParseModelsOutput(
 		"claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)\n" +
@@ -352,6 +350,7 @@ func TestCatalogEvidenceEdgeCases(t *testing.T) {
 }
 
 func TestLoadCatalogHydratesLegacyModelProfiles(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	path := CatalogPath(home)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -374,13 +373,8 @@ func TestLoadCatalogHydratesLegacyModelProfiles(t *testing.T) {
 }
 
 func TestCatalogPersistsQuotaPoolsBestEffort(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	oldUsage := UsageProbeFunc
-	oldList := ListModelsFunc
-	t.Cleanup(func() {
-		UsageProbeFunc = oldUsage
-		ListModelsFunc = oldList
-	})
 
 	tmp := t.TempDir()
 	home := filepath.Join(tmp, "home")
@@ -391,7 +385,7 @@ func TestCatalogPersistsQuotaPoolsBestEffort(t *testing.T) {
 	}
 
 	usageCalls := 0
-	UsageProbeFunc = func(context.Context, string) (string, error) {
+	usageFn := func(context.Context, string) (string, error) {
 		usageCalls++
 		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
 			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
@@ -405,12 +399,12 @@ func TestCatalogPersistsQuotaPoolsBestEffort(t *testing.T) {
 	if usageCalls != 0 {
 		t.Fatalf("RefreshCatalog must not invoke UsageProbeFunc (got %d calls)", usageCalls)
 	}
-	cat1 = EnrichCatalogPools(ctx, home, agyScript, cat1)
+	cat1, _ = EnrichCatalogPoolsWithOptions(ctx, home, agyScript, cat1, PoolOptions{UsageProbe: usageFn})
 	if usageCalls != 1 || cat1.QuotaUpdatedAt == "" || len(cat1.Pools) != 2 {
 		t.Fatalf("expected persisted pools on EnrichCatalogPools, got calls=%d cat=%+v", usageCalls, cat1)
 	}
 
-	UsageProbeFunc = func(context.Context, string) (string, error) {
+	usageFn = func(context.Context, string) (string, error) {
 		usageCalls++
 		return "", os.ErrNotExist
 	}
@@ -424,18 +418,18 @@ func TestCatalogPersistsQuotaPoolsBestEffort(t *testing.T) {
 	if len(cat2.Pools) != 2 || cat2.QuotaUpdatedAt != cat1.QuotaUpdatedAt {
 		t.Errorf("expected preserved pools after RefreshCatalog; got %+v vs %+v", cat2, cat1)
 	}
-	cat2 = EnrichCatalogPools(ctx, home, agyScript, cat2)
+	cat2, _ = EnrichCatalogPoolsWithOptions(ctx, home, agyScript, cat2, PoolOptions{UsageProbe: usageFn})
 	if len(cat2.Pools) != 2 || cat2.QuotaUpdatedAt != cat1.QuotaUpdatedAt {
 		t.Errorf("EnrichCatalogPools should keep previous pools intact on /usage error; got %+v vs %+v", cat2, cat1)
 	}
 
-	ListModelsFunc = func(context.Context, string) ([]string, error) {
+	listFn := func(context.Context, string) ([]string, error) {
 		return []string{"gemini-4-carbon-high", "claude-opus-5-5-high"}, nil
 	}
-	UsageProbeFunc = func(context.Context, string) (string, error) {
+	usageFn = func(context.Context, string) (string, error) {
 		return "Claude and GPT models\tWeekly Limit Remaining\t15%\tx\nClaude and GPT models\tFive Hour Limit Remaining\t25%\tx\n", nil
 	}
-	chosen, _, err := ResolveRoleModelForHome(ctx, home, agyScript, "judge", "pro", "")
+	chosen, _, err := ResolveRoleModelWithOptions(ctx, ResolveRoleOptions{Home: home, AgyPath: agyScript, Role: "judge", Tier: "pro", PersistPools: true, ListModels: listFn, UsageProbe: usageFn})
 	if err != nil || chosen != "gemini-4-carbon-high" {
 		t.Fatalf("ResolveRoleModelForHome low quota: chosen=%q err=%v", chosen, err)
 	}

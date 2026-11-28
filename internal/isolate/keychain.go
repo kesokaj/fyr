@@ -141,8 +141,8 @@ func readDecodedKeychainToken(realHome string) ([]byte, bool, error) {
 // isKeychainSyncedWorkToken reports whether afterPrint is the entryPrint of
 // realHome's WorkTokenRel as written by SyncWorkToken from the macOS Keychain
 // under the work root's slots.lock (BUG-513, ADR-503).
-func isKeychainSyncedWorkToken(realHome, afterPrint string) bool {
-	if hostOS != "darwin" || realHome == "" || afterPrint == "" || CheckWorkDir(realHome) != nil {
+func isKeychainSyncedWorkTokenForOS(realHome, afterPrint, goos string) bool {
+	if goos != "darwin" || realHome == "" || afterPrint == "" || CheckWorkDir(realHome) != nil {
 		return false
 	}
 	workDir := filepath.Join(realHome, filepath.FromSlash(filepath.Dir(WorkTokenRel)))

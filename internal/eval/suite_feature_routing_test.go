@@ -99,6 +99,7 @@ func featureRoutingRuleProblems(ruleText string) []string {
 }
 
 func TestFeatureRoutingRuleAndEvalRow(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

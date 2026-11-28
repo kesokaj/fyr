@@ -13,6 +13,7 @@ import (
 // planning details without building probe binaries or running `rm` or `curl`, and
 // fyr-spec derives failure modes statically without live server or `curl` probes.
 func TestNamedRowSkillProhibitions(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

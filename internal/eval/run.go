@@ -33,6 +33,7 @@ type Options struct {
 	Out            io.Writer
 	Now            func() time.Time
 	BrainWatch     func(dbPath, scratchDir string, scopes []string) (string, bool) // check c per-scope brain.db watch (ADR-506)
+	HostOS         string                                                          // optional GOOS override for tests; "" uses runtime.GOOS
 	TestRO         []string
 	TestRW         []string
 	TestUnconfined bool
@@ -100,8 +101,15 @@ func ReasonAgent(agent string) string {
 // agentPrefix is ReasonAgent's fixed start, which classify matches.
 const agentPrefix = "no invoke_subagent of "
 
-// hostOS is runtime.GOOS, a variable so a test can run the darwin branch.
+// hostOS is runtime.GOOS, a fallback when Options.HostOS is empty.
 var hostOS = runtime.GOOS
+
+func (o Options) hostOS() string {
+	if o.HostOS != "" {
+		return o.HostOS
+	}
+	return hostOS
+}
 
 // ProjectSandboxRoot is where eval makes its sandboxes for project root under
 // fyr's home: <home>/.config/fyr/eval/<project> (D9 of PLAN-2026-11-02-1806-fyr-speed).
@@ -164,14 +172,15 @@ func prepareEvalRunner(ctx context.Context, o *Options) (agy, tok string, cleanu
 	if _, err := isolate.ResolveEvalRunner(o.Runner); err != nil {
 		return "", "", cleanup, err
 	}
-	if _, err = isolate.CheckWorkLogin(o.Home, o.RealHome, hostOS); err != nil {
+	goos := o.hostOS()
+	if _, err = isolate.CheckWorkLogin(o.Home, o.RealHome, goos); err != nil {
 		return "", "", cleanup, err
 	}
 	agy, err = exec.LookPath("agy")
 	if err != nil {
 		return "", "", cleanup, errors.New("agy not found on PATH")
 	}
-	tok, err = isolate.SyncWorkToken(o.Home, o.RealHome, hostOS)
+	tok, err = isolate.SyncWorkToken(o.Home, o.RealHome, goos)
 	if err != nil {
 		return "", "", cleanup, err
 	}

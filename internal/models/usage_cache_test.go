@@ -9,6 +9,7 @@ import (
 )
 
 func TestHasFreshPoolQuotas(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	validPools := []Pool{
 		{Name: "Gemini Models", Five: 90, Week: 80},
@@ -115,14 +116,10 @@ func TestHasFreshPoolQuotas(t *testing.T) {
 }
 
 func TestPickRoleFromCatalogQuotaCacheBehavior(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	now := time.Date(2026, 11, 21, 15, 0, 0, 0, time.UTC)
-	oldNow, oldUsage := usageNowFunc, UsageProbeFunc
-	usageNowFunc = func() time.Time { return now }
-	t.Cleanup(func() {
-		usageNowFunc = oldNow
-		UsageProbeFunc = oldUsage
-	})
+	nowFn := func() time.Time { return now }
 
 	entries := ParseModelsOutput(
 		"gemini-4-carbon-high\tGemini 4 Carbon (High)\n" +
@@ -137,7 +134,7 @@ func TestPickRoleFromCatalogQuotaCacheBehavior(t *testing.T) {
 		"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
 		"Claude and GPT models\tWeekly Limit Remaining\t65%\tx\n" +
 		"Claude and GPT models\tFive Hour Limit Remaining\t75%\tx\n"
-	UsageProbeFunc = func(context.Context, string) (string, error) {
+	probeFn := func(context.Context, string) (string, error) {
 		calls++
 		return liveUsage, nil
 	}
@@ -152,7 +149,7 @@ func TestPickRoleFromCatalogQuotaCacheBehavior(t *testing.T) {
 			{Name: "Claude and GPT models", Five: 80, Week: 50},
 		},
 	}
-	pick, livePools, err := PickRoleFromCatalogForHome(ctx, freshHealthy, PickRoleOptions{AgyPath: "agy"}, "judge", "pro")
+	pick, livePools, err := PickRoleFromCatalogForHome(ctx, freshHealthy, PickRoleOptions{AgyPath: "agy", UsageProbe: probeFn, Now: nowFn}, "judge", "pro")
 	if err != nil || pick.Model != "claude-opus-5-5-high" || calls != 0 || len(livePools) != 0 {
 		t.Fatalf("fresh healthy cache: pick=%+v livePools=%+v calls=%d err=%v", pick, livePools, calls, err)
 	}
@@ -170,7 +167,7 @@ func TestPickRoleFromCatalogQuotaCacheBehavior(t *testing.T) {
 			{Name: "Claude and GPT models", Five: 15, Week: 50},
 		},
 	}
-	pickLow, liveLow, err := PickRoleFromCatalogForHome(ctx, freshLow, PickRoleOptions{AgyPath: "agy"}, "reviewer", "pro")
+	pickLow, liveLow, err := PickRoleFromCatalogForHome(ctx, freshLow, PickRoleOptions{AgyPath: "agy", UsageProbe: probeFn, Now: nowFn}, "reviewer", "pro")
 	if err != nil || pickLow.Model != "gemini-4-carbon-high" || calls != 0 || len(liveLow) != 0 || !strings.Contains(pickLow.FallbackReason, "quota low") {
 		t.Fatalf("fresh low cache: pick=%+v livePools=%+v calls=%d err=%v", pickLow, liveLow, calls, err)
 	}
@@ -178,39 +175,35 @@ func TestPickRoleFromCatalogQuotaCacheBehavior(t *testing.T) {
 	// 3. Stale (> 10m) cache -> invokes live probe and returns livePools to persist.
 	stale := freshHealthy
 	stale.QuotaUpdatedAt = now.Add(-11 * time.Minute).Format(time.RFC3339)
-	pickStale, liveStale, err := PickRoleFromCatalogForHome(ctx, stale, PickRoleOptions{AgyPath: "agy"}, "judge", "pro")
+	pickStale, liveStale, err := PickRoleFromCatalogForHome(ctx, stale, PickRoleOptions{AgyPath: "agy", UsageProbe: probeFn, Now: nowFn}, "judge", "pro")
 	if err != nil || pickStale.Model != "claude-opus-5-5-high" || calls != 1 || len(liveStale) != 2 {
 		t.Fatalf("stale cache: pick=%+v livePools=%+v calls=%d err=%v", pickStale, liveStale, calls, err)
 	}
 
 	// 4. ForceRefresh bypasses fresh cache -> invokes live probe.
-	pickRef, liveRef, err := PickRoleFromCatalogForHome(ctx, freshHealthy, PickRoleOptions{AgyPath: "agy", ForceRefresh: true}, "judge", "pro")
+	pickRef, liveRef, err := PickRoleFromCatalogForHome(ctx, freshHealthy, PickRoleOptions{AgyPath: "agy", ForceRefresh: true, UsageProbe: probeFn, Now: nowFn}, "judge", "pro")
 	if err != nil || pickRef.Model != "claude-opus-5-5-high" || calls != 2 || len(liveRef) != 2 {
 		t.Fatalf("force refresh: pick=%+v livePools=%+v calls=%d err=%v", pickRef, liveRef, calls, err)
 	}
 
 	// 5. Corrupt cached quota triggers live probe; if live probe also fails, falls back gracefully.
-	UsageProbeFunc = func(context.Context, string) (string, error) {
+	probeFn = func(context.Context, string) (string, error) {
 		calls++
 		return "", errors.New("usage offline")
 	}
 	corrupt := freshHealthy
 	corrupt.Pools = []Pool{{Name: "Claude", Five: 999, Week: 50}}
-	pickCorr, liveCorr, err := PickRoleFromCatalogForHome(ctx, corrupt, PickRoleOptions{AgyPath: "agy"}, "verifier", "pro")
+	pickCorr, liveCorr, err := PickRoleFromCatalogForHome(ctx, corrupt, PickRoleOptions{AgyPath: "agy", UsageProbe: probeFn, Now: nowFn}, "verifier", "pro")
 	if err != nil || pickCorr.Model != "gemini-4-carbon-high" || calls != 3 || len(liveCorr) != 0 || !strings.Contains(pickCorr.FallbackReason, "/usage unreadable") {
 		t.Fatalf("corrupt cache + offline probe: pick=%+v livePools=%+v calls=%d err=%v", pickCorr, liveCorr, calls, err)
 	}
 }
 
 func TestPickRoleExpiredSameFamilyAndCrossFamilyRepickReason(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	now := time.Date(2026, 11, 21, 15, 0, 0, 0, time.UTC)
-	oldNow, oldUsage := usageNowFunc, UsageProbeFunc
-	usageNowFunc = func() time.Time { return now }
-	t.Cleanup(func() {
-		usageNowFunc = oldNow
-		UsageProbeFunc = oldUsage
-	})
+	nowFn := func() time.Time { return now }
 
 	entries := []CatalogEntry{
 		{ID: "gemini-4-carbon-high", DisplayName: "Gemini 4 Carbon (High)", Family: "gemini", Tier: "pro", Effort: "high", Status: "active"},
@@ -229,20 +222,20 @@ func TestPickRoleExpiredSameFamilyAndCrossFamilyRepickReason(t *testing.T) {
 			{Name: "Claude and GPT models", Five: 0, Week: 0},
 		},
 	}
-	pickNoAgy, liveNoAgy, err := PickRoleFromCatalogForHome(ctx, expiredExhausted, PickRoleOptions{AgyPath: ""}, "builder", "pro")
+	pickNoAgy, liveNoAgy, err := PickRoleFromCatalogForHome(ctx, expiredExhausted, PickRoleOptions{AgyPath: "", Now: nowFn}, "builder", "pro")
 	if err != nil || pickNoAgy.Model != "gemini-4-carbon-high" || len(liveNoAgy) != 0 {
 		t.Fatalf("expired !crossFamily without agy applied stale pools: pick=%+v live=%+v err=%v", pickNoAgy, liveNoAgy, err)
 	}
 	//    - With AgyPath != "", expired pools trigger live usage probe and return livePools.
 	probeCalls := 0
-	UsageProbeFunc = func(context.Context, string) (string, error) {
+	probeFn := func(context.Context, string) (string, error) {
 		probeCalls++
 		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
 			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
 			"Claude and GPT models\tWeekly Limit Remaining\t60%\tx\n" +
 			"Claude and GPT models\tFive Hour Limit Remaining\t70%\tx\n", nil
 	}
-	pickWithAgy, liveWithAgy, err := PickRoleFromCatalogForHome(ctx, expiredExhausted, PickRoleOptions{AgyPath: "agy"}, "builder", "pro")
+	pickWithAgy, liveWithAgy, err := PickRoleFromCatalogForHome(ctx, expiredExhausted, PickRoleOptions{AgyPath: "agy", UsageProbe: probeFn, Now: nowFn}, "builder", "pro")
 	if err != nil || pickWithAgy.Model != "gemini-4-carbon-high" || probeCalls != 1 || len(liveWithAgy) != 2 {
 		t.Fatalf("expired !crossFamily with agy did not probe live pools: pick=%+v live=%+v calls=%d err=%v", pickWithAgy, liveWithAgy, probeCalls, err)
 	}
@@ -259,7 +252,7 @@ func TestPickRoleExpiredSameFamilyAndCrossFamilyRepickReason(t *testing.T) {
 			{Name: "OpenAI Models", Five: 90, Week: 90},
 		},
 	}
-	pickRepick, _, err := PickRoleFromCatalogForHome(ctx, repickCat, PickRoleOptions{AgyPath: "agy"}, "judge", "pro")
+	pickRepick, _, err := PickRoleFromCatalogForHome(ctx, repickCat, PickRoleOptions{AgyPath: "agy", UsageProbe: probeFn, Now: nowFn}, "judge", "pro")
 	if err != nil || pickRepick.Model != "custom-other-pro-high" {
 		t.Fatalf("cross-family repick: pick=%+v err=%v, want custom-other-pro-high", pickRepick, err)
 	}
@@ -272,12 +265,12 @@ func TestPickRoleExpiredSameFamilyAndCrossFamilyRepickReason(t *testing.T) {
 
 	// 3. Cross-family anthropic caller with expired exhausted cat.Pools + unparseable live /usage output:
 	//    must NOT fall back to expired cat.Pools (activePools must be cleared to nil).
-	UsageProbeFunc = func(context.Context, string) (string, error) {
+	probeFn = func(context.Context, string) (string, error) {
 		return "garbled unparseable /usage output\n", nil
 	}
 	pickUnparseable, liveUnparseable, err := PickRoleFromCatalogForHome(
 		ctx, expiredExhausted,
-		PickRoleOptions{AgyPath: "agy", CallerFamily: "anthropic"},
+		PickRoleOptions{AgyPath: "agy", CallerFamily: "anthropic", UsageProbe: probeFn, Now: nowFn},
 		"judge", "pro",
 	)
 	if err != nil || pickUnparseable.Model != "gemini-4-carbon-high" || len(liveUnparseable) != 0 {

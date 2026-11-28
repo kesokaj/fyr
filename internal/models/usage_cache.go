@@ -29,8 +29,10 @@ type PickRoleOptions struct {
 	Home         string
 	AgyPath      string
 	ForceRefresh bool
-	QuotaTTL     time.Duration // <= 0 uses AdaptivePoolQuotaTTL(cat.Pools)
-	CallerFamily string        // optional caller family for cross-family roles
+	QuotaTTL     time.Duration                                 // <= 0 uses AdaptivePoolQuotaTTL(cat.Pools)
+	CallerFamily string                                        // optional caller family for cross-family roles
+	UsageProbe   func(context.Context, string) (string, error) // nil uses UsageProbeFunc
+	Now          func() time.Time                              // nil uses usageNowFunc
 }
 
 // AdaptivePoolQuotaTTL returns LowPoolQuotaTTL (2m) when any active pool has
@@ -106,7 +108,7 @@ func PickRoleFromCatalogForHome(ctx context.Context, cat Catalog, opts PickRoleO
 		ttl = AdaptivePoolQuotaTTL(cat.Pools)
 	}
 	crossFamily := IsCrossFamilyRole(normRole)
-	freshCache := !opts.ForceRefresh && HasFreshPoolQuotas(cat, usageNowFunc(), ttl)
+	freshCache := !opts.ForceRefresh && HasFreshPoolQuotas(cat, modelsNow(opts.Now), ttl)
 	if !crossFamily {
 		return pickSameFamilyWithQuota(ctx, cat, opts, normRole, normTier, normCaller, freshCache)
 	}
@@ -123,7 +125,7 @@ func pickSameFamilyWithQuota(ctx context.Context, cat Catalog, opts PickRoleOpti
 	if !freshCache {
 		activePools = nil
 		if opts.AgyPath != "" {
-			if uText, err := probeUsageForHome(ctx, opts.Home, opts.AgyPath); err == nil {
+			if uText, err := probeUsageForHomeWith(ctx, opts.Home, opts.AgyPath, opts.UsageProbe); err == nil {
 				if parsed, perr := ParseUsage(uText); perr == nil {
 					livePools, activePools = parsed, parsed
 				}
@@ -177,7 +179,7 @@ func pickCrossFamilyAnthropicCaller(ctx context.Context, cat Catalog, opts PickR
 	activePools, livePools := cat.Pools, ([]Pool)(nil)
 	if !freshCache {
 		activePools = nil
-		if uText, err := probeUsageForHome(ctx, opts.Home, opts.AgyPath); err == nil {
+		if uText, err := probeUsageForHomeWith(ctx, opts.Home, opts.AgyPath, opts.UsageProbe); err == nil {
 			if parsed, perr := ParseUsage(uText); perr == nil {
 				livePools, activePools = parsed, parsed
 			}
@@ -209,7 +211,7 @@ func resolveAnthropicQuota(ctx context.Context, cat Catalog, opts PickRoleOption
 		model, reason, fb = evaluateAnthropicPools(cat.Pools, role, anthropicModel, geminiFallback, true)
 		return model, reason, fb, nil, cat.Pools
 	}
-	model, reason, fb, livePools = probeAnthropicQuotaPools(ctx, opts.Home, opts.AgyPath, role, anthropicModel, geminiFallback)
+	model, reason, fb, livePools = probeAnthropicQuotaPools(ctx, opts.Home, opts.AgyPath, role, anthropicModel, geminiFallback, opts.UsageProbe)
 	return model, reason, fb, livePools, livePools
 }
 

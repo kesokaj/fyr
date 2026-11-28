@@ -9,6 +9,7 @@ import (
 // TestClassify: the status and cause of a trial from its reasons, and the
 // order one cause is chosen when several reasons are given.
 func TestClassify(t *testing.T) {
+	t.Parallel()
 	for name, c := range map[string]struct {
 		reasons       []string
 		timedOut      bool
@@ -42,6 +43,7 @@ func TestClassify(t *testing.T) {
 // its own cause, so none falls through to the graded default, and each
 // cause is an identifier the trials table accepts.
 func TestClassifyEveryReason(t *testing.T) {
+	t.Parallel()
 	want := map[string][2]string{
 		ReasonExists: {StatusError, "exists"}, ReasonClone: {StatusError, "clone"}, ReasonRecords: {StatusError, "records"},
 		ReasonSetup: {StatusError, "setup"}, ReasonInstall: {StatusError, "install"}, ReasonSettings: {StatusError, "settings"},

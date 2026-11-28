@@ -82,6 +82,7 @@ func simAvoidRepeatOutcomes() []outcome {
 // TestDreamerMarker pins the dreamer marker across agents/dreamer/agent.md and
 // both dreamer-based GUIDE-eval rows (dreamer and sim-avoid-repeat).
 func TestDreamerMarker(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -112,6 +113,7 @@ func TestDreamerMarker(t *testing.T) {
 // and dreamer prompts, including validating every fyr auto sim flag documented
 // in skills/fyr-retro/SKILL.md.
 func TestSIMPromptContracts(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

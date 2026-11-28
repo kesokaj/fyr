@@ -6,6 +6,7 @@ import (
 )
 
 func TestModelClassification22Lineup(t *testing.T) {
+	t.Parallel()
 	lines := []string{
 		"gemini-4-neon-high\tGemini 4 Neon (High)",
 		"gemini-5-nova-medium\tGemini 5 Nova (Medium)",
@@ -94,6 +95,7 @@ func TestModelClassification22Lineup(t *testing.T) {
 }
 
 func TestChangelogEnrichment(t *testing.T) {
+	t.Parallel()
 	entries := []CatalogEntry{
 		{ID: "gemini-4-carbon-medium", Family: "gemini", Tier: "pro", Status: "active"},
 		{ID: "gemini-4-neon-high", Family: "gemini", Tier: "pro", Status: "active", Evidence: ModelEvidence{WorkRuns: 3}},
@@ -132,6 +134,7 @@ func TestChangelogEnrichment(t *testing.T) {
 }
 
 func TestChangelogContextWindowPrecedence(t *testing.T) {
+	t.Parallel()
 	entries := []CatalogEntry{
 		{ID: "gemini-4-carbon-high", DisplayName: "Gemini 4 Carbon (High)", Family: "gemini", Tier: "pro", Status: "active"},
 		{ID: "claude-opus-5-5-high", DisplayName: "Claude Opus 5.5 (High, 500K context)", Family: "anthropic", Tier: "pro", Status: "active"},
@@ -156,6 +159,7 @@ func TestChangelogContextWindowPrecedence(t *testing.T) {
 }
 
 func TestResolveScopeRoleAndTier(t *testing.T) {
+	t.Parallel()
 	docsRole, docsTier, _ := ResolveScopeRoleAndTier([]string{"README.md", "SDD.md"}, "clarify section")
 	if docsRole != "mechanical" || docsTier != "flash" {
 		t.Errorf("docs scope = (%s,%s), want (mechanical,flash)", docsRole, docsTier)

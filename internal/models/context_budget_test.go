@@ -6,6 +6,7 @@ import (
 )
 
 func TestEffectiveContextBudgetAndKnee(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		model      string
 		wantBudget int64
@@ -43,6 +44,7 @@ func TestEffectiveContextBudgetAndKnee(t *testing.T) {
 }
 
 func TestContextWindowOverridesAndPreserveOnMerge(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	cat := Catalog{
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339),

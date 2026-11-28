@@ -356,6 +356,7 @@ func TestCommandLandlockIsolatesNetwork(t *testing.T) {
 }
 
 func TestCommandLandlockIsolatesNetworkHelper(t *testing.T) {
+	t.Parallel()
 	target := os.Getenv("FYR_NET_PROBE_TARGET")
 	if target == "" {
 		return

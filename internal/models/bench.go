@@ -28,6 +28,13 @@ type BenchProbeFunc func(ctx context.Context, home, agyPath, modelID, prompt str
 
 var BenchRunnerFunc BenchProbeFunc = RunBenchProbe
 
+// BenchOptions configures headless bench runner and clock seams. Zero/nil
+// fields fall back to BenchRunnerFunc and time.Now().UTC().
+type BenchOptions struct {
+	Runner BenchProbeFunc
+	Now    func() time.Time
+}
+
 type BenchTrialRecord struct {
 	Run, Model, Status, Cause string
 	StartedAt                 time.Time
@@ -109,17 +116,29 @@ func SelectBenchTargets(cat Catalog, explicitModel string, maxModels int) ([]Cat
 }
 
 func RunBench(ctx context.Context, home, agyPath string, targets []CatalogEntry, record func(BenchTrialRecord) error) (BenchReport, error) {
-	if BenchRunnerFunc == nil {
+	return RunBenchWithOptions(ctx, home, agyPath, targets, record, BenchOptions{})
+}
+
+func RunBenchWithOptions(ctx context.Context, home, agyPath string, targets []CatalogEntry, record func(BenchTrialRecord) error, opts BenchOptions) (BenchReport, error) {
+	runner := opts.Runner
+	if runner == nil {
+		runner = BenchRunnerFunc
+	}
+	if runner == nil {
 		return BenchReport{}, errors.New("bench runner unavailable")
 	}
+	nowFn := opts.Now
+	if nowFn == nil {
+		nowFn = func() time.Time { return time.Now().UTC() }
+	}
 	rep := BenchReport{Results: make([]BenchResult, 0, len(targets))}
-	stamp := time.Now().UTC().Format("20060102-150405.000")
+	stamp := nowFn().UTC().Format("20060102-150405.000")
 	for i, t := range targets {
 		if ctx.Err() != nil {
 			return rep, ctx.Err()
 		}
-		started := time.Now().UTC()
-		raw, pErr := BenchRunnerFunc(ctx, home, agyPath, t.ID, BenchPrompt, BenchTimeout)
+		started := nowFn().UTC()
+		raw, pErr := runner(ctx, home, agyPath, t.ID, BenchPrompt, BenchTimeout)
 		durMS := max(time.Since(started).Milliseconds(), 1)
 		status, cause := classifyBenchOutcome(raw, pErr)
 		if record != nil {

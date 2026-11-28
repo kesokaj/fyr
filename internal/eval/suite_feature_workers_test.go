@@ -158,6 +158,7 @@ func assertFeatureWorkersMustFailMutations(t *testing.T, good featureWorkersDocs
 // technical reason required for no), and populate model:, base-check:, judge:,
 // and judge-model: per worker phase via fyr models --pick.
 func TestFeaturePlanWorkersByDefault(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

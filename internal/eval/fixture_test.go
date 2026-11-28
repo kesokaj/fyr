@@ -45,6 +45,7 @@ func put(t *testing.T, p, s string, mode os.FileMode) {
 // TestGuardPreflight: a root that is no checkout and a home inside a
 // checkout (the BUG-106 message) are refused before anything is created.
 func TestGuardPreflight(t *testing.T) {
+	t.Parallel()
 	tmp := outsideTemp(t)
 	project, real := filepath.Join(tmp, "project"), filepath.Join(tmp, "real")
 	gitInit(t, project)

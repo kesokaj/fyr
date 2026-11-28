@@ -57,8 +57,6 @@ func TestRunWorkerDraftsOnlyAllowsDirtyNonGitAndGlobal(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	restoreOS := SetHostOS("linux")
-	defer restoreOS()
 
 	dirtyGit := t.TempDir()
 	for _, args := range [][]string{

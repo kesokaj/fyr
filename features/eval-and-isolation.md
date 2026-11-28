@@ -63,7 +63,7 @@ Each `GUIDE-eval.md` row defines 14 columns across four groups, and every trial 
 | **a. Refused roots** | Clone and sandbox paths are never `/`, `$HOME`, or the harness checkout (`internal/isolate/guard.go`) |
 | **b. Outside checkout** | Sandbox root and clone sit outside every git repo (`isolate.OutsideCheckout`) |
 | **c. Real config unchanged** | Fingerprints `~/.config/fyr` (`brain.SnapshotScopes`), `~/.gemini/config`, and vendor `settings.json` before and after |
-| **d. No leaked credentials** | Scans for new credential files, links, or secrets (`internal/isolate/creds.go`); exempts `home/.cache/go-build` and verified `_pkg_.a` archives (`<= 256 MiB`) |
+| **d. No leaked credentials** | Scans for new credential files, links, or secrets (`internal/isolate/creds.go`, `internal/isolate/creds/creds.go`); exempts `home/.cache/go-build` and verified `_pkg_.a` archives (`<= 256 MiB`) |
 | **e. No stray processes** | Scans Linux `/proc` or macOS `lsof`/`ps -Eww` for leftover sandbox processes and stops them (`SIGTERM`/`SIGKILL`) |
 | **f. Subagent invocation** | Confirms `"TypeName":"<agent>"` appears in the sandbox conversation SQLite DB when `agent` is set |
 

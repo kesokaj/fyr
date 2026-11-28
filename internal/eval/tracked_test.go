@@ -12,6 +12,7 @@ import (
 // record fallback), a committed file is read, and with atHead a file that is
 // not committed or differs from HEAD is refused; a link is refused always.
 func TestReadTrackedSuite(t *testing.T) {
+	t.Parallel()
 	root := outsideTemp(t)
 	gitInit(t, root)
 	if rows, found, err := ReadTrackedSuite(root, true); found || err != nil || rows != nil {

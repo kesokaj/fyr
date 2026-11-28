@@ -10,6 +10,7 @@ import (
 )
 
 func TestListProcsFromLinuxFixture(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	mustWriteWatchFile(t, filepath.Join(root, "uptime"), "1000.50 2000.00\n", time.Time{})
 	pidDir := filepath.Join(root, "4242")

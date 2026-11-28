@@ -32,8 +32,19 @@ const (
 // JudgeExecOptions configures a confined Network-enabled `agy -p` judge run.
 type JudgeExecOptions struct {
 	Home, RealHome, RepoDir, AgyPath, Model, Prompt string
+	HostOS                                          string
 	Timeout                                         time.Duration
 	Unconfined                                      bool
+}
+
+// JudgeOptions configures worker-side judge execution seams. Zero/nil fields
+// fall back to package hooks (JudgeExecFunc, models.ListModelsFunc,
+// models.UsageProbeFunc) and runtime.GOOS.
+type JudgeOptions struct {
+	HostOS     string
+	ExecFunc   func(context.Context, JudgeExecOptions) (JudgeExecOutput, error)
+	ListModels func(context.Context, string) ([]string, error)
+	UsageProbe func(context.Context, string) (string, error)
 }
 
 // JudgeExecOutput holds the stdout, stderr, and exit code of a judge run.
@@ -59,7 +70,7 @@ func RunJudgePrint(ctx context.Context, opts JudgeExecOptions) (JudgeExecOutput,
 	if err != nil {
 		return JudgeExecOutput{ExitCode: -1}, err
 	}
-	scratchHome, tmpDir, tok, cleanScratch, err := prepareJudgeScratch(absHome, absReal, opts.Unconfined)
+	scratchHome, tmpDir, tok, cleanScratch, err := prepareJudgeScratch(absHome, absReal, opts.HostOS, opts.Unconfined)
 	if err != nil {
 		return JudgeExecOutput{ExitCode: -1}, err
 	}
@@ -94,7 +105,7 @@ func resolveJudgeDirs(opts JudgeExecOptions) (absHome, absReal, absRepo string, 
 	return absHome, absReal, absRepo, err
 }
 
-func prepareJudgeScratch(absHome, absReal string, unconfined bool) (scratchHome, tmpDir, tok string, cleanup func(), err error) {
+func prepareJudgeScratch(absHome, absReal, goos string, unconfined bool) (scratchHome, tmpDir, tok string, cleanup func(), err error) {
 	stateDir := filepath.Join(absHome, harness.StateDir)
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return "", "", "", nil, err
@@ -120,7 +131,7 @@ func prepareJudgeScratch(absHome, absReal string, unconfined bool) (scratchHome,
 			return "", "", "", nil, err
 		}
 	}
-	if tok, err = linkJudgeToken(scratchHome, absHome, absReal, unconfined); err == nil {
+	if tok, err = linkJudgeToken(scratchHome, absHome, absReal, goos, unconfined); err == nil {
 		if stageSrc := firstNonEmpty(absReal, absHome); stageSrc != "" {
 			err = StageModelsCatalog(stageSrc, scratchHome)
 		}
@@ -136,7 +147,7 @@ func prepareJudgeScratch(absHome, absReal string, unconfined bool) (scratchHome,
 	return scratchHome, tmpDir, tok, cleanup, nil
 }
 
-func linkJudgeToken(scratchHome, absHome, absReal string, unconfined bool) (string, error) {
+func linkJudgeToken(scratchHome, absHome, absReal, goos string, unconfined bool) (string, error) {
 	if absReal == "" && unconfined {
 		_, e1 := os.Lstat(filepath.Join(absHome, filepath.FromSlash(TokenRel)))
 		_, e2 := os.Lstat(filepath.Join(absHome, filepath.FromSlash(WorkTokenRel)))
@@ -145,7 +156,7 @@ func linkJudgeToken(scratchHome, absHome, absReal string, unconfined bool) (stri
 		}
 	}
 	realDir := firstNonEmpty(absReal, absHome)
-	tok, err := SyncWorkToken(absHome, realDir, hostOS)
+	tok, err := SyncWorkToken(absHome, realDir, effectiveHostOS(goos))
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrNoAuthToken, err)
 	}
@@ -255,15 +266,24 @@ func runWorkerJudge(ctx context.Context, w *worker) {
 	if agyPath == "" {
 		agyPath, _ = exec.LookPath("agy")
 	}
-	model, _, err := models.ResolveRoleModelForHome(ctx, w.o.Home, agyPath, "judge", "pro", w.p.k.JudgeModel)
+	model, _, err := models.ResolveRoleModelWithOptions(ctx, models.ResolveRoleOptions{
+		Home: w.o.Home, AgyPath: agyPath, Role: "judge", Tier: "pro",
+		ExplicitModel: w.p.k.JudgeModel, PersistPools: true,
+		ListModels: w.o.Judge.ListModels, UsageProbe: w.o.Judge.UsageProbe,
+	})
 	if err != nil {
 		w.b.Note("judge model: %v", err)
 		w.b.Fail(ReasonJudgeFailed)
 		return
 	}
-	out, jerr := JudgeExecFunc(ctx, JudgeExecOptions{
+	execFn := w.o.Judge.ExecFunc
+	if execFn == nil {
+		execFn = JudgeExecFunc
+	}
+	out, jerr := execFn(ctx, JudgeExecOptions{
 		Home: w.o.Home, RealHome: w.o.RealHome, RepoDir: w.b.App(), AgyPath: agyPath,
-		Model: model, Prompt: buildWorkerJudgePrompt(w.p.k.Judge, diff), Unconfined: w.o.TestUnconfined,
+		HostOS: firstNonEmpty(w.o.Judge.HostOS, w.o.HostOS),
+		Model:  model, Prompt: buildWorkerJudgePrompt(w.p.k.Judge, diff), Unconfined: w.o.TestUnconfined,
 	})
 	verdict, reason, perr := ParseJudgeVerdict(out.Stdout)
 	if jerr != nil || out.ExitCode != 0 || perr != nil || verdict != "PASS" {

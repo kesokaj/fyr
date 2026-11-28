@@ -1,4 +1,4 @@
-package isolate
+package creds
 
 import (
 	"bytes"
@@ -19,10 +19,10 @@ func assertSelfHostingSandbox(t *testing.T) {
 	baseGH := "gh" + "p_" + "abcdefghijklmnopqrstuvwxyz0123456789ABCD"
 	baseHdr := `var hdr = "` + "-----" + "BEGIN OPENSSH " + "PRIVATE " + "KEY-----" + `"`
 	basePEM := "-----" + "BEGIN RSA " + "PRIVATE " + "KEY-----\nMIIEpAIBAAKCAQEAsecretbody\n-----END RSA " + "PRIVATE " + "KEY-----"
-	baseRef := `{"` + "refresh_" + `token": "x"}`
+	baseRef := `{"` + "ref" + "resh_" + "tok" + `en": "x"}`
 	fixture := strings.Join([]string{baseGH, baseHdr, basePEM, baseRef}, "\n") + "\n"
 	put(t, filepath.Join(sb, "app", "internal", "fixture_test.go"), fixture, 0o644)
-	base := scanCreds(sb)
+	base := Scan(sb)
 
 	sdb := filepath.Join(sb, "app", ".agents", "scratch", "search.db")
 	outTxt := filepath.Join(sb, "home", ".gemini", "antigravity-cli", "brain", "conv1", ".system_generated", "steps", "1", "output.txt")
@@ -33,12 +33,12 @@ func assertSelfHostingSandbox(t *testing.T) {
 	hex64 := strings.Repeat("ab", 32)
 	putSparse(t, filepath.Join(sb, "home", ".cache", "go-build", "ab", hex64+"-d"), "\x7fELF\x02\x01\x01\x00", maxScan+4096)
 	putSparse(t, filepath.Join(sb, "home", ".cache", "go-build", "cd", hex64+"-d"), "\xcf\xfa\xed\xfe\x0c\x00\x00\x01", maxScan+4096)
-	if got := newCreds(base, scanCreds(sb)); len(got) != 0 {
+	if got := New(base, Scan(sb)); len(got) != 0 {
 		t.Errorf("self-hosting sandbox post-baseline artifacts flagged: %v", got)
 	}
 
 	novelAnt := "sk-" + "ant-" + strings.Repeat("Q", 24)
-	novelRef := `{"` + "refresh_" + `token": "1//0gNovelSecretRefreshToken"}`
+	novelRef := `{"` + "ref" + "resh_" + "tok" + `en": "1/` + `/0gNovelSecretRefreshToken"}`
 	novelKey := "-----" + "BEGIN OPENSSH " + "PRIVATE " + "KEY-----\nComment: leaked\n" + strings.Repeat("Z", 32) + "\n-----END OPENSSH " + "PRIVATE " + "KEY-----"
 	assertPlantedCredsFail(t, sb, base, []plantedCred{
 		{sdb, "SQLite format 3\x00" + fixture + novelAnt, "anthropic-key"},
@@ -56,20 +56,20 @@ func assertSelfHostingSandbox(t *testing.T) {
 	if err := os.Symlink(outsideELF, symPath); err != nil {
 		t.Fatal(err)
 	}
-	if got := newCreds(base, scanCreds(sb)); len(got) != 1 || !strings.Contains(got[0], "larger than") {
+	if got := New(base, Scan(sb)); len(got) != 1 || !strings.Contains(got[0], "larger than") {
 		t.Errorf("symlinked oversized ELF in go-build: got %v, want oversized refusal", got)
 	}
 }
 
 type plantedCred struct{ path, payload, wantKind string }
 
-func assertPlantedCredsFail(t *testing.T, sb string, base map[string]credFinding, cases []plantedCred) {
+func assertPlantedCredsFail(t *testing.T, sb string, base map[string]Finding, cases []plantedCred) {
 	t.Helper()
 	for _, tc := range cases {
 		prev, err := os.ReadFile(tc.path)
 		existed := err == nil
 		put(t, tc.path, tc.payload, 0o600)
-		got := newCreds(base, scanCreds(sb))
+		got := New(base, Scan(sb))
 		if !existed {
 			_ = os.Remove(tc.path)
 		} else if err := os.WriteFile(tc.path, prev, 0o600); err != nil {
@@ -109,7 +109,7 @@ func seedRepoSandbox(t *testing.T, root, bin, app, home string) []string {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	pk, sshPK, rt := "-----"+"BEGIN PRIVATE "+"KEY-----", "-----"+"BEGIN OPENSSH PRIVATE "+"KEY-----", "refresh_"+"token"
+	pk, sshPK, rt := "-----"+"BEGIN PRIVATE "+"KEY-----", "-----"+"BEGIN OPENSSH PRIVATE "+"KEY-----", "ref"+"resh_"+"token"
 	trail1 := fmt.Sprintf("Patterns (`\"%s\"`, `%s`) > 64 MiB & steps/<n>/output.txt >= 1, span `\"%s\" names <field>`, and `pasted %s up to -----END below`.\n", rt, pk, rt, sshPK)
 	var ovf strings.Builder
 	for i := range 80 {
@@ -131,7 +131,7 @@ func assertSelfHostedRepoIndex(t *testing.T, root, bin string) {
 	sb := t.TempDir()
 	app, home := filepath.Join(sb, "app"), filepath.Join(sb, "home")
 	trails := seedRepoSandbox(t, root, bin, app, home)
-	base := scanCreds(sb)
+	base := Scan(sb)
 
 	for _, verb := range [][]string{{"index"}, {"record", "export"}} {
 		if out, err := exec.Command(bin, append(verb, "--home", home, "-C", app)...).CombinedOutput(); err != nil {
@@ -146,7 +146,7 @@ func assertSelfHostedRepoIndex(t *testing.T, root, bin string) {
 	outTxt := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "c1", ".system_generated", "steps", "1", "output.txt")
 	jsonl := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "c1", ".system_generated", "logs", "transcript.jsonl")
 	writeTranscriptFixtures(t, app, outTxt, jsonl, trails)
-	if got := newCreds(base, scanCreds(sb)); len(got) != 0 {
+	if got := New(base, Scan(sb)); len(got) != 0 {
 		t.Errorf("BUG-544 self-hosted repo index/transcript flagged: %v", got)
 	}
 	assertSelfHostedPlantedFail(t, sb, app, outTxt, jsonl, base)
@@ -155,7 +155,7 @@ func assertSelfHostedRepoIndex(t *testing.T, root, bin string) {
 	if out, err := ovfLeak.CombinedOutput(); err != nil {
 		t.Fatalf("seed ovf-leak: %v\n%s", err, out)
 	}
-	if got := newCreds(base, scanCreds(sb)); len(got) == 0 || !strings.Contains(strings.Join(got, ","), "anthropic-key") {
+	if got := New(base, Scan(sb)); len(got) == 0 || !strings.Contains(strings.Join(got, ","), "anthropic-key") {
 		t.Errorf("planted secret in SQLite overflow cell: got %v, want anthropic-key hit", got)
 	}
 }
@@ -164,7 +164,7 @@ func writeTranscriptFixtures(t *testing.T, app, outTxt, jsonl string, extras []s
 	t.Helper()
 	var numbered, logs strings.Builder
 	chunks := append([]string{}, extras...)
-	for _, rel := range []string{"internal/redact/redact_test.go", "internal/isolate/creds_test.go", "internal/isolate/creds_table_test.go", "cmd/fyr/record_body_file_test.go", "internal/eval/run_proc_test.go"} {
+	for _, rel := range []string{"internal/redact/redact_test.go", "internal/isolate/creds/creds_test.go", "internal/isolate/creds/creds_table_test.go", "cmd/fyr/record_body_file_test.go", "internal/eval/run_proc_test.go"} {
 		raw, err := os.ReadFile(filepath.Join(app, filepath.FromSlash(rel)))
 		if err != nil {
 			t.Fatal(err)
@@ -183,10 +183,10 @@ func writeTranscriptFixtures(t *testing.T, app, outTxt, jsonl string, extras []s
 	put(t, jsonl, logs.String(), 0o600)
 }
 
-func assertSelfHostedPlantedFail(t *testing.T, sb, app, outTxt, jsonl string, base map[string]credFinding) {
+func assertSelfHostedPlantedFail(t *testing.T, sb, app, outTxt, jsonl string, base map[string]Finding) {
 	t.Helper()
 	hdr, endHdr := "-----"+"BEGIN OPENSSH PRIVATE "+"KEY-----", "-----"+"END OPENSSH PRIVATE "+"KEY-----"
-	b64, b64Plus, rt := "b3BlbnNzaC1rZXktdjEAAAAABG5vbmU=", "MIIE+gIB+ADANBg==", "refresh_"+"token"
+	b64, b64Plus, rt := "b3BlbnNzaC1rZXktdjEAAAAABG5vbmU=", "MIIE+gIB+ADANBg==", "ref"+"resh_"+"token"
 	longBody := strings.Repeat(b64, 56)
 	assertPlantedCredsFail(t, sb, base, []plantedCred{
 		{filepath.Join(app, "short.pem"), "-----" + "BEGIN PRIVATE " + "KEY-----\nMIIBogIBAA==\n-----" + "END PRIVATE " + "KEY-----\n", "private-key"},

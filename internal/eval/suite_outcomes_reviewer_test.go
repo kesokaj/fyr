@@ -207,6 +207,7 @@ func featureOutcomes() map[string][]outcome {
 // row's check greps it, and the reviewer's definition holds it, so a changed
 // first sentence fails here instead of failing every trial.
 func TestReviewerMarker(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

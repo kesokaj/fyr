@@ -384,10 +384,10 @@ func changedPaths(before, after map[string]string) []string {
 // WorkTokenRel that a concurrent SyncWorkToken wrote from realHome's macOS
 // Keychain under the work root's slots.lock (BUG-513, ADR-503). Any planted,
 // modified, deleted or re-permissioned token stays in the list (BUG-511).
-func changedPathsIn(realHome string, before, after map[string]string) []string {
+func changedPathsInForOS(realHome string, before, after map[string]string, goos string) []string {
 	out := changedPaths(before, after)
 	tokKey := filepath.FromSlash(WorkTokenRel)
-	if slices.Contains(out, tokKey) && isKeychainSyncedWorkToken(realHome, after[tokKey]) {
+	if slices.Contains(out, tokKey) && isKeychainSyncedWorkTokenForOS(realHome, after[tokKey], goos) {
 		out = slices.DeleteFunc(out, func(p string) bool { return p == tokKey })
 	}
 	return out

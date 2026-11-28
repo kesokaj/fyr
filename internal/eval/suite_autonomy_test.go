@@ -119,6 +119,7 @@ func assertAutonomyMustFailMutations(t *testing.T, good autonomyDocs) {
 // session-sizing, and GUIDE-eval: questions happen only in the pre-build
 // interview, and no build-time wait-point remains except a safety FAIL.
 func TestAutonomyNoBuildTimeQuestions(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

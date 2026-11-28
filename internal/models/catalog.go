@@ -154,10 +154,22 @@ func EnrichCatalogPools(ctx context.Context, home, agyPath string, cat Catalog) 
 	return updated
 }
 
+// PoolOptions configures live `/usage` enrichment and clock seams.
+type PoolOptions struct {
+	UsageProbe func(context.Context, string) (string, error)
+	Now        func() time.Time
+}
+
 // EnrichCatalogPoolsWithStatus behaves like EnrichCatalogPools and also reports
 // whether the live `/usage` probe succeeded.
 func EnrichCatalogPoolsWithStatus(ctx context.Context, home, agyPath string, cat Catalog) (Catalog, bool) {
-	if probeCatalogPoolsBestEffort(ctx, home, agyPath, usageNowFunc(), &cat) {
+	return EnrichCatalogPoolsWithOptions(ctx, home, agyPath, cat, PoolOptions{})
+}
+
+// EnrichCatalogPoolsWithOptions runs live `/usage` enrichment using opts seams
+// without mutating package globals.
+func EnrichCatalogPoolsWithOptions(ctx context.Context, home, agyPath string, cat Catalog, opts PoolOptions) (Catalog, bool) {
+	if probeCatalogPoolsBestEffort(ctx, home, agyPath, modelsNow(opts.Now), opts.UsageProbe, &cat) {
 		populateEntryScores(cat.Entries, cat.Pools)
 		cat.Picks = computeStandardPicks(cat.Entries, cat.Picks, cat.Pools)
 		if home != "" {
@@ -168,11 +180,11 @@ func EnrichCatalogPoolsWithStatus(ctx context.Context, home, agyPath string, cat
 	return cat, false
 }
 
-func probeCatalogPoolsBestEffort(ctx context.Context, home, agyPath string, now time.Time, cat *Catalog) bool {
+func probeCatalogPoolsBestEffort(ctx context.Context, home, agyPath string, now time.Time, probe func(context.Context, string) (string, error), cat *Catalog) bool {
 	if cat == nil || strings.TrimSpace(agyPath) == "" {
 		return false
 	}
-	uText, err := probeUsageForHome(ctx, home, agyPath)
+	uText, err := probeUsageForHomeWith(ctx, home, agyPath, probe)
 	if err != nil {
 		return false
 	}

@@ -194,6 +194,7 @@ EOF
 // TestBuilderMarker pins the builder check's marker both ways: the row's check
 // greps it, and agents/builder/agent.md opens with it (GUIDE-eval § Known limits).
 func TestBuilderMarker(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

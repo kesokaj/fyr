@@ -171,6 +171,7 @@ func envMap(s string) map[string]string {
 // the cause first and then every reason but one that repeats the cause,
 // and the session's seconds only when a session started.
 func TestResultLine(t *testing.T) {
+	t.Parallel()
 	for want, r := range map[string]Result{
 		"eval: ok#2  PASS  agy exit 0  12s (9s session)  /sb/ok/2": {Row: "ok", Trial: 2, Status: StatusPass, AgyExit: 0, Seconds: 12, SessionSeconds: 9, Dir: "/sb/ok/2"},
 		"eval: bad#1  FAIL (check; check failed; auto-denied)  agy exit 3  40s (30s session)  /sb/bad/1": {Row: "bad", Trial: 1, Status: StatusFail,
@@ -190,9 +191,6 @@ func TestResultLine(t *testing.T) {
 // antigravity-oauth-token is absent (ADR-503, BUG-166) without exposing
 // $HOME/Library/Keychains inside the sandbox, and unlinks the token link after.
 func TestRunDarwinKeychainLogin(t *testing.T) {
-	old := hostOS
-	hostOS = "darwin"
-	t.Cleanup(func() { hostOS = old })
 	t.Cleanup(isolate.SetHostOS("darwin"))
 	rawTok := "go-keyring-base64:" + base64.StdEncoding.EncodeToString([]byte(`{"access_token":"tok"}`))
 	t.Cleanup(isolate.SetKeychainReader(func() (string, error) { return rawTok, nil }))
@@ -201,7 +199,14 @@ func TestRunDarwinKeychainLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	put(t, filepath.Join(r.real, isolate.KeychainsRel, "login.keychain-db"), "keychain", 0o600)
-	x := one(t, r.run(named("ok", "p", "true")))
+	o := r.opts()
+	o.HostOS = "darwin"
+	res, err := Run(context.Background(), o, []Row{named("ok", "p", "true")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.clean(res)
+	x := one(t, res)
 	wantVerdict(t, x, StatusPass)
 	if got := r.read("keychains.1"); got != "" {
 		t.Errorf("Library/Keychains was exposed in sandbox during session: %q", got)

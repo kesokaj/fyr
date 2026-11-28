@@ -23,6 +23,7 @@ type convSpec struct {
 }
 
 func TestWatchCheck(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 18, 21, 0, 0, 0, time.UTC)
 
 	t.Run("healthy", func(t *testing.T) {
@@ -306,6 +307,7 @@ func hasWatchFindingPID(rep Report, kind string, pid int) bool {
 }
 
 func TestParseDarwinPsForUID(t *testing.T) {
+	t.Parallel()
 	psOut := strings.Join([]string{
 		"  UID   PID  PPID STAT      ELAPSED COMMAND",
 		"    0     1     0 Ss       10:00:00 /sbin/launchd",
@@ -329,6 +331,7 @@ func TestParseDarwinPsForUID(t *testing.T) {
 }
 
 func TestWatchProcRedaction(t *testing.T) {
+	t.Parallel()
 	secretCmd := "curl --to" + "ken=" + "supersecret1234 https://api.example.com"
 	if got := compactCmdTarget(secretCmd, 42); got != "[redacted by fyr]" {
 		t.Fatalf("compactCmdTarget(%q) = %q, want [redacted by fyr]", secretCmd, got)
@@ -349,6 +352,7 @@ func TestWatchProcRedaction(t *testing.T) {
 }
 
 func TestWatchProcFilteringAndHeuristics(t *testing.T) {
+	t.Parallel()
 	self := os.Getpid()
 	procs := []ProcInfo{
 		{PID: 10, PPID: 1, Cmdline: "systemd"},
@@ -429,6 +433,7 @@ func TestWatchProcFilteringAndHeuristics(t *testing.T) {
 }
 
 func TestWatchFilesClipAndArtifacts(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 18, 21, 0, 0, 0, time.UTC)
 	home, dir := t.TempDir(), t.TempDir()
 	seedWatchDBs(t, home, dir, []convSpec{
@@ -463,6 +468,7 @@ func TestWatchFilesClipAndArtifacts(t *testing.T) {
 }
 
 func TestWatchSessionMetaWindowAndBudgets(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 18, 21, 0, 0, 0, time.UTC)
 	home, dir := t.TempDir(), t.TempDir()
 	convs := []convSpec{
@@ -542,6 +548,7 @@ func TestWatchSessionMetaWindowAndBudgets(t *testing.T) {
 }
 
 func TestWatchWorkspaceMatchesSymlinkedDir(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	realRepo := filepath.Join(base, "repo")
 	realSub := filepath.Join(realRepo, "sub", "nested")
@@ -578,6 +585,7 @@ func TestWatchWorkspaceMatchesSymlinkedDir(t *testing.T) {
 }
 
 func TestV910WatchReadOnlyLivenessAndOpenSSH(t *testing.T) {
+	t.Parallel()
 	t.Run("readonly_40mb_search_db", testV910ReadOnly40MB)
 	t.Run("readonly_fallback_and_refusal", testV910ReadOnlyFallbackAndRefusal)
 	t.Run("liveness_filters", testV910LivenessFilters)
@@ -586,6 +594,7 @@ func TestV910WatchReadOnlyLivenessAndOpenSSH(t *testing.T) {
 }
 
 func TestWatchTestFileHasNoSecretPatterns(t *testing.T) {
+	t.Parallel()
 	data, err := os.ReadFile("watch_test.go")
 	if err != nil {
 		t.Fatalf("read watch_test.go: %v", err)

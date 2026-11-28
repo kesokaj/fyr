@@ -1,4 +1,4 @@
-package isolate
+package creds
 
 import (
 	"bytes"
@@ -108,44 +108,62 @@ func evenBackslashesBefore(s []byte, idx int) bool {
 	return bs%2 == 0
 }
 
+type spanTracker struct {
+	start, end       int
+	ns, ne           int
+	setStart, setEnd bool
+}
+
+func (st *spanTracker) markBefore(pos, outLen int) {
+	if !st.setStart && st.start <= pos {
+		st.ns, st.setStart = outLen, true
+	}
+	if !st.setEnd && st.end <= pos {
+		st.ne, st.setEnd = outLen, true
+	}
+}
+
+func (st *spanTracker) markEscapeEnd(tokEnd, outBefore, outAfter int) {
+	if !st.setStart && st.start < tokEnd {
+		st.ns, st.setStart = outBefore, true
+	}
+	if !st.setEnd && st.end < tokEnd {
+		st.ne, st.setEnd = outAfter, true
+	}
+}
+
+func (st *spanTracker) finish(outLen int) (int, int) {
+	if !st.setStart {
+		st.ns = outLen
+	}
+	if !st.setEnd {
+		st.ne = outLen
+	}
+	return st.ns, st.ne
+}
+
 func unescapeLayerSpan(s []byte, start, end int) ([]byte, int, int) {
 	out := make([]byte, 0, len(s))
-	var ns, ne int
-	var setStart, setEnd bool
+	st := spanTracker{start: start, end: end}
 	for i := 0; i < len(s); i++ {
-		tokStart, outBefore := i, len(out)
-		if !setStart && start <= tokStart {
-			ns, setStart = outBefore, true
-		}
-		if !setEnd && end <= tokStart {
-			ne, setEnd = outBefore, true
-		}
+		outBefore := len(out)
+		st.markBefore(i, outBefore)
 		if s[i] != '\\' || i+1 >= len(s) {
 			out = append(out, s[i])
 			continue
 		}
-		i++
-		if dec, step, ok := decodeUnicodeEscape(s, i); ok {
-			out = append(out, dec...)
-			i += step
-		} else {
-			out = appendJSONEscape(out, s[i])
-		}
-		tokEnd := i + 1
-		if !setStart && start < tokEnd {
-			ns, setStart = outBefore, true
-		}
-		if !setEnd && end < tokEnd {
-			ne, setEnd = len(out), true
-		}
+		out, i = decodeEscapeAt(out, s, i+1)
+		st.markEscapeEnd(i+1, outBefore, len(out))
 	}
-	if !setStart {
-		ns = len(out)
-	}
-	if !setEnd {
-		ne = len(out)
-	}
+	ns, ne := st.finish(len(out))
 	return out, ns, ne
+}
+
+func decodeEscapeAt(out, s []byte, escIdx int) ([]byte, int) {
+	if dec, step, ok := decodeUnicodeEscape(s, escIdx); ok {
+		return append(out, dec...), escIdx + step
+	}
+	return appendJSONEscape(out, s[escIdx]), escIdx
 }
 
 func decodeUnicodeEscape(s []byte, uIdx int) ([]byte, int, bool) {
@@ -223,25 +241,28 @@ func enclosedInCodeSpan(line []byte, start, end int) (int, bool) {
 			continue
 		}
 		run := tickRun(line, i)
-		j := i + run
-		for j < len(line) {
-			if line[j] != '`' {
-				j++
-				continue
-			}
-			crun := tickRun(line, j)
-			if crun == run {
-				if i+run <= start && end <= j {
-					return j + crun, true
-				}
-				j += crun
-				break
-			}
-			j += crun
+		closeStart, nextIdx, ok := findClosingTickRun(line, i+run, run)
+		if ok && i+run <= start && end <= closeStart {
+			return nextIdx, true
 		}
-		i = j
+		i = nextIdx
 	}
 	return 0, false
+}
+
+func findClosingTickRun(line []byte, from, wantRun int) (closeStart, nextIdx int, ok bool) {
+	for j := from; j < len(line); {
+		if line[j] != '`' {
+			j++
+			continue
+		}
+		crun := tickRun(line, j)
+		if crun == wantRun {
+			return j, j + crun, true
+		}
+		j += crun
+	}
+	return 0, len(line), false
 }
 
 func tickRun(s []byte, i int) int {

@@ -110,13 +110,14 @@ func buildPrepared(ctx context.Context, o *WorkerOptions, ks []Kickoff, base str
 	var shared prepared
 	shared.base, shared.reflog, shared.zone = base, rf, z
 	var err error
-	if _, err = CheckWorkLogin(o.Home, o.RealHome, hostOS); err != nil {
+	goos := effectiveHostOS(o.HostOS)
+	if _, err = CheckWorkLogin(o.Home, o.RealHome, goos); err != nil {
 		return nil, err
 	}
 	if shared.agy, err = exec.LookPath("agy"); err != nil {
 		return nil, errors.New("agy not found on PATH")
 	}
-	if shared.tok, err = SyncWorkToken(o.Home, o.RealHome, hostOS); err != nil {
+	if shared.tok, err = SyncWorkToken(o.Home, o.RealHome, goos); err != nil {
 		return nil, err
 	}
 	if err := checkModels(ctx, o, ks); err != nil {

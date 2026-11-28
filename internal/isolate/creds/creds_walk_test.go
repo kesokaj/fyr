@@ -1,4 +1,4 @@
-package isolate
+package creds
 
 import (
 	"os"
@@ -26,7 +26,7 @@ func TestCredsNotCredentials(t *testing.T) {
 			put(t, filepath.Join(h, ".local", "bin", "fyr"), "\x7fELF"+rsaHdr, 0o755)
 		},
 		"a Mach-O binary": func(t *testing.T, h string) {
-			put(t, filepath.Join(h, ".local", "bin", "fyr"), "\xcf\xfa\xed\xfe"+ghToken, 0o755)
+			put(t, filepath.Join(h, ".local", "bin", "fyr"), "\xcf\xfa\xed\xfe"+ghSample, 0o755)
 		},
 		"only the example": func(t *testing.T, h string) {
 			put(t, filepath.Join(h, ".gemini", "brain", "transcript.jsonl"), `{"user_quote":"`+awsExample+`"}`, 0o644)
@@ -40,7 +40,7 @@ func TestCredsNotCredentials(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			h := t.TempDir()
 			plant(t, h)
-			if left := newCreds(nil, scanCreds(h)); len(left) != 0 {
+			if left := New(nil, Scan(h)); len(left) != 0 {
 				t.Errorf("found %v", left)
 			}
 		})
@@ -52,13 +52,13 @@ func TestCredsNotCredentials(t *testing.T) {
 	if err := os.Symlink(real, link); err != nil {
 		t.Fatal(err)
 	}
-	if left := newCreds(nil, scanCreds(link)); len(left) != 1 || left[0] != ". (a link, not followed)" {
+	if left := New(nil, Scan(link)); len(left) != 1 || left[0] != ". (a link, not followed)" {
 		t.Errorf("a linked directory holding a key: %v", left)
 	}
 	if err := os.Symlink(filepath.Join(tmp, "gone"), filepath.Join(tmp, "dangling")); err != nil {
 		t.Fatal(err)
 	}
-	if left := newCreds(nil, scanCreds(filepath.Join(tmp, "dangling"))); len(left) != 1 {
+	if left := New(nil, Scan(filepath.Join(tmp, "dangling"))); len(left) != 1 {
 		t.Errorf("a dangling home: %v", left)
 	}
 }
@@ -73,28 +73,28 @@ func TestCredsBaseline(t *testing.T) {
 	h := t.TempDir()
 	store := filepath.Join(h, harness.StateDir, "brain.db")
 	put(t, store, "SQLite\x00"+sshHdr+"\x00", 0o600)
-	base := scanCreds(h)
-	if got := newCreds(base, scanCreds(h)); len(got) != 0 {
+	base := Scan(h)
+	if got := New(base, Scan(h)); len(got) != 0 {
 		t.Errorf("the unchanged baseline is reported: %v", got)
 	}
 	put(t, store, "SQLite\x00"+sshHdr+"\x00"+rsaHdr+"\x00", 0o600)
-	if got := newCreds(base, scanCreds(h)); len(got) != 1 || !strings.Contains(got[0], "private-key") {
+	if got := New(base, Scan(h)); len(got) != 1 || !strings.Contains(got[0], "private-key") {
 		t.Errorf("a grown count: %v", got)
 	}
-	put(t, store, "SQLite\x00"+sshHdr+"\x00"+ghToken, 0o600)
-	if got := newCreds(base, scanCreds(h)); len(got) != 1 || !strings.Contains(got[0], "github-token") {
+	put(t, store, "SQLite\x00"+sshHdr+"\x00"+ghSample, 0o600)
+	if got := New(base, Scan(h)); len(got) != 1 || !strings.Contains(got[0], "github-token") {
 		t.Errorf("a new kind in a baseline file: %v", got)
 	}
 	put(t, store, "SQLite\x00"+sshHdr+"\x00", 0o600)
-	put(t, filepath.Join(h, "new.log"), ghToken, 0o600)
-	if got := newCreds(base, scanCreds(h)); len(got) != 1 || !strings.HasPrefix(got[0], "new.log") {
+	put(t, filepath.Join(h, "new.log"), ghSample, 0o600)
+	if got := New(base, Scan(h)); len(got) != 1 || !strings.HasPrefix(got[0], "new.log") {
 		t.Errorf("a new path: %v", got)
 	}
 	if os.Geteuid() != 0 {
 		os.Remove(filepath.Join(h, "new.log"))
 		put(t, filepath.Join(h, "locked"), "", 0o000)
-		base = scanCreds(h)
-		if got := newCreds(base, scanCreds(h)); len(got) != 1 || !strings.Contains(got[0], "unreadable") {
+		base = Scan(h)
+		if got := New(base, Scan(h)); len(got) != 1 || !strings.Contains(got[0], "unreadable") {
 			t.Errorf("an unreadable file already in the baseline passes: %v", got)
 		}
 	}
@@ -104,6 +104,7 @@ func TestCredsBaseline(t *testing.T) {
 // target is the fixture's; the same path re-pointed, or a new one, counts;
 // an unreadable or oversized file counts baseline or not.
 func TestCredsLinkProblems(t *testing.T) {
+	t.Parallel()
 	h := t.TempDir()
 	put(t, filepath.Join(h, "sub", "f"), "x", 0o644)
 	if err := os.Symlink("sub", filepath.Join(h, "dirlink")); err != nil {
@@ -112,23 +113,21 @@ func TestCredsLinkProblems(t *testing.T) {
 	if err := os.Symlink("gone", filepath.Join(h, "stale")); err != nil {
 		t.Fatal(err)
 	}
-	base := scanCreds(h)
-	if got := newCreds(base, scanCreds(h)); len(got) != 0 {
+	base := Scan(h)
+	if got := New(base, Scan(h)); len(got) != 0 {
 		t.Errorf("unchanged links are reported: %v", got)
 	}
 	os.Remove(filepath.Join(h, "dirlink"))
 	if err := os.Symlink(h, filepath.Join(h, "dirlink")); err != nil {
 		t.Fatal(err)
 	}
-	if got := newCreds(base, scanCreds(h)); len(got) != 1 || got[0] != "dirlink (a link to a directory, not walked)" {
+	if got := New(base, Scan(h)); len(got) != 1 || got[0] != "dirlink (a link to a directory, not walked)" {
 		t.Errorf("a re-pointed directory link: %v", got)
 	}
-	old := maxScan
-	maxScan = 4
-	t.Cleanup(func() { maxScan = old })
+	smallOpts := Options{MaxScan: 4}
 	put(t, filepath.Join(h, "big"), "more than four bytes", 0o644)
-	base = scanCreds(h)
-	if got := newCreds(base, scanCreds(h)); !slices.Contains(got, "big (larger than 4 bytes, not read)") {
+	base = ScanWith(h, smallOpts)
+	if got := New(base, ScanWith(h, smallOpts)); !slices.Contains(got, "big (larger than 4 bytes, not read)") {
 		t.Errorf("an oversized file already in the baseline passes: %v", got)
 	}
 }
@@ -143,8 +142,8 @@ func TestCredsBaselineLinkOutsideCounts(t *testing.T) {
 	if err := os.Symlink(elsewhere, filepath.Join(h, "out")); err != nil {
 		t.Fatal(err)
 	}
-	base := scanCreds(h)
-	got := newCreds(base, scanCreds(h))
+	base := Scan(h)
+	got := New(base, Scan(h))
 	if len(got) != 1 || got[0] != "out (a link to a directory, not walked)" {
 		t.Errorf("a baseline link out of the tree passes: %v", got)
 	}
@@ -152,7 +151,7 @@ func TestCredsBaselineLinkOutsideCounts(t *testing.T) {
 
 // TestCredsLockedModules: a node_modules beside a regular lockfile is a
 // package manager's install, whose files are not read (BUG-185: prettier's
-// flow plugin holds an AKIA-shaped string), while the name scan, links out of
+// flow plugin holds an AWS-key-shaped string), while the name scan, links out of
 // the tree and unreadable files still count inside it; a node_modules with
 // no lockfile or a linked one, a sibling whose name only starts with
 // node_modules, the lockfile itself, a plain file named node_modules and a
@@ -160,13 +159,13 @@ func TestCredsBaselineLinkOutsideCounts(t *testing.T) {
 func TestCredsLockedModules(t *testing.T) {
 	t.Parallel()
 	h := t.TempDir()
-	base := scanCreds(h)
+	base := Scan(h)
 	outside := filepath.Join(t.TempDir(), "token.txt")
-	put(t, outside, ghToken, 0o600)
+	put(t, outside, ghSample, 0o600)
 	web := filepath.Join(h, "app", "web")
 	put(t, filepath.Join(web, "package-lock.json"), "{}", 0o644)
 	put(t, filepath.Join(web, "node_modules", "prettier", "plugins", "flow.js"), "x="+awsKey, 0o644)
-	put(t, filepath.Join(web, "node_modules", "a", "node_modules", "b", "i.js"), ghToken, 0o644)
+	put(t, filepath.Join(web, "node_modules", "a", "node_modules", "b", "i.js"), ghSample, 0o644)
 	put(t, filepath.Join(web, "node_modules", "a", "id_rsa"), "", 0o600)
 	if err := os.MkdirAll(filepath.Join(web, "node_modules", ".bin"), 0o755); err != nil {
 		t.Fatal(err)
@@ -178,7 +177,7 @@ func TestCredsLockedModules(t *testing.T) {
 	}
 	put(t, filepath.Join(web, "node_modules.bak", "k.js"), awsKey, 0o644)
 	for _, lock := range []string{"npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock", "bun.lockb"} {
-		put(t, filepath.Join(h, "app", lock, lock), ghToken, 0o644)
+		put(t, filepath.Join(h, "app", lock, lock), ghSample, 0o644)
 		put(t, filepath.Join(h, "app", lock, "node_modules", "z.js"), awsKey, 0o644)
 	}
 	put(t, filepath.Join(h, "app", "loose", "node_modules", "y.js"), awsKey, 0o644)
@@ -188,7 +187,7 @@ func TestCredsLockedModules(t *testing.T) {
 	}
 	put(t, filepath.Join(h, "app", "linked", "node_modules", "y.js"), awsKey, 0o644)
 	put(t, filepath.Join(h, "app", "file", "pnpm-lock.yaml"), "", 0o644)
-	put(t, filepath.Join(h, "app", "file", "node_modules"), ghToken, 0o644)
+	put(t, filepath.Join(h, "app", "file", "node_modules"), ghSample, 0o644)
 	want := []string{
 		filepath.Join("app", "file", "node_modules") + " (github-token)",
 		filepath.Join("app", "linked", "node_modules", "y.js") + " (aws-key)",
@@ -205,7 +204,7 @@ func TestCredsLockedModules(t *testing.T) {
 		want = append(want, filepath.Join("app", "web", "node_modules", "locked.js")+" (unreadable)")
 	}
 	slices.Sort(want)
-	if got := newCreds(base, scanCreds(h)); !slices.Equal(got, want) {
+	if got := New(base, Scan(h)); !slices.Equal(got, want) {
 		t.Errorf("findings\n got %q\nwant %q", got, want)
 	}
 
@@ -215,7 +214,7 @@ func TestCredsLockedModules(t *testing.T) {
 	put(t, filepath.Join(top, "package-lock.json"), "{}", 0o644)
 	nm := filepath.Join(top, "node_modules")
 	put(t, filepath.Join(nm, "x.js"), awsKey, 0o644)
-	if got := newCreds(nil, scanCreds(nm)); !slices.Equal(got, []string{"x.js (aws-key)"}) {
+	if got := New(nil, Scan(nm)); !slices.Equal(got, []string{"x.js (aws-key)"}) {
 		t.Errorf("a scan root named node_modules: %q", got)
 	}
 }
@@ -227,25 +226,24 @@ func TestCredsLockedModules(t *testing.T) {
 // symlinks and unreadable files planted inside home/.cache/go-build/ fail
 // closed.
 func TestScanCredsGoBuildCacheArchivesAndPlantedCreds(t *testing.T) {
-	old := maxScan
-	maxScan = 128
-	t.Cleanup(func() { maxScan = old })
+	t.Parallel()
+	opts := Options{MaxScan: 128}
 
 	h := t.TempDir()
-	base := scanCreds(h)
+	base := ScanWith(h, opts)
 	gb := filepath.Join(h, "home", ".cache", "go-build")
 	put(t, filepath.Join(gb, "README"), "This directory holds cached build artifacts.\n", 0o644)
 	put(t, filepath.Join(gb, "00", "3ca7d41d7f2166632c91f1865e8f4adbb12b55dffeb8302087315de6385734f0-d"),
-		"!<arch>\n__.PKGDEF\n"+ghToken+"\n"+awsKey+"\n", 0o644)
+		"!<arch>\n__.PKGDEF\n"+ghSample+"\n"+awsKey+"\n", 0o644)
 	put(t, filepath.Join(gb, "00", "3e4b8790b7e608509787b1d693e3f5c9feaf6d4134151a531993b1e9831dcbe2-d"),
-		"!<arch>\n__.PKGDEF\n"+strings.Repeat("x", 256)+ghToken, 0o644)
-	if got := newCreds(base, scanCreds(h)); len(got) != 0 {
+		"!<arch>\n__.PKGDEF\n"+strings.Repeat("x", 256)+ghSample, 0o644)
+	if got := New(base, ScanWith(h, opts)); len(got) != 0 {
 		t.Fatalf("go-build archives flagged as credentials: %v", got)
 	}
 
 	outside := filepath.Join(t.TempDir(), "secret.a")
-	put(t, outside, "!<arch>\n"+ghToken, 0o600)
-	put(t, filepath.Join(gb, "00", "deadbeef-d"), "plaintext "+ghToken, 0o644)
+	put(t, outside, "!<arch>\n"+ghSample, 0o600)
+	put(t, filepath.Join(gb, "00", "deadbeef-d"), "plaintext "+ghSample, 0o644)
 	put(t, filepath.Join(gb, "leak.txt"), "!<arch>\n"+awsKey, 0o644)
 	put(t, filepath.Join(gb, "00", "id_rsa"), "!<arch>\n", 0o600)
 	if err := os.Symlink(outside, filepath.Join(gb, "00", "feedface-d")); err != nil {
@@ -264,7 +262,7 @@ func TestScanCredsGoBuildCacheArchivesAndPlantedCreds(t *testing.T) {
 		want = append(want, filepath.Join("home", ".cache", "go-build", "00", "badcafe0-d")+" (unreadable)")
 	}
 	slices.Sort(want)
-	if got := newCreds(base, scanCreds(h)); !slices.Equal(got, want) {
+	if got := New(base, ScanWith(h, opts)); !slices.Equal(got, want) {
 		t.Errorf("planted credentials under go-build:\n got %q\nwant %q", got, want)
 	}
 }
@@ -301,40 +299,39 @@ func makeTestGoPkgArchive(members ...[2]string) string {
 // credential-named fixtures (including tmp/dream-test-*/.../antigravity-oauth-token),
 // symlinks, and unreadable files under tmp/ continue to fail closed.
 func TestScanCredsTmpGoBuildArchivesAndPlantedCreds(t *testing.T) {
-	old := maxScan
-	maxScan = 128
-	t.Cleanup(func() { maxScan = old })
+	t.Parallel()
+	opts := Options{MaxScan: 128}
 
 	h := t.TempDir()
-	base := scanCreds(h)
+	base := ScanWith(h, opts)
 	goodA := filepath.Join(h, "tmp", "go-build2464546803", "b253", "_pkg_.a")
 	goodBig := filepath.Join(h, "tmp", "go-build2464546803", "b284", "_pkg_.a")
 	validSmall := makeTestGoPkgArchive(
-		[2]string{"__.PKGDEF", "go object " + ghToken},
+		[2]string{"__.PKGDEF", "go object " + ghSample},
 	)
 	validBig := makeTestGoPkgArchive(
 		[2]string{"__.PKGDEF", "go object linux amd64 go1.27\n$$\n"},
-		[2]string{"_go_.o", strings.Repeat("x", 256) + awsKey + "\n" + ghToken},
+		[2]string{"_go_.o", strings.Repeat("x", 256) + awsKey + "\n" + ghSample},
 	)
 	put(t, goodA, validSmall, 0o644)
 	put(t, goodBig, validBig, 0o644)
-	if got := newCreds(base, scanCreds(h)); len(got) != 0 {
+	if got := New(base, ScanWith(h, opts)); len(got) != 0 {
 		t.Fatalf("tmp go-build _pkg_.a archives flagged as credentials: %v", got)
 	}
 
 	outside := filepath.Join(t.TempDir(), "secret.a")
 	put(t, outside, validSmall, 0o600)
 	// Bare magic prefix without 60-byte ar header must fail closed.
-	put(t, filepath.Join(h, "tmp", "go-build2464546803", "b001", "_pkg_.a"), "!<arch>\n__.PKGDEF\n"+ghToken, 0o644)
+	put(t, filepath.Join(h, "tmp", "go-build2464546803", "b001", "_pkg_.a"), "!<arch>\n__.PKGDEF\n"+ghSample, 0o644)
 	// Valid ar header with wrong first member name must fail closed.
 	put(t, filepath.Join(h, "tmp", "go-build2464546803", "b006", "_pkg_.a"),
-		makeTestGoPkgArchive([2]string{"_go_.o", "go object " + ghToken}), 0o644)
+		makeTestGoPkgArchive([2]string{"_go_.o", "go object " + ghSample}), 0o644)
 	// Valid __.PKGDEF member without "go object " prefix must fail closed.
 	put(t, filepath.Join(h, "tmp", "go-build2464546803", "b007", "_pkg_.a"),
-		makeTestGoPkgArchive([2]string{"__.PKGDEF", "not-go-obj " + ghToken}), 0o644)
+		makeTestGoPkgArchive([2]string{"__.PKGDEF", "not-go-obj " + ghSample}), 0o644)
 	// Valid archive with trailing data past EOF must fail closed.
 	put(t, filepath.Join(h, "tmp", "go-build2464546803", "b008", "_pkg_.a"),
-		makeTestGoPkgArchive([2]string{"__.PKGDEF", "go object linux\n"})+ghToken, 0o644)
+		makeTestGoPkgArchive([2]string{"__.PKGDEF", "go object linux\n"})+ghSample, 0o644)
 	put(t, filepath.Join(h, "tmp", "go-build2464546803", "b002", "other.a"), validSmall, 0o644)
 	put(t, filepath.Join(h, "tmp", "go-build-evil", "b003", "_pkg_.a"), validSmall, 0o644)
 	put(t, filepath.Join(h, "tmp", "dream-test-12345", "home", ".gemini", "antigravity-cli", "antigravity-oauth-token"), "token", 0o600)
@@ -361,7 +358,7 @@ func TestScanCredsTmpGoBuildArchivesAndPlantedCreds(t *testing.T) {
 		want = append(want, filepath.Join("tmp", "go-build2464546803", "b005", "_pkg_.a")+" (unreadable)")
 	}
 	slices.Sort(want)
-	if got := newCreds(base, scanCreds(h)); !slices.Equal(got, want) {
+	if got := New(base, ScanWith(h, opts)); !slices.Equal(got, want) {
 		t.Errorf("planted credentials under tmp/:\n got %q\nwant %q", got, want)
 	}
 }

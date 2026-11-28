@@ -135,67 +135,94 @@ func runUsageForHome(run context.Context, home, agy string) (string, error) {
 	return runAgyProbe(run, home, agy, ModelsTimeout, 5*time.Second, "-p", "/usage")
 }
 
-func probeUsageForHome(ctx context.Context, home, agyPath string) (string, error) {
-	if UsageProbeFunc == nil {
-		return "", errors.New("usage probe unavailable")
-	}
-	if reflect.ValueOf(UsageProbeFunc).Pointer() == reflect.ValueOf(RunUsage).Pointer() {
-		return runUsageForHome(ctx, home, agyPath)
-	}
-	return UsageProbeFunc(ctx, agyPath)
+// ResolveRoleOptions configures dynamic role model resolution and optional
+// seams. Nil seam functions fall back to package defaults.
+type ResolveRoleOptions struct {
+	Home          string
+	AgyPath       string
+	Role          string
+	Tier          string
+	ExplicitModel string
+	PersistPools  bool
+	UsageProbe    func(context.Context, string) (string, error)
+	ListModels    func(context.Context, string) ([]string, error)
+	Now           func() time.Time
 }
 
-func listModelsForHomeOrHook(ctx context.Context, home, agyPath string) ([]string, error) {
-	if ListModelsFunc == nil {
+func modelsNow(nowFn func() time.Time) time.Time {
+	if nowFn != nil {
+		return nowFn()
+	}
+	return usageNowFunc()
+}
+
+func probeUsageForHomeWith(ctx context.Context, home, agyPath string, probe func(context.Context, string) (string, error)) (string, error) {
+	if probe == nil {
+		probe = UsageProbeFunc
+	}
+	if probe == nil {
+		return "", errors.New("usage probe unavailable")
+	}
+	if reflect.ValueOf(probe).Pointer() == reflect.ValueOf(RunUsage).Pointer() {
+		return runUsageForHome(ctx, home, agyPath)
+	}
+	return probe(ctx, agyPath)
+}
+
+func listModelsForHomeWith(ctx context.Context, home, agyPath string, listFn func(context.Context, string) ([]string, error)) ([]string, error) {
+	if listFn == nil {
+		listFn = ListModelsFunc
+	}
+	if listFn == nil {
 		return nil, errors.New("list models unavailable")
 	}
-	if reflect.ValueOf(ListModelsFunc).Pointer() == reflect.ValueOf(ListModels).Pointer() {
+	if reflect.ValueOf(listFn).Pointer() == reflect.ValueOf(ListModels).Pointer() {
 		return listModelsForHome(ctx, home, agyPath)
 	}
-	return ListModelsFunc(ctx, agyPath)
+	return listFn(ctx, agyPath)
 }
 
 // ResolveRoleModelForHome resolves cross-family models dynamically from listed
 // agy models without hardcoding model IDs, reading models.json from home (when
 // non-empty) and persisting live /usage pools into <home>/.config/fyr/models.json.
 func ResolveRoleModelForHome(ctx context.Context, home, agyPath, role, tier, explicitModel string) (string, string, error) {
-	return resolveRoleModel(ctx, home, agyPath, role, tier, explicitModel, true)
+	return ResolveRoleModelWithOptions(ctx, ResolveRoleOptions{
+		Home: home, AgyPath: agyPath, Role: role, Tier: tier,
+		ExplicitModel: explicitModel, PersistPools: true,
+	})
 }
 
-func resolveRoleModel(ctx context.Context, home, agyPath, role, tier, explicitModel string, persistPools bool) (string, string, error) {
-	if exp := strings.TrimSpace(explicitModel); exp != "" {
+// ResolveRoleModelWithOptions resolves a role model using opts, injecting
+// optional UsageProbe/ListModels/Now seams without mutating package globals.
+func ResolveRoleModelWithOptions(ctx context.Context, opts ResolveRoleOptions) (string, string, error) {
+	if exp := strings.TrimSpace(opts.ExplicitModel); exp != "" {
 		return exp, "explicit model " + exp, nil
 	}
-	if strings.TrimSpace(agyPath) == "" {
+	if strings.TrimSpace(opts.AgyPath) == "" {
 		return "", "", errors.New("resolve role model: agy path required")
 	}
-	ids, err := listModelsForHomeOrHook(ctx, home, agyPath)
+	ids, err := listModelsForHomeWith(ctx, opts.Home, opts.AgyPath, opts.ListModels)
 	if err != nil {
 		return "", "", fmt.Errorf("agy models: %w", err)
 	}
 	if len(ids) == 0 {
 		return "", "", errors.New("agy models listed no model")
 	}
-	entries, pools := buildListedCatalogEntriesAndPools(home, ids)
-	pick, livePools, err := pickRoleFromCatalogWithPoolsForHome(ctx, home, Catalog{Entries: entries, Pools: pools}, agyPath, role, tier)
+	entries, pools := buildListedCatalogEntriesAndPools(opts.Home, ids)
+	pick, livePools, err := PickRoleFromCatalogForHome(ctx, Catalog{Entries: entries, Pools: pools}, PickRoleOptions{
+		Home: opts.Home, AgyPath: opts.AgyPath, UsageProbe: opts.UsageProbe, Now: opts.Now,
+	}, opts.Role, opts.Tier)
 	if err != nil {
 		return "", "", err
 	}
-	if persistPools && len(livePools) > 0 && home != "" {
-		PersistCatalogPoolsBestEffort(home, livePools)
+	if opts.PersistPools && len(livePools) > 0 && opts.Home != "" {
+		persistCatalogPoolsAt(opts.Home, livePools, modelsNow(opts.Now))
 	}
 	return pick.Model, pick.Reason, nil
 }
 
-func pickRoleFromCatalogWithPoolsForHome(ctx context.Context, home string, cat Catalog, agyPath, role, tier string) (RolePick, []Pool, error) {
-	return PickRoleFromCatalogForHome(ctx, cat, PickRoleOptions{
-		Home:    home,
-		AgyPath: agyPath,
-	}, role, tier)
-}
-
-func probeAnthropicQuotaPools(ctx context.Context, home, agyPath, role, anthropicModel, geminiFallback string) (string, string, string, []Pool) {
-	uText, err := probeUsageForHome(ctx, home, agyPath)
+func probeAnthropicQuotaPools(ctx context.Context, home, agyPath, role, anthropicModel, geminiFallback string, probe func(context.Context, string) (string, error)) (string, string, string, []Pool) {
+	uText, err := probeUsageForHomeWith(ctx, home, agyPath, probe)
 	if err != nil {
 		fb := fmt.Sprintf("role=%s fallback to Gemini (%s): /usage unreadable (%s)", role, geminiFallback, shortQuote(err.Error()))
 		return geminiFallback, fb, fb, nil

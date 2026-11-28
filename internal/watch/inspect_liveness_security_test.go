@@ -546,6 +546,7 @@ func testV910OpenSSHPrompts(t *testing.T) {
 }
 
 func TestV910WatchNoDeadlockWithAuxTables(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 23, 8, 0, 0, 0, time.UTC)
 	home, dir := t.TempDir(), t.TempDir()
 	seedWatchDBs(t, home, dir, []convSpec{
@@ -716,6 +717,7 @@ func TestV910SecuritySymlinkScratchAndMetricsStateDir(t *testing.T) {
 }
 
 func TestV910MetricsEndedAtLiveSessionStillFires(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 23, 8, 0, 0, 0, time.UTC)
 	home, dir := t.TempDir(), t.TempDir()
 	seedWatchDBs(t, home, dir, []convSpec{

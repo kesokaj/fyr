@@ -3,10 +3,12 @@ package isolate
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -125,3 +127,63 @@ func (r *rig) read(name string) string {
 	b, _ := os.ReadFile(filepath.Join(r.rec, name))
 	return string(b)
 }
+
+var (
+	sharedFyrOnce sync.Once
+	sharedFyrPath string
+	sharedFyrRoot string
+	sharedFyrErr  error
+)
+
+func goEnvVal(key string) (string, error) {
+	out, err := exec.Command("go", "env", key).Output()
+	if err != nil {
+		return "", fmt.Errorf("go env %s: %w", key, err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// sharedFyrBin builds ./cmd/fyr once per test binary invocation so creds and
+// Landlock tests reuse the same compiled binary instead of running go build
+// twice.
+func sharedFyrBin(t *testing.T) (bin, root string) {
+	t.Helper()
+	sharedFyrOnce.Do(func() {
+		sharedFyrRoot, sharedFyrErr = filepath.Abs(filepath.Join("..", ".."))
+		if sharedFyrErr != nil {
+			return
+		}
+		goModCache, err := goEnvVal("GOMODCACHE")
+		if err != nil {
+			sharedFyrErr = err
+			return
+		}
+		goBuildCache, err := goEnvVal("GOCACHE")
+		if err != nil {
+			sharedFyrErr = err
+			return
+		}
+		dir, err := os.MkdirTemp("", "fyr-isolate-bin-*")
+		if err != nil {
+			sharedFyrErr = err
+			return
+		}
+		sharedFyrPath = filepath.Join(dir, "fyr")
+		cmd := exec.Command("go", "build", "-o", sharedFyrPath, "./cmd/fyr")
+		cmd.Dir = sharedFyrRoot
+		cmd.Env = append(FyrEnv(), "GOTOOLCHAIN=local", "CGO_ENABLED=0", "GOMODCACHE="+goModCache, "GOCACHE="+goBuildCache)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			_ = os.RemoveAll(dir)
+			sharedFyrErr = fmt.Errorf("go build ./cmd/fyr: %w\n%s", err, out)
+		}
+	})
+	if sharedFyrErr != nil {
+		t.Fatal(sharedFyrErr)
+	}
+	return sharedFyrPath, sharedFyrRoot
+}
+
+// TestScanCredsIgnoresFyrOwnPatterns covers BUG-538 and BUG-544: compiled fyr
+// .rodata strings, post-Baseline() indexing/transcripts/WAL of the tracked repo
+// and seeded brain.db trail records, and >maxScan ELF/Mach-O Go build-cache
+// outputs pass, while novel credentials planted anywhere fail closed.

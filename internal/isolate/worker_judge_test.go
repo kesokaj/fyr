@@ -12,7 +12,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/harness"
-	"github.com/kesokaj/fyr/internal/models"
 )
 
 func TestRunJudgePrintConfined(t *testing.T) {
@@ -157,24 +156,16 @@ func TestWorkerFinishChecksJudge(t *testing.T) {
 		}
 	}
 
-	oldJudge := JudgeExecFunc
-	oldList := models.ListModelsFunc
-	oldUsage := models.UsageProbeFunc
-	t.Cleanup(func() {
-		JudgeExecFunc = oldJudge
-		models.ListModelsFunc = oldList
-		models.UsageProbeFunc = oldUsage
-	})
-	models.ListModelsFunc = func(context.Context, string) ([]string, error) {
+	listFn := func(context.Context, string) ([]string, error) {
 		return []string{"claude-opus-5-5-high", "gemini-4-carbon-high"}, nil
 	}
-	models.UsageProbeFunc = func(context.Context, string) (string, error) {
+	usageFn := func(context.Context, string) (string, error) {
 		return "Claude and GPT models\tWeekly Limit Remaining\t60%\tx\nClaude and GPT models\tFive Hour Limit Remaining\t80%\tx\n", nil
 	}
 
 	makeWorker := func(judgeCrit string) *worker {
 		w := &worker{
-			o: WorkerOptions{Root: r.src, Home: filepath.Join(r.tmp, "work-home"), RealHome: r.real, TestUnconfined: true},
+			o: WorkerOptions{Root: r.src, Home: filepath.Join(r.tmp, "work-home"), RealHome: r.real, TestUnconfined: true, Judge: JudgeOptions{ListModels: listFn, UsageProbe: usageFn}},
 			p: prepared{
 				k:    Kickoff{Name: "judge-test", Files: []string{"added.go"}, Judge: judgeCrit},
 				base: baseHead,
@@ -187,13 +178,17 @@ func TestWorkerFinishChecksJudge(t *testing.T) {
 		return w
 	}
 
-	var gotModel, gotPrompt string
-	JudgeExecFunc = func(_ context.Context, opts JudgeExecOptions) (JudgeExecOutput, error) {
-		gotModel, gotPrompt = opts.Model, opts.Prompt
+	var gotModel, gotPrompt, gotOS string
+	wPass := makeWorker("Add Hello() string in added.go")
+	wPass.o.Judge.HostOS = "linux"
+	wPass.o.Judge.ExecFunc = func(_ context.Context, opts JudgeExecOptions) (JudgeExecOutput, error) {
+		gotModel, gotPrompt, gotOS = opts.Model, opts.Prompt, opts.HostOS
 		return JudgeExecOutput{Stdout: `{"verdict":"PASS","reason":"Hello added"}`, ExitCode: 0}, nil
 	}
-	wPass := makeWorker("Add Hello() string in added.go")
 	runWorkerJudge(context.Background(), wPass)
+	if gotOS != "linux" {
+		t.Fatalf("JudgeOptions.HostOS = %q, want linux", gotOS)
+	}
 	if wPass.b.Has(ReasonJudgeFailed) || gotModel != "claude-opus-5-5-high" || !strings.Contains(gotPrompt, "Do NOT call any tools") || !strings.Contains(gotPrompt, "BEGIN DATA") || !strings.Contains(gotPrompt, "+func Hello()") {
 		t.Fatalf("worker judge PASS mismatch: reasons=%v model=%q prompt=\n%s", wPass.b.Reasons(), gotModel, gotPrompt)
 	}
@@ -206,10 +201,10 @@ func TestWorkerFinishChecksJudge(t *testing.T) {
 		{"non-json output", JudgeExecOutput{Stdout: `VERDICT: PASS`, ExitCode: 0}},
 		{"nonzero exit", JudgeExecOutput{Stdout: `{"verdict":"PASS","reason":"ok"}`, ExitCode: 1}},
 	} {
-		JudgeExecFunc = func(context.Context, JudgeExecOptions) (JudgeExecOutput, error) {
+		w := makeWorker("Add Hello() string in added.go")
+		w.o.Judge.ExecFunc = func(context.Context, JudgeExecOptions) (JudgeExecOutput, error) {
 			return tc.out, nil
 		}
-		w := makeWorker("Add Hello() string in added.go")
 		runWorkerJudge(context.Background(), w)
 		if !w.b.Has(ReasonJudgeFailed) {
 			t.Errorf("%s: expected ReasonJudgeFailed, got reasons=%v", tc.name, w.b.Reasons())
@@ -217,11 +212,11 @@ func TestWorkerFinishChecksJudge(t *testing.T) {
 	}
 
 	called := false
-	JudgeExecFunc = func(context.Context, JudgeExecOptions) (JudgeExecOutput, error) {
+	wPrior := makeWorker("Add Hello() string in added.go")
+	wPrior.o.Judge.ExecFunc = func(context.Context, JudgeExecOptions) (JudgeExecOutput, error) {
 		called = true
 		return JudgeExecOutput{Stdout: `{"verdict":"PASS","reason":"ok"}`}, nil
 	}
-	wPrior := makeWorker("Add Hello() string in added.go")
 	wPrior.b.Fail(ReasonTimedOut)
 	if wPrior.p.k.Judge != "" && wPrior.ran && !wPrior.unsafe() && len(wPrior.b.Reasons()) == 0 {
 		runWorkerJudge(context.Background(), wPrior)
@@ -230,22 +225,22 @@ func TestWorkerFinishChecksJudge(t *testing.T) {
 		t.Errorf("JudgeExecFunc should not run when prior reasons exist")
 	}
 
-	JudgeExecFunc = func(context.Context, JudgeExecOptions) (JudgeExecOutput, error) {
+	wEnv := makeWorker("Add Hello() string in added.go")
+	wEnv.o.Judge.ExecFunc = func(context.Context, JudgeExecOptions) (JudgeExecOutput, error) {
 		return JudgeExecOutput{
 			Stdout: `{"conversation_id":"c1","status":"SUCCESS","duration_seconds":1.2,"num_turns":1,"structured_output":{"verdict":"PASS","reason":"envelope ok"}}`,
 		}, nil
 	}
-	wEnv := makeWorker("Add Hello() string in added.go")
 	runWorkerJudge(context.Background(), wEnv)
 	if wEnv.b.Has(ReasonJudgeFailed) {
 		t.Errorf("envelope PASS failed: reasons=%v", wEnv.b.Reasons())
 	}
 
 	r.out.Reset()
-	JudgeExecFunc = func(context.Context, JudgeExecOptions) (JudgeExecOutput, error) {
+	wErr := makeWorker("Add Hello() string in added.go")
+	wErr.o.Judge.ExecFunc = func(context.Context, JudgeExecOptions) (JudgeExecOutput, error) {
 		return JudgeExecOutput{Stderr: "Error: --json-schema failed\n", ExitCode: 1}, nil
 	}
-	wErr := makeWorker("Add Hello() string in added.go")
 	runWorkerJudge(context.Background(), wErr)
 	if !wErr.b.Has(ReasonJudgeFailed) || !strings.Contains(r.out.String(), "Error: --json-schema failed") {
 		t.Errorf("expected stderr note on nonzero exit, reasons=%v out=%q", wErr.b.Reasons(), r.out.String())

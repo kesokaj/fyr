@@ -42,6 +42,7 @@ type Config struct {
 	Out            io.Writer
 	ACP            bool           // true: drive agy via `agy acp --stdio --process-per-session`
 	OnEvent        func(ACPEvent) // optional live step callback when ACP is true
+	HostOS         string         // optional GOOS override for tests; "" uses runtime.GOOS (hostOS)
 	TestRO         []string       // Go-only read-only test rig paths for OS isolation
 	TestRW         []string       // Go-only read-write test rig paths for OS isolation
 	TestUnconfined bool           // Go-only escape hatch for real-home tripwire unit tests
@@ -97,6 +98,13 @@ func SetHostOS(goos string) func() {
 	old := hostOS
 	hostOS = goos
 	return func() { hostOS = old }
+}
+
+func effectiveHostOS(override string) string {
+	if override != "" {
+		return override
+	}
+	return hostOS
 }
 
 // Root is a verb's directory under fyr's home: "eval" holds eval's

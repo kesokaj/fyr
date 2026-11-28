@@ -1,4 +1,4 @@
-package isolate
+package creds
 
 import (
 	"encoding/binary"
@@ -12,7 +12,7 @@ const sqliteHeaderMagic = "SQLite format 3\x00"
 // SQLite database files so multi-kilobyte records or chunks split across 4 KiB
 // overflow page headers produce the same line/token digests as unsplit exports,
 // returning the sorted file byte intervals already scanned in reassembled cells.
-func scanSQLiteOverflow(b []byte, kinds, unparsed map[string]int, digests map[string]map[[32]byte]int) [][2]int {
+func scanSQLiteOverflow(b []byte, maxPayload int64, kinds, unparsed map[string]int, digests map[string]map[[32]byte]int) [][2]int {
 	pageSize, usable, nPages, ok := sqliteGeometry(b)
 	if !ok {
 		return nil
@@ -20,7 +20,7 @@ func scanSQLiteOverflow(b []byte, kinds, unparsed map[string]int, digests map[st
 	usedPage := map[int]bool{}
 	var covered [][2]int
 	for pageNo := 1; pageNo <= nPages; pageNo++ {
-		cells, spans := extractLeafOverflowCells(b, pageNo, pageSize, usable, nPages, usedPage)
+		cells, spans := extractLeafOverflowCells(b, pageNo, pageSize, usable, nPages, maxPayload, usedPage)
 		for _, cell := range cells {
 			recordWindowCreds(cell, len(cell), kinds, unparsed, digests)
 		}
@@ -48,7 +48,7 @@ func sqliteGeometry(b []byte) (pageSize, usable, nPages int, ok bool) {
 	return ps, usable, len(b) / ps, true
 }
 
-func extractLeafOverflowCells(b []byte, pageNo, pageSize, usable, nPages int, usedPage map[int]bool) ([][]byte, [][2]int) {
+func extractLeafOverflowCells(b []byte, pageNo, pageSize, usable, nPages int, maxPayload int64, usedPage map[int]bool) ([][]byte, [][2]int) {
 	pOff := (pageNo - 1) * pageSize
 	hdrOff := 0
 	if pageNo == 1 {
@@ -70,7 +70,7 @@ func extractLeafOverflowCells(b []byte, pageNo, pageSize, usable, nPages int, us
 		if cOff < hdrOff+8+2*cellCount || cOff >= usable {
 			continue
 		}
-		cell, cSpans, ok := reassembleOverflowCell(b, pOff, cOff, pageSize, usable, nPages, usedPage, pageLocals)
+		cell, cSpans, ok := reassembleOverflowCell(b, pOff, cOff, pageSize, usable, nPages, maxPayload, usedPage, pageLocals)
 		if ok {
 			pageLocals = append(pageLocals, cSpans[0])
 			cells = append(cells, cell)
@@ -80,11 +80,11 @@ func extractLeafOverflowCells(b []byte, pageNo, pageSize, usable, nPages int, us
 	return cells, spans
 }
 
-func reassembleOverflowCell(b []byte, pOff, cOff, pageSize, usable, nPages int, usedPage map[int]bool, pageLocals [][2]int) ([]byte, [][2]int, bool) {
+func reassembleOverflowCell(b []byte, pOff, cOff, pageSize, usable, nPages int, maxPayload int64, usedPage map[int]bool, pageLocals [][2]int) ([]byte, [][2]int, bool) {
 	pLen, n1 := sqliteVarint9(b, pOff+cOff, pOff+usable)
 	_, n2 := sqliteVarint9(b, pOff+cOff+n1, pOff+usable)
 	maxLocal := usable - 35
-	if n1 == 0 || n2 == 0 || pLen <= uint64(maxLocal) || pLen > uint64(maxScan) {
+	if n1 == 0 || n2 == 0 || pLen <= uint64(maxLocal) || pLen > uint64(maxPayload) {
 		return nil, nil, false
 	}
 	minLocal := ((usable-12)*32/255 - 23)
@@ -174,18 +174,26 @@ func stripSQLiteChunkPrefix(b []byte, ps, start int) int {
 		if !isLowerHex40(b[p : p+40]) {
 			continue
 		}
-		for h := max(0, p-10); h+2 < p; h++ {
-			tLine := int(b[h+1])
-			tHead := int(b[h+2])
-			if b[h] == 0x5d && (tLine == 1 || tLine == 2) && tHead >= 13 && tHead%2 == 1 {
-				body := p + 40 + tLine + (tHead-13)/2
-				if body > ps && body <= start {
-					return body
-				}
-			}
+		if body, ok := matchSQLiteChunkHeader(b, p, ps, start); ok {
+			return body
 		}
 	}
 	return ps
+}
+
+func matchSQLiteChunkHeader(b []byte, p, ps, start int) (int, bool) {
+	for h := max(0, p-10); h+2 < p; h++ {
+		tLine := int(b[h+1])
+		tHead := int(b[h+2])
+		if b[h] != 0x5d || (tLine != 1 && tLine != 2) || tHead < 13 || tHead%2 != 1 {
+			continue
+		}
+		body := p + 40 + tLine + (tHead-13)/2
+		if body > ps && body <= start {
+			return body, true
+		}
+	}
+	return 0, false
 }
 
 func stripSQLiteRecordBounds(b []byte, ps, pe, start, end int) (int, int) {

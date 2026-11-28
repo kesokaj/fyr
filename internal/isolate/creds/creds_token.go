@@ -1,4 +1,4 @@
-package isolate
+package creds
 
 import (
 	"bytes"
@@ -7,38 +7,55 @@ import (
 
 const maxPrivBodyHash = 2048
 
+type credAcc struct {
+	kinds    map[string]int
+	unparsed map[string]int
+	digests  map[string]map[[32]byte]int
+}
+
+func (a *credAcc) record(kind string, tok []byte, ok bool) {
+	a.kinds[kind]++
+	if !ok {
+		a.unparsed[kind]++
+		return
+	}
+	if a.digests[kind] == nil {
+		a.digests[kind] = map[[32]byte]int{}
+	}
+	a.digests[kind][sha256.Sum256(tok)]++
+}
+
+func (a *credAcc) recordPattern(c credPattern, b []byte, safeEnd int, skip [][2]int) {
+	for _, loc := range c.re.FindAllIndex(b, -1) {
+		if loc[0] < safeEnd && !inCoveredSpan(loc[0], skip) {
+			tok, ok := canonicalCredToken(c.kind, b, loc[0], loc[1])
+			a.record(c.kind, tok, ok)
+		}
+	}
+}
+
+func (a *credAcc) recordAWS(b []byte, safeEnd int, skip [][2]int) {
+	for _, loc := range credAWS.FindAllIndex(b, -1) {
+		if loc[0] < safeEnd && !inCoveredSpan(loc[0], skip) {
+			m := b[loc[0]:loc[1]]
+			if !bytes.Equal(m, credExample) {
+				a.record("aws-key", m, true)
+			}
+		}
+	}
+}
+
 func recordWindowCreds(b []byte, safeEnd int, kinds, unparsed map[string]int, digests map[string]map[[32]byte]int) {
 	recordWindowCredsSkip(b, safeEnd, nil, kinds, unparsed, digests)
 }
 
 func recordWindowCredsSkip(b []byte, safeEnd int, skip [][2]int, kinds, unparsed map[string]int, digests map[string]map[[32]byte]int) {
-	record := func(kind string, tok []byte, ok bool) {
-		kinds[kind]++
-		if !ok {
-			unparsed[kind]++
-			return
-		}
-		if digests[kind] == nil {
-			digests[kind] = map[[32]byte]int{}
-		}
-		digests[kind][sha256.Sum256(tok)]++
-	}
+	ensureCredPatterns()
+	acc := credAcc{kinds: kinds, unparsed: unparsed, digests: digests}
 	for _, c := range credText {
-		for _, loc := range c.re.FindAllIndex(b, -1) {
-			if loc[0] < safeEnd && !inCoveredSpan(loc[0], skip) {
-				tok, ok := canonicalCredToken(c.kind, b, loc[0], loc[1])
-				record(c.kind, tok, ok)
-			}
-		}
+		acc.recordPattern(c, b, safeEnd, skip)
 	}
-	for _, loc := range credAWS.FindAllIndex(b, -1) {
-		if loc[0] < safeEnd && !inCoveredSpan(loc[0], skip) {
-			m := b[loc[0]:loc[1]]
-			if !bytes.Equal(m, credExample) {
-				record("aws-key", m, true)
-			}
-		}
-	}
+	acc.recordAWS(b, safeEnd, skip)
 }
 
 // canonicalCredToken returns a canonical token slice for cross-file baseline
@@ -76,7 +93,7 @@ func followedByAssign(afterEnd []byte) bool {
 
 func canonicalPrivKeyToken(b []byte, start, end int) ([]byte, bool) {
 	hdr := b[start:end]
-	endTag := append([]byte("-----END "), hdr[11:]...)
+	endTag := append([]byte("---"+"--END "), hdr[11:]...)
 	tail := b[end:min(len(b), end+4096)]
 	if next := credPrivBegin.FindIndex(tail); next != nil {
 		tail = tail[:next[0]]

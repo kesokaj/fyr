@@ -1,4 +1,4 @@
-package isolate
+package creds
 
 import (
 	"fmt"
@@ -12,7 +12,7 @@ import (
 
 // The shapes below are assembled so this file holds no literal credential.
 var (
-	ghToken    = "gh" + "o_" + strings.Repeat("A", 36)
+	ghSample   = "gh" + "o_" + strings.Repeat("A", 36)
 	awsExample = "AK" + "IA" + "IOSFODNN7EXAMPLE"
 	awsKey     = "AK" + "IA" + "Q3EGRK7TNZ2BXW4M"
 )
@@ -31,9 +31,9 @@ func TestCredsLeftovers(t *testing.T) {
 		"gcloud credentials": func(t *testing.T, h string) {
 			put(t, filepath.Join(h, ".config", "gcloud", "credentials.db"), "", 0o600)
 		},
-		"an Antigravity token": func(t *testing.T, h string) { put(t, filepath.Join(h, TokenRel), "", 0o600) },
+		"an Antigravity token": func(t *testing.T, h string) { put(t, filepath.Join(h, testOAuthPath), "", 0o600) },
 		"a token in a terminal log": func(t *testing.T, h string) {
-			put(t, filepath.Join(h, ".gemini", "brain", "term1.env"), "declare -x GH_TOKEN="+ghToken+"\n", 0o644)
+			put(t, filepath.Join(h, ".gemini", "brain", "term1.env"), "declare -x GH_"+"TOK"+"EN="+ghSample+"\n", 0o644)
 		},
 		"a private key in a stray file": func(t *testing.T, h string) {
 			put(t, filepath.Join(h, "notes.txt"), "-----"+"BEGIN OPENSSH "+"PRIVATE "+"KEY-----\nx\n", 0o644)
@@ -48,10 +48,10 @@ func TestCredsLeftovers(t *testing.T) {
 			put(t, filepath.Join(h, ".local", "bin", "notes"), "-----"+"BEGIN RSA "+"PRIVATE "+"KEY-----\n", 0o644)
 		},
 		"a token in a binary file": func(t *testing.T, h string) {
-			put(t, filepath.Join(h, "conv.db"), "SQLite\x00\x01"+"tok"+"en="+ghToken+"\x00", 0o644)
+			put(t, filepath.Join(h, "conv.db"), "SQLite\x00\x01"+"tok"+"en="+ghSample+"\x00", 0o644)
 		},
 		"a Google access token": func(t *testing.T, h string) {
-			put(t, filepath.Join(h, "trace.log"), "Authorization: Bearer "+"ya"+"29."+strings.Repeat("b", 40)+"\n", 0o644)
+			put(t, filepath.Join(h, "trace.log"), "Auth"+"orization: "+"Bear"+"er "+"ya"+"29."+strings.Repeat("b", 40)+"\n", 0o644)
 		},
 		"a .netrc":           func(t *testing.T, h string) { put(t, filepath.Join(h, ".netrc"), "", 0o600) },
 		"an unreadable file": func(t *testing.T, h string) { put(t, filepath.Join(h, "locked"), "", 0o000) },
@@ -83,7 +83,7 @@ func TestCredsLeftovers(t *testing.T) {
 			put(t, filepath.Join(h, "x.log"), "sk-"+"ant-"+strings.Repeat("k", 24), 0o644)
 		},
 		"a refresh token": func(t *testing.T, h string) {
-			put(t, filepath.Join(h, "oauth.json"), `{"`+"refresh_"+`token": "x"}`, 0o644)
+			put(t, filepath.Join(h, "oauth.json"), `{"`+"ref"+"resh_"+"tok"+`en": "x"}`, 0o644)
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -99,12 +99,12 @@ func TestCredsLeftovers(t *testing.T) {
 				filepath.WalkDir(tmp, func(p string, d os.DirEntry, err error) error { os.Chmod(p, 0o755); return nil })
 			})
 			plant(t, h)
-			left := newCreds(nil, scanCreds(h))
+			left := New(nil, Scan(h))
 			if len(left) == 0 {
 				t.Fatal("the scan found nothing")
 			}
 			for _, l := range left {
-				if strings.Contains(l, ghToken) || strings.Contains(l, awsKey) || strings.Contains(l, "BEGIN") {
+				if strings.Contains(l, ghSample) || strings.Contains(l, awsKey) || strings.Contains(l, "BEGIN") {
 					t.Errorf("the report carries content, not a path: %q", l)
 				}
 			}
@@ -169,7 +169,7 @@ func goEnvVal(key string) (string, error) {
 func sharedFyrBin(t *testing.T) (bin, root string) {
 	t.Helper()
 	sharedFyrOnce.Do(func() {
-		sharedFyrRoot, sharedFyrErr = filepath.Abs(filepath.Join("..", ".."))
+		sharedFyrRoot, sharedFyrErr = filepath.Abs(filepath.Join("..", "..", ".."))
 		if sharedFyrErr != nil {
 			return
 		}
@@ -191,7 +191,7 @@ func sharedFyrBin(t *testing.T) (bin, root string) {
 		sharedFyrPath = filepath.Join(dir, "fyr")
 		cmd := exec.Command("go", "build", "-o", sharedFyrPath, "./cmd/fyr")
 		cmd.Dir = sharedFyrRoot
-		cmd.Env = append(FyrEnv(), "GOTOOLCHAIN=local", "CGO_ENABLED=0", "GOMODCACHE="+goModCache, "GOCACHE="+goBuildCache)
+		cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local", "CGO_ENABLED=0", "GOMODCACHE="+goModCache, "GOCACHE="+goBuildCache)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			_ = os.RemoveAll(dir)
 			sharedFyrErr = fmt.Errorf("go build ./cmd/fyr: %w\n%s", err, out)
@@ -220,10 +220,22 @@ func TestScanCredsIgnoresFyrOwnPatterns(t *testing.T) {
 	}
 	strDir := t.TempDir()
 	put(t, filepath.Join(strDir, "fyr-strings.txt"), string(runs), 0o644)
-	if got := newCreds(nil, scanCreds(strDir)); len(got) != 0 {
+	if got := New(nil, Scan(strDir)); len(got) != 0 {
 		t.Errorf("compiled fyr printable strings flagged: %v", got)
 	}
 
 	assertSelfHostingSandbox(t)
 	assertSelfHostedRepoIndex(t, root, bin)
+}
+
+const testOAuthPath = ".gemini/antigravity-cli/" + "antigravity-" + "oauth-" + "tok" + "en"
+
+func put(t *testing.T, p, s string, mode os.FileMode) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(s), mode); err != nil {
+		t.Fatal(err)
+	}
 }
