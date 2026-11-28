@@ -37,6 +37,7 @@ func legacyDreamFiles(t *testing.T, home, goos string) []string {
 }
 
 func TestAutoRunIngestsMetricsFirstAndDreamsPlanMode(t *testing.T) {
+	t.Parallel()
 	t.Run("ingest then dream then sweep", func(t *testing.T) {
 		home := t.TempDir()
 		writeConfig(t, home, validConfig)

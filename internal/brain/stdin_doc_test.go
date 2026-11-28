@@ -8,6 +8,7 @@ import (
 )
 
 func TestParseRecordStdinHeadersAndFallback(t *testing.T) {
+	t.Parallel()
 	t.Run("unfenced headers", func(t *testing.T) {
 		in := "Title: Fix race in store\nStatus: fixed\nID: BUG-042\nProject: /tmp/proj\n\nSymptom: x.\nRule: y.\n"
 		doc, body, err := ParseRecordStdin(strings.NewReader(in))
@@ -80,6 +81,7 @@ func TestParseRecordStdinHeadersAndFallback(t *testing.T) {
 }
 
 func TestParseMemoryStdin(t *testing.T) {
+	t.Parallel()
 	in := "Type: feedback\nName: table-tests\nDescription: Use table tests\nProvenance: derived\n\nAlways use table-driven tests.\n"
 	e, body, err := ParseMemoryStdin(strings.NewReader(in))
 	if err != nil {
@@ -95,6 +97,7 @@ func TestParseMemoryStdin(t *testing.T) {
 }
 
 func TestParseStrictJSONIn(t *testing.T) {
+	t.Parallel()
 	doc, err := ParseRecordJSON(strings.NewReader(`{"title":"JSON title","status":"open","id":"BUG-009","body":"Symptom: z\n"}`))
 	if err != nil {
 		t.Fatalf("ParseRecordJSON: %v", err)
@@ -137,6 +140,7 @@ func TestParseStrictJSONIn(t *testing.T) {
 }
 
 func TestFormatRecordsAndMemoryJSON(t *testing.T) {
+	t.Parallel()
 	js, err := FormatRecordsJSON(nil, false)
 	if err != nil || strings.TrimSpace(js) != "[]" {
 		t.Fatalf("empty FormatRecordsJSON = %q, %v", js, err)

@@ -14,6 +14,8 @@ import (
 )
 
 func TestSIMAutoEvalGateEdgeCases(t *testing.T) {
+	t.Parallel()
+
 	t.Run("dominant-model-7d-fallback-and-operator-problem-id", testSIMEvalGateDominantModelAndOperatorID)
 	t.Run("sim-record-failure-fails-open-preserving-applied-sha", testSIMEvalGateRecordFailOpen)
 	t.Run("predicted-rows-respect-session-cap", testSIMEvalGatePredictedRowsCap)

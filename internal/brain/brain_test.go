@@ -72,6 +72,7 @@ func trailText(t *testing.T, dir string) string {
 func str(s string) *string { return &s }
 
 func TestResumeMemoryStalenessAndPlanReadyPhases(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	home := t.TempDir()
 	o := opts(dir, home)

@@ -15,6 +15,8 @@ import (
 )
 
 func TestTargets(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t) // registered under f.home
 	other := t.TempDir()
 	run(t, other, "git", "init", "-q")
@@ -65,6 +67,8 @@ func TestTargets(t *testing.T) {
 }
 
 func TestSkipReason(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	if why := absent(project(f)); why != "" {
 		t.Errorf("a checkout with records skipped: %q", why)
@@ -82,6 +86,8 @@ func TestSkipReason(t *testing.T) {
 }
 
 func TestReadState(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	if st, err := readState(home); err != nil || st.Projects == nil || len(st.Projects) != 0 {
 		t.Errorf("missing file: %+v, %v", st, err)
@@ -105,6 +111,8 @@ func TestReadState(t *testing.T) {
 }
 
 func TestRunUsage(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	var ee *ExitError
 	for _, o := range []Options{{Home: home, All: true, Project: "/x"}, {Home: home}} {
@@ -120,6 +128,8 @@ func TestRunUsage(t *testing.T) {
 // Targets reads a copy of the store: a dry run built on it leaves the state
 // directory as it was.
 func TestTargetsLeavesNothing(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	if _, err := brain.Add(brain.Options{Home: home, Global: true}, brain.AddInput{Kind: "feedback", Title: "x", Body: strings.NewReader("y")}); err != nil {
 		t.Fatal(err)

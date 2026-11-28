@@ -16,6 +16,8 @@ import (
 
 // All dreaming classes render valid Kickoff templates.
 func TestTasksKickoffTemplates(t *testing.T) {
+	t.Parallel()
+
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 	cases := []struct {
 		class      string
@@ -56,6 +58,8 @@ func TestTasksKickoffTemplates(t *testing.T) {
 
 // Each of the seven learning classes triggers when its condition holds.
 func TestTasksTriggers(t *testing.T) {
+	t.Parallel()
+
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 
 	t.Run("memory-consolidation", func(t *testing.T) {
@@ -195,6 +199,8 @@ func writeFakeMetricsDB(t *testing.T, home, root string, verbs []string, frictio
 // through the dream's redactor first (R8 8.3, D19 item 2) and are removed
 // after the worker finishes.
 func TestTasksRedactedLearningInput(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := initGitRepo(t)
 	writeTree(t, root, ".gitignore", ".agents/scratch/\n")
@@ -288,6 +294,8 @@ func TestTasksRedactedLearningInput(t *testing.T) {
 }
 
 func TestDreamingOnlyClassSet(t *testing.T) {
+	t.Parallel()
+
 	want := map[string]bool{
 		ClassMemoryConsolidation: true,
 		ClassRetroLite:           true,
@@ -318,6 +326,8 @@ func TestDreamingOnlyClassSet(t *testing.T) {
 }
 
 func TestDistillRouting(t *testing.T) {
+	t.Parallel()
+
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 
 	t.Run("harness-checkout-eval-gate", func(t *testing.T) {
@@ -347,6 +357,8 @@ func TestDistillRouting(t *testing.T) {
 }
 
 func TestLearningInputHardeningAndCutoff(t *testing.T) {
+	t.Parallel()
+
 	t.Run("non-gitignored-skips-context-and-symlink-fails-closed", func(t *testing.T) {
 		home := t.TempDir()
 		root := initGitRepo(t)
@@ -474,6 +486,8 @@ func TestLearningInputHardeningAndCutoff(t *testing.T) {
 }
 
 func TestProjectPassCacheSharesAndCleans(t *testing.T) {
+	t.Parallel()
+
 	home, root := t.TempDir(), initGitRepo(t)
 	s, err := metrics.Open(metrics.Path(home))
 	if err != nil {
@@ -516,6 +530,8 @@ func TestProjectPassCacheSharesAndCleans(t *testing.T) {
 }
 
 func TestTasksSelfReferentialLogFilterAndGlobalMemories(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	realHome := t.TempDir()
 	root := t.TempDir()

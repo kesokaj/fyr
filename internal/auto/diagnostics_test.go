@@ -13,6 +13,7 @@ import (
 )
 
 func TestAutoDiagnosticTriggerAndInput(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := idleProject(t)
 	now := runAt
@@ -112,6 +113,7 @@ func assertAutoDiagnosticDedupAndBgRun(t *testing.T, home, root string, now time
 }
 
 func TestProjectSummaryUses7dRollingWindowAndPopulatesDeltas(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := idleProject(t)
 	now := runAt

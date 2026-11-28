@@ -18,6 +18,7 @@ import (
 // Finding 1: an impossible date in the old trail never reaches the export,
 // where every other home's load would refuse it.
 func TestImportBadDateLoads(t *testing.T) {
+	t.Parallel()
 	dir := docsFixture(t)
 	os.WriteFile(filepath.Join(dir, ".agents", "docs", "plans", "2026-02-30-typo.md"), []byte("---\ndate: 2026-13-45\n---\n# Typo plan\n\n- [ ] left\n"), 0o644)
 	adr := filepath.Join(dir, ".agents", "docs", "architecture", "DECISIONS.md")
@@ -51,6 +52,7 @@ func TestImportBadDateLoads(t *testing.T) {
 // Finding 2: a project's symlinked .agents is never read through, by the
 // global import either.
 func TestImportGlobalRefusesASymlinkedAgents(t *testing.T) {
+	t.Parallel()
 	victim := t.TempDir()
 	os.MkdirAll(filepath.Join(victim, ".agents", "memory"), 0o700)
 	os.WriteFile(filepath.Join(victim, ".agents", "memory", "secret.md"), []byte("---\nname: secret\ndescription: s\n---\n\nsecret\n"), 0o600)
@@ -73,6 +75,7 @@ func TestImportGlobalRefusesASymlinkedAgents(t *testing.T) {
 // Finding 4: a path printed for the caller to paste into `git rm` is
 // quoted when it is not plain.
 func TestShellQuote(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		".agents/docs/plans/a-b_c.1.md": ".agents/docs/plans/a-b_c.1.md",
 		".agents/docs/plans/$(x).md":    `'.agents/docs/plans/$(x).md'`,
@@ -88,6 +91,7 @@ func TestShellQuote(t *testing.T) {
 // Finding 5: a memory's description follows the title rules, and one long
 // line cannot crowd every other memory out of `memory show`.
 func TestMemoryAddTitleRules(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	for _, d := range []string{strings.Repeat("a", maxTitle+1), "mark\x01zebra\x02", "esc\x1b[31m"} {
@@ -98,6 +102,7 @@ func TestMemoryAddTitleRules(t *testing.T) {
 }
 
 func TestMemoryShowBoundsEachLine(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	// Stored past MemoryAdd's checks, as an older store or another writer could.
@@ -140,6 +145,7 @@ func TestImportCapsTotalRead(t *testing.T) {
 // Finding 7: a file is opened without following a link or blocking on a
 // FIFO, and read no further than its cap.
 func TestReadRegular(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	plain := filepath.Join(dir, "plain.md")
 	os.WriteFile(plain, []byte("text"), 0o644)
@@ -173,6 +179,7 @@ func TestReadRegular(t *testing.T) {
 // Finding 8: one bad entry in a global log is a problem line, never the
 // end of the import.
 func TestImportGlobalBadEntriesAreProblems(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	conf := filepath.Join(home, harness.StateDir)
 	os.MkdirAll(filepath.Join(conf, "proposals"), 0o700)
@@ -209,6 +216,7 @@ func TestImportGlobalBadEntriesAreProblems(t *testing.T) {
 // Review of the import, finding 1: a memory store git tracks is the
 // repository's text, never the operator's memory.
 func TestImportRefusesCommittedMemory(t *testing.T) {
+	t.Parallel()
 	dir := docsFixture(t)
 	p := filepath.Join(dir, ".agents", "memory", "evil.md")
 	os.MkdirAll(filepath.Dir(p), 0o755)
@@ -223,6 +231,7 @@ func TestImportRefusesCommittedMemory(t *testing.T) {
 // Review of the import: two projects' memories of one name are two records,
 // both counted as stored.
 func TestImportStoresSameIDInTwoScopes(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	st, err := openStore(home)
 	if err != nil {
@@ -250,6 +259,7 @@ func TestImportStoresSameIDInTwoScopes(t *testing.T) {
 // Review of the import: a docs root of another name keeps what its records
 // reference by path relative to it.
 func TestImportCustomDocsRoot(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	for rel, text := range map[string]string{
 		"trail/plans/2026-01-01-open.md":  "# Open\n\n- [ ] left\n\nsee `testing/2026-01-02-log.md`\n",
@@ -274,6 +284,7 @@ func TestImportCustomDocsRoot(t *testing.T) {
 // "_foo" slugs to "foo" as "FOO" did, without a second name that a
 // case-insensitive filesystem (macOS APFS) folds into the first.
 func TestImportGlobalSuffixNeverCollides(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	conf := filepath.Join(home, harness.StateDir, "proposals")
 	os.MkdirAll(conf, 0o700)
@@ -292,6 +303,7 @@ func TestImportGlobalSuffixNeverCollides(t *testing.T) {
 
 // Round 2, finding 2: a feedback line is stored as written, never expanded.
 func TestImportGlobalStoresTheLineAsWritten(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	conf := filepath.Join(home, harness.StateDir)
 	os.MkdirAll(conf, 0o700)
@@ -320,6 +332,7 @@ func TestImportCapsFileCount(t *testing.T) {
 // The import's dirty check runs no clean filter the checkout's own config
 // defines: `git status` would (SD38 of the 2026-10-27 audit, BUG-164).
 func TestImportRunsNoCleanFilter(t *testing.T) {
+	t.Parallel()
 	dir, home := docsFixture(t), t.TempDir()
 	marker := filepath.Join(t.TempDir(), "filter-ran")
 	prog := filepath.Join(t.TempDir(), "fake-clean")

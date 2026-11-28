@@ -134,29 +134,62 @@ func scoreProposalImpact(rec brain.Record, targets int) proposalImpact {
 	sessions := 0
 	signals := map[string]bool{}
 	signalLines := 0
-	for _, raw := range strings.Split(strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(rec.Body), "\n") {
-		if raw != strings.TrimLeft(raw, " \t") {
-			continue
-		}
-		line := strings.TrimSpace(raw)
-		low := strings.ToLower(line)
-		if strings.HasPrefix(low, "sessions:") {
-			if rest := strings.Fields(strings.TrimSpace(line[len("sessions:"):])); len(rest) > 0 {
-				if n, err := strconv.Atoi(strings.TrimRight(rest[0], ",;")); err == nil && n > sessions {
-					sessions = n
-				}
-			}
+	for _, line := range unindentedProposalLines(rec.Body) {
+		if n, ok := parseProposalSessions(line); ok && n > sessions {
+			sessions = n
 		}
 		if v, ok := recordFieldVal(line, "signal_id:", "signal:"); ok && v != "" {
 			signalLines++
 		}
-		for _, tok := range strings.FieldsFunc(line, isNonRecordRune) {
-			if recordForm.MatchString(tok) && !strings.HasPrefix(tok, "PROPOSAL-") {
-				signals[tok] = true
-			}
-		}
+		addProposalRecordRefs(line, signals)
 	}
 	return proposalImpact{sessions: sessions, signals: len(signals) + signalLines, targets: targets, when: recordTime(rec)}
+}
+
+func unindentedProposalLines(body string) []string {
+	norm := strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(body)
+	var out []string
+	for _, raw := range strings.Split(norm, "\n") {
+		if raw != strings.TrimLeft(raw, " \t") {
+			continue
+		}
+		if line := strings.TrimSpace(raw); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func parseProposalSessions(line string) (int, bool) {
+	if !strings.HasPrefix(strings.ToLower(line), "sessions:") {
+		return 0, false
+	}
+	rest := strings.Fields(strings.TrimSpace(line[len("sessions:"):]))
+	if len(rest) == 0 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimRight(rest[0], ",;"))
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+func addProposalRecordRefs(line string, dst map[string]bool) {
+	for _, tok := range strings.FieldsFunc(line, isNonRecordRune) {
+		if recordForm.MatchString(tok) && !strings.HasPrefix(tok, "PROPOSAL-") {
+			dst[tok] = true
+		}
+	}
+}
+
+func hasProposalRecordRef(line string) bool {
+	for _, tok := range strings.FieldsFunc(line, isNonRecordRune) {
+		if recordForm.MatchString(tok) && !strings.HasPrefix(tok, "PROPOSAL-") {
+			return true
+		}
+	}
+	return false
 }
 
 func isNonRecordRune(r rune) bool {
@@ -247,19 +280,11 @@ func proposalHeaderTarget(line string) string {
 	low := strings.ToLower(line)
 	hasHarness := false
 	for _, key := range []string{"target:", "scope:"} {
-		for _, off := range []string{key, " " + key} {
-			idx := strings.Index(low, off)
-			if idx < 0 || (off == key && idx != 0) {
-				continue
-			}
-			if flds := strings.Fields(low[idx+len(off):]); len(flds) > 0 {
-				if flds[0] == "project" {
-					return "project"
-				}
-				if flds[0] == "harness" {
-					hasHarness = true
-				}
-			}
+		switch proposalHeaderKeyTarget(low, key) {
+		case "project":
+			return "project"
+		case "harness":
+			hasHarness = true
 		}
 	}
 	if hasHarness {
@@ -268,37 +293,64 @@ func proposalHeaderTarget(line string) string {
 	return ""
 }
 
+func proposalHeaderKeyTarget(low, key string) string {
+	hasHarness := false
+	for _, atStart := range []bool{true, false} {
+		switch proposalHeaderValueAt(low, key, atStart) {
+		case "project":
+			return "project"
+		case "harness":
+			hasHarness = true
+		}
+	}
+	if hasHarness {
+		return "harness"
+	}
+	return ""
+}
+
+func proposalHeaderValueAt(low, key string, atStart bool) string {
+	var rest string
+	if atStart {
+		var ok bool
+		if rest, ok = strings.CutPrefix(low, key); !ok {
+			return ""
+		}
+	} else {
+		_, after, ok := strings.Cut(low, " "+key)
+		if !ok {
+			return ""
+		}
+		rest = after
+	}
+	flds := strings.Fields(rest)
+	if len(flds) == 0 {
+		return ""
+	}
+	return flds[0]
+}
+
 func hasProposalEvidence(body string) bool {
-	norm := strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(body)
-	for _, raw := range strings.Split(norm, "\n") {
-		if raw != strings.TrimLeft(raw, " \t") {
-			continue
-		}
-		line := strings.TrimSpace(raw)
-		if line == "" {
-			continue
-		}
-		low := strings.ToLower(line)
-		if strings.HasPrefix(low, "evidence:") && strings.TrimSpace(line[len("evidence:"):]) != "" {
+	for _, line := range unindentedProposalLines(body) {
+		if lineHasProposalEvidence(line) {
 			return true
-		}
-		if v, ok := recordFieldVal(line, "signal:", "signal_id:"); ok && isValidSignalID(v) {
-			return true
-		}
-		if strings.HasPrefix(low, "sessions:") {
-			if rest := strings.Fields(strings.TrimSpace(line[len("sessions:"):])); len(rest) > 0 {
-				if n, err := strconv.Atoi(strings.TrimRight(rest[0], ",;")); err == nil && n >= 2 {
-					return true
-				}
-			}
-		}
-		for _, tok := range strings.FieldsFunc(line, isNonRecordRune) {
-			if recordForm.MatchString(tok) && !strings.HasPrefix(tok, "PROPOSAL-") {
-				return true
-			}
 		}
 	}
 	return false
+}
+
+func lineHasProposalEvidence(line string) bool {
+	low := strings.ToLower(line)
+	if strings.HasPrefix(low, "evidence:") && strings.TrimSpace(line[len("evidence:"):]) != "" {
+		return true
+	}
+	if v, ok := recordFieldVal(line, "signal:", "signal_id:"); ok && isValidSignalID(v) {
+		return true
+	}
+	if n, ok := parseProposalSessions(line); ok && n >= 2 {
+		return true
+	}
+	return hasProposalRecordRef(line)
 }
 
 func matchProposalTargets(rec brain.Record, targets []harnessTarget) []string {

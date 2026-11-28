@@ -125,6 +125,8 @@ func TestCollectBrainReadError(t *testing.T) {
 // Skills and the metrics summary never make a project changed; anything
 // else after since does, and nothing blank is added.
 func TestAdderChangedOnlyByNews(t *testing.T) {
+	t.Parallel()
+
 	since := now.Add(-time.Hour)
 	c := &Collected{}
 	add := c.adder(since)

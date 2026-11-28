@@ -16,6 +16,7 @@ import (
 // ignores writes to other project scopes or global meta, leaves scratchDir
 // empty, and reads schema-1 stores without migrating them (BUG-504, ADR-506).
 func TestSnapshotScopes(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	scratch := t.TempDir()
 	watched := repo(t)
@@ -93,6 +94,7 @@ func TestSnapshotScopes(t *testing.T) {
 }
 
 func TestSnapshotScopesFallbacksAndSchema1(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	scratch := t.TempDir()
 	watched := repo(t)

@@ -370,6 +370,8 @@ func (c *countingUsageEnv) Usage(home, dir string) (string, error) {
 }
 
 func TestEnsureHoldoutSuiteRefusesSymlinks(t *testing.T) {
+	t.Parallel()
+
 	t.Run("symlinked .agents/eval starter dir", func(t *testing.T) {
 		root := t.TempDir()
 		ext := t.TempDir()
@@ -421,6 +423,9 @@ func TestV910AutoAndDreamUnblock(t *testing.T) {
 	t.Run("halt-reason-persistence", runV910HaltReasonPersistence)
 }
 
-func TestV910AutoPerPoolG9(t *testing.T) { runV910AutoPerPoolG9(t) }
+func TestV910AutoPerPoolG9(t *testing.T) {
+	t.Parallel()
+	runV910AutoPerPoolG9(t)
+}
 
 func TestV910Ephemeral(t *testing.T) { runV910Ephemeral(t) }

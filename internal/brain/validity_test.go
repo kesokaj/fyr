@@ -12,6 +12,7 @@ import (
 )
 
 func TestComputeMemoryValidity(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	staleRel := "stale.go"
 	stalePath := filepath.Join(dir, staleRel)
@@ -261,6 +262,7 @@ func TestComputeMemoryValidity(t *testing.T) {
 }
 
 func TestCountMemoryContradictions(t *testing.T) {
+	t.Parallel()
 	t0 := fixed
 	tOlder := fixed.Add(-24 * time.Hour).UTC().Format(time.RFC3339)
 	tEqual := fixed.UTC().Format(time.RFC3339)
@@ -301,6 +303,7 @@ func writeTestDoc(t *testing.T, root, rel, body string) {
 }
 
 func TestV910BrainDocsGuard(t *testing.T) {
+	t.Parallel()
 	// Ordinary docs/ and empty .agents/docs/ must open cleanly without migration refusal.
 	for _, rel := range []string{"docs/ARCHITECTURE.md", "docs/plans/roadmap.md", ".agents/docs/README.md"} {
 		dir, home := repo(t), t.TempDir()
@@ -330,6 +333,7 @@ func TestV910BrainDocsGuard(t *testing.T) {
 }
 
 func TestV910BrainProvenanceAndStale(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	writeTestDoc(t, dir, "core.go", "package core\n")
@@ -403,6 +407,7 @@ func assertMemoryShowStaleFlags(t *testing.T, o Options, dir string) {
 }
 
 func TestV910BrainDocsGuardProvenanceAndValidity(t *testing.T) {
+	t.Parallel()
 	t.Run("docs_guard", TestV910BrainDocsGuard)
 	t.Run("provenance_and_stale", TestV910BrainProvenanceAndStale)
 	t.Run("validity_calibration", func(t *testing.T) {

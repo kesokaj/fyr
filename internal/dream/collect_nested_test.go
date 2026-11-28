@@ -13,6 +13,8 @@ import (
 // to the model; it is named by its ID among the left-out inputs, without its
 // path, while the root's own sessions still go.
 func TestNestedCheckoutTranscriptNotCollected(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	nested := filepath.Join(f.root, "vendor", "inner")
 	if err := os.MkdirAll(nested, 0o755); err != nil {

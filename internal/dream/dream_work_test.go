@@ -13,6 +13,8 @@ import (
 // conversation sits in its config directory (visible dream plan D5); a
 // session in the checkout itself still is (the positive control).
 func TestDreamWorkNotInUse(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	run(t, home, "git", "init", "-q")
 	now := time.Now()

@@ -9,6 +9,7 @@ import (
 )
 
 func TestMemoryPartsAndGlobalScope(t *testing.T) {
+	t.Parallel()
 	// 1. NormalizeMemoryType covers canonical parts and legacy aliases.
 	cases := []struct {
 		in   string
@@ -169,6 +170,7 @@ func TestMemoryPartsAndGlobalScope(t *testing.T) {
 }
 
 func TestV910MemoryShowLimit(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	dir := repo(t)
 	for i, name := range []string{"card-a", "card-b", "card-c"} {

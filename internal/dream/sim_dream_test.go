@@ -239,6 +239,8 @@ func seedLargeSIMCorpus(t *testing.T, home string) {
 }
 
 func TestSIMDreamCollectAndPrompt(t *testing.T) {
+	t.Parallel()
+
 	t.Run("bounded-redacted-fenced-sim-unchanged-and-metrics-clean", testSIMDreamCollectBoundAndClean)
 	t.Run("drop-order-after-transcripts-before-skills", testSIMDreamFitDropOrder)
 }

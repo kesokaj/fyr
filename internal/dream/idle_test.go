@@ -69,6 +69,8 @@ func dryRunAll(t *testing.T, home, root string, since time.Time) string {
 // is not. A migrated project is found by its records, though the file index
 // no longer registers it.
 func TestIdleRule(t *testing.T) {
+	t.Parallel()
+
 	home, root := recordsProject(t, now.Add(-30*time.Hour), now.Add(-48*time.Hour))
 	out := dryRunAll(t, home, root, now.Add(-72*time.Hour))
 	if !strings.Contains(out, root+": would dream (idle 24h0m0s, changed since") {
@@ -94,6 +96,8 @@ func TestIdleRule(t *testing.T) {
 
 // An Antigravity session within the day keeps a project in use too.
 func TestIdleRuleSeesASession(t *testing.T) {
+	t.Parallel()
+
 	home, root := recordsProject(t, old, old)
 	agyConversations(t, home, map[string]agyConv{"at-root": {root, fresh, []agyStep{{typ: 14, text: "a line"}}}})
 	p := projectAt(root)
@@ -107,6 +111,8 @@ func TestIdleRuleSeesASession(t *testing.T) {
 
 // A migrated project's memory, trail and feedback come from its records.
 func TestCollectReadsRecords(t *testing.T) {
+	t.Parallel()
+
 	home, root := recordsProject(t, now.Add(-30*time.Hour), now.Add(-48*time.Hour))
 	g := brain.Options{Home: home, Dir: t.TempDir(), Global: true, Now: func() time.Time { return now.Add(-26 * time.Hour) }}
 	if _, err := brain.Add(g, brain.AddInput{Kind: "feedback", Title: "use Thursdays", Project: root, Body: strings.NewReader(`{"corrected":"deploy on Thursdays"}`)}); err != nil {
@@ -130,6 +136,8 @@ func TestCollectReadsRecords(t *testing.T) {
 // Security review of the dream over records, finding 1: a feedback record's
 // body is a JSON line and is redacted as one.
 func TestFeedbackRecordsAreRedactedAsJSON(t *testing.T) {
+	t.Parallel()
+
 	home, root := recordsProject(t, now.Add(-30*time.Hour), now.Add(-48*time.Hour))
 	g := brain.Options{Home: home, Dir: t.TempDir(), Global: true, Now: func() time.Time { return now.Add(-26 * time.Hour) }}
 	// json.Marshal writes & as \u0026: the raw needles miss the signature,
@@ -150,6 +158,8 @@ func TestFeedbackRecordsAreRedactedAsJSON(t *testing.T) {
 
 // Finding 4: a record dated after now never keeps a project in use.
 func TestFutureRecordIsNotUse(t *testing.T) {
+	t.Parallel()
+
 	home, root := recordsProject(t, now.Add(48*time.Hour), now.Add(-48*time.Hour))
 	if why := activity(home, search.Project{Root: root}, now); why != "" {
 		t.Errorf("a future-dated record made the project in use: %q", why)
@@ -158,6 +168,8 @@ func TestFutureRecordIsNotUse(t *testing.T) {
 
 // Finding 5: a dry run creates, migrates and loads no brain store.
 func TestDryRunLeavesTheBrainStore(t *testing.T) {
+	t.Parallel()
+
 	src, root := recordsProject(t, now.Add(-30*time.Hour), now.Add(-48*time.Hour))
 	_ = src
 	home := t.TempDir() // no brain.db here; the project's trail.jsonl is committed
@@ -194,6 +206,8 @@ func TestDryRunLeavesTheBrainStore(t *testing.T) {
 
 // Finding 6: one checkout reached two ways is one target.
 func TestTargetsDedupeOneCheckout(t *testing.T) {
+	t.Parallel()
+
 	home, root := recordsProject(t, now.Add(-30*time.Hour), now.Add(-48*time.Hour))
 	link := filepath.Join(t.TempDir(), "link")
 	if err := os.Symlink(root, link); err != nil {
@@ -209,6 +223,8 @@ func TestTargetsDedupeOneCheckout(t *testing.T) {
 
 // Finding 7: a project's proposals are stored together or not at all.
 func TestProposalsStoredTogether(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	ps := []brain.Proposal{{Title: "one", Body: "a"}, {Title: "two", Body: "b"}}
 	ids, err := brain.ProposeAll(home, "/p/x", ps, now)

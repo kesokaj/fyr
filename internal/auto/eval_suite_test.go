@@ -16,6 +16,8 @@ import (
 // reads, the tracked file when the checkout has one (ADR-500), else the
 // GUIDE-eval record.
 func TestReadCheckoutSuiteTrackedFirst(t *testing.T) {
+	t.Parallel()
+
 	home, root := t.TempDir(), idleProject(t)
 	if _, err := brain.Add(brain.Options{Home: home, Dir: root, Now: time.Now}, brain.AddInput{
 		ID: "GUIDE-eval", Kind: "guide", Status: "current", Title: "GUIDE-eval", Body: strings.NewReader(testHarnessSuite),
@@ -50,6 +52,8 @@ func TestReadCheckoutSuiteTrackedFirst(t *testing.T) {
 // even when the default fixture repository exists, because its setups run
 // the fixture script the clone holds (ADR-500); an explicit EvalFixture wins.
 func TestEvalFixtureTrackedSuite(t *testing.T) {
+	t.Parallel()
+
 	real, root := t.TempDir(), t.TempDir()
 	def := filepath.Join(real, "sandbox", "fyr-eval", "fixture")
 	if err := os.MkdirAll(filepath.Join(def, ".git"), 0o755); err != nil {
@@ -76,6 +80,8 @@ func TestEvalFixtureTrackedSuite(t *testing.T) {
 }
 
 func TestApplyKeptGateBranchReportsBrainEditWarning(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := idleProject(t)
 	r := &run{

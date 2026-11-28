@@ -13,6 +13,7 @@ import (
 )
 
 func TestApplyMovedCheckoutKeepsBranch(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		mutate func(t *testing.T, root, baseHead string)
@@ -90,6 +91,7 @@ func TestApplyMovedCheckoutKeepsBranch(t *testing.T) {
 }
 
 func TestApplyNoMarkedTestBecomesProposal(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name     string
 		agentsMD string
@@ -225,6 +227,7 @@ func TestApplyNoPushFetchOrLsRemoteInGitLog(t *testing.T) {
 }
 
 func TestApplyRubricDeniedPathOnBranchKeepsBranch(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name    string
 		mode    string
@@ -280,6 +283,7 @@ func TestApplyRubricDeniedPathOnBranchKeepsBranch(t *testing.T) {
 }
 
 func TestApplyStep1RereadsGatesAndDraftFindings(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := applyFixture(t, home, defaultAgentsMD)
 	baseHead := git(t, root, "rev-parse", "HEAD")
@@ -337,6 +341,7 @@ func TestApplyStep1RereadsGatesAndDraftFindings(t *testing.T) {
 }
 
 func TestReadGitBlobAndApplyFailClosedOnGitError(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := applyFixture(t, home, defaultAgentsMD)
 	baseHead := git(t, root, "rev-parse", "HEAD")

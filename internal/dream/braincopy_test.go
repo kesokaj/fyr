@@ -14,6 +14,8 @@ import (
 // run leaves nothing removeCopies cannot sweep; with no such directory it
 // goes to the system's, and ~/.config/fyr is never created.
 func TestBrainCopyStaysUnderTheStateDir(t *testing.T) {
+	t.Parallel()
+
 	t.Run("state dir without a store", func(t *testing.T) {
 		home := t.TempDir()
 		conf := filepath.Dir(brain.Path(home))

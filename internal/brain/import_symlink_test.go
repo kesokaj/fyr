@@ -11,6 +11,7 @@ import (
 // unresolved working directory and compared with git's resolved top level,
 // so a directory inside the checkout was refused as outside it.
 func TestImportDocsRootThroughLinkedCheckout(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	for rel, text := range map[string]string{
 		"trail/plans/2026-01-01-open.md":  "# Open\n\n- [ ] left\n\nsee `testing/2026-01-02-log.md`\n",

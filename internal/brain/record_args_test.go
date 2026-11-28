@@ -10,6 +10,7 @@ import (
 // split (PLAN-2026-10-27-funclen, Phase 2, D13).
 
 func TestRecordVerbArgumentRefusals(t *testing.T) {
+	t.Parallel()
 	o := opts(repo(t), t.TempDir())
 	g := o
 	g.Global = true
@@ -46,6 +47,7 @@ func TestRecordVerbArgumentRefusals(t *testing.T) {
 
 // A query with no word in it finds nothing, and is no error.
 func TestSearchAndRefsWithNoWords(t *testing.T) {
+	t.Parallel()
 	o := opts(repo(t), t.TempDir())
 	add(t, o, "bug", "a bug", "body")
 	if hits, err := Search(o, []string{"/"}, "", 10); err != nil || len(hits) != 0 {
@@ -59,6 +61,7 @@ func TestSearchAndRefsWithNoWords(t *testing.T) {
 // Review of funclen Phase 2, finding 3: a query the store cannot run is an
 // error, wrapped as the brain's.
 func TestOwnHitsQueryError(t *testing.T) {
+	t.Parallel()
 	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

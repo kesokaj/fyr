@@ -73,31 +73,46 @@ func Status(o Options) error {
 }
 
 func installPendingBanner(o Options, st State) string {
-	pending, sha := st.InstallPending, strings.TrimSpace(st.InstallPendingSHA)
-	if !pending {
-		if dig, err := metrics.ReadLatestDailyDigest(o.Home); err == nil && dig != nil {
-			for _, a := range dig.Actions {
-				if a.InstallPending {
-					pending = true
-					if sha == "" {
-						sha = strings.TrimSpace(a.AppliedSHA)
-					}
-					break
-				}
-			}
-		}
-	}
+	pending, sha := resolveInstallPending(o.Home, st)
 	if !pending {
 		return ""
 	}
-	if sha != "" {
-		if hst, found, err := harness.LoadState(o.Home); err == nil && found && hst.Commit != "" &&
-			(hst.Commit == sha || strings.HasPrefix(hst.Commit, sha) || strings.HasPrefix(sha, hst.Commit)) {
-			return ""
-		}
-		return fmt.Sprintf("install    pending (skills/ updated at %s; run 'fyr install' to deploy)", oneLine(sha))
+	if sha == "" {
+		return "install    pending (skills/ updated; run 'fyr install' to deploy)"
 	}
-	return "install    pending (skills/ updated; run 'fyr install' to deploy)"
+	if installedMatchesSHA(o.Home, sha) {
+		return ""
+	}
+	return fmt.Sprintf("install    pending (skills/ updated at %s; run 'fyr install' to deploy)", oneLine(sha))
+}
+
+func resolveInstallPending(home string, st State) (bool, string) {
+	sha := strings.TrimSpace(st.InstallPendingSHA)
+	if st.InstallPending {
+		return true, sha
+	}
+	dig, err := metrics.ReadLatestDailyDigest(home)
+	if err != nil || dig == nil {
+		return false, ""
+	}
+	for _, a := range dig.Actions {
+		if !a.InstallPending {
+			continue
+		}
+		if sha == "" {
+			sha = strings.TrimSpace(a.AppliedSHA)
+		}
+		return true, sha
+	}
+	return false, ""
+}
+
+func installedMatchesSHA(home, sha string) bool {
+	hst, found, err := harness.LoadState(home)
+	if err != nil || !found || hst.Commit == "" {
+		return false
+	}
+	return hst.Commit == sha || strings.HasPrefix(hst.Commit, sha) || strings.HasPrefix(sha, hst.Commit)
 }
 
 func isAutoAskTitle(title string) bool {

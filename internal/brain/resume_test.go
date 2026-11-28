@@ -14,6 +14,7 @@ import (
 )
 
 func TestResumeGolden(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	home := t.TempDir()
 	writeFile := func(name, content string) {
@@ -108,6 +109,7 @@ func TestResumeGolden(t *testing.T) {
 }
 
 func TestResumeReadOnlyDoesNotCreateDB(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	home := t.TempDir()
 	out, err := Resume(opts(dir, home))
@@ -134,6 +136,7 @@ func TestResumeReadOnlyDoesNotCreateDB(t *testing.T) {
 }
 
 func TestResumeFileEraNoticeAndTrailFallback(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "docs", "handoffs"), 0o755); err != nil {
@@ -170,6 +173,7 @@ func TestResumeFileEraNoticeAndTrailFallback(t *testing.T) {
 }
 
 func TestResumeRefusesNonCheckout(t *testing.T) {
+	t.Parallel()
 	_, err := Resume(opts(t.TempDir(), t.TempDir()))
 	if !IsRefusal(err) {
 		t.Fatalf("err = %v, want IsRefusal", err)
@@ -194,6 +198,7 @@ func TestResumeRefusesNonCheckout(t *testing.T) {
 }
 
 func TestResumeDailyHealthDigestAndFailOpen(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	home := t.TempDir()
 	digestPath := filepath.Join(home, harness.StateDir, "reports", "latest-daily-digest.json")

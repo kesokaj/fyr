@@ -22,12 +22,14 @@ func writeConfig(t *testing.T, home, text string) {
 const validConfig = `{"enabled": true, "conversation_idle": "1h"}`
 
 func TestAutoConfigMissingIsNotFound(t *testing.T) {
+	t.Parallel()
 	if _, found, err := Load(t.TempDir()); found || err != nil {
 		t.Errorf("found %v, err %v", found, err)
 	}
 }
 
 func TestAutoConfigRoundTrip(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	want := Config{Enabled: true, ConversationIdle: "7d"}
 	if err := save(home, want); err != nil {
@@ -58,6 +60,7 @@ func TestAutoConfigRoundTrip(t *testing.T) {
 // Everything but a well-formed file fails closed: Load errs, found is false,
 // and no caller can read a half-parsed "enabled".
 func TestAutoConfigCorrupt(t *testing.T) {
+	t.Parallel()
 	for name, text := range map[string]string{
 		"empty":             ``,
 		"not json":          `on`,
@@ -102,6 +105,7 @@ func TestAutoConfigCorrupt(t *testing.T) {
 }
 
 func TestAutoConfigLinkRefused(t *testing.T) {
+	t.Parallel()
 	home, other := t.TempDir(), t.TempDir()
 	target := filepath.Join(other, "elsewhere.json")
 	if err := os.WriteFile(target, []byte(validConfig), 0o600); err != nil {
@@ -119,6 +123,7 @@ func TestAutoConfigLinkRefused(t *testing.T) {
 }
 
 func TestAutoConfigDirectoryRefused(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	if err := os.MkdirAll(ConfigPath(home), 0o700); err != nil {
 		t.Fatal(err)
@@ -129,6 +134,7 @@ func TestAutoConfigDirectoryRefused(t *testing.T) {
 }
 
 func TestAutoSpans(t *testing.T) {
+	t.Parallel()
 	for _, s := range []string{"5m", "1h", "7d", "168h", "1d", "24h"} {
 		if err := ValidConversationIdle(s); err != nil {
 			t.Errorf("%s: %v", s, err)
@@ -144,6 +150,7 @@ func TestAutoSpans(t *testing.T) {
 // encoding/json alone lets each of these through: a closing bracket after the
 // value, a repeated key, a key in another case.
 func TestAutoConfigStrictJSON(t *testing.T) {
+	t.Parallel()
 	for name, text := range map[string]string{
 		"stray brace":   validConfig + `}`,
 		"stray bracket": validConfig + `]`,
@@ -164,6 +171,7 @@ func TestAutoConfigStrictJSON(t *testing.T) {
 }
 
 func TestConversationIdleDuration(t *testing.T) {
+	t.Parallel()
 	if got := ConversationIdleDuration(t.TempDir()); got != time.Hour {
 		t.Errorf("missing config = %v, want 1h", got)
 	}

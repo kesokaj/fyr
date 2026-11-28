@@ -22,6 +22,8 @@ func session(on bool, err error) func() (bool, error) {
 // 2 and creates nothing. The positive control, a session, creates the
 // state directory.
 func TestRunAllNeedsASession(t *testing.T) {
+	t.Parallel()
+
 	none := func(string) ([]search.Project, error) { return nil, nil }
 	for _, c := range []struct {
 		name    string
@@ -74,6 +76,8 @@ func TestRunProjectNeverAsks(t *testing.T) {
 }
 
 func TestDryRunSessionLine(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	for _, c := range []struct {
 		session func() (bool, error)
@@ -106,6 +110,8 @@ func TestDryRunSessionLine(t *testing.T) {
 // state; with the lock held by a live run it removes nothing. That it
 // creates no state directory where there is none is TestRunAllNeedsASession.
 func TestNoSessionSweepsKilledRun(t *testing.T) {
+	t.Parallel()
+
 	none := func(string) ([]search.Project, error) { return nil, nil }
 	home := t.TempDir()
 	conf := filepath.Join(home, harness.StateDir)

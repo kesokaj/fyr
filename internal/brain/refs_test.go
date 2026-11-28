@@ -11,6 +11,7 @@ import (
 // trail is records: the skills ask `--refs <path> --kind bug` before
 // touching an area.
 func TestRefsFindsRecordsNamingAPathOrID(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	b1 := add(t, o, "bug", "export race", "The bug was in `internal/brain/export.go:120`; see ADR-063.")
@@ -53,6 +54,7 @@ func TestRefsFindsRecordsNamingAPathOrID(t *testing.T) {
 }
 
 func TestOpenRecords(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	open := add(t, o, "bug", "still broken", "x")
@@ -83,6 +85,7 @@ func ids(hits []Hit) string {
 // D31: among near-equal matches the newer record ranks first; a clearly
 // better older match still wins.
 func TestSearchPrefersTheNewerOfNearEqualRecords(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	old := opts(dir, home)
 	old.Now = func() time.Time { return time.Now().AddDate(0, -2, 0) }
@@ -105,6 +108,7 @@ func TestSearchPrefersTheNewerOfNearEqualRecords(t *testing.T) {
 // D32: `fyr status` dates the last retro from the global retro records too;
 // with no store it creates none.
 func TestLastRetro(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	if _, ok := LastRetro(home); ok {
 		t.Fatal("no store, no retro")
@@ -124,6 +128,7 @@ func TestLastRetro(t *testing.T) {
 
 // D31's weight is at most 10%: a record dated after now gets no more.
 func TestRecencyWeightIsCapped(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	future := opts(dir, home)
 	future.Now = func() time.Time { return time.Now().AddDate(5, 0, 0) }

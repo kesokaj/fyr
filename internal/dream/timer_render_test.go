@@ -6,6 +6,8 @@ import (
 )
 
 func TestRenderSystemdUnits(t *testing.T) {
+	t.Parallel()
+
 	service, timer := renderSystemd("/h/.local/bin/fyr", "/h", "/h/.local/bin:/usr/bin")
 	for _, want := range []string{"Type=oneshot", "TimeoutStartSec=2h", `Environment="PATH=/h/.local/bin:/usr/bin"`, `ExecStart="/h/.local/bin/fyr" dream --all --home "/h"`} {
 		if !strings.Contains(service, want) {
@@ -20,6 +22,8 @@ func TestRenderSystemdUnits(t *testing.T) {
 }
 
 func TestRenderLaunchdPlist(t *testing.T) {
+	t.Parallel()
+
 	plist := renderLaunchd("com.fyr.dream", "/Users/o & p/.local/bin/fyr", "/Users/o & p", "/usr/bin")
 	for _, want := range []string{"<string>com.fyr.dream</string>", "<string>/Users/o &amp; p/.local/bin/fyr</string>", "<string>dream</string>", "<string>--all</string>", "<string>--home</string><string>/Users/o &amp; p</string>", "<key>StartCalendarInterval</key>\n  <dict><key>Minute</key><integer>0</integer></dict>", "<key>PATH</key><string>/usr/bin</string>"} {
 		if !strings.Contains(plist, want) {
@@ -35,6 +39,8 @@ func TestRenderLaunchdPlist(t *testing.T) {
 // TestRenderSystemdEscapesDollar: systemd expands $VAR and ${VAR} in
 // ExecStart, inside quotes too; $$ is a literal dollar sign.
 func TestRenderSystemdEscapesDollar(t *testing.T) {
+	t.Parallel()
+
 	service, _ := renderSystemd("/h/a$b/fyr", "/h/${X}", "/p")
 	if !strings.Contains(service, `ExecStart="/h/a$$b/fyr" dream --all --home "/h/$${X}"`) {
 		t.Errorf("a $ in ExecStart was not escaped:\n%s", service)
@@ -43,6 +49,8 @@ func TestRenderSystemdEscapesDollar(t *testing.T) {
 
 // TestShellQuote: a path printed inside a command the operator may paste.
 func TestShellQuote(t *testing.T) {
+	t.Parallel()
+
 	for in, want := range map[string]string{
 		"/home/u":      "'/home/u'",
 		"/h/a b":       "'/h/a b'",

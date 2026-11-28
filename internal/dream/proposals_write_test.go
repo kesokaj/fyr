@@ -9,6 +9,8 @@ import (
 )
 
 func TestHeaderSmallDropped(t *testing.T) {
+	t.Parallel()
+
 	o := Options{Home: "/home/tester"}
 
 	none := o.header(Collected{Root: "/proj"}, "agy", "2026-11-21")
@@ -46,6 +48,8 @@ func TestHeaderSmallDropped(t *testing.T) {
 }
 
 func TestHeaderLargeMultiByteDroppedBoundedAndSanitized(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	o := Options{Home: home}
 
@@ -197,6 +201,8 @@ func TestHeaderLargeMultiByteDroppedBoundedAndSanitized(t *testing.T) {
 }
 
 func TestDroppedKindAndSampleHelpers(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		in, want string
 	}{
@@ -232,6 +238,8 @@ func TestDroppedKindAndSampleHelpers(t *testing.T) {
 }
 
 func TestValidProposalAndSectionOptionalDigestMeta(t *testing.T) {
+	t.Parallel()
+
 	o := Options{Home: "/home/tester"}
 
 	t.Run("valid-optional-fields-accepted-and-rendered", func(t *testing.T) {

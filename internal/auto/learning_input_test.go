@@ -15,6 +15,8 @@ import (
 )
 
 func TestBuildLearningInputCapsOversizedProposalsAndPreservesTelemetry(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := initGitRepo(t)
 	seedAutoKneeMetrics(t, home, root, runAt)
@@ -97,6 +99,8 @@ func TestBuildLearningInputCapsOversizedProposalsAndPreservesTelemetry(t *testin
 }
 
 func TestBoundProposalEntry(t *testing.T) {
+	t.Parallel()
+
 	short := "### P1: Short\nhello\n\n"
 	if got := boundProposalEntry(short, maxProposalEntryBytes); got != short {
 		t.Errorf("short entry mutated: %q", got)
@@ -125,6 +129,8 @@ func TestBoundProposalEntry(t *testing.T) {
 }
 
 func TestBuildLearningInputScrubsBeforeTruncationAndAvoidsStarvation(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	realHome := filepath.Join(t.TempDir(), "realhome-boundary-secret-path")
 	root := initGitRepo(t)
@@ -217,6 +223,8 @@ func TestBuildLearningInputScrubsBeforeTruncationAndAvoidsStarvation(t *testing.
 }
 
 func TestAppendProposalSectionNoOrphanHeadingAndTelemetryShare(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := initGitRepo(t)
 	gBrain := brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt }}
@@ -267,6 +275,8 @@ func TestAppendProposalSectionNoOrphanHeadingAndTelemetryShare(t *testing.T) {
 }
 
 func TestBuildLearningInputLeftOutHeaderMatchesDream(t *testing.T) {
+	t.Parallel()
+
 	t.Run("no Left out header when everything fits", func(t *testing.T) {
 		home := t.TempDir()
 		root := initGitRepo(t)
@@ -406,6 +416,8 @@ func TestBuildLearningInputLeftOutHeaderMatchesDream(t *testing.T) {
 }
 
 func TestBuildLearningInputDailyDigestRedactionCapAndFailOpen(t *testing.T) {
+	t.Parallel()
+
 	t.Run("includes-redacted-digest-and-respects-cap", func(t *testing.T) {
 		home := t.TempDir()
 		realHome := filepath.Join(t.TempDir(), "realhome-digest-path")

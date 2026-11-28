@@ -255,6 +255,7 @@ func TestApplyHappyPath(t *testing.T) {
 }
 
 func TestApplyAttributionFlowCommitAndReport(t *testing.T) {
+	t.Parallel()
 	// Verify formatApplyCommitBody preserves default when empty and emits non-trailer prose when set.
 	if def := formatApplyCommitBody("REV-1", "HAND-1", Task{}); def != "Applied by fyr auto (report REV-1, handoff HAND-1).\nrevert: git revert HEAD" {
 		t.Errorf("default commit body changed: %q", def)
@@ -317,6 +318,7 @@ func TestApplyAttributionFlowCommitAndReport(t *testing.T) {
 }
 
 func TestApplyRedMarkedTestKeepsBranch(t *testing.T) {
+	t.Parallel()
 	t.Run("marked-test-fails", func(t *testing.T) {
 		home := t.TempDir()
 		root := applyFixture(t, home, "# AGENTS.md\n\n## Setup commands\n\n```bash\nfalse   # auto: test\n```\n")
@@ -368,6 +370,7 @@ func TestApplyRedMarkedTestKeepsBranch(t *testing.T) {
 }
 
 func TestApplySquashRedactsSecretNeedles(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := applyFixture(t, home, defaultAgentsMD)
 	baseHead := git(t, root, "rev-parse", "HEAD")

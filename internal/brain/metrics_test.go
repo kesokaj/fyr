@@ -13,6 +13,7 @@ import (
 // the global feedback about it alone (plan 2026-10-25-1754 S1, D11). With no
 // store and no trail.jsonl it gives nothing and creates nothing.
 func TestForMetrics(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	migrated, unmigrated := repo(t), repo(t)
 	os.MkdirAll(filepath.Join(unmigrated, ".agents", "docs", "handoffs"), 0o755)
@@ -70,6 +71,7 @@ func TestForMetrics(t *testing.T) {
 // TestKindOfID: every kind's prefix maps back to its kind (TEST is testing);
 // a word with no known prefix and dash is no kind.
 func TestKindOfID(t *testing.T) {
+	t.Parallel()
 	for k, p := range prefixes {
 		if got := KindOfID(p + "-2026-10-25-1900-x"); got != k {
 			t.Errorf("KindOfID(%s-…) = %q, want %q", p, got, k)
@@ -86,6 +88,7 @@ func TestKindOfID(t *testing.T) {
 // migrated: its trail is not loaded, so no scope of it appears in the store,
 // and its feedback is still read; registered, it joins (audit-choices SD49).
 func TestForMetricsUnregisteredReadsNoTrail(t *testing.T) {
+	t.Parallel()
 	home, src := t.TempDir(), t.TempDir()
 	stranger := repo(t)
 	add(t, opts(stranger, src), "handoff", "a stranger's handoff", "body")

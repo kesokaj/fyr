@@ -67,6 +67,8 @@ func realOutput(t *testing.T, name string) string {
 // oracle's three reports grant nothing and pass, and a turn's answer is
 // read, or refused when a tool ran.
 func TestRealAgyShapes(t *testing.T) {
+	t.Parallel()
+
 	work := t.TempDir()
 	reads := map[string]func(json.RawMessage) string{
 		"permissions": permissionsGrant,
@@ -104,6 +106,8 @@ func TestRealAgyShapes(t *testing.T) {
 // out of the real stream is reported by name, and each key taken out of the
 // real /config is refused by name.
 func TestRealAgyShapesNameTheLoss(t *testing.T) {
+	t.Parallel()
+
 	stream := realOutput(t, "turn.jsonl")
 	if m := missingInStream(stream); len(m) > 0 {
 		t.Fatalf("the unmutated stream lacks %v", m)
@@ -142,6 +146,8 @@ func TestRealAgyShapesNameTheLoss(t *testing.T) {
 
 // TestRealAgyArgv pins that the call the capture ran is the dream's own.
 func TestRealAgyArgv(t *testing.T) {
+	t.Parallel()
+
 	const captured = `agy --input-format stream-json --output-format stream-json --mode plan -p ""`
 	if got := fmt.Sprintf("%s %q", strings.Join(command()[:len(command())-1], " "), command()[len(command())-1]); got != captured {
 		t.Errorf("the dream's call is %s; the capture ran %s: capture again", got, captured)

@@ -12,6 +12,7 @@ import (
 )
 
 func TestSIMRetrieve(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	now := fixed
 
@@ -221,6 +222,7 @@ func TestSIMRetrieve(t *testing.T) {
 }
 
 func TestSIMStateIO(t *testing.T) {
+	t.Parallel()
 	homeA, homeB := t.TempDir(), t.TempDir()
 	t1 := fixed
 	t2 := fixed.Add(2 * time.Hour)
@@ -467,6 +469,7 @@ func TestSIMStateIO(t *testing.T) {
 }
 
 func TestSIMIsolation(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 

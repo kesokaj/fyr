@@ -10,6 +10,8 @@ import (
 )
 
 func TestRubricDenied(t *testing.T) {
+	t.Parallel()
+
 	for _, e := range []string{
 		// Roots, as a file, a directory, and a path under the directory.
 		"PRD.md", "REQUIREMENTS.md", "context/", "context/AGENTS.md", "rules", "rules/x.md",
@@ -68,6 +70,8 @@ func TestRubricDenied(t *testing.T) {
 }
 
 func TestRubricAllowedFiles(t *testing.T) {
+	t.Parallel()
+
 	in := []string{"README.md", "AGENTS.md", "SPEC-greet", "internal/x_test.go", "ADR-001", "skills/fyr-retro/SKILL.md", ".agents/workflows/x.md"}
 	kept, denied := AllowedFiles(in, false)
 	if want := []string{"README.md", "SPEC-greet"}; !slices.Equal(kept, want) {
@@ -84,6 +88,8 @@ func TestRubricAllowedFiles(t *testing.T) {
 }
 
 func TestRubricInstruction(t *testing.T) {
+	t.Parallel()
+
 	for _, e := range []string{"skills/", "skills/fyr-retro/SKILL.md", "commands/x.md",
 		".agents/skills/new/", ".agents/commands/x.md", ".agents/workflows/x.md", ".agents/", "SKILLS/x", "../x"} {
 		if !Instruction(e) {
@@ -141,6 +147,8 @@ func sortedRubricLists() (denied, instructions []string) {
 // TestRubricMatchesSkill pins rubric.go and the skill's words to each other,
 // both ways: a token or sentence on one side only fails.
 func TestRubricMatchesSkill(t *testing.T) {
+	t.Parallel()
+
 	b, err := os.ReadFile(filepath.Join("..", "..", "skills", "fyr-auto", "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)

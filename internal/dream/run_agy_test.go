@@ -173,6 +173,8 @@ func TestAgyHomeMacKeychain(t *testing.T) {
 // home (a locked macOS Keychain, an expired login) says so in the failure
 // reason, naming that home, not just "invalid output".
 func TestAgyAuthHint(t *testing.T) {
+	t.Parallel()
+
 	if h := agyAuthHint("", "Authentication required. Please visit the URL to log in:", privateWhere); !strings.Contains(h, "not logged in inside "+privateWhere) || !strings.Contains(h, "Keychain") {
 		t.Errorf("hint = %q", h)
 	}

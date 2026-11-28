@@ -12,6 +12,7 @@ import (
 // every memory and feedback record stored before the migration reads as
 // unknown, never operator (D12).
 func TestProvenanceMigrationSetsUnknown(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	p := Path(home)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
@@ -78,6 +79,7 @@ func TestProvenanceMigrationSetsUnknown(t *testing.T) {
 // provenance value, and preserves or updates provenance when replacing a
 // same-named entry.
 func TestProvenanceMemoryAdd(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 
@@ -122,6 +124,7 @@ func TestProvenanceMemoryAdd(t *testing.T) {
 // project's ID, refuses overwriting an operator memory on add, and never
 // writes .agents/trail.jsonl.
 func TestProvenanceMemoryDraftActions(t *testing.T) {
+	t.Parallel()
 	dirA, dirB, home := repo(t), repo(t), t.TempDir()
 	oA := opts(dirA, home)
 	oB := opts(dirB, home)
@@ -190,6 +193,7 @@ func TestProvenanceMemoryDraftActions(t *testing.T) {
 // Add for feedback defaults provenance to operator and accepts derived;
 // Add for memory via `fyr record add memory` defaults provenance to unknown.
 func TestProvenanceFeedbackAndRecordAdd(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	g := o

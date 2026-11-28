@@ -45,6 +45,7 @@ func TestReadTrail(t *testing.T) {
 }
 
 func TestReadTrailNoFile(t *testing.T) {
+	t.Parallel()
 	recs, ok, err := ReadTrail(repo(t))
 	if err != nil || ok || recs != nil {
 		t.Fatalf("no trail: %v %v %v, want nil false nil", recs, ok, err)
@@ -53,6 +54,7 @@ func TestReadTrailNoFile(t *testing.T) {
 
 // A symlinked trail.jsonl and a bad line are refusals, the bad line named.
 func TestReadTrailRefusals(t *testing.T) {
+	t.Parallel()
 	good := `{"date":"2026-10-24","id":"BUG-001","kind":"bug","status":"open","title":"t","updated":"2026-10-24T10:00:00Z","body":"b"}`
 	t.Run("symlink", func(t *testing.T) {
 		dir := repo(t)

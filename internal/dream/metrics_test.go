@@ -54,6 +54,8 @@ func TestRunIngestsMetricsFirst(t *testing.T) {
 
 // A dry run ingests nothing and writes no store; it says what it would do.
 func TestDryRunDoesNotIngest(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	scaffold(t, f)
 	toolConversation(t, f)
@@ -100,6 +102,8 @@ func TestIngestFailureDoesNotFailDream(t *testing.T) {
 // and the one before it, read from a copy of the store; nothing names a
 // tool, a skill or a path (R3's addendum, ADR-055a).
 func TestPromptCarriesMetricsNumbersOnly(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	scaffold(t, f)
 	toolConversation(t, f)
@@ -143,6 +147,8 @@ func TestPromptCarriesMetricsNumbersOnly(t *testing.T) {
 // Over the cap, the metrics block goes before any transcript (ADR-055a), and
 // a metrics block alone never marks a project changed.
 func TestMetricsDroppedFirstAndNeverChanges(t *testing.T) {
+	t.Parallel()
+
 	c := Collected{Inputs: []Input{
 		{Kind: kindMemory, Label: "memory/a.md", Text: "m"},
 		{Kind: kindTranscript, Label: "antigravity x", Text: strings.Repeat("t", 200), Time: now},
@@ -170,6 +176,8 @@ func names(es []os.DirEntry) []string {
 }
 
 func TestMetricsSummaryIncludesRedactedDailyDigestAndFailOpens(t *testing.T) {
+	t.Parallel()
+
 	t.Run("missing-store-and-missing-digest-returns-empty", func(t *testing.T) {
 		got, err := metricsSummary(t.TempDir(), "/proj", since, now)
 		if err != nil || got != "" {

@@ -14,6 +14,7 @@ import (
 // The store is created under the home's ~/.config/fyr, private: the
 // directory 0700, the database 0600, with the records, FTS and meta tables.
 func TestSchemaAndModes(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	add(t, opts(dir, home), "learning", "first", "body")
 	p := Path(home)
@@ -65,6 +66,7 @@ func TestSchemaAndModes(t *testing.T) {
 
 // A store a newer binary wrote is refused, untouched.
 func TestNewerSchemaRefused(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	p := Path(home)
 	os.MkdirAll(filepath.Dir(p), 0o700)
@@ -85,6 +87,7 @@ func TestNewerSchemaRefused(t *testing.T) {
 // D16: a project whose trail is still files refuses every record verb and
 // names the command; a migrated project (trail.jsonl present) does not.
 func TestUnmigratedProjectRefused(t *testing.T) {
+	t.Parallel()
 	for _, docs := range []string{"docs", filepath.Join(".agents", "docs")} {
 		dir, home := repo(t), t.TempDir()
 		o := opts(dir, home)
@@ -122,6 +125,7 @@ func TestUnmigratedProjectRefused(t *testing.T) {
 }
 
 func TestMigrationTwoToThreePreservesAndMapsMemory(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	p := Path(home)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
@@ -182,6 +186,7 @@ func TestMigrationTwoToThreePreservesAndMapsMemory(t *testing.T) {
 }
 
 func TestMigrationThreeToFourAndReadOnlyV3(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	p := Path(home)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {

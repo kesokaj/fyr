@@ -73,6 +73,8 @@ func TestFitRendersOnce(t *testing.T) {
 }
 
 func TestDryRunWritesNothing(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	var out bytes.Buffer
 	o := Options{Home: f.home, All: true, DryRun: true, Out: &out, Now: func() time.Time { return now }, Active: idle, Scopes: noScopes,
@@ -92,6 +94,8 @@ func TestDryRunWritesNothing(t *testing.T) {
 // TestDryRunLines drives every line the dry run prints: a skipped root, an
 // unchanged project, a project over the cap, and --project's prompt.
 func TestDryRunLines(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	calm := newFixture(t)
 	calm.addTrail(t, brain.Options{Home: f.home, Dir: calm.root, Now: func() time.Time { return old }}, "change", "an old change entry", "done")
@@ -144,6 +148,8 @@ func TestDryRunOverCapAndDropped(t *testing.T) {
 // A dry run printed one `left out:` line per dropped input, 34 on one box; it
 // prints the count and the first few (audit 2026-10-25, SD-S2).
 func TestDryRunSummarisesDropped(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	for i := 0; i < 12; i++ {
 		when := fresh.Add(time.Duration(i) * time.Second)

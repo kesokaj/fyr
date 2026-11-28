@@ -204,6 +204,8 @@ func TestDryRunBranchLine(t *testing.T) {
 // settings: a credential in it is redacted, a line break folded, a control
 // character (a terminal escape) dropped, and a path kept as written.
 func TestLogReason(t *testing.T) {
+	t.Parallel()
+
 	why := "an allow rule in the settings (command(curl -H \"Authorization: Bearer abc.def\"))\n\x1b[31mred\x1b[0m /home/x/.config"
 	got := logReason(why)
 	if strings.Contains(got, "abc.def") || strings.ContainsAny(got, "\n\x1b") || !strings.Contains(got, "/home/x/.config") {

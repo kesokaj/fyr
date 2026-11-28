@@ -59,6 +59,8 @@ func TestV910Ephemeral(t *testing.T) {
 }
 
 func TestDefaultProjectsFiltersRefusedRoots(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	realRepo := t.TempDir()
 	sumDir := filepath.Join(home, ".gemini", "antigravity-cli")
@@ -105,6 +107,8 @@ func TestDefaultProjectsFiltersRefusedRoots(t *testing.T) {
 }
 
 func TestV910DreamFit328KBWithSIM(t *testing.T) {
+	t.Parallel()
+
 	// 328 KB transcript + 6 KB kindSIM + memory + skill + metrics under 256 KB maxPrompt.
 	huge := "HEAD_USER_GOAL: verify 328KB transcript chunking with kindSIM\n" +
 		strings.Repeat("intermediate step log payload 0123456789abcdef\n", 3700) +

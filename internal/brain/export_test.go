@@ -19,6 +19,7 @@ func parseTrail(data []byte) ([]Record, error) {
 // written in, sorted by ID, ends in a newline, keeps the key order, and
 // leaves memory out.
 func TestExportByteStable(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	type rec struct{ kind, id, title, body string }
 	rows := []rec{
@@ -83,6 +84,7 @@ func TestExportByteStable(t *testing.T) {
 // Sync (ADR-091): a file synced on demand replaces the project's exported rows
 // and updates records_fts; memory stays.
 func TestLoadReplacesRowsFromAChangedFile(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	add(t, o, "bug", "kept", "b")
@@ -136,6 +138,7 @@ func TestLoadReplacesRowsFromAChangedFile(t *testing.T) {
 // A brain.db lost or moved to another machine: the project's records come back
 // from trail.jsonl via Sync (R7, ADR-091).
 func TestLostStoreRestoredFromTrail(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	add(t, o, "plan", "open plan", "- [ ] x")
@@ -162,6 +165,7 @@ func TestLostStoreRestoredFromTrail(t *testing.T) {
 // lines differ with both (a byte-identical pair is one record: BUG-197), a git
 // conflict marker, a line that is not JSON — leaving existing records intact.
 func TestLoadRefusals(t *testing.T) {
+	t.Parallel()
 	good := `{"date":"2026-10-24","id":"BUG-001","kind":"bug","status":"open","title":"t","updated":"2026-10-24T10:00:00Z","body":"b"}`
 	other := `{"date":"2026-10-24","id":"BUG-002","kind":"bug","status":"open","title":"u","updated":"2026-10-24T10:00:00Z","body":"b"}`
 	for name, tc := range map[string]struct {
@@ -216,6 +220,7 @@ func TestLoadRefusals(t *testing.T) {
 // A symlinked .agents or trail.jsonl is refused: the export never writes
 // through a link a commit could carry. Each link is proven to exist first.
 func TestSymlinkedExportPathRefused(t *testing.T) {
+	t.Parallel()
 	t.Run(".agents", func(t *testing.T) {
 		dir, home := repo(t), t.TempDir()
 		elsewhere := t.TempDir()
@@ -257,6 +262,7 @@ func TestSymlinkedExportPathRefused(t *testing.T) {
 // get's output goes through printable: a record cannot drive the terminal
 // or forge a line, while its newlines and tabs stay.
 func TestGetOutputPrintable(t *testing.T) {
+	t.Parallel()
 	r := Record{ID: "BUG-001", Kind: "bug", Status: "open", Date: "2026-10-25",
 		Title: "evil\x1b[31m title\u202e", Body: "line one\x1b]0;x\x07\n\tindented\u2028forged"}
 	got := FormatGet(r)
@@ -270,6 +276,7 @@ func TestGetOutputPrintable(t *testing.T) {
 }
 
 func TestExportSyncRefusalsAndReadScope(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 
@@ -322,6 +329,7 @@ func TestExportSyncRefusalsAndReadScope(t *testing.T) {
 }
 
 func TestReadScopeDoesNotMigrateSchema2Store(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	p := Path(home)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
@@ -371,6 +379,7 @@ func TestReadScopeDoesNotMigrateSchema2Store(t *testing.T) {
 }
 
 func TestScopeAndTop(t *testing.T) {
+	t.Parallel()
 	mainRepo := repo(t)
 	realMain, err := filepath.EvalSymlinks(mainRepo)
 	if err != nil {
@@ -405,6 +414,7 @@ func TestScopeAndTop(t *testing.T) {
 }
 
 func TestExportFromScope(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	src, dest := repo(t), repo(t)
 	add(t, opts(src, home), "bug", "scoped bug", "body from src")

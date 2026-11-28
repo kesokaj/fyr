@@ -9,6 +9,8 @@ import (
 )
 
 func TestAddOptionalPlanAndHandoffSkipsSeenNewest(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := t.TempDir()
 	run(t, root, "git", "init", "-q")

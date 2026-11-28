@@ -19,6 +19,8 @@ import (
 )
 
 func TestKickoffBuilder(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	repo := idleProject(t)
 	workHome := t.TempDir()
@@ -108,6 +110,8 @@ func TestKickoffBuilder(t *testing.T) {
 }
 
 func TestKickoffBuilderRefusals(t *testing.T) {
+	t.Parallel()
+
 	for _, c := range []struct {
 		class   string
 		entries []string
@@ -129,6 +133,8 @@ func TestKickoffBuilderRefusals(t *testing.T) {
 }
 
 func TestKickoffRubricAndAsks(t *testing.T) {
+	t.Parallel()
+
 	task, err := PrepareTask(ClassDistill, []string{".agents/skills/auto-distilled-foo/", "AGENTS.md", "agents/bar/agent.md", "skills/fyr-auto/SKILL.md"}, "", 2)
 	if err != nil {
 		t.Fatal(err)
@@ -152,6 +158,8 @@ func TestKickoffRubricAndAsks(t *testing.T) {
 }
 
 func TestRubricAskStoresProposal(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := idleProject(t)
 	r := &run{o: runOpts(home, &bytes.Buffer{}), st: State{Date: "2026-11-01"}}
@@ -174,6 +182,8 @@ func TestRubricAskStoresProposal(t *testing.T) {
 // auto (D5, ADR-504, ADR-522), whatever wo.Runner held before, failing closed
 // when OS-native isolation is unavailable.
 func TestRunnerChoice(t *testing.T) {
+	t.Parallel()
+
 	okAvail := func() error { return nil }
 	for _, c := range []struct {
 		name, prior string
@@ -227,6 +237,8 @@ func driftOpts(home, root string, out *bytes.Buffer) Options {
 }
 
 func TestWorkerModelRunCountAndCap(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	realHome := t.TempDir()
 	root := idleDreamProject(t, home)
@@ -275,6 +287,8 @@ func TestWorkerModelRunCountAndCap(t *testing.T) {
 }
 
 func TestWorkerBranchCleanup(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	realHome := t.TempDir()
 	root, _, _ := initHarnessEvalGateFixture(t, home, realHome, "")
@@ -322,6 +336,8 @@ func TestWorkerBranchCleanup(t *testing.T) {
 }
 
 func TestWorkerConfigTamperDisablesAuto(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := idleDreamProject(t, home)
 	writeConfig(t, home, validConfig)
@@ -343,6 +359,8 @@ func TestWorkerConfigTamperDisablesAuto(t *testing.T) {
 }
 
 func TestWorkerStateTamperRestoredAndDraftsCollected(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := idleDreamProject(t, home)
 	writeConfig(t, home, validConfig)
@@ -382,6 +400,8 @@ func TestWorkerStateTamperRestoredAndDraftsCollected(t *testing.T) {
 }
 
 func TestClassRotation(t *testing.T) {
+	t.Parallel()
+
 	got := rotatedClasses(false, ClassMemoryConsolidation)
 	if got[0].Name != ClassRetroLite || got[len(got)-1].Name != ClassMemoryConsolidation {
 		t.Errorf("rotated from memory-consolidation: %+v", got)
@@ -404,6 +424,8 @@ func TestClassRotation(t *testing.T) {
 }
 
 func TestTriggerSelectionAndSymlinkTripwire(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := idleDreamProject(t, home)
 	called := false
@@ -473,6 +495,8 @@ func TestTriggerSelectionAndSymlinkTripwire(t *testing.T) {
 }
 
 func TestAutoKickoffCapsuleWithSearchIndex(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := idleProject(t)
 	srcBody := strings.Join([]string{
@@ -540,6 +564,8 @@ func TestAutoKickoffCapsuleWithSearchIndex(t *testing.T) {
 }
 
 func TestWorkerCooldownAndForceOverride(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := idleDreamProject(t, home)
 	writeConfig(t, home, validConfig)
@@ -597,6 +623,8 @@ func TestWorkerCooldownAndForceOverride(t *testing.T) {
 }
 
 func TestWorkerFourthSlotReservation(t *testing.T) {
+	t.Parallel()
+
 	t.Run("reserves-4th-slot-for-high-severity-auto-skill-harness-edit", func(t *testing.T) {
 		home := t.TempDir()
 		realHome := t.TempDir()

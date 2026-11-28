@@ -8,6 +8,7 @@ import (
 )
 
 func TestScratchFileIO(t *testing.T) {
+	t.Parallel()
 	proj := repo(t)
 
 	// OpenBodyFile: empty, missing, directory, symlink, and valid regular file.

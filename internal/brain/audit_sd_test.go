@@ -12,6 +12,7 @@ import (
 )
 
 func TestSD106OwnHitsChecksRowsErr(t *testing.T) {
+	t.Parallel()
 	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -38,6 +39,7 @@ func TestSD106OwnHitsChecksRowsErr(t *testing.T) {
 }
 
 func TestSD107MemoryShowIncludesGlobalInProject(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	g := Options{Home: home, Dir: dir, Global: true, Now: o.Now}
@@ -116,6 +118,7 @@ func TestSD108ProposeAllEmptyProjectDoesNotStampCWD(t *testing.T) {
 }
 
 func TestSD109MemoryStalenessTagUsesBoundedReadRegular(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	small := filepath.Join(dir, "small.txt")
 	if err := os.WriteFile(small, []byte("hello"), 0o600); err != nil {
@@ -184,6 +187,7 @@ func TestSD110EmptyHomeRefused(t *testing.T) {
 }
 
 func TestSD111OpenRecordsAndListSortByUpdatedAndIDLess(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o1 := Options{Home: home, Dir: dir, Now: func() time.Time { return fixed }}
 	o2 := Options{Home: home, Dir: dir, Now: func() time.Time { return fixed.Add(time.Minute) }}
@@ -224,6 +228,7 @@ func TestSD111OpenRecordsAndListSortByUpdatedAndIDLess(t *testing.T) {
 }
 
 func TestSD112AddPopulatesMemoryFields(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	stamp := fixed.UTC().Format(time.RFC3339)
@@ -258,6 +263,7 @@ func TestSD112AddPopulatesMemoryFields(t *testing.T) {
 }
 
 func TestSD113CappedTextMemorySortedByValidityAndRecency(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	oOld := Options{Home: home, Dir: dir, Now: func() time.Time { return fixed.Add(-2 * time.Hour) }}
 	oMid := Options{Home: home, Dir: dir, Now: func() time.Time { return fixed.Add(-time.Hour) }}
@@ -308,6 +314,7 @@ func TestSD113CappedTextMemorySortedByValidityAndRecency(t *testing.T) {
 }
 
 func TestSD41ImportSummaryAndImportedText(t *testing.T) {
+	t.Parallel()
 	if got := ImportSummary(&ImportResult{}); got != "none" {
 		t.Fatalf("ImportSummary(empty) = %q, want none", got)
 	}
@@ -362,6 +369,7 @@ func TestSD41ImportSummaryAndImportedText(t *testing.T) {
 }
 
 func TestSD36OpenSessionUnmigratedAndNoTrail(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	docs := filepath.Join(dir, ".agents", "docs", "plans")
 	if err := os.MkdirAll(docs, 0o755); err != nil {
@@ -402,6 +410,7 @@ func TestSD36OpenSessionUnmigratedAndNoTrail(t *testing.T) {
 }
 
 func TestSD37ForDreamAndForMetricsSinglePass(t *testing.T) {
+	t.Parallel()
 	base := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)

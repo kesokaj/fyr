@@ -85,6 +85,8 @@ func configReport(t *testing.T, set map[string]any) string {
 // TestVisibleHomeVariants is each settings.json variant the sandbox ran
 // through the real agy 1.4.9, with the verdict the report must give.
 func TestVisibleHomeVariants(t *testing.T) {
+	t.Parallel()
+
 	argv0, _ := fakeOracle(t)
 	for _, c := range []struct{ variant, why string }{
 		{"none", ""},
@@ -115,6 +117,8 @@ func TestVisibleHomeVariants(t *testing.T) {
 // TestVisibleHomeShapes is every report fyr has not seen, each failing
 // closed with its reason.
 func TestVisibleHomeShapes(t *testing.T) {
+	t.Parallel()
+
 	argv0, _ := fakeOracle(t)
 	cfg := func(home, body string) { write(t, filepath.Join(home, "oracle", "config.json"), body, fresh) }
 	perms := func(home, body string) { write(t, filepath.Join(home, "oracle", "permissions.json"), body, fresh) }
@@ -225,6 +229,8 @@ func TestVisibleHomeShapes(t *testing.T) {
 // TestVisibleHomeTrustBelow is a trusted workspace that is not dream-work
 // or above it: the operator's own checkouts, which add nothing here.
 func TestVisibleHomeTrustBelow(t *testing.T) {
+	t.Parallel()
+
 	argv0, _ := fakeOracle(t)
 	home, work := oracleHome(t, "none")
 	write(t, filepath.Join(home, "oracle", "config.json"), configReport(t, map[string]any{
@@ -239,6 +245,8 @@ func TestVisibleHomeTrustBelow(t *testing.T) {
 // dream-work, and no checkout or foreign .agents above it, as written and
 // as it resolves; home's own .agents is the operator's (plan D8).
 func TestVisibleHomeWork(t *testing.T) {
+	t.Parallel()
+
 	argv0, _ := fakeOracle(t)
 	for _, c := range []struct {
 		name, why string
@@ -288,6 +296,8 @@ func TestVisibleHomeWork(t *testing.T) {
 // TestVisibleHomeChild is how the oracle runs: from work, under HOME=home,
 // with ADR-067's allow-list and nothing else from fyr's environment.
 func TestVisibleHomeChild(t *testing.T) {
+	t.Parallel()
+
 	argv0, rec := fakeOracle(t)
 	home, work := oracleHome(t, "none")
 	env := append(os.Environ(), "FYR_TEST_SECRET=hunter2", "HOME=/elsewhere")

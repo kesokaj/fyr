@@ -8,6 +8,7 @@ import (
 // add prints the ID, get returns header and body, list names it, and edit
 // without a body keeps the body (D9) while edit with one replaces it.
 func TestAddGetEditList(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	id := add(t, o, "bug", "trailer slipped into a commit", "Symptom: a trailer.\n\nRule: check the message.\n")
@@ -58,6 +59,7 @@ func TestAddGetEditList(t *testing.T) {
 // An empty body is refused (D9), a body over 1 MiB is refused, and one of
 // exactly 1 MiB is taken.
 func TestBodyLimits(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	for name, body := range map[string]string{"empty": "", "blank": " \n\t\n", "over 1 MiB": strings.Repeat("a", 1<<20+1)} {
@@ -80,6 +82,7 @@ func TestBodyLimits(t *testing.T) {
 // feedback and proposal are global only (D10, R8): refused in a project,
 // taken with --global, and never in the export.
 func TestGlobalOnlyKinds(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	for _, k := range []string{"feedback", "proposal"} {
@@ -113,6 +116,7 @@ func TestGlobalOnlyKinds(t *testing.T) {
 // Status per kind (D6): defaults, the allowed values, plan derived from its
 // body, handoff with none.
 func TestStatusRules(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	g := o

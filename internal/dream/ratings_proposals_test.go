@@ -14,6 +14,8 @@ import (
 )
 
 func TestRatingProposalsDistinctSessionsAndTargetSanitization(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	o := Options{Home: home}
 
@@ -159,6 +161,8 @@ func TestProposalDeduplicationAndDraftAtomicity(t *testing.T) {
 }
 
 func TestRecordSuccessAdvancesPastBoundaryAndContextTime(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := t.TempDir()
 	run(t, root, "git", "init", "-q")

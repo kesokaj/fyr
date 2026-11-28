@@ -17,6 +17,8 @@ import (
 // "; branch <b> kept" are trimmed to maxBeforeBranch so the verdict, kept
 // branch, and trailing "; runner ..." always fit within lineLimit.
 func TestSweepLineKeepsVerdict(t *testing.T) {
+	t.Parallel()
+
 	longReason := "no commits (" + strings.Repeat("x", lineLimit) + ")"
 	for _, c := range []struct {
 		name, prefix string
@@ -66,6 +68,8 @@ func TestSweepLineKeepsVerdict(t *testing.T) {
 }
 
 func TestFinishWorkerTamperSaveWarnings(t *testing.T) {
+	t.Parallel()
+
 	if os.Geteuid() == 0 {
 		t.Skip("root bypasses 0500 directory permissions")
 	}

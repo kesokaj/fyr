@@ -10,6 +10,8 @@ import (
 // A fresh copy belongs to a live dry run, which takes no lock: only copies
 // older than an hour are a killed run's leftovers.
 func TestRemoveCopiesKeepsFreshOnes(t *testing.T) {
+	t.Parallel()
+
 	conf := t.TempDir()
 	write(t, filepath.Join(conf, "dream-projects-1", "search.db"), "db", time.Now())
 	write(t, filepath.Join(conf, "dream-projects-2", "search.db"), "db", time.Now().Add(-2*time.Hour))
@@ -27,6 +29,8 @@ func TestRemoveCopiesKeepsFreshOnes(t *testing.T) {
 // TestRemoveCopiesUsesInjectedClock: the age check used the wall clock, so the
 // one-hour rule had no deterministic test (audit of 2026-09-30, SD11).
 func TestRemoveCopiesUsesInjectedClock(t *testing.T) {
+	t.Parallel()
+
 	conf := t.TempDir()
 	mt := time.Now().Add(-2 * time.Hour)
 	write(t, filepath.Join(conf, "dream-projects-3", "search.db"), "db", mt)
@@ -45,6 +49,8 @@ func TestRemoveCopiesUsesInjectedClock(t *testing.T) {
 // copy of the store in dream-metrics-*) are swept like dream's own: a killed
 // run must not leave them for good (security review 2026-10-08).
 func TestRemoveCopiesSweepsMetricsCopies(t *testing.T) {
+	t.Parallel()
+
 	conf := t.TempDir()
 	mt := time.Now().Add(-2 * time.Hour)
 	for _, d := range []string{"metrics-agy-1", "dream-metrics-2", "unrelated-3"} {

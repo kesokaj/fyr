@@ -14,6 +14,7 @@ import (
 // IDs (D7): BUG and ADR numbered max+1 per scope and compared as numbers,
 // ADR-047a kept, past 999; every other kind <KIND>-<date>-<slug>.
 func TestIDs(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	if id := add(t, o, "bug", "a", "b"); id != "BUG-001" {

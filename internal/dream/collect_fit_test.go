@@ -22,6 +22,8 @@ func day(n int) time.Time { return now.Add(-time.Duration(n) * 24 * time.Hour) }
 // kind, so what is sent is the oldest news; Through stops just before the
 // oldest dropped (ADR-069, sandbox finding 3).
 func TestFitDropsDatedNewestFirst(t *testing.T) {
+	t.Parallel()
+
 	text := strings.Repeat("x", 1000)
 	c := Collected{Name: "p", Inputs: []Input{
 		{Kind: kindMemory, Label: "memory/a.md", Text: "m"},
@@ -52,6 +54,8 @@ func TestFitDropsDatedNewestFirst(t *testing.T) {
 // is dropped first and named, and holds nothing back, though it is under the
 // cap alone (choices D33); the news around it is sent.
 func TestFitTooBigDoesNotHoldWatermark(t *testing.T) {
+	t.Parallel()
+
 	c := Collected{Name: "p", Inputs: []Input{
 		{Kind: kindMemory, Label: "memory/a.md", Text: strings.Repeat("m", 3000)},
 		{Kind: kindSkill, Label: "skill golang", Text: "golang: Go"},
@@ -82,6 +86,8 @@ func TestFitTooBigDoesNotHoldWatermark(t *testing.T) {
 // no room, holds nothing back and is named as not sent again: a run that
 // sends no news still advances.
 func TestFitLastDatedDoesNotHoldWatermark(t *testing.T) {
+	t.Parallel()
+
 	const limit = 8192
 	c := Collected{Name: "p", Dropped: []string{"feedback.jsonl: " + strings.Repeat("e", 1500)},
 		Inputs: []Input{{Kind: kindMemory, Label: "memory/a.md", Text: "m"}}}
@@ -105,6 +111,8 @@ func TestFitLastDatedDoesNotHoldWatermark(t *testing.T) {
 // The metrics summary and the skills are undated: dropping them holds
 // nothing back.
 func TestFitUndatedDoNotHoldWatermark(t *testing.T) {
+	t.Parallel()
+
 	c := Collected{Name: "p", Inputs: []Input{
 		{Kind: kindMemory, Label: "memory/a.md", Text: "m"},
 		{Kind: kindSkill, Label: "skill golang", Text: strings.Repeat("s", 900)},
@@ -125,6 +133,8 @@ func TestFitUndatedDoNotHoldWatermark(t *testing.T) {
 }
 
 func TestWatermark(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		through, want time.Time
 	}{
@@ -184,6 +194,8 @@ func TestTwoRunsSendEveryCappedInput(t *testing.T) {
 // A dated input with no time cannot place the watermark: dropping it holds
 // nothing back, or the next run would read from the year 1.
 func TestFitUntimedDatedHoldsNothing(t *testing.T) {
+	t.Parallel()
+
 	c := Collected{Name: "p", Inputs: []Input{
 		{Kind: kindMemory, Label: "memory/a.md", Text: "m"},
 		{Kind: kindTrail, Label: "a", Text: strings.Repeat("a", 1000)},
@@ -295,6 +307,8 @@ func TestFitDistinctTimesLoseNothing(t *testing.T) {
 // Two inputs too big for the room both go, newest first, as every dated
 // drop does, so the left-out line reads newest first.
 func TestFitTooBigNewestFirst(t *testing.T) {
+	t.Parallel()
+
 	c := Collected{Name: "p", Inputs: []Input{
 		{Kind: kindMemory, Label: "memory/a.md", Text: "m"},
 		{Kind: kindTrail, Label: "new", Text: strings.Repeat("n", 3000), Time: day(1)},
@@ -312,6 +326,8 @@ func TestFitTooBigNewestFirst(t *testing.T) {
 }
 
 func TestFitChunksOversizedTranscriptAndDropsTinyRoom(t *testing.T) {
+	t.Parallel()
+
 	huge := "HEAD_USER_REQUEST: refactor dream chunking\n" +
 		strings.Repeat("step output filler line abcdefghij\n", 300) +
 		"DECISION_MARKER: preserve head, decision/outcome, and tail windows\n" +
@@ -407,6 +423,8 @@ func equalSlice(a, b []string) bool {
 }
 
 func TestFitOldestLeftLeavesSIMIntactWhenTrimCannotFit(t *testing.T) {
+	t.Parallel()
+
 	simOrig := "SIM_START\n" + strings.Repeat("sim-entry-line-0123456789\n", 80) // ~2090 B (> minSIMTrimText 1024; max trim ~1020 B)
 	trText := strings.Repeat("transcript-body-0123456789\n", 200)                // ~5400 B (>= minTrimTranscriptBytes 4096)
 	droppedPre := "prior.jsonl: " + strings.Repeat("d", 4000)

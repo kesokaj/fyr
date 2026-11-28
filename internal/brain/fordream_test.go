@@ -9,6 +9,7 @@ import (
 // hide the project's real last update (the dream's "in use" test reads
 // Last), and is never news to the dream.
 func TestForDreamIgnoresARecordFromTheFuture(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	at := func(d time.Duration) Options {
 		o := opts(dir, home)

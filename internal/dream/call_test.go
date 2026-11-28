@@ -22,6 +22,8 @@ import (
 // which the deadline kills whole; a grandchild that left the group is cut
 // loose after the grace period.
 func TestCallReturnsAtTheDeadlineDespiteAGrandchild(t *testing.T) {
+	t.Parallel()
+
 	for name, script := range map[string]string{
 		"in the group":   "#!/bin/sh\nsleep 60 &\nsleep 60\n",
 		"left the group": "#!/bin/sh\nsetsid sleep 60 &\necho $! > \"$PIDFILE\"\nsleep 60\n",
@@ -93,6 +95,8 @@ func TestCallKeepsTheAnswerWhenAHelperOutlivesTheCLI(t *testing.T) {
 // TestCallLeavesTheGroupOnAnIgnoredSignal run this binary as a subprocess with
 // DREAM_HELPER_DIR set.
 func TestHelperCall(t *testing.T) {
+	t.Parallel()
+
 	dir := os.Getenv("DREAM_HELPER_DIR")
 	if dir == "" {
 		t.Skip("helper process")
@@ -250,6 +254,8 @@ func killPidFile(pidfile string) {
 // end case `dream --all` went on to the next project (the release gate's
 // review of v2.6.2..13c5bde). Run often enough that a coin flip cannot pass.
 func TestRelayKeepsASignalQueuedAtTheEnd(t *testing.T) {
+	t.Parallel()
+
 	for i := 0; i < 200; i++ {
 		sigs := make(chan os.Signal, 1)
 		sigs <- syscall.SIGTERM
@@ -272,6 +278,8 @@ func (s nonSyscallSignal) String() string { return string(s) }
 func (s nonSyscallSignal) Signal()        {}
 
 func TestCLICommandBoundsOutputAndSafeSignal(t *testing.T) {
+	t.Parallel()
+
 	cw := trail.NewCappedBuffer(8, nil)
 	n, err := cw.Write([]byte("0123456789"))
 	if err != nil || n != 10 || cw.String() != "01234567" || !cw.Truncated() {

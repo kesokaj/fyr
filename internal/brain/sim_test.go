@@ -55,6 +55,7 @@ func readUserVersion(t *testing.T, dbPath string) int {
 }
 
 func TestSIMMigration(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	dbPath := buildV4Store(t, dir, home)
 
@@ -170,6 +171,7 @@ func TestSIMMigration(t *testing.T) {
 }
 
 func TestSIMLedger(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	t1 := fixed
 	t2 := fixed.Add(1 * time.Hour)

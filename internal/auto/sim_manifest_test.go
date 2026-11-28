@@ -17,6 +17,8 @@ import (
 )
 
 func TestSIMAutoManifest(t *testing.T) {
+	t.Parallel()
+
 	t.Run("valid-and-kickoff-instructions", func(t *testing.T) {
 		assertSIMManifestValidCases(t)
 		assertSIMKickoffInstructions(t)
@@ -136,6 +138,8 @@ func assertSIMManifestRejectCases(t *testing.T) {
 }
 
 func TestSIMAutoEvalGate(t *testing.T) {
+	t.Parallel()
+
 	t.Run("kept-with-policy-model-predicted-row-and-baseline", testSIMEvalGateKept)
 	t.Run("not-kept-short-circuit-missed-rows", testSIMEvalGateNotKeptShortCircuit)
 	t.Run("pre-eval-reject-writes-no-sim-row", testSIMEvalGatePreEvalNoRow)
@@ -355,6 +359,8 @@ func testSIMEvalGateMissingManifestFallback(t *testing.T) {
 }
 
 func TestSIMEvalExecPolicyModel(t *testing.T) {
+	t.Parallel()
+
 	home, root := t.TempDir(), idleProject(t)
 	s, err := metrics.Open(metrics.Path(home))
 	if err != nil {

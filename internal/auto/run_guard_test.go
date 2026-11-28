@@ -55,6 +55,8 @@ func TestGateHungReadableIsLeftBehind(t *testing.T) {
 }
 
 func TestGateHungTargetsIsLeftBehind(t *testing.T) {
+	t.Parallel()
+
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 	home := t.TempDir()
@@ -70,6 +72,8 @@ func TestGateHungTargetsIsLeftBehind(t *testing.T) {
 
 // off during the install check, past the re-read before it.
 func TestGateRereadRightBeforeUsage(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	e := &fakeEnv{targets: targetsOf(idleProject(t)), usage: usageText("90%", "90%")}
@@ -120,6 +124,8 @@ func TestGateHungReadIsLeftBehind(t *testing.T) {
 }
 
 func TestChecksHungInstallIsAFinding(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	release := make(chan struct{})
@@ -137,6 +143,8 @@ func TestChecksHungInstallIsAFinding(t *testing.T) {
 }
 
 func TestReportIsRedacted(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	secret := "ghp_" + strings.Repeat("a1", 18)
@@ -155,6 +163,8 @@ func TestReportIsRedacted(t *testing.T) {
 }
 
 func TestReportOneLongLineKeepsTheReport(t *testing.T) {
+	t.Parallel()
+
 	fs := []Finding{{"check", "path", "x", strings.Repeat("y", 1<<20)}, {"check", "path", "z", "short"}}
 	body := reportBody("p", fs)
 	if len(body) > 4*lineLimit || !strings.Contains(body, "short") {
@@ -188,6 +198,8 @@ func TestGateRereadBeforeUsage(t *testing.T) {
 // A stop before the second project keeps the first's mark: three such runs
 // file one report.
 func TestReportMarkSurvivesAStop(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	first := bugProject(t, trailLine(t, "bug", "BUG-001", "open", "no rule"))
@@ -206,6 +218,8 @@ func TestReportMarkSurvivesAStop(t *testing.T) {
 }
 
 func TestReportGoneProjectLeavesTheState(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	root := idleProject(t)
@@ -217,6 +231,8 @@ func TestReportGoneProjectLeavesTheState(t *testing.T) {
 }
 
 func TestChecksQueuedProposal(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	add := func(title string, at time.Time) {

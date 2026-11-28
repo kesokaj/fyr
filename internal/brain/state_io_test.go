@@ -10,6 +10,7 @@ import (
 )
 
 func TestMergeMemoryBodyCompactionAndBounds(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 
@@ -90,6 +91,7 @@ func TestMergeMemoryBodyCompactionAndBounds(t *testing.T) {
 }
 
 func TestTrimTruncatedUTF8(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in       string
 		maxBytes int
@@ -110,6 +112,7 @@ func TestTrimTruncatedUTF8(t *testing.T) {
 }
 
 func TestStateExportAndImportEndToEnd(t *testing.T) {
+	t.Parallel()
 	// Source machine A: two repos + global records.
 	homeA := t.TempDir()
 	dirA1, dirA2 := repo(t), repo(t)

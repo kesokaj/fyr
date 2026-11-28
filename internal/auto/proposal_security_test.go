@@ -9,6 +9,8 @@ import (
 )
 
 func TestDerivedProposalNeverMutatesOperatorProposal(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	now := time.Date(2026, 11, 22, 5, 0, 0, 0, time.UTC)
 	g := brain.Options{Home: home, Global: true, Now: func() time.Time { return now }}
@@ -48,6 +50,8 @@ func TestDerivedProposalNeverMutatesOperatorProposal(t *testing.T) {
 }
 
 func TestEligibleHarnessProposalUnindentedMarkersOnly(t *testing.T) {
+	t.Parallel()
+
 	root := "/repo/fyr"
 	indented := brain.Record{
 		Status: "queued", Title: "Improve golang skill",

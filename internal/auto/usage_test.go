@@ -10,6 +10,8 @@ import (
 )
 
 func TestUsageCapture(t *testing.T) {
+	t.Parallel()
+
 	data, err := os.ReadFile("testdata/usage.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -29,6 +31,8 @@ func usageText(week, five string) string {
 }
 
 func TestUsageRefusals(t *testing.T) {
+	t.Parallel()
+
 	cases := map[string]string{
 		"empty":                      "",
 		"prose":                      "You are not logged in.\n",
@@ -57,6 +61,8 @@ func TestUsageRefusals(t *testing.T) {
 }
 
 func TestUsageQuotesAreBounded(t *testing.T) {
+	t.Parallel()
+
 	long := strings.Repeat("x", 2<<20)
 	for name, text := range map[string]string{
 		"a line":   long + "\n",
@@ -74,6 +80,8 @@ func TestUsageQuotesAreBounded(t *testing.T) {
 }
 
 func TestUsagePoolCountIsBounded(t *testing.T) {
+	t.Parallel()
+
 	var b strings.Builder
 	for i := range 17 {
 		b.WriteString(strings.ReplaceAll(usageText("90%", "90%"), "P\t", "P"+strconv.Itoa(i)+"\t"))
@@ -84,6 +92,8 @@ func TestUsagePoolCountIsBounded(t *testing.T) {
 }
 
 func TestUsageFloors(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name, week, five string
 		runs             int
@@ -112,6 +122,8 @@ func TestUsageFloors(t *testing.T) {
 }
 
 func TestUsageAnyPoolStops(t *testing.T) {
+	t.Parallel()
+
 	text := usageText("90%", "90%") + strings.ReplaceAll(usageText("10%", "90%"), "P\t", "Q\t")
 	if line, stop := gateBudgetForModel(0, "", text, nil); !stop || !strings.Contains(line, "Q 90% of 5h, 10% of week") {
 		t.Errorf("%q", line)

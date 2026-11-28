@@ -18,12 +18,16 @@ func targetsOf(roots ...string) []dream.Target {
 }
 
 func TestGateCleanPasses(t *testing.T) {
+	t.Parallel()
+
 	if got := gateClean(idleProject(t)); got != "" {
 		t.Error(got)
 	}
 }
 
 func TestGateCleanStops(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name string
 		set  func(*testing.T, string)
@@ -50,6 +54,8 @@ func TestGateCleanStops(t *testing.T) {
 }
 
 func TestGateProjectSkipped(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	root := idleProject(t)
@@ -67,6 +73,8 @@ func TestGateProjectSkipped(t *testing.T) {
 }
 
 func TestGateRereadBeforeEachProject(t *testing.T) {
+	t.Parallel()
+
 	for name, set := range map[string]func(home string, e *fakeEnv) func(){
 		"off": func(home string, _ *fakeEnv) func() {
 			return func() {
@@ -98,6 +106,8 @@ func TestGateRereadBeforeEachProject(t *testing.T) {
 }
 
 func TestGateCorruptConfigMidRun(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	e := &fakeEnv{targets: targetsOf(idleProject(t), idleProject(t)), usage: usageText("90%", "90%")}
@@ -111,6 +121,8 @@ func TestGateCorruptConfigMidRun(t *testing.T) {
 }
 
 func TestGateTargetsUnreadable(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	var out strings.Builder
@@ -122,6 +134,8 @@ func TestGateTargetsUnreadable(t *testing.T) {
 }
 
 func TestGoneProjectsLifecycleAndPruning(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	returned := idleProject(t)

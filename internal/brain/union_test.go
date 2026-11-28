@@ -12,6 +12,7 @@ import (
 // takes the byte-identical pair as one record, and the next export drops the
 // copy. The trail is written by the real generator, never by hand.
 func TestUnionMergeOfSortedExports(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte(".agents/trail.jsonl merge=union\n"), 0o644)
@@ -67,6 +68,7 @@ func TestUnionMergeOfSortedExports(t *testing.T) {
 // A byte-identical pair is one record wherever it sits; a same-ID pair that
 // differs by one byte is still refused, naming both lines.
 func TestDuplicateLines(t *testing.T) {
+	t.Parallel()
 	good := `{"date":"2026-10-24","id":"BUG-001","kind":"bug","status":"open","title":"t","updated":"2026-10-24T10:00:00Z","body":"b"}`
 	other := `{"date":"2026-10-24","id":"BUG-002","kind":"bug","status":"open","title":"u","updated":"2026-10-24T10:00:00Z","body":"b"}`
 	recs, err := ParseTrail(strings.NewReader(good + "\n" + other + "\n" + good + "\n"))

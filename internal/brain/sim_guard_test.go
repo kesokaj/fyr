@@ -9,6 +9,7 @@ import (
 )
 
 func TestSIMAlias(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	r1, err := RecordSIMAttempt(home, SIMRecordInput{RootCause: "cause alpha", What: "a1", Provenance: "derived", Now: fixed})
 	if err != nil {
@@ -86,6 +87,7 @@ func TestSIMAlias(t *testing.T) {
 }
 
 func TestSIMOperatorGuard(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	opRes, err := RecordSIMAttempt(home, SIMRecordInput{
 		RootCause:      "operator-owned root cause",

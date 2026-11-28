@@ -18,6 +18,8 @@ import (
 // detail before the branch, is capped so the verdict and the kept branch
 // survive within lineLimit.
 func TestWithRunnerKeepsVerdict(t *testing.T) {
+	t.Parallel()
+
 	verdict := "FAIL (no commits); branch work/x kept"
 	got := short(withRunner(verdict, "isolate ("+strings.Repeat("r", lineLimit)+")"))
 	if !strings.HasSuffix(got, "...") {
@@ -137,6 +139,8 @@ func TestRunMarkedTestConfinedAndScrubsHostEnv(t *testing.T) {
 }
 
 func TestReportBodyDistinguishesWorkerRan(t *testing.T) {
+	t.Parallel()
+
 	fs := []Finding{{"worker", "retro-lite", "work/k", "PASS; branch work/k kept"}}
 	workerBody := reportBodyWithApplied("proj", "", true, false, fs)
 	if strings.Contains(workerBody, "from the free checks; nothing was changed") {

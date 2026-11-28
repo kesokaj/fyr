@@ -12,6 +12,8 @@ import (
 )
 
 func TestDraftsProposalDeduplicatesStillRegressingInPlace(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := initGitRepo(t)
 	now := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
@@ -82,6 +84,8 @@ func TestDraftsProposalDeduplicatesStillRegressingInPlace(t *testing.T) {
 }
 
 func TestSystemAsksAndEvalGateProposalsDeduplicateInPlace(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := idleProject(t)
 	now := runAt
@@ -121,6 +125,8 @@ func TestSystemAsksAndEvalGateProposalsDeduplicateInPlace(t *testing.T) {
 }
 
 func TestSweepConsolidatesDuplicatesAndRetiresStaleStillRegressingWithoutDeleting(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	now := runAt

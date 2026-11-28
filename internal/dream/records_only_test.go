@@ -14,6 +14,8 @@ import (
 // A dream reads records only (item 33, D4): a project's old files and the
 // old feedback log beside its records reach no prompt and change nothing.
 func TestDreamReadsOnlyRecords(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	write(t, filepath.Join(f.root, ".agents", "memory", "old-store.md"), "an old memory store file\n", fresh)
 	write(t, filepath.Join(f.root, ".agents", "docs", "changes", "2026-10-01-0000-x.md"), "an old trail file\n", fresh)
@@ -36,6 +38,8 @@ func TestDreamReadsOnlyRecords(t *testing.T) {
 // A project with no trail records is not skipped (ADR-524 drops noTrail),
 // though file-era trees still contribute nothing on their own.
 func TestSkipReasonAllowsUnmigrated(t *testing.T) {
+	t.Parallel()
+
 	bare := t.TempDir()
 	run(t, bare, "git", "init", "-q")
 	if why := absent(projectAt(bare)); why != "" {

@@ -10,6 +10,8 @@ import (
 // as the second paragraph; the Project line stays, and a name with a
 // newline cannot add a line of its own.
 func TestPromptFirstLine(t *testing.T) {
+	t.Parallel()
+
 	c := Collected{Name: "fixture-a"}
 	got := prompt(c)
 	if !strings.HasPrefix(got, "dreaming: fixture-a\n\nIMPORTANT: every tool call") {

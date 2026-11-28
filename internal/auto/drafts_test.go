@@ -36,6 +36,7 @@ func initGitRepo(t *testing.T) string {
 // store in the project's scope with provenance "derived", without touching the
 // project's .agents/trail.jsonl.
 func TestDraftsMemoryAddRetireMerge(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := initGitRepo(t)
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
@@ -81,6 +82,7 @@ func TestDraftsMemoryAddRetireMerge(t *testing.T) {
 // adding over an operator memory in the same project is refused and reported
 // as a finding.
 func TestDraftsRetireOrMergeOtherProjectRefused(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	rootA := initGitRepo(t)
 	rootB := initGitRepo(t)
@@ -129,6 +131,7 @@ func TestDraftsRetireOrMergeOtherProjectRefused(t *testing.T) {
 // A draft line holding a redactor needle (raw or JSON-escaped) is refused,
 // not stored, and the report finding does not echo the secret.
 func TestDraftsTokenShapeRefused(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := initGitRepo(t)
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
@@ -170,6 +173,7 @@ func TestDraftsTokenShapeRefused(t *testing.T) {
 // Feedback, proposal and finding drafts are validated and written with
 // provenance "derived" (on feedback) and queued status (on proposal).
 func TestDraftsFeedbackProposalFindingAndLimits(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := initGitRepo(t)
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
@@ -219,6 +223,7 @@ func TestDraftsFeedbackProposalFindingAndLimits(t *testing.T) {
 }
 
 func TestDraftsMemoryTypeScopeAndSessions(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := initGitRepo(t)
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
@@ -264,6 +269,7 @@ func TestDraftsMemoryTypeScopeAndSessions(t *testing.T) {
 }
 
 func TestDraftsProposalPrefixEnforced(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := initGitRepo(t)
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
@@ -284,6 +290,7 @@ func TestDraftsProposalPrefixEnforced(t *testing.T) {
 }
 
 func TestDraftsProposalDigestAttributionAndValidation(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := initGitRepo(t)
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
@@ -367,6 +374,7 @@ func TestDraftsProposalDigestAttributionAndValidation(t *testing.T) {
 }
 
 func TestDraftsProposalBodyIndentPreventsHeaderForgery(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := initGitRepo(t)
 	harnessRoot := initGitRepo(t)

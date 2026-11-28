@@ -10,6 +10,8 @@ import (
 )
 
 func TestAutoLogSubverb(t *testing.T) {
+	t.Parallel()
+
 	// 1. Missing auto.log prints "no auto log yet\n" and exits 0.
 	home := t.TempDir()
 	var out bytes.Buffer
@@ -80,6 +82,8 @@ func TestAutoLogSubverb(t *testing.T) {
 }
 
 func TestAutoDailyReportAndDryRun(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	hooksPath := filepath.Join(home, ".gemini", "config", "hooks.json")

@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -17,58 +16,21 @@ import (
 )
 
 const (
-	turnRecordAliasSQL      = `((r.kind = 'plan' AND r.status IN ('open', '')) OR (r.kind = 'memory' AND r.status IN ('closed', '')) OR (r.kind = 'bug' AND r.status IN ('open', '')) OR (r.kind = 'adr' AND r.status IN ('accepted', 'open', '')))`
-	maxTurnFTSWords         = 8
-	maxTurnPlanBodies       = 4
-	maxTurnADRCandidates    = 8
-	maxTurnMemoryCandidates = 8
+	turnRecordAliasSQL = `((r.kind = 'plan' AND r.status IN ('open', '')) OR (r.kind = 'memory' AND r.status IN ('closed', '')) OR (r.kind = 'bug' AND r.status IN ('open', '')) OR (r.kind = 'adr' AND r.status IN ('accepted', 'open', '')))`
+	turnMetaCols       = `rid, scope, id, kind, status, date, title, provenance, memory_kind, verified_at, evidence_count, updated`
 )
-
-var trivialTurnFTSWords = map[string]bool{
-	"the": true, "and": true, "for": true, "with": true, "from": true,
-	"this": true, "that": true, "what": true, "when": true, "where": true,
-	"which": true, "have": true, "has": true, "had": true, "yes": true,
-	"okay": true, "all": true, "approved": true, "proceed": true, "continue": true,
-	"done": true, "lgtm": true, "sgtm": true, "fix": true, "add": true,
-	"update": true, "check": true, "test": true, "tests": true, "run": true,
-	"file": true, "files": true, "code": true, "please": true, "thanks": true,
-}
-
-func filterTurnFTSWords(words []string) []string {
-	if len(words) == 0 {
-		return nil
-	}
-	seen := make(map[string]bool, len(words))
-	var out []string
-	for _, raw := range words {
-		w := strings.ToLower(strings.Trim(strings.TrimSpace(raw), ".,;:!?`'\"()[]{}"))
-		if len(w) < 3 || trivialTurnFTSWords[w] || isAllASCIIDigits(w) || seen[w] {
-			continue
-		}
-		seen[w] = true
-		out = append(out, w)
-		if len(out) >= maxTurnFTSWords {
-			break
-		}
-	}
-	return out
-}
-
-func isAllASCIIDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return false
-		}
-	}
-	return true
-}
 
 type turnMetaRow struct {
 	rid int64
 	rec Record
+}
+
+// TurnLoad holds the records and FTS hits from a combined turn load along with
+// whether every returned record had its full Body hydrated.
+type TurnLoad struct {
+	Records  []Record
+	Hits     []Hit
+	Complete bool
 }
 
 // ListTurnRecordsCtx returns only active turn-relevant records (open plans,
@@ -79,14 +41,8 @@ type turnMetaRow struct {
 // callers such as BrainRefs see full bodies across all active ADRs, open bugs,
 // plans, and memories.
 func ListTurnRecordsCtx(ctx context.Context, o Options) ([]Record, error) {
-	if ctx != nil && ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-	st, ver, err := openTurnStoreCtx(ctx, o.Home)
-	if err != nil || st == nil || ver < 1 {
-		if st != nil {
-			_ = st.close()
-		}
+	st, ver, err := openReadyTurnStoreCtx(ctx, o.Home)
+	if err != nil || st == nil {
 		return nil, err
 	}
 	defer st.close()
@@ -116,11 +72,8 @@ func SearchTurnRecordsCtx(ctx context.Context, o Options, words []string, limit 
 	if limit <= 0 || len(meaningful) == 0 {
 		return nil, nil
 	}
-	st, ver, err := openTurnStoreCtx(ctx, o.Home)
-	if err != nil || st == nil || ver < 1 {
-		if st != nil {
-			_ = st.close()
-		}
+	st, _, err := openReadyTurnStoreCtx(ctx, o.Home)
+	if err != nil || st == nil {
 		return nil, err
 	}
 	defer st.close()
@@ -136,14 +89,6 @@ func SearchTurnRecordsCtx(ctx context.Context, o Options, words []string, limit 
 	return hits, err
 }
 
-// TurnLoad holds the records and FTS hits from a combined turn load along with
-// whether every returned record had its full Body hydrated.
-type TurnLoad struct {
-	Records  []Record
-	Hits     []Hit
-	Complete bool
-}
-
 // LoadTurnDataCtx opens brain.db once read-only with ctx bounds, resolves
 // trail.Roots once, projects metadata first, runs FTS5 (when meaningful words
 // and limit are non-empty), fetches full Body for active plans, open bugs,
@@ -153,14 +98,8 @@ func LoadTurnDataCtx(ctx context.Context, o Options, words []string, limit int) 
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := ctx.Err(); err != nil {
-		return TurnLoad{}, err
-	}
-	st, ver, err := openTurnStoreCtx(ctx, o.Home)
-	if err != nil || st == nil || ver < 1 {
-		if st != nil {
-			_ = st.close()
-		}
+	st, ver, err := openReadyTurnStoreCtx(ctx, o.Home)
+	if err != nil || st == nil {
 		return TurnLoad{}, err
 	}
 	defer st.close()
@@ -172,24 +111,39 @@ func LoadTurnDataCtx(ctx context.Context, o Options, words []string, limit int) 
 	if err != nil {
 		return TurnLoad{}, err
 	}
-	meaningful := filterTurnFTSWords(words)
-	var hits []Hit
-	var hitRIDs map[int64]bool
-	if len(meaningful) > 0 && limit > 0 {
-		scopes, proj, okScope, serr := turnSearchScopesForRoot(st, o, scope)
-		if serr != nil {
-			return TurnLoad{}, serr
-		}
-		if okScope {
-			hits, hitRIDs, err = runTurnFTSPassesCtx(ctx, st, o, meaningful, limit, scopes, proj)
-			if err != nil {
-				return TurnLoad{}, err
-			}
-		}
+	hits, hitRIDs, err := searchTurnFTSCtx(ctx, st, o, scope, words, limit)
+	if err != nil {
+		return TurnLoad{}, err
 	}
 	wantRIDs := selectTurnBodyRIDs(metaRows, hitRIDs, words)
 	recs, err := hydrateTurnRecordsCtx(ctx, st, ver, metaRows, wantRIDs)
 	return TurnLoad{Records: recs, Hits: hits, Complete: len(wantRIDs) == len(metaRows)}, err
+}
+
+func openReadyTurnStoreCtx(ctx context.Context, home string) (*store, int, error) {
+	if ctx != nil && ctx.Err() != nil {
+		return nil, 0, ctx.Err()
+	}
+	st, ver, err := openTurnStoreCtx(ctx, home)
+	if err != nil || st == nil || ver < 1 {
+		if st != nil {
+			_ = st.close()
+		}
+		return nil, 0, err
+	}
+	return st, ver, nil
+}
+
+func searchTurnFTSCtx(ctx context.Context, st *store, o Options, scope string, words []string, limit int) ([]Hit, map[int64]bool, error) {
+	meaningful := filterTurnFTSWords(words)
+	if limit <= 0 || len(meaningful) == 0 {
+		return nil, nil, nil
+	}
+	scopes, proj, ok, err := turnSearchScopesForRoot(st, o, scope)
+	if err != nil || !ok {
+		return nil, nil, err
+	}
+	return runTurnFTSPassesCtx(ctx, st, o, meaningful, limit, scopes, proj)
 }
 
 func resolveTurnScope(o Options) (string, bool) {
@@ -222,83 +176,14 @@ func queryTurnRecordMetaCtx(ctx context.Context, st *store, o Options, ver int, 
 		if err != nil {
 			return nil, err
 		}
-		if (r.Kind == "memory" || r.Kind == "feedback") && r.Provenance == "" {
-			r.Provenance = "unknown"
-		}
+		normalizeTurnRecordProvenance(&r)
 		out = append(out, turnMetaRow{rid: rid, rec: r})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].rec.Date != out[j].rec.Date {
-			return out[i].rec.Date > out[j].rec.Date
-		}
-		return out[i].rid > out[j].rid
-	})
+	sortTurnMetaRows(out)
 	return out, nil
-}
-
-func normalizeTurnTitleWords(words []string) []string {
-	if len(words) == 0 {
-		return nil
-	}
-	seen := make(map[string]bool, len(words))
-	var out []string
-	for _, raw := range words {
-		w := strings.ToLower(strings.Trim(strings.TrimSpace(raw), ".,;:!?`'\"()[]{}"))
-		if len(w) < 4 || trivialTurnFTSWords[w] || isAllASCIIDigits(w) || seen[w] {
-			continue
-		}
-		seen[w] = true
-		out = append(out, w)
-	}
-	return out
-}
-
-func selectTurnBodyRIDs(rows []turnMetaRow, hitRIDs map[int64]bool, rawWords []string) map[int64]bool {
-	words := normalizeTurnTitleWords(rawWords)
-	want := make(map[int64]bool, len(hitRIDs)+maxTurnPlanBodies+maxTurnADRCandidates+maxTurnMemoryCandidates)
-	plans, adrs, mems := 0, 0, 0
-	for _, row := range rows {
-		if hitRIDs[row.rid] || titleMatchesTurnWords(row.rec, words) {
-			want[row.rid] = true
-			continue
-		}
-		switch row.rec.Kind {
-		case "bug":
-			want[row.rid] = true
-		case "plan":
-			if plans < maxTurnPlanBodies {
-				want[row.rid] = true
-				plans++
-			}
-		case "adr":
-			if adrs < maxTurnADRCandidates {
-				want[row.rid] = true
-				adrs++
-			}
-		case "memory":
-			if mems < maxTurnMemoryCandidates {
-				want[row.rid] = true
-				mems++
-			}
-		}
-	}
-	return want
-}
-
-func titleMatchesTurnWords(r Record, words []string) bool {
-	if len(words) == 0 {
-		return false
-	}
-	hay := strings.ToLower(r.ID + " " + r.Title)
-	for _, w := range words {
-		if len(w) >= 4 && strings.Contains(hay, w) {
-			return true
-		}
-	}
-	return false
 }
 
 func hydrateTurnRecordsCtx(ctx context.Context, st *store, ver int, metaRows []turnMetaRow, wantRIDs map[int64]bool) ([]Record, error) {
@@ -311,24 +196,11 @@ func hydrateTurnRecordsCtx(ctx context.Context, st *store, ver int, metaRows []t
 			return nil, err
 		}
 	}
-	out := make([]Record, len(metaRows))
-	for i, m := range metaRows {
-		if rec, ok := full[m.rid]; ok {
-			out[i] = rec
-		} else {
-			out[i] = m.rec
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return recordDescLess(out[i], out[j]) })
-	return out, nil
+	return mergeTurnRecords(metaRows, full), nil
 }
 
 func fetchFullTurnRecordsCtx(ctx context.Context, st *store, ver int, wantRIDs map[int64]bool, dst map[int64]Record) error {
-	rids := make([]int64, 0, len(wantRIDs))
-	for rid := range wantRIDs {
-		rids = append(rids, rid)
-	}
-	sort.Slice(rids, func(i, j int) bool { return rids[i] < rids[j] })
+	rids := sortedTurnRIDs(wantRIDs)
 	cols := "rid, " + selectRecordCols(ver)
 	const batch = 200
 	for start := 0; start < len(rids); start += batch {
@@ -336,36 +208,44 @@ func fetchFullTurnRecordsCtx(ctx context.Context, st *store, ver int, wantRIDs m
 			return err
 		}
 		chunk := rids[start:min(start+batch, len(rids))]
-		args := make([]any, len(chunk))
-		for i, id := range chunk {
-			args[i] = id
-		}
-		q := `SELECT ` + cols + ` FROM records WHERE rid IN (` + strings.Repeat("?,", len(chunk)-1) + `?)`
-		rows, err := st.db.QueryContext(ctx, q, args...)
-		if err != nil {
-			return fmt.Errorf("brain: %w", err)
-		}
-		for rows.Next() {
-			var rid int64
-			var r Record
-			err := rows.Scan(&rid, &r.Scope, &r.RepoID, &r.ID, &r.Kind, &r.Status, &r.Date, &r.Title, &r.Body, &r.Project, &r.Provenance,
-				&r.MemoryKind, &r.Validity, &r.VerifiedAt, &r.EvidenceCount, &r.SourceSessions, &r.Updated)
-			if err != nil {
-				rows.Close()
-				return err
-			}
-			if (r.Kind == "memory" || r.Kind == "feedback") && r.Provenance == "" {
-				r.Provenance = "unknown"
-			}
-			dst[rid] = r
-		}
-		err = rows.Err()
-		rows.Close()
-		if err != nil {
+		if err := fetchFullTurnBatchCtx(ctx, st, cols, chunk, dst); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func fetchFullTurnBatchCtx(ctx context.Context, st *store, cols string, chunk []int64, dst map[int64]Record) error {
+	args := make([]any, len(chunk))
+	for i, id := range chunk {
+		args[i] = id
+	}
+	q := `SELECT ` + cols + ` FROM records WHERE rid IN (` + strings.Repeat("?,", len(chunk)-1) + `?)`
+	rows, err := st.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return fmt.Errorf("brain: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		rid, r, err := scanFullTurnRecord(rows)
+		if err != nil {
+			return err
+		}
+		dst[rid] = r
+	}
+	return rows.Err()
+}
+
+func scanFullTurnRecord(rows *sql.Rows) (int64, Record, error) {
+	var rid int64
+	var r Record
+	err := rows.Scan(&rid, &r.Scope, &r.RepoID, &r.ID, &r.Kind, &r.Status, &r.Date, &r.Title, &r.Body, &r.Project, &r.Provenance,
+		&r.MemoryKind, &r.Validity, &r.VerifiedAt, &r.EvidenceCount, &r.SourceSessions, &r.Updated)
+	if err != nil {
+		return 0, Record{}, err
+	}
+	normalizeTurnRecordProvenance(&r)
+	return rid, r, nil
 }
 
 func openTurnStoreCtx(ctx context.Context, home string) (*store, int, error) {
@@ -451,8 +331,6 @@ func turnReadOnlyDSN(path string, immutable bool, busyMS int) string {
 	return u.String()
 }
 
-const turnMetaCols = `rid, scope, id, kind, status, date, title, provenance, memory_kind, verified_at, evidence_count, updated`
-
 func turnMetaColsForVer(ver int) string {
 	switch {
 	case ver < 2:
@@ -530,9 +408,7 @@ func appendTurnFTSPassCtx(ctx context.Context, st *store, o Options, q string, s
 			continue
 		}
 		seen[rid] = true
-		h.Snippet = search.CleanSnippet(snip)
-		h.Label = label(h.Scope, proj, o.Global) + h.ID
-		hits = append(hits, h)
+		hits = append(hits, formatTurnHit(h, snip, proj, o.Global))
 	}
 	return hits, rows.Err()
 }

@@ -34,6 +34,8 @@ func logOf(t *testing.T, home string) string {
 }
 
 func TestAutoRunOffIsOneLine(t *testing.T) {
+	t.Parallel()
+
 	for name, text := range map[string]string{"missing": "", "disabled": `{"enabled": false, "conversation_idle": "1h"}`} {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()
@@ -56,6 +58,8 @@ func TestAutoRunOffIsOneLine(t *testing.T) {
 }
 
 func TestAutoRunCorruptFailsClosed(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, "garbage\x07")
 	var out bytes.Buffer
@@ -72,6 +76,8 @@ func TestAutoRunCorruptFailsClosed(t *testing.T) {
 }
 
 func TestAutoRunHeldLockStops(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	if err := ensureDir(home); err != nil {
@@ -95,6 +101,8 @@ func TestAutoRunHeldLockStops(t *testing.T) {
 }
 
 func TestAutoRunPassesG1AndG2(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	var out bytes.Buffer
@@ -127,6 +135,8 @@ func TestAutoRunPassesG1AndG2(t *testing.T) {
 
 // A day's model count is kept within the day and starts over on the next.
 func TestAutoRunKeepsTheDaysCount(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	if err := ensureDir(home); err != nil {
@@ -155,6 +165,8 @@ func TestAutoRunKeepsTheDaysCount(t *testing.T) {
 // A corrupt state stops the run and stays: resetting it would hand the day's
 // budget back.
 func TestAutoRunCorruptStateIsKept(t *testing.T) {
+	t.Parallel()
+
 	for name, text := range map[string]string{"garbage": "garbage", "negative": `{"model_runs": -1}`} {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()
@@ -176,6 +188,8 @@ func TestAutoRunCorruptStateIsKept(t *testing.T) {
 }
 
 func TestAutoRunRefusesLinks(t *testing.T) {
+	t.Parallel()
+
 	t.Run("the directory", func(t *testing.T) {
 		home, other := t.TempDir(), t.TempDir()
 		writeConfig(t, home, validConfig)
@@ -251,6 +265,8 @@ func treeOf(t *testing.T, home string) string {
 
 // A dry run changes nothing, in any of the states a real run writes in.
 func TestAutoDryRunWritesNothing(t *testing.T) {
+	t.Parallel()
+
 	for name, prep := range map[string]func(string){
 		"no state dir": func(string) {},
 		"on":           func(h string) { writeConfig(t, h, validConfig) },
@@ -281,6 +297,8 @@ func TestAutoDryRunWritesNothing(t *testing.T) {
 }
 
 func TestAutoDryRunNamesWhatItSkipped(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	var out bytes.Buffer
@@ -295,6 +313,8 @@ func TestAutoDryRunNamesWhatItSkipped(t *testing.T) {
 }
 
 func TestAutoLogPrunedAtThirtyDays(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	if err := ensureDir(home); err != nil {
@@ -377,6 +397,8 @@ func TestAutoStatusSaysWhatDisagrees(t *testing.T) {
 }
 
 func TestAutoStatusCorrupt(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	writeConfig(t, home, "garbage")
 	var out bytes.Buffer
@@ -425,6 +447,8 @@ func TestAutoStatusLine(t *testing.T) {
 
 // runs.json is what the plan names, in JSON a later phase can read.
 func TestAutoStateShape(t *testing.T) {
+	t.Parallel()
+
 	data, err := json.Marshal(State{Projects: map[string]Project{"/a": {LastClass: "health"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -439,6 +463,8 @@ func TestAutoStateShape(t *testing.T) {
 // A state a run did not write stops the run; each of these would otherwise
 // reset the day's count. A day that rolled over does not stop it.
 func TestAutoStateValidated(t *testing.T) {
+	t.Parallel()
+
 	for name, text := range map[string]string{
 		"null":        `null`,
 		"no date":     `{}`,
@@ -476,6 +502,8 @@ func TestAutoStateValidated(t *testing.T) {
 
 // A dry run refuses what the real run refuses, and writes nothing doing it.
 func TestAutoDryRunResolvesTheGuards(t *testing.T) {
+	t.Parallel()
+
 	t.Run("corrupt state", func(t *testing.T) {
 		home := t.TempDir()
 		writeConfig(t, home, validConfig)
@@ -519,6 +547,8 @@ func TestAutoDryRunResolvesTheGuards(t *testing.T) {
 
 // A fifo at either file must not hang the timer's run.
 func TestAutoRunFifoRefused(t *testing.T) {
+	t.Parallel()
+
 	for _, name := range []string{"auto.log", "auto.lock"} {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()

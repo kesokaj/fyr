@@ -31,6 +31,7 @@ func hasProblem(res *ImportResult, part string) bool {
 // A log that is not a file, a ts that is not RFC 3339, and a feedback line
 // with no corrected text but a user quote.
 func TestImportGlobalLogArms(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	conf := filepath.Join(home, harness.StateDir)
 	os.MkdirAll(filepath.Join(conf, "retros.jsonl"), 0o700)
@@ -58,6 +59,7 @@ func TestImportGlobalLogArms(t *testing.T) {
 // A proposal with no body, a SKILL.md and a file with no heading, one over
 // the body cap, and one whose name makes no ID.
 func TestImportGlobalProposalArms(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	props := filepath.Join(home, harness.StateDir, "proposals")
 	os.MkdirAll(filepath.Join(props, "tidy"), 0o700)
@@ -139,6 +141,7 @@ func writeProjects(t *testing.T, home string, roots ...string) {
 // the checks refuse and an unregistered project are problems, and a memory
 // is a record of its project's scope. A dry run stores nothing.
 func TestImportGlobalReadsEveryProjectsMemory(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	good, bad := repo(t), repo(t)
 	os.MkdirAll(filepath.Join(good, ".agents", "memory"), 0o700)
@@ -182,6 +185,7 @@ func TestImportGlobalReadsEveryProjectsMemory(t *testing.T) {
 // The global index's project list that cannot be read is a problem, never
 // the end of the import.
 func TestImportGlobalUnreadableProjectList(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	p := filepath.Join(home, harness.StateDir, "search.db")
 	os.MkdirAll(filepath.Dir(p), 0o700)
@@ -206,6 +210,7 @@ func TestImportGlobalUnreadableProjectList(t *testing.T) {
 // and no record is reported stored. A busy write waits out the driver's
 // 10 s busy timeout, which no test variable shortens.
 func TestImportGlobalStoreErrors(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	os.MkdirAll(filepath.Join(home, filepath.Dir(harness.StateDir)), 0o700)
 	os.WriteFile(filepath.Join(home, harness.StateDir), []byte("a file"), 0o600)

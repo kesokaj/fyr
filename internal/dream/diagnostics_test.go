@@ -157,6 +157,8 @@ func assertDreamSignalProposalAndBgRun(t *testing.T, f fixture, sigID string) {
 }
 
 func TestAddHiddenCouplingHintsRejectsSymlinkScratch(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -189,6 +191,8 @@ func TestAddHiddenCouplingHintsRejectsSymlinkScratch(t *testing.T) {
 }
 
 func TestAddHiddenCouplingHintsSkipsSymlinkConf(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := t.TempDir()
 	outsideConf := t.TempDir()

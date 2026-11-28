@@ -23,6 +23,7 @@ func rules(fs []Finding) string {
 }
 
 func TestChecksTrail(t *testing.T) {
+	t.Parallel()
 	recs := []brain.Record{
 		{Kind: "bug", ID: "BUG-1", Status: "fixed", Body: "## Prevention rule\nx"},
 		{Kind: "bug", ID: "BUG-2", Status: "open", Body: "no rule, see BUG-1 and BUG-1"},
@@ -41,6 +42,7 @@ func TestChecksTrail(t *testing.T) {
 }
 
 func TestChecksTrailTwoCitesAreNoRepeat(t *testing.T) {
+	t.Parallel()
 	recs := []brain.Record{
 		{Kind: "bug", ID: "BUG-1", Status: "fixed", Body: "prevention"},
 		{Kind: "bug", ID: "BUG-2", Status: "open", Body: "prevention BUG-1"},
@@ -52,6 +54,7 @@ func TestChecksTrailTwoCitesAreNoRepeat(t *testing.T) {
 }
 
 func TestChecksResume(t *testing.T) {
+	t.Parallel()
 	root := idleProject(t) // HEAD is eight hours before runAt
 	old := runAt.Add(-30 * 24 * time.Hour).Format(time.RFC3339)
 	head := runAt.Add(-8 * time.Hour)
@@ -89,6 +92,7 @@ func TestChecksResume(t *testing.T) {
 }
 
 func TestChecksKeptBranches(t *testing.T) {
+	t.Parallel()
 	root := idleProject(t)
 	git(t, root, "branch", "work/auto-doc-1")
 	git(t, root, "branch", "work/other")
@@ -144,6 +148,7 @@ func trailLine(t *testing.T, kind, id, status, body string) string {
 }
 
 func TestReportWrittenOnlyWhenFound(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	root := idleProject(t)
@@ -164,6 +169,7 @@ func TestReportWrittenOnlyWhenFound(t *testing.T) {
 }
 
 func TestReportNamesTheFindingOnce(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	root := idleProject(t)
@@ -206,6 +212,7 @@ func TestReportNamesTheFindingOnce(t *testing.T) {
 // A report is a global record: the project's tree, trail and HEAD stay as they
 // were, and the report is found in the machine's store.
 func TestReportStaysOutOfTheProject(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	root := idleProject(t)
@@ -236,6 +243,7 @@ func TestReportStaysOutOfTheProject(t *testing.T) {
 }
 
 func TestReportLevelReadsTheBudget(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	e := &fakeEnv{targets: targetsOf(idleProject(t)), usage: usageText("10%", "90%")}
@@ -249,6 +257,7 @@ func TestReportLevelReadsTheBudget(t *testing.T) {
 }
 
 func TestReportNoUsageBeforeAProjectPasses(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	root := idleProject(t)
@@ -259,6 +268,7 @@ func TestReportNoUsageBeforeAProjectPasses(t *testing.T) {
 }
 
 func TestReportUnreadableQuotaIsAFinding(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	e := &fakeEnv{targets: targetsOf(idleProject(t)), usageErr: errFake}
@@ -270,6 +280,7 @@ func TestReportUnreadableQuotaIsAFinding(t *testing.T) {
 }
 
 func TestDirtyCheckoutRunsHealthAndSkipsWorker(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	root := idleProject(t)
@@ -288,6 +299,7 @@ func TestDirtyCheckoutRunsHealthAndSkipsWorker(t *testing.T) {
 }
 
 func TestReportLongListSaysWhatIsLeftOut(t *testing.T) {
+	t.Parallel()
 	fs := make([]Finding, reportLimit+3)
 	body := reportBody("p", fs)
 	if strings.Count(body, "\n- ") != reportLimit || !strings.Contains(body, "3 more findings are not listed") {
@@ -296,6 +308,7 @@ func TestReportLongListSaysWhatIsLeftOut(t *testing.T) {
 }
 
 func TestChecksFailedCheckExitsOne(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	root := idleProject(t)
@@ -344,6 +357,7 @@ func snapshot(t *testing.T, root string) map[string]string {
 }
 
 func TestAutoDryRunWritesNothingPastTheGates(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	root := idleProject(t)
@@ -381,6 +395,7 @@ func TestAutoDryRunWritesNothingPastTheGates(t *testing.T) {
 }
 
 func TestAutoDryRunStopsWhereTheRunWould(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	var out bytes.Buffer

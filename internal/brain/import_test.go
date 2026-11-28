@@ -61,6 +61,7 @@ func importedIDs(res *ImportResult) map[string]Imported {
 }
 
 func TestImportKeepsWhatD8Keeps(t *testing.T) {
+	t.Parallel()
 	dir, home := docsFixture(t), t.TempDir()
 	res, err := Import(opts(dir, home), "", false)
 	if err != nil {
@@ -158,6 +159,7 @@ func keys(m map[string]Imported) []string {
 }
 
 func TestImportDryRunWritesNothing(t *testing.T) {
+	t.Parallel()
 	dir, home := docsFixture(t), t.TempDir()
 	res, err := Import(opts(dir, home), "", true)
 	if err != nil {
@@ -178,6 +180,7 @@ func TestImportDryRunWritesNothing(t *testing.T) {
 }
 
 func TestImportRefusesADirtyTree(t *testing.T) {
+	t.Parallel()
 	dir, home := docsFixture(t), t.TempDir()
 	os.WriteFile(filepath.Join(dir, "stray.txt"), []byte("x"), 0o644)
 	_, err := Import(opts(dir, home), "", false)
@@ -190,6 +193,7 @@ func TestImportRefusesADirtyTree(t *testing.T) {
 }
 
 func TestImportRefusesAScriptInTheTrail(t *testing.T) {
+	t.Parallel()
 	dir, home := docsFixture(t), t.TempDir()
 	p := filepath.Join(dir, ".agents", "docs", "testing", "kit", "run.sh")
 	os.MkdirAll(filepath.Dir(p), 0o755)
@@ -203,6 +207,7 @@ func TestImportRefusesAScriptInTheTrail(t *testing.T) {
 }
 
 func TestImportThenRecordVerbsWork(t *testing.T) {
+	t.Parallel()
 	dir, home := docsFixture(t), t.TempDir()
 	if _, err := List(opts(dir, home), ListFilter{}); !IsRefusal(err) {
 		t.Fatalf("before the import the project is unmigrated (D16): %v", err)
@@ -231,6 +236,7 @@ func TestImportThenRecordVerbsWork(t *testing.T) {
 }
 
 func TestImportTakesTheProjectMemoryStore(t *testing.T) {
+	t.Parallel()
 	dir, home := docsFixture(t), t.TempDir()
 	store := filepath.Join(dir, ".agents", "memory")
 	os.MkdirAll(store, 0o700)
@@ -269,6 +275,7 @@ func TestImportTakesTheProjectMemoryStore(t *testing.T) {
 }
 
 func TestMemoryAliasRoundTrip(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	id, err := MemoryAdd(o, MemoryEntry{Type: "feedback", Name: "no-tmp", Description: "scratch goes to .agents/scratch"}, strings.NewReader("Never /tmp.\n"))
@@ -304,6 +311,7 @@ func TestMemoryAliasRoundTrip(t *testing.T) {
 }
 
 func TestMemoryAliasWorksInAnUnmigratedProject(t *testing.T) {
+	t.Parallel()
 	dir, home := docsFixture(t), t.TempDir()
 	o := opts(dir, home)
 	if _, err := MemoryAdd(o, MemoryEntry{Type: "user", Name: "a", Description: "d"}, strings.NewReader("b")); err != nil {
@@ -315,6 +323,7 @@ func TestMemoryAliasWorksInAnUnmigratedProject(t *testing.T) {
 }
 
 func TestMemoryShowCapsLines(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	for i := 0; i < 205; i++ {
@@ -333,6 +342,7 @@ func TestMemoryShowCapsLines(t *testing.T) {
 }
 
 func TestImportGlobal(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	conf := filepath.Join(home, harness.StateDir)
 	os.MkdirAll(filepath.Join(conf, "proposals", "dream", "harness"), 0o700)
@@ -376,6 +386,7 @@ func TestImportGlobal(t *testing.T) {
 // never on the list of paths to remove (a plain docs/ can hold a project's
 // own documentation beside an old trail).
 func TestImportLeavesUnknownFilesOffTheRemoveList(t *testing.T) {
+	t.Parallel()
 	dir, home := docsFixture(t), t.TempDir()
 	p := filepath.Join(dir, ".agents", "docs", "website", "index.md")
 	os.MkdirAll(filepath.Dir(p), 0o755)
@@ -399,6 +410,7 @@ func TestImportLeavesUnknownFilesOffTheRemoveList(t *testing.T) {
 // D28: a retired memory leaves `memory show`, and adding its name again
 // brings it back.
 func TestMemoryRetire(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	for _, n := range []string{"keep", "stale"} {
@@ -429,6 +441,7 @@ func TestMemoryRetire(t *testing.T) {
 // A scaffolded trail holds .gitkeep placeholders: they are removed with the
 // tree, never refused as scripts nor imported.
 func TestImportRemovesGitkeeps(t *testing.T) {
+	t.Parallel()
 	dir := docsFixture(t)
 	// The old template's handoffs/ and reviews/ placeholders hold one newline.
 	os.WriteFile(filepath.Join(dir, ".agents", "docs", "reviews", ".gitkeep"), nil, 0o644)
@@ -454,6 +467,7 @@ func TestImportRemovesGitkeeps(t *testing.T) {
 // fixture file, kept through a README reference to its expected ID, imports
 // under exactly that ID (plan 2026-10-25-1754, Phase 1).
 func TestImportedID(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ dir, kind, stem, want string }{
 		{"handoffs", "handoff", "2026-10-25-1812-plain", "HANDOFF-2026-10-25-1812-plain"},
 		{"handoffs", "handoff", "2026-10-25-1813-Upper Case", "HANDOFF-2026-10-25-1813-upper-case"},
@@ -503,6 +517,7 @@ func TestImportedID(t *testing.T) {
 // (every project's under --global). A missing description is not such a
 // file: normalize titles it "untitled", and it is imported.
 func TestImportSkipsAMemoryTheStoreRefuses(t *testing.T) {
+	t.Parallel()
 	dir, home := docsFixture(t), t.TempDir()
 	store := filepath.Join(dir, ".agents", "memory")
 	os.MkdirAll(store, 0o700)

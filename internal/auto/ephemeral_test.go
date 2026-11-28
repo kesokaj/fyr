@@ -13,6 +13,7 @@ import (
 )
 
 func TestIsEphemeralPath(t *testing.T) {
+	t.Parallel()
 	ephemeral := []string{
 		"/home/u/.gemini/antigravity-cli/worktrees/dbf618ed/subagent-1",
 		"/home/u/workspace/fyr/.git/worktrees/wt1",
@@ -68,6 +69,7 @@ func TestIsEphemeralPath(t *testing.T) {
 }
 
 func TestPruneGoneProjectsDropsEphemeralImmediatelyAndKeepsNormalTTL(t *testing.T) {
+	t.Parallel()
 	now := runAt
 	ephemeralGone := []string{
 		"/home/u/.gemini/antigravity-cli/worktrees/conv1/subagent-a",
@@ -107,6 +109,7 @@ func TestPruneGoneProjectsDropsEphemeralImmediatelyAndKeepsNormalTTL(t *testing.
 }
 
 func TestSweepSkipsEphemeralPathsInDryRunAndPrunesState(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	realHome := t.TempDir()
 	writeConfig(t, home, validConfig)

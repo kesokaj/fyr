@@ -19,6 +19,7 @@ import (
 // .agents and a docs root that is not there are refused before anything is
 // read.
 func TestImportRefusesItsTarget(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	o := opts(docsFixture(t), home)
 	o.Global = true
@@ -42,6 +43,7 @@ func TestImportRefusesItsTarget(t *testing.T) {
 // written: a graduated bug whose Prevention section and graduation note
 // together pass the body cap.
 func TestImportRefusesARecordTheLoadWouldRefuse(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	head := "# BUG-005: big\n\n## Prevention\n"
 	bug := head + strings.Repeat("a", maxBody-len(head)-10) + "\n"
@@ -82,6 +84,7 @@ func classified(t *testing.T, files map[string]string) map[string]candidate {
 // prevention from INDEX.md when its own file does not say, and its ID when
 // its heading holds nothing else; a testing matrix is a guide.
 func TestClassifyArms(t *testing.T) {
+	t.Parallel()
 	got := classified(t, map[string]string{
 		"plans/2026-01-01-untitled.md": "- [ ] left\n",
 		"bugs/BUG-010-from-index.md":   "# BUG-010: index status\n\nsymptom\n",
@@ -106,6 +109,7 @@ func TestClassifyArms(t *testing.T) {
 
 // A name that makes no ID, and two names that make one, are refused.
 func TestClassifyRefusals(t *testing.T) {
+	t.Parallel()
 	for name, files := range map[string][]docFile{
 		"no ID":        {{rel: "plans/!!!.md", path: "d/plans/!!!.md", text: "# x\n"}},
 		"one ID":       {{rel: "plans/Same.md", path: "d/plans/Same.md", text: "# a\n"}, {rel: "plans/same.md", path: "d/plans/same.md", text: "# b\n"}},
@@ -132,6 +136,7 @@ func TestClassifyRefusals(t *testing.T) {
 // readDocs refuses a tracked record over the body cap, and returns an
 // error it cannot read past as it is.
 func TestReadDocsArms(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	root := filepath.Join(dir, ".agents", "docs")
 	os.MkdirAll(filepath.Join(root, "plans"), 0o755)
@@ -155,6 +160,7 @@ func TestReadDocsArms(t *testing.T) {
 // readMemoryStore refuses a store that is not a directory or cannot be
 // listed; a file it cannot take is a problem; the read cap ends it.
 func TestReadMemoryStoreArms(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	store := filepath.Join(dir, ".agents", "memory")
 	os.MkdirAll(filepath.Dir(store), 0o700)
@@ -212,6 +218,7 @@ func TestReadMemoryStoreArms(t *testing.T) {
 // error, and no record is reported stored. A busy write waits out the
 // driver's 10 s busy timeout, which no test variable shortens.
 func TestImportStoreErrors(t *testing.T) {
+	t.Parallel()
 	dir, home := docsFixture(t), t.TempDir()
 	os.MkdirAll(filepath.Join(home, filepath.Dir(harness.StateDir)), 0o700)
 	os.WriteFile(filepath.Join(home, harness.StateDir), []byte("a file"), 0o600)
@@ -244,6 +251,7 @@ func TestImportStoreErrors(t *testing.T) {
 // the import closed, with its error and no result, in an unborn repository
 // and over a corrupt index alike.
 func TestImportFailsClosedWhenTheDirtyCheckFails(t *testing.T) {
+	t.Parallel()
 	unborn := repo(t)
 	p := filepath.Join(unborn, ".agents", "docs", "plans", "p.md")
 	os.MkdirAll(filepath.Dir(p), 0o755)
@@ -261,6 +269,7 @@ func TestImportFailsClosedWhenTheDirtyCheckFails(t *testing.T) {
 // Review of funclen Phase 2, finding 2: a tracked-files check that cannot
 // run refuses the memory store, never reads it as untracked.
 func TestReadMemoryStoreFailsClosedOnACorruptIndex(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	store := filepath.Join(dir, ".agents", "memory")
 	os.MkdirAll(store, 0o700)
@@ -277,6 +286,7 @@ func TestReadMemoryStoreFailsClosedOnACorruptIndex(t *testing.T) {
 // the import's read (v2.0.0 gate, security code slice; it moved here with
 // ADR-087, when this became the store's one reader).
 func TestStoreRunsNoProjectHook(t *testing.T) {
+	t.Parallel()
 	root := repo(t)
 	os.MkdirAll(filepath.Join(root, ".agents", "memory"), 0o700)
 	marker := filepath.Join(t.TempDir(), "fired")

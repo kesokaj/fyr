@@ -12,6 +12,8 @@ import (
 // copyPrivate refuses a FIFO at once, checked on the opened file, never
 // blocking on it (SD60b of the 2026-10-27 re-audit).
 func TestCopyPrivateRefusesAFIFO(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	fifo := filepath.Join(dir, "token")
 	if err := syscall.Mkfifo(fifo, 0o600); err != nil {

@@ -10,6 +10,7 @@ import (
 )
 
 func TestNormalizeRepoIDParityAndSecrets(t *testing.T) {
+	t.Parallel()
 	const wantGit = "git:github.com/kesokaj/fyr"
 	schemeHTTPS := "https" + "://"
 	credSimple := strings.Join([]string{"alice", "synthcred99"}, ":")
@@ -73,6 +74,7 @@ func TestNormalizeRepoIDParityAndSecrets(t *testing.T) {
 }
 
 func TestResolveRepoIDAndWritePopulatesRepoID(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	// Without origin remote: path:<hash> matching main worktree and linked worktrees.
 	git(t, dir, "commit", "--allow-empty", "-qm", "init")

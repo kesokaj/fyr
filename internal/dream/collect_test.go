@@ -23,6 +23,8 @@ func collectIn(home, brainHome string, p search.Project, since, now time.Time, l
 }
 
 func TestCollectInputs(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
@@ -52,6 +54,8 @@ func TestCollectInputs(t *testing.T) {
 }
 
 func TestCollectUnchanged(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	later := now.Add(time.Hour)
 	c, err := collect(f.home, project(f), later, time.Now(), maxPrompt)
@@ -66,6 +70,8 @@ func TestCollectUnchanged(t *testing.T) {
 // Input 4 is global: a skill updated after the watermark never makes a
 // project changed on its own (D-row in the plan's Interfaces).
 func TestCollectSkillAloneIsNoChange(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	later := now.Add(time.Hour)
 	write(t, filepath.Join(f.home, harness.AgyRoot, "skills", "golang", "SKILL.md"), "---\nname: golang\ndescription: \"Go expert, updated\"\n---\n", now.Add(2*time.Hour))
@@ -79,6 +85,8 @@ func TestCollectSkillAloneIsNoChange(t *testing.T) {
 }
 
 func TestCollectRedactsAndHidesHome(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	f.addTrail(t, brain.Options{Home: f.home, Dir: f.root, Now: func() time.Time { return fresh }}, "review", "a leak", "token = FAKEVALUE\nstored under "+f.home+"/x\n")
 	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
@@ -97,6 +105,8 @@ func TestCollectRedactsAndHidesHome(t *testing.T) {
 // conversation stays, the newer one and the trail row of the same time are
 // dropped and named, and Through stops just before them (ADR-069).
 func TestCollectCapDropsNewestNewsFirst(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	full, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
@@ -123,6 +133,8 @@ func TestCollectCapDropsNewestNewsFirst(t *testing.T) {
 }
 
 func TestCommand(t *testing.T) {
+	t.Parallel()
+
 	agy := strings.Join(command(), " ")
 	if !strings.HasPrefix(agy, "agy --input-format stream-json --output-format stream-json --mode plan -p") {
 		t.Errorf("command: %s", agy)
@@ -131,6 +143,8 @@ func TestCommand(t *testing.T) {
 
 // TestCollectDoesNotFollowALinkedAgentsDir: .agents itself as a symlink.
 func TestCollectDoesNotFollowALinkedAgentsDir(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	elsewhere := t.TempDir()
 	write(t, filepath.Join(elsewhere, "trail.jsonl"), "outside the repository\n", fresh)
@@ -150,6 +164,8 @@ func TestCollectDoesNotFollowALinkedAgentsDir(t *testing.T) {
 // A secret hidden behind a JSON escape in a feedback record is redacted on
 // the decoded line (v2.0.0 gate, security code slice).
 func TestFeedbackRedactsEscapedSecret(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	// json.Marshal writes & as \u0026, so the raw line reads "\u0026sig=…" and the
 	// query-string needle matches only the decoded line (the gate's measurement).
@@ -171,6 +187,8 @@ func TestFeedbackRedactsEscapedSecret(t *testing.T) {
 // through the installer's frontmatter parser now (project review 2026-10-09,
 // row 16).
 func TestSkillsReadsBlockScalarDescription(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	dir := filepath.Join(home, harness.AgyRoot, "skills", "folded")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -246,6 +264,8 @@ func TestCollectUsesTheRunsClock(t *testing.T) {
 }
 
 func TestCollectDailyDigestUnderKindMetricsDoesNotFlipChanged(t *testing.T) {
+	t.Parallel()
+
 	f := newFixture(t)
 	if err := metrics.WriteLatestDailyDigest(f.home, metrics.DailyDigest{
 		Day:     "2026-11-21",

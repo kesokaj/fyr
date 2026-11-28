@@ -9,6 +9,8 @@ import (
 )
 
 func TestGatePowerLinux(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name     string
 		supplies []Supply
@@ -35,6 +37,8 @@ func TestGatePowerLinux(t *testing.T) {
 }
 
 func TestGatePowerDarwin(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name, batt, all string
 		err             error
@@ -62,6 +66,8 @@ func TestGatePowerDarwin(t *testing.T) {
 }
 
 func TestGateReadSupplies(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	if got, err := readSupplies(filepath.Join(root, "absent")); got != nil || err != nil {
 		t.Errorf("%v, %v", got, err)
@@ -83,6 +89,8 @@ func TestGateReadSupplies(t *testing.T) {
 }
 
 func TestGateMachineStopsARun(t *testing.T) {
+	t.Parallel()
+
 	root := idleProject(t)
 	t.Run("G3 power stops run", func(t *testing.T) {
 		home := t.TempDir()

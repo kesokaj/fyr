@@ -25,6 +25,7 @@ func testGitRepo(t *testing.T) string {
 }
 
 func TestIndexRecordLinks(t *testing.T) {
+	t.Parallel()
 	t.Run("missing_brain_db_degrades_cleanly_without_creating_files", func(t *testing.T) {
 		emptyHome := t.TempDir()
 		repo := testGitRepo(t)

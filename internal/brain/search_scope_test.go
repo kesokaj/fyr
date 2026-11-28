@@ -22,6 +22,7 @@ func markRegistered(t *testing.T, home, root string) {
 // home's marker; an unregistered project's records, a clone's included,
 // answer none of them (ADR-068, audit-choices D15, ledger D13).
 func TestGlobalRecordHitsOnlyRegistered(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	own, reg, stranger := repo(t), repo(t), repo(t)
 	for _, d := range []string{own, reg, stranger} {

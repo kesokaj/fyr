@@ -62,6 +62,8 @@ func inAgyEnv(name string) bool {
 // TestCLICommandRefusesNilEnv: a nil env would hand the CLI fyr's whole
 // environment, so it is refused rather than inherited.
 func TestCLICommandRefusesNilEnv(t *testing.T) {
+	t.Parallel()
+
 	if _, _, _, err := cliCommand(context.Background(), []string{"agy"}, "", t.TempDir(), nil); err == nil {
 		t.Error("a nil env was accepted")
 	}

@@ -12,6 +12,7 @@ import (
 )
 
 func TestTurnRecordsFiltersAndDoesNotCreateStore(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	emptyHome := t.TempDir()
 
@@ -235,6 +236,7 @@ func containsRecordID(recs []Record, id string) bool {
 }
 
 func TestTurnRecordsIndexAndFilterWords(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	home := t.TempDir()
 
@@ -448,6 +450,7 @@ func TestTurnRecordsSeeded1143LatencyAndSelectiveBody(t *testing.T) {
 }
 
 func TestTurnRecordsMetaColsProvenanceFullListAndROFirst(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	home := t.TempDir()
 	bo := Options{Home: home, Dir: dir}

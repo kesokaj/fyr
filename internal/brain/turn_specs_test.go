@@ -10,6 +10,7 @@ import (
 )
 
 func TestListCurrentSpecsCtxReadOnlyCancelAndSymlink(t *testing.T) {
+	t.Parallel()
 	dir := repo(t)
 	home := t.TempDir()
 	bo := Options{Home: home, Dir: dir}

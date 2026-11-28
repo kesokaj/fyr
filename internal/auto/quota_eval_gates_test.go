@@ -456,6 +456,8 @@ func runV910HaltReasonPersistence(t *testing.T) {
 }
 
 func TestAutoReportBodyAttributionEndToEndAndHealthShortCircuit(t *testing.T) {
+	t.Parallel()
+
 	// 1. reportBodyWithAttribution emits unfenced auto-applied: <sha> readable by metrics.BuildDailyDigest.
 	home := t.TempDir()
 	root := "/work/e2e-app"

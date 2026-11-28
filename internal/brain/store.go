@@ -22,6 +22,7 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/sqliteutil"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // migrations[i] takes the store from schema i to i+1 (PRAGMA user_version).
@@ -396,4 +397,16 @@ func usage(format string, a ...any) error { return &usageError{msg: fmt.Sprintf(
 func IsUsage(err error) bool {
 	var u *usageError
 	return errors.As(err, &u)
+}
+
+// NormalizeRepoID returns a canonical repository identifier via
+// trail.NormalizeRepoID.
+func NormalizeRepoID(originURL, absRoot string) string {
+	return trail.NormalizeRepoID(originURL, absRoot)
+}
+
+// ResolveRepoID inspects root's git checkout via trail.ResolveRepoID and
+// returns its canonical repo_id. Empty or global workspace roots return "".
+func ResolveRepoID(root string) string {
+	return trail.ResolveRepoID(root)
 }

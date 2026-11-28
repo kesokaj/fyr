@@ -10,6 +10,7 @@ import (
 // (PLAN-2026-10-29-root-docs-and-fyr-serve, § Interfaces): a record named
 // only in PRD.md, SDD.md or TDD.md is kept, and an unnamed one is dropped.
 func TestImportKeepsWhatTheRootDocsName(t *testing.T) {
+	t.Parallel()
 	for _, doc := range []string{"PRD.md", "SDD.md", "TDD.md"} {
 		t.Run(doc, func(t *testing.T) {
 			dir := repo(t)

@@ -15,6 +15,8 @@ import (
 )
 
 func TestDefaultCapsuleDepsAndFormatKickoffCapsule(t *testing.T) {
+	t.Parallel()
+
 	deps := DefaultCapsuleDeps()
 	if deps.SliceFn == nil || deps.PreseedFn == nil {
 		t.Fatalf("DefaultCapsuleDeps returned nil callback(s): %+v", deps)
@@ -60,6 +62,8 @@ func TestDefaultCapsuleDepsAndFormatKickoffCapsule(t *testing.T) {
 }
 
 func TestRunWorkerThreadsCapsuleDeps(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	base := t.TempDir()
 	emptyRoot := initIndexedTargetRepo(t, base, "empty-deps", home, "EmptyDepsTarget")
@@ -166,6 +170,8 @@ func initIndexedTargetRepo(t *testing.T, base, name, home, targetSym string) str
 }
 
 func TestExecWorkerPropagatesRootToWriteKickoff(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	realHome := t.TempDir()
 	base := t.TempDir()
@@ -248,6 +254,8 @@ func TestExecWorkerPropagatesRootToWriteKickoff(t *testing.T) {
 }
 
 func TestDraftsOnlyKickoffSelfContainedSchemaAndExamplesValid(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := initGitRepo(t)
 	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
@@ -355,6 +363,8 @@ func TestDraftsOnlyKickoffSelfContainedSchemaAndExamplesValid(t *testing.T) {
 }
 
 func TestHarnessEditKickoffGuidesFastTargetedChecks(t *testing.T) {
+	t.Parallel()
+
 	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
 		class string

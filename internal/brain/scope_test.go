@@ -10,6 +10,7 @@ import (
 
 // Outside a git checkout the project scope refuses; --global still works.
 func TestOutsideACheckout(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	o := opts(t.TempDir(), home)
 	if _, err := List(o, ListFilter{}); !IsRefusal(err) {
@@ -24,6 +25,7 @@ func TestOutsideACheckout(t *testing.T) {
 // A linked worktree shares the main worktree's scope (memory.Root's rule),
 // but its export is its own checkout's file, the one its branch commits.
 func TestLinkedWorktreeExportsToItsOwnCheckout(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	git(t, dir, "commit", "-q", "--allow-empty", "-m", "init")
 	wt := filepath.Join(t.TempDir(), "wt")
@@ -52,6 +54,7 @@ func TestLinkedWorktreeExportsToItsOwnCheckout(t *testing.T) {
 
 // list --all covers every scope; --project needs --global.
 func TestListScopes(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	a, b := repo(t), repo(t)
 	add(t, opts(a, home), "learning", "in a", "x")
@@ -78,6 +81,7 @@ func TestListScopes(t *testing.T) {
 // Search ranks records by BM25 over title and body in the project and
 // global scopes; --global covers every scope.
 func TestSearchRecords(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	a, b := repo(t), repo(t)
 	add(t, opts(a, home), "bug", "trailer co-authored slipped in", "Rule: no trailer.")

@@ -37,6 +37,7 @@ func TestLoadBoundedMemory(t *testing.T) {
 }
 
 func TestLoadRefusesAnOverlongLine(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	os.MkdirAll(filepath.Join(dir, ".agents"), 0o755)
 	line := `{"date":"2026-10-24","id":"BUG-001","kind":"bug","status":"open","title":"t","updated":"2026-10-24T10:00:00Z","body":"` + strings.Repeat("a", maxLine) + `"}`
@@ -50,6 +51,7 @@ func TestLoadRefusesAnOverlongLine(t *testing.T) {
 // A valid line longer than the reader's 64 KiB buffer loads whole, and the
 // line after it keeps its number.
 func TestLoadTakesALongValidLine(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	os.MkdirAll(filepath.Join(dir, ".agents"), 0o755)
 	body := strings.Repeat("é", 300<<10/2)
@@ -98,6 +100,7 @@ func TestLoadRefusesAnOversizeFile(t *testing.T) {
 
 // Finding 2: a title is capped like a body.
 func TestTitleLimit(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	long := strings.Repeat("a", maxTitle+1)
@@ -118,6 +121,7 @@ func TestTitleLimit(t *testing.T) {
 // Finding 4: the load never reads through a symlink, even one swapped in
 // after the guard's Lstat.
 func TestOpenNonBlockingRefusesASymlink(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "elsewhere")
 	os.WriteFile(target, []byte("x"), 0o644)
@@ -137,6 +141,7 @@ func TestOpenNonBlockingRefusesASymlink(t *testing.T) {
 // Finding 5: stored text cannot carry the snippet's match marks (or any
 // other C0 control but tab and newline).
 func TestControlCharactersRefused(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	if _, err := Add(o, AddInput{Kind: "bug", Title: "t", Body: strings.NewReader("a \x01mark\x02 b")}); !IsRefusal(err) {
@@ -159,6 +164,7 @@ func TestControlCharactersRefused(t *testing.T) {
 // Finding 6: with --global, two projects of the same base name are told
 // apart.
 func TestGlobalLabelsTellScopesApart(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	a := filepath.Join(t.TempDir(), "same")
 	b := filepath.Join(t.TempDir(), "same")
@@ -182,6 +188,7 @@ func TestGlobalLabelsTellScopesApart(t *testing.T) {
 // Finding 7: no unexported kind reaches the export, whichever way a row
 // got into a project scope.
 func TestEveryUnexportedKindStaysOut(t *testing.T) {
+	t.Parallel()
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	add(t, o, "bug", "visible", "visible")

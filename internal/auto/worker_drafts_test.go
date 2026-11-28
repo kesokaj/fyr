@@ -17,6 +17,8 @@ import (
 )
 
 func TestAllInvalidDraftsFailAndPreserveWatermark(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := initGitRepo(t)
 	now := time.Date(2026, 11, 26, 2, 0, 0, 0, time.UTC)
@@ -102,6 +104,8 @@ func TestAllInvalidDraftsFailAndPreserveWatermark(t *testing.T) {
 }
 
 func TestCollectAutoDraftsScrubsSecretsBeforeArchiving(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := initGitRepo(t)
 	now := time.Date(2026, 11, 26, 3, 0, 0, 0, time.UTC)
@@ -193,6 +197,8 @@ func TestCollectAutoDraftsScrubsSecretsBeforeArchiving(t *testing.T) {
 }
 
 func TestDraftsPerClassAllowlistEnforced(t *testing.T) {
+	t.Parallel()
+
 	home := t.TempDir()
 	root := initGitRepo(t)
 	now := time.Date(2026, 11, 26, 4, 0, 0, 0, time.UTC)
@@ -233,6 +239,8 @@ func TestDraftsPerClassAllowlistEnforced(t *testing.T) {
 }
 
 func TestWorkerFailureSurfacesCredentialPathsAndRedactsEdges(t *testing.T) {
+	t.Parallel()
+
 	r := &run{}
 	tok := "gh" + "p_" + strings.Repeat("Z", 36)
 	res := isolate.WorkerResult{
@@ -279,6 +287,8 @@ func TestWorkerFailureSurfacesCredentialPathsAndRedactsEdges(t *testing.T) {
 }
 
 func TestWorkerDraftsTestFileHasNoSecretPatterns(t *testing.T) {
+	t.Parallel()
+
 	data, err := os.ReadFile("worker_drafts_test.go")
 	if err != nil {
 		t.Fatalf("read worker_drafts_test.go: %v", err)
