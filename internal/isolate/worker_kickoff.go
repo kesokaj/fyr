@@ -47,7 +47,7 @@ var (
 // Files: line, an entry that is neither a repo-relative path nor a record
 // ID, more than one Model: line or one that is not a model ID, or a name
 // outside the branch alphabet (D40).
-func parseKickoff(path string, auto bool) (Kickoff, error) {
+func parseKickoff(path string, auto bool, deps CapsuleDeps) (Kickoff, error) {
 	k := Kickoff{Path: path, Name: strings.TrimSuffix(filepath.Base(path), ".md")}
 	f, err := OpenRegular(path, os.O_RDONLY)
 	if err != nil {
@@ -77,7 +77,7 @@ func parseKickoff(path string, auto bool) (Kickoff, error) {
 	if !nameRe.MatchString(k.Name) {
 		return k, fmt.Errorf("the Kickoff %s: the name %q is not lower-case letters, digits and '-', at most 63, starting with a letter or digit", path, k.Name)
 	}
-	k.Text = FormatKickoffCapsule(k, kickoffProjectRoot(k.Text, path), DefaultSliceFunc, DefaultPreseedFunc)
+	k.Text = FormatKickoffCapsule(k, kickoffProjectRoot(k.Text, path), deps.SliceFn, deps.PreseedFn)
 	return k, nil
 }
 

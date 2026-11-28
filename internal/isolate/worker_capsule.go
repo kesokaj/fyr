@@ -21,14 +21,15 @@ type CapsulePivot struct {
 	StartLine, EndLine int
 }
 
-var (
-	capsuleHeaderRe = regexp.MustCompile(`^\[Hop [01]\] ([^:\s]+):(\d+)-(\d+) `)
-	// DefaultSliceFunc and DefaultPreseedFunc are optional hooks registered by
-	// callers that link internal/search so parseKickoff attaches structural
-	// capsules without internal/isolate importing modernc.org/sqlite (ADR-063).
-	DefaultSliceFunc   func(dir, query string, budget int) (string, error)
-	DefaultPreseedFunc func(dir string, pivots []CapsulePivot) error
-)
+// CapsuleDeps holds optional callbacks for attaching a structural --slice
+// context capsule and pre-seeding read_ledger when parsing worker kickoffs,
+// avoiding an internal/isolate import of modernc.org/sqlite (ADR-063).
+type CapsuleDeps struct {
+	SliceFn   func(dir, query string, budget int) (string, error)
+	PreseedFn func(dir string, pivots []CapsulePivot) error
+}
+
+var capsuleHeaderRe = regexp.MustCompile(`^\[Hop [01]\] ([^:\s]+):(\d+)-(\d+) `)
 
 func kickoffProjectRoot(text, path string) string {
 	for _, line := range prefixed(text, "Project:") {

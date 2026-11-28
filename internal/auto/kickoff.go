@@ -17,18 +17,32 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-func init() {
-	isolate.DefaultSliceFunc = func(dir, query string, budget int) (string, error) {
-		var buf bytes.Buffer
-		err := search.BuildContextSlice(search.Options{Dir: dir, Slice: query, Budget: budget, Hops: 2}, &buf)
-		return buf.String(), err
-	}
-	isolate.DefaultPreseedFunc = func(dir string, pivots []isolate.CapsulePivot) error {
-		sp := make([]search.CapsulePivot, len(pivots))
-		for i, p := range pivots {
-			sp[i] = search.CapsulePivot{Path: p.Path, StartLine: p.StartLine, EndLine: p.EndLine}
-		}
-		return search.RegisterCapsulePivots(dir, "work-kickoff", 1, sp)
+// DefaultCapsuleDeps returns the search-backed structural capsule and
+// read_ledger pre-seeding callbacks for isolate.WorkerOptions.
+func DefaultCapsuleDeps() isolate.CapsuleDeps {
+	return capsuleDepsForSession("", "work-kickoff")
+}
+
+func capsuleDepsForSession(sliceSession, preseedSession string) isolate.CapsuleDeps {
+	return isolate.CapsuleDeps{
+		SliceFn: func(dir, query string, budget int) (string, error) {
+			var buf bytes.Buffer
+			err := search.BuildContextSlice(search.Options{
+				Dir:     dir,
+				Slice:   query,
+				Budget:  budget,
+				Hops:    2,
+				Session: sliceSession,
+			}, &buf)
+			return buf.String(), err
+		},
+		PreseedFn: func(dir string, pivots []isolate.CapsulePivot) error {
+			sp := make([]search.CapsulePivot, len(pivots))
+			for i, p := range pivots {
+				sp[i] = search.CapsulePivot{Path: p.Path, StartLine: p.StartLine, EndLine: p.EndLine}
+			}
+			return search.RegisterCapsulePivots(dir, preseedSession, 1, sp)
+		},
 	}
 }
 
@@ -184,23 +198,8 @@ func kickoffFinishRule(class string, draftsOnly bool) string {
 // tokens) to k and pre-seeds read_ledger when root has a project search index.
 func AttachProjectCapsule(root, conversationID string, k Kickoff) Kickoff {
 	wk := isolate.Kickoff{Name: k.Name, Path: k.Path, Text: k.Text, Files: k.Files}
-	k.Text = isolate.FormatKickoffCapsule(wk, root, func(dir, query string, budget int) (string, error) {
-		var buf bytes.Buffer
-		err := search.BuildContextSlice(search.Options{
-			Dir:     dir,
-			Slice:   query,
-			Budget:  budget,
-			Hops:    2,
-			Session: conversationID,
-		}, &buf)
-		return buf.String(), err
-	}, func(dir string, pivots []isolate.CapsulePivot) error {
-		sp := make([]search.CapsulePivot, len(pivots))
-		for i, p := range pivots {
-			sp[i] = search.CapsulePivot{Path: p.Path, StartLine: p.StartLine, EndLine: p.EndLine}
-		}
-		return search.RegisterCapsulePivots(dir, conversationID, 1, sp)
-	})
+	deps := capsuleDepsForSession(conversationID, conversationID)
+	k.Text = isolate.FormatKickoffCapsule(wk, root, deps.SliceFn, deps.PreseedFn)
 	return k
 }
 

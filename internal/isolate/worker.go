@@ -28,6 +28,7 @@ type WorkerOptions struct {
 	StopGrace                        time.Duration
 	Runner, RunnerReason             string
 	Auto, ACP, DraftsOnly            bool
+	Capsule                          CapsuleDeps
 	TestRO, TestRW                   []string
 	TestUnconfined                   bool
 }

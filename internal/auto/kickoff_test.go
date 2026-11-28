@@ -14,44 +14,112 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-func TestDefaultPreseedFuncAndSliceFunc(t *testing.T) {
-	if isolate.DefaultPreseedFunc == nil || isolate.DefaultSliceFunc == nil {
-		t.Fatalf("kickoff init did not register DefaultPreseedFunc/DefaultSliceFunc")
+func TestDefaultCapsuleDepsAndFormatKickoffCapsule(t *testing.T) {
+	deps := DefaultCapsuleDeps()
+	if deps.SliceFn == nil || deps.PreseedFn == nil {
+		t.Fatalf("DefaultCapsuleDeps returned nil callback(s): %+v", deps)
 	}
 	home := t.TempDir()
-	root := idleProject(t)
-	writeTree(t, root, ".gitignore", ".agents/scratch/*\n")
-	writeTree(t, root, "sample.go", "package sample\n\nfunc PreseedTarget() string {\n\treturn helperValue()\n}\n\nfunc helperValue() string {\n\treturn \"ok\"\n}\n")
-	git(t, root, "add", ".gitignore", "sample.go")
-	git(t, root, "commit", "-q", "-m", "add sample.go")
-	git(t, root, "push", "-q")
-	backdate(t, root)
+	root := initIndexedTargetRepo(t, t.TempDir(), "capsule-proj", home, "PreseedTarget")
 
-	if _, err := brain.Add(brain.Options{Home: home, Dir: root, Now: func() time.Time { return runAt.Add(-8 * time.Hour) }}, brain.AddInput{
-		Kind:  "guide",
-		ID:    "GUIDE-onboarding",
-		Title: "Onboarding",
-		Body:  strings.NewReader("# Guide\n"),
-	}); err != nil {
-		t.Fatalf("brain.Add: %v", err)
+	sliceOut, err := deps.SliceFn(root, "PreseedTarget", 800)
+	if err != nil || !strings.Contains(sliceOut, "PreseedTarget") {
+		t.Fatalf("DefaultCapsuleDeps().SliceFn = %q, err = %v", sliceOut, err)
 	}
-	var out bytes.Buffer
-	if err := search.Index(search.Options{Dir: root, Home: home}, &out); err != nil {
-		t.Fatalf("search.Index: %v", err)
+
+	baseKickoff := isolate.Kickoff{
+		Name:  "capsule-format",
+		Text:  "Files: sample.go, README.md\n\nUpdate PreseedTarget.\n",
+		Files: []string{"sample.go", "README.md"},
 	}
-	if err := isolate.DefaultPreseedFunc(root, []isolate.CapsulePivot{{Path: filepath.ToSlash("sample.go"), StartLine: 3, EndLine: 5}}); err != nil {
-		t.Fatalf("DefaultPreseedFunc: %v", err)
+	var empty isolate.CapsuleDeps
+	if got := isolate.FormatKickoffCapsule(baseKickoff, root, empty.SliceFn, empty.PreseedFn); got != baseKickoff.Text {
+		t.Errorf("empty CapsuleDeps attached capsule unexpectedly:\n%s", got)
+	}
+	withCapsule := isolate.FormatKickoffCapsule(baseKickoff, root, deps.SliceFn, deps.PreseedFn)
+	if !strings.Contains(withCapsule, "## Structural Context Capsule\n") || !strings.Contains(withCapsule, "PreseedTarget") {
+		t.Fatalf("FormatKickoffCapsule with DefaultCapsuleDeps missing capsule:\n%s", withCapsule)
 	}
 	res, err := search.CheckAndRecordRead(root, "work-kickoff", "sample.go", 3, 5, 1)
 	if err != nil {
 		t.Fatalf("CheckAndRecordRead: %v", err)
 	}
 	if res.Allowed || !strings.Contains(res.Reason, "[UNCHANGED]") {
-		t.Errorf("expected pre-seeded read_ledger to block redundant read, got %+v", res)
+		t.Errorf("expected FormatKickoffCapsule to pre-seed read_ledger, got %+v", res)
 	}
-	sliceOut, err := isolate.DefaultSliceFunc(root, "PreseedTarget", 800)
-	if err != nil || !strings.Contains(sliceOut, "PreseedTarget") {
-		t.Errorf("DefaultSliceFunc = %q, err = %v", sliceOut, err)
+	if err := deps.PreseedFn(root, []isolate.CapsulePivot{{Path: filepath.ToSlash("sample.go"), StartLine: 7, EndLine: 9}}); err != nil {
+		t.Fatalf("DefaultCapsuleDeps().PreseedFn: %v", err)
+	}
+	res2, err := search.CheckAndRecordRead(root, "work-kickoff", "sample.go", 7, 9, 1)
+	if err != nil {
+		t.Fatalf("CheckAndRecordRead(helper): %v", err)
+	}
+	if res2.Allowed || !strings.Contains(res2.Reason, "[UNCHANGED]") {
+		t.Errorf("expected explicit PreseedFn to block redundant read, got %+v", res2)
+	}
+}
+
+func TestRunWorkerThreadsCapsuleDeps(t *testing.T) {
+	home := t.TempDir()
+	base := t.TempDir()
+	emptyRoot := initIndexedTargetRepo(t, base, "empty-deps", home, "EmptyDepsTarget")
+	wiredRoot := initIndexedTargetRepo(t, base, "wired-deps", home, "WiredDepsTarget")
+	const sentinelModel = "bad model"
+	wantSentinel := "--model " + sentinelModel + ": not a model ID"
+
+	writeKick := func(root, name string) string {
+		t.Helper()
+		p := filepath.Join(t.TempDir(), name+".md")
+		body := "Files: sample.go, README.md\nProject: " + root + "\n\nCheck target.\n"
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	// Empty CapsuleDeps{} must be a safe no-op: no capsule slice or pre-seed.
+	_, err := isolate.RunWorker(context.Background(), isolate.WorkerOptions{
+		Root:     emptyRoot,
+		Home:     t.TempDir(),
+		RealHome: t.TempDir(),
+		Model:    sentinelModel,
+		Capsule:  isolate.CapsuleDeps{},
+	}, writeKick(emptyRoot, "empty-kick"))
+	if err == nil || !strings.Contains(err.Error(), wantSentinel) {
+		t.Fatalf("RunWorker(empty CapsuleDeps) err = %v, want %q", err, wantSentinel)
+	}
+	emptyRes, err := search.CheckAndRecordRead(emptyRoot, "work-kickoff", "sample.go", 3, 5, 1)
+	if err != nil {
+		t.Fatalf("CheckAndRecordRead(emptyRoot): %v", err)
+	}
+	if !emptyRes.Allowed {
+		t.Errorf("empty CapsuleDeps unexpectedly pre-seeded read_ledger: %+v", emptyRes)
+	}
+
+	// Explicit DefaultCapsuleDeps() must thread through preflight into parseKickoff.
+	_, err = isolate.RunWorker(context.Background(), isolate.WorkerOptions{
+		Root:     wiredRoot,
+		Home:     t.TempDir(),
+		RealHome: t.TempDir(),
+		Model:    sentinelModel,
+		Capsule:  DefaultCapsuleDeps(),
+	}, writeKick(wiredRoot, "wired-kick"))
+	if err == nil || !strings.Contains(err.Error(), wantSentinel) {
+		t.Fatalf("RunWorker(DefaultCapsuleDeps) err = %v, want %q", err, wantSentinel)
+	}
+	wiredRes, err := search.CheckAndRecordRead(wiredRoot, "work-kickoff", "sample.go", 3, 5, 1)
+	if err != nil {
+		t.Fatalf("CheckAndRecordRead(wiredRoot): %v", err)
+	}
+	if wiredRes.Allowed || !strings.Contains(wiredRes.Reason, "[UNCHANGED]") {
+		t.Errorf("expected RunWorker with DefaultCapsuleDeps to pre-seed read_ledger, got %+v", wiredRes)
+	}
+
+	// workOptions must wire non-nil Capsule deps into isolate.WorkerOptions.
+	r := &run{o: Options{Home: home}}
+	wo := r.workOptions(wiredRoot, Task{Class: ClassDistill})
+	if wo.Capsule.SliceFn == nil || wo.Capsule.PreseedFn == nil {
+		t.Errorf("workOptions left Capsule deps nil: %+v", wo.Capsule)
 	}
 }
 
@@ -129,6 +197,9 @@ func TestExecWorkerPropagatesRootToWriteKickoff(t *testing.T) {
 	o.Work = func(_ context.Context, wo isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
 		if wo.Root != zuluRoot {
 			t.Errorf("worker Root = %q, want %q", wo.Root, zuluRoot)
+		}
+		if wo.Capsule.SliceFn == nil || wo.Capsule.PreseedFn == nil {
+			t.Errorf("worker Capsule deps not wired: %+v", wo.Capsule)
 		}
 		kickoffName = strings.TrimSuffix(filepath.Base(paths[0]), ".md")
 		data, err := os.ReadFile(paths[0])

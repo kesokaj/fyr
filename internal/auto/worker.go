@@ -191,6 +191,7 @@ func (r *run) workOptions(root string, t Task) isolate.WorkerOptions {
 		Out:            io.Discard,
 		Now:            r.o.Now,
 		Auto:           true,
+		Capsule:        DefaultCapsuleDeps(),
 		TestRO:         r.o.TestRO,
 		TestRW:         r.o.TestRW,
 		TestUnconfined: r.o.TestUnconfined,

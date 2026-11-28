@@ -47,7 +47,7 @@ func preflightWorker(ctx context.Context, o *WorkerOptions, files []string) ([]p
 	if err := checkWorkerRoots(*o); err != nil {
 		return nil, err
 	}
-	ks, err := parseAllKickoffs(files, o.Auto || o.DraftsOnly)
+	ks, err := parseAllKickoffs(files, o.Auto || o.DraftsOnly, o.Capsule)
 	if err != nil {
 		return nil, err
 	}
@@ -172,10 +172,10 @@ func leadClean(root string) error {
 	return nil
 }
 
-func parseAllKickoffs(files []string, auto bool) ([]Kickoff, error) {
+func parseAllKickoffs(files []string, auto bool, deps CapsuleDeps) ([]Kickoff, error) {
 	ks := make([]Kickoff, 0, len(files))
 	for _, f := range files {
-		k, err := parseKickoff(f, auto)
+		k, err := parseKickoff(f, auto, deps)
 		if err != nil {
 			return nil, err
 		}
