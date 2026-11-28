@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -211,7 +213,7 @@ func TestShowPassKTrials(t *testing.T) {
 		"eval=lost": {K: 1, Passed: 1, PassK: 1, N: 1, C: 1, PassAt: map[string]float64{"1": 1}, PassPow: map[string]float64{"1": 1}, Wilson95: [2]float64{0.2065, 1}},
 	}
 	if len(sum.A.PassK) != len(want) {
-		t.Errorf("labels %v, want %d", sortedKeys(sum.A.PassK), len(want))
+		t.Errorf("labels %v, want %d", slices.Sorted(maps.Keys(sum.A.PassK)), len(want))
 	}
 	for l, w := range want {
 		if got := sum.A.PassK[l]; fmt.Sprintf("%+v", got) != fmt.Sprintf("%+v", w) {

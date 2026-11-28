@@ -31,11 +31,6 @@ func gitT(t *testing.T, dir string, when time.Time, args ...string) string {
 // record cites S1's commit; one global feedback record falls in S1's window.
 func eventsFixture(t *testing.T) (*Store, string, string) {
 	t.Helper()
-	// The IDs below carry their minute in UTC, the zone the join reads them
-	// in here. No test here runs in parallel.
-	local := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = local })
 	home := t.TempDir()
 	root := filepath.Join(t.TempDir(), "proj")
 	os.MkdirAll(root, 0o755)
@@ -56,9 +51,9 @@ func eventsFixture(t *testing.T) (*Store, string, string) {
 	markRegistered(t, home, root) // the join reads a registered checkout's trail only (ADR-068)
 	o := brain.Options{Home: home, Dir: root, Now: func() time.Time { return at(14, 0) }}
 	for _, r := range [][4]string{
-		{"handoff", "HANDOFF-2026-10-08-1015-x", "Handoff — x", "handoff\n"},
-		{"testing", "TEST-2026-10-08-1016-verify-x", "Verification — x", "# V\n\n## Status: PASS\n"},
-		{"review", "REVIEW-2026-10-08-1017-review-x", "Review — x", "- **[high / confidence: high]** a\n- **[low / confidence: low]** b\n- **[low / confidence: high]** c\n"},
+		{"handoff", "HANDOFF-" + stamp(at(10, 15)) + "-x", "Handoff — x", "handoff\n"},
+		{"testing", "TEST-" + stamp(at(10, 16)) + "-verify-x", "Verification — x", "# V\n\n## Status: PASS\n"},
+		{"review", "REVIEW-" + stamp(at(10, 17)) + "-review-x", "Review — x", "- **[high / confidence: high]** a\n- **[low / confidence: low]** b\n- **[low / confidence: high]** c\n"},
 		{"bug", "BUG-007", "broke", "Introduced in " + sha1[:9] + ".\n"},
 	} {
 		addRecord(t, o, brain.AddInput{Kind: r[0], ID: r[1], Title: r[2]}, r[3])
@@ -87,6 +82,7 @@ func eventsFixture(t *testing.T) (*Store, string, string) {
 }
 
 func TestJoinEvents(t *testing.T) {
+	t.Parallel()
 	s, home, sha1 := eventsFixture(t)
 	if _, err := s.joinEvents(home); err != nil {
 		t.Fatal(err)
@@ -103,14 +99,14 @@ func TestJoinEvents(t *testing.T) {
 	}
 	rows.Close()
 	want := map[string]string{
-		"S1 commit " + sha1:                         "",
-		"S1 handoff HANDOFF-2026-10-08-1015-x":      "",
-		"S1 verifier TEST-2026-10-08-1016-verify-x": "PASS",
-		"S1 review REVIEW-2026-10-08-1017-review-x": "high=1,medium=0,low=2",
-		"S1 bug BUG-007":                            sha1,
-		"S1 correction 2026-10-08T10:05:00Z":        "",
-		"S2 commit other":                           "ambiguous",
-		"S3 commit other":                           "ambiguous",
+		"S1 commit " + sha1: "",
+		"S1 handoff HANDOFF-" + stamp(at(10, 15)) + "-x":      "",
+		"S1 verifier TEST-" + stamp(at(10, 16)) + "-verify-x": "PASS",
+		"S1 review REVIEW-" + stamp(at(10, 17)) + "-review-x": "high=1,medium=0,low=2",
+		"S1 bug BUG-007":                     sha1,
+		"S1 correction 2026-10-08T10:05:00Z": "",
+		"S2 commit other":                    "ambiguous",
+		"S3 commit other":                    "ambiguous",
 	}
 	for k, v := range want {
 		if gv, ok := got[k]; !ok || gv != v {
@@ -156,9 +152,11 @@ func events(t *testing.T, s *Store) []string {
 // one a session already holds in ID form, leaves every other kind alone, and
 // is a no-op the second time.
 func TestRefRewrite(t *testing.T) {
+	t.Parallel()
 	s, home, _ := eventsFixture(t)
+	s1Stamp := stamp(at(10, 15))
 	for _, e := range [][4]string{
-		{"S1", "handoff", "2026-10-08-1015-x.md", ""}, // what an older ingest stored for the fixture's own handoff
+		{"S1", "handoff", s1Stamp + "-x.md", ""}, // what an older ingest stored for the fixture's own handoff
 		{"S2", "handoff", "Lone Handoff.md", ""},
 		{"S2", "verifier", "2026-01-01-verify-y.md", "FAIL"},
 		{"S2", "review", "R+1.md", "high=0,medium=1,low=0"},
@@ -182,7 +180,7 @@ func TestRefRewrite(t *testing.T) {
 		has[e] = true
 	}
 	for _, want := range []string{
-		"S1 handoff HANDOFF-2026-10-08-1015-x=",
+		"S1 handoff HANDOFF-" + s1Stamp + "-x=",
 		"S2 handoff HANDOFF-lone-handoff=",
 		"S2 verifier TEST-2026-01-01-verify-y=FAIL",
 		"S2 review REVIEW-r-1=high=0,medium=1,low=0",
@@ -197,7 +195,7 @@ func TestRefRewrite(t *testing.T) {
 		}
 	}
 	for _, e := range got {
-		for _, gone := range []string{"S1 handoff 2026-10-08-1015-x.md", "S3 handoff dup.md"} {
+		for _, gone := range []string{"S1 handoff " + s1Stamp + "-x.md", "S3 handoff dup.md"} {
 			if strings.HasPrefix(e, gone) {
 				t.Errorf("left behind: %q", e)
 			}
@@ -220,6 +218,7 @@ func TestRefRewrite(t *testing.T) {
 }
 
 func TestShowOutcomeFromEvents(t *testing.T) {
+	t.Parallel()
 	s, home, _ := eventsFixture(t)
 	s.joinEvents(home)
 	sum, err := s.Show(ShowOptions{Since: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), Now: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)})
@@ -239,6 +238,7 @@ func TestShowOutcomeFromEvents(t *testing.T) {
 // commits join (events group by git toplevel) and --project selects it, while
 // a sibling whose name only shares the prefix does not match.
 func TestSubdirectorySessionsBelongToTheProject(t *testing.T) {
+	t.Parallel()
 	s, home, sha1 := eventsFixture(t)
 	var root string
 	s.db.QueryRow(`SELECT project_root FROM sessions WHERE id = 'S1'`).Scan(&root)

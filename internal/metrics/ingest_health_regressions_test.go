@@ -23,41 +23,16 @@ func TestSD122ToSD129IngestAndSyncFixes(t *testing.T) {
 		t.Fatalf("scopedKey invalid UTF-8: %q", sk)
 	}
 
-	// SD125: readVetHistoryRows deterministic ORDER BY + printable convID in readLedgerSavings.
-	sdb := filepath.Join(t.TempDir(), "search.db")
-	sqliteT(t, sdb,
-		`CREATE TABLE vet_history(conversation_id TEXT, turn_num INT, intent TEXT, gate TEXT, score INT, raw_prompt TEXT, suggested_skills TEXT, pivot_files TEXT, created_at INT)`,
-		`CREATE TABLE read_ledger_stats(conversation_id TEXT, turn_num INT, saved_count INT)`,
-		"INSERT INTO vet_history VALUES ('C1\x1b', 2, 'FIX', 'PROCEED', 80, 'p2', '', '', 200)",
-		"INSERT INTO vet_history VALUES ('C1\x1b', 1, 'FIX', 'PROCEED', 70, 'p1', '', '', 100)",
-		"INSERT INTO read_ledger_stats VALUES (' C1\x1b ', 99, 5)",
-	)
-	db, err := sql.Open("sqlite", sqliteutil.DSN(sdb))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	ledger, err := readLedgerSavings(db)
-	if err != nil {
-		t.Fatalf("readLedgerSavings: %v", err)
-	}
-	vetStore := openT(t, filepath.Join(t.TempDir(), "vet-metrics.db"))
-	vets, err := vetStore.readVetHistoryRows(db, "/proj", ResolveRepoID("/proj"), ledger)
-	if err != nil || len(vets) != 2 {
-		t.Fatalf("readVetHistoryRows len=%d err=%v", len(vets), err)
-	}
-	if vets[0].turnNum != 1 || vets[1].turnNum != 2 || vets[1].ledger != 5 || vets[0].convID != "C1?" {
-		t.Fatalf("vets order/ledger = %+v", vets)
-	}
+	// SD125 (readVetHistoryRows ordering & printable convID) is covered in internal/metrics/ingest/ingest_test.go.
 
 	// SD126: fixed-point parent root propagation when child precedes parent.
 	convs := []agyConv{
-		{id: "child", parent: "mid", root: "/home/u/.gemini/antigravity-cli/worktrees/mid/w1"},
-		{id: "mid", parent: "root", root: "/home/u/.gemini/antigravity-cli/worktrees/root/w2"},
-		{id: "root", root: "/tmp/myrepo"},
+		{ID: "child", Parent: "mid", Root: "/home/u/.gemini/antigravity-cli/worktrees/mid/w1"},
+		{ID: "mid", Parent: "root", Root: "/home/u/.gemini/antigravity-cli/worktrees/root/w2"},
+		{ID: "root", Root: "/tmp/myrepo"},
 	}
 	resolveWorktreeRootsFor(convs, nil, nil)
-	if convs[0].root != "/tmp/myrepo" || convs[1].root != "/tmp/myrepo" {
+	if convs[0].Root != "/tmp/myrepo" || convs[1].Root != "/tmp/myrepo" {
 		t.Fatalf("worktree propagation = %+v", convs)
 	}
 
@@ -245,16 +220,7 @@ func TestSD130ToSD139HealthEvalReportAndTrajectoryFixes(t *testing.T) {
 		t.Fatalf("WriteTrajectoriesText leaked home or control byte: %q", tb.String())
 	}
 
-	// SD137: autoStateInWindow branches & AutoModelRuns reconciliation.
-	if autoStateInWindow(time.Time{}, "", since, now) {
-		t.Fatal("empty lastRun and empty date must return false")
-	}
-	if !autoStateInWindow(now.Add(-time.Hour), "", since, now) || autoStateInWindow(since.Add(-time.Hour), "", since, now) {
-		t.Fatal("lastRun window check wrong")
-	}
-	if !autoStateInWindow(time.Time{}, "2026-11-18", since, now) || autoStateInWindow(time.Time{}, "bad-date", since, now) {
-		t.Fatal("date fallback check wrong")
-	}
+	// SD137 (autoStateInWindow branches) is covered in internal/metrics/show/show_test.go.
 
 	// SD138: plot.grid short Day.Date without panic.
 	var cb strings.Builder

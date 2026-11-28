@@ -107,12 +107,6 @@ func (s *Store) RecordTrial(t Trial) error {
 	return nil
 }
 
-// trial is a trials row as show reads it.
-type trial struct {
-	label, run, status string
-	start              int64
-}
-
 // trialRuns is the run of every trial in the store, whatever its window: a
 // session whose run is among them is counted by its trial, in the window
 // the trial started in, never on its own; a session whose run names no
@@ -157,7 +151,7 @@ func (s *Store) trialsIn(o ShowOptions, since, now time.Time) ([]trial, error) {
 	var out []trial
 	for rows.Next() {
 		var t trial
-		if err := rows.Scan(&t.label, &t.run, &t.status, &t.start); err != nil {
+		if err := rows.Scan(&t.Label, &t.Run, &t.Status, &t.Start); err != nil {
 			return nil, err
 		}
 		out = append(out, t)

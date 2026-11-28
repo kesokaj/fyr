@@ -1,4 +1,4 @@
-package metrics
+package show
 
 import (
 	"database/sql"
@@ -10,48 +10,56 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	r "github.com/kesokaj/fyr/internal/metrics/report"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
-func (s *Store) populateHealthAndFallbacks(sum *Summary, o ShowOptions, all []sess, trials []trial, data *showData, since, now time.Time) error {
-	home := resolveMetricsHome(o, s.path)
-	if !o.skipDeltas && o.Project == "" && o.Label == "" && home != "" && !hasEvalPassK(sum.A.PassK) {
-		mergeDevEvalPassK(sum, home, since, now)
+const evalLabelPrefix = "eval="
+
+func (d Deps) populateHealthAndFallbacks(sum *Summary, o Options, all []Sess, trials []Trial, data *ShowData, since, now time.Time) error {
+	home := ResolveMetricsHome(o, d.StorePath)
+	if !o.SkipDeltas && o.Project == "" && o.Label == "" && home != "" && !hasEvalPassK(sum.A.PassK) && d.MergeDevEvalPassK != nil {
+		d.MergeDevEvalPassK(sum, home, since, now)
 	}
-	if err := s.populateJudgeVerdictsHealth(sum, o, data.waves, since, now); err != nil {
+	if d.PopulateJudgeVerdictsHealth != nil {
+		if err := d.PopulateJudgeVerdictsHealth(sum, o, data.Waves, since, now); err != nil {
+			return err
+		}
+	}
+	overBudget := CollectStepHealth(&sum.Health, sum, all, data.Steps, home)
+	if err := d.populateModelFamilyHealth(&sum.Health, o, since, now); err != nil {
 		return err
 	}
-	overBudget := collectStepHealth(&sum.Health, sum, all, data.steps, home)
-	if err := s.populateModelFamilyHealth(&sum.Health, o, since, now); err != nil {
-		return err
-	}
-	reconcileAutoModelRuns(sum, home, o, trials, data.waves, since, now)
-	if !o.skipDeltas && home != "" {
+	reconcileAutoModelRuns(sum, home, o, trials, data.Waves, since, now)
+	if !o.SkipDeltas && home != "" {
 		readModelsQuotaHealth(&sum.Health, home)
 	}
-	if o.Label == "" && !o.skipDeltas {
-		inspectProjectSearchDBs(sum, home, o, all, overBudget)
-		populateAutonomySignals(sum, home, o, all)
+	if o.Label == "" && !o.SkipDeltas {
+		d.inspectProjectSearchDBs(sum, home, o, all, overBudget)
+		if d.PopulateAutonomySignals != nil {
+			d.PopulateAutonomySignals(sum, home, o, all)
+		}
 	}
 	finalizeHealthSignals(sum, overBudget)
-	if !o.skipDeltas && home != "" && len(sum.Projects) > 0 {
+	if !o.SkipDeltas && home != "" && len(sum.Projects) > 0 {
 		enrichProjectsFromBrainDB(sum.Projects, home, now)
 	}
 	redactProjectRowHomes(sum.Projects)
 	return nil
 }
 
-func hasEvalPassK(m map[string]PassK) bool {
+func hasEvalPassK(m map[string]r.PassK) bool {
 	for k := range m {
-		if strings.HasPrefix(k, evalPrefix) {
+		if strings.HasPrefix(k, evalLabelPrefix) {
 			return true
 		}
 	}
 	return false
 }
 
-func redactProjectRowHomes(projects []ProjectRow) {
+func redactProjectRowHomes(projects []r.ProjectRow) {
 	for i := range projects {
-		projects[i].Project = redactHomePath(projects[i].Project)
+		projects[i].Project = r.RedactHomePath(projects[i].Project)
 	}
 }
 
@@ -61,7 +69,7 @@ func finalizeHealthSignals(sum *Summary, overBudget map[string]bool) {
 	sum.TriggerCoverage.MainSessions = sum.Health.MainSessions
 }
 
-func reconcileAutoModelRuns(sum *Summary, home string, o ShowOptions, trials []trial, waves []waveRow, since, now time.Time) {
+func reconcileAutoModelRuns(sum *Summary, home string, o Options, trials []Trial, waves []WaveRow, since, now time.Time) {
 	dbTotal, dbByDay := countDBAutoModelRuns(trials, waves)
 	total := dbTotal
 	if home != "" {
@@ -73,34 +81,34 @@ func reconcileAutoModelRuns(sum *Summary, home string, o ShowOptions, trials []t
 	sum.Health.AutoModelRuns = total
 	sum.TriggerCoverage.AutoModelRuns = total
 	if d := now.Sub(since); d > 0 && total > 0 {
-		sum.TriggerCoverage.AutoModelRunsPerWeek = round4(float64(total) / (d.Hours() / (24 * 7)))
+		sum.TriggerCoverage.AutoModelRunsPerWeek = r.Round4(float64(total) / (d.Hours() / (24 * 7)))
 	}
 }
 
-func countDBAutoModelRuns(trials []trial, waves []waveRow) (int, map[string]int) {
+func countDBAutoModelRuns(trials []Trial, waves []WaveRow) (int, map[string]int) {
 	total := 0
 	byDay := map[string]int{}
 	for _, tr := range trials {
-		if strings.HasPrefix(tr.label, "auto=") {
+		if strings.HasPrefix(tr.Label, "auto=") {
 			total++
-			if tr.start > 0 {
-				byDay[time.UnixMilli(normalizeMilli(tr.start)).UTC().Format("2006-01-02")]++
+			if tr.Start > 0 {
+				byDay[time.UnixMilli(NormalizeMilli(tr.Start)).UTC().Format("2006-01-02")]++
 			}
 		}
 	}
 	for _, w := range waves {
-		if strings.HasPrefix(strings.TrimSpace(w.worker), "auto-") {
+		if strings.HasPrefix(strings.TrimSpace(w.Worker), "auto-") {
 			total++
-			if w.updatedAt > 0 {
-				byDay[time.UnixMilli(normalizeMilli(w.updatedAt)).UTC().Format("2006-01-02")]++
+			if w.UpdatedAt > 0 {
+				byDay[time.UnixMilli(NormalizeMilli(w.UpdatedAt)).UTC().Format("2006-01-02")]++
 			}
 		}
 	}
 	return total, byDay
 }
 
-func readAutoRunsHealth(sum *Summary, home string, o ShowOptions, since, now time.Time) (int, string, bool) {
-	data, ok := readBoundedRegularFile(home, harness.StateDir, "auto", "runs.json")
+func readAutoRunsHealth(sum *Summary, home string, o Options, since, now time.Time) (int, string, bool) {
+	data, ok := r.ReadBoundedRegularFile(home, harness.StateDir, "auto", "runs.json")
 	if !ok {
 		return 0, "", false
 	}
@@ -117,7 +125,7 @@ func readAutoRunsHealth(sum *Summary, home string, o ShowOptions, since, now tim
 	}
 	sum.Health.AutoRunsPresent = true
 	sum.Health.AutoOpenAsks = max(0, st.OpenAsks)
-	sum.Health.AutoLastVerdict = printable(strings.TrimSpace(st.Verdict))
+	sum.Health.AutoLastVerdict = search.Printable(strings.TrimSpace(st.Verdict))
 	sum.Health.AutoProjectCount = len(st.Projects)
 	if o.Label != "" || o.Project != "" || !autoStateInWindow(st.LastRun, st.Date, since, now) {
 		return 0, "", false
@@ -140,60 +148,61 @@ func autoStateInWindow(lastRun time.Time, date string, since, now time.Time) boo
 	return false
 }
 
-func readModelsQuotaHealth(h *HealthSignals, home string) {
-	data, ok := readBoundedRegularFile(home, harness.StateDir, "models.json")
+func readModelsQuotaHealth(h *r.HealthSignals, home string) {
+	data, ok := r.ReadBoundedRegularFile(home, harness.StateDir, "models.json")
 	if !ok {
 		return
 	}
 	var cat struct {
-		QuotaUpdatedAt string      `json:"quota_updated_at"`
-		Pools          []PoolQuota `json:"pools"`
+		QuotaUpdatedAt string        `json:"quota_updated_at"`
+		Pools          []r.PoolQuota `json:"pools"`
 	}
 	if json.Unmarshal(data, &cat) != nil {
 		return
 	}
-	h.QuotaUpdatedAt = printable(strings.TrimSpace(cat.QuotaUpdatedAt))
+	h.QuotaUpdatedAt = search.Printable(strings.TrimSpace(cat.QuotaUpdatedAt))
 	for _, pool := range cat.Pools {
-		h.PoolQuotas = append(h.PoolQuotas, PoolQuota{Name: printable(pool.Name), Five: pool.Five, Week: pool.Week})
+		h.PoolQuotas = append(h.PoolQuotas, r.PoolQuota{Name: search.Printable(pool.Name), Five: pool.Five, Week: pool.Week})
 	}
 }
 
-func distinctProjectRoots(o ShowOptions, home string, all []sess) []string {
+// DistinctProjectRoots returns sorted unique project roots across all sessions.
+func DistinctProjectRoots(o Options, home string, all []Sess, isSandbox func(root, home string) bool) []string {
 	if o.Project != "" {
 		return []string{filepath.Clean(o.Project)}
 	}
 	set := map[string]bool{}
 	for _, x := range all {
-		if r := strings.TrimSpace(x.root); r != "" {
-			clean := filepath.Clean(r)
-			if !o.IncludeSandboxes && isSandboxProjectRoot(clean, home) {
+		if root := strings.TrimSpace(x.Root); root != "" {
+			clean := filepath.Clean(root)
+			if !o.IncludeSandboxes && isSandbox != nil && isSandbox(clean, home) {
 				continue
 			}
 			set[clean] = true
 		}
 	}
 	out := make([]string, 0, len(set))
-	for r := range set {
-		out = append(out, r)
+	for root := range set {
+		out = append(out, root)
 	}
 	sort.Strings(out)
 	return out
 }
 
-func indexSessionsByID(all []sess) (map[string]bool, map[string]string) {
+func indexSessionsByID(all []Sess) (map[string]bool, map[string]string) {
 	main, sub := map[string]bool{}, map[string]string{}
 	for _, x := range all {
-		if x.parent == "" {
-			main[x.id] = true
+		if x.Parent == "" {
+			main[x.ID] = true
 		} else {
-			sub[x.id] = x.agent
+			sub[x.ID] = x.Agent
 		}
 	}
 	return main, sub
 }
 
 func querySearchDBSessionMeta(db *sql.DB, knownMain map[string]bool, knownSub map[string]string, overBudget map[string]bool) int {
-	cols := tableCols(db, "session_meta")
+	cols := r.TableCols(db, "session_meta")
 	if len(cols) == 0 {
 		return 0
 	}
@@ -236,17 +245,17 @@ func scanSessionMetaBudgets(db *sql.DB, cols map[string]bool, toolCol string, kn
 
 func subagentBudgetCap(id, agent, parent string, knownSub map[string]string, hasKnownMain bool) (int, bool) {
 	if ka, ok := knownSub[id]; ok {
-		return subagentCapForRole(ka), true
+		return SubagentCapForRole(ka), true
 	}
 	lowID, lowAgent := strings.ToLower(id), strings.ToLower(strings.TrimSpace(agent))
 	if lowAgent != "" {
-		return subagentCapForRole(lowAgent), true
+		return SubagentCapForRole(lowAgent), true
 	}
 	if strings.Contains(lowID, "self") || isBuilderLikeID(lowID) || strings.Contains(lowID, "coder") || strings.Contains(lowID, "worker") {
-		return builderSubagentCap, true
+		return BuilderSubagentCap, true
 	}
 	if parent != "" || isSubagentLikeID(lowID) || !hasKnownMain {
-		return auditSubagentCap, true
+		return AuditSubagentCap, true
 	}
 	return 0, false
 }
@@ -270,13 +279,13 @@ func isSubagentLikeID(low string) bool {
 	return false
 }
 
-func enrichProjectsFromBrainDB(projects []ProjectRow, home string, now time.Time) {
-	db, cleanup, ok := openCopySQLiteFile(home, home, harness.StateDir, "brain.db")
+func enrichProjectsFromBrainDB(projects []r.ProjectRow, home string, now time.Time) {
+	db, cleanup, ok := r.OpenCopySQLiteFile(home, home, harness.StateDir, "brain.db")
 	if !ok {
 		return
 	}
 	defer cleanup()
-	cols := tableCols(db, "records")
+	cols := r.TableCols(db, "records")
 	if !cols["scope"] || !cols["kind"] || !cols["status"] || !cols["date"] || !cols["id"] || !cols["title"] || !cols["body"] {
 		return
 	}

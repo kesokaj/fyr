@@ -1,4 +1,4 @@
-package metrics
+package ingest
 
 import (
 	"encoding/json"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 type waveSnapshot struct {
@@ -33,11 +34,13 @@ type waveWorkerSnapshot struct {
 	JudgeVerdict string `json:"judge_verdict"`
 }
 
-func (s *Store) ingestWorkWaves(home string, log io.Writer) {
-	s.ingestWorkWavesWithLabel(home, "", log)
+// IngestWorkWaves reads wave status snapshots under home into work_waves.
+func (d Deps) IngestWorkWaves(home string, log io.Writer) {
+	d.IngestWorkWavesWithLabel(home, "", log)
 }
 
-func (s *Store) ingestWorkWavesWithLabel(home, label string, log io.Writer) {
+// IngestWorkWavesWithLabel reads wave status snapshots under home into work_waves scoped by label.
+func (d Deps) IngestWorkWavesWithLabel(home, label string, log io.Writer) {
 	workDir := filepath.Join(home, harness.StateDir, "work")
 	entries, err := os.ReadDir(workDir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -51,7 +54,7 @@ func (s *Store) ingestWorkWavesWithLabel(home, label string, log io.Writer) {
 		if !e.Type().IsDir() {
 			continue
 		}
-		s.ingestWaveDir(workDir, e.Name(), label, log)
+		d.ingestWaveDir(workDir, e.Name(), label, log)
 	}
 }
 
@@ -62,7 +65,7 @@ func waveIngestSource(statusPath, label string) string {
 	return statusPath + "#label=" + label
 }
 
-func (s *Store) ingestWaveDir(workDir, dirName, label string, log io.Writer) {
+func (d Deps) ingestWaveDir(workDir, dirName, label string, log io.Writer) {
 	statusPath := filepath.Join(workDir, dirName, "status.json")
 	fi, err := os.Lstat(statusPath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -78,7 +81,7 @@ func (s *Store) ingestWaveDir(workDir, dirName, label string, log io.Writer) {
 	}
 	sourceKey := waveIngestSource(statusPath, label)
 	size, mtime := fi.Size(), fi.ModTime().UnixNano()
-	if s.sourceUnchanged(sourceKey, size, mtime) {
+	if d.sourceUnchanged(sourceKey, size, mtime) {
 		return
 	}
 	data, err := os.ReadFile(statusPath)
@@ -92,11 +95,11 @@ func (s *Store) ingestWaveDir(workDir, dirName, label string, log io.Writer) {
 		return
 	}
 	updatedAt := parseWaveUpdatedAt(snap.UpdatedAt, fi.ModTime())
-	if err := s.upsertWaveWorkers(dirName, label, snap, updatedAt); err != nil {
+	if err := d.upsertWaveWorkers(dirName, label, snap, updatedAt); err != nil {
 		noteSecondBrain(log, "%s: %v", statusPath, err)
 		return
 	}
-	if err := s.recordIngestState(sourceKey, size, mtime); err != nil {
+	if err := d.recordIngestState(sourceKey, size, mtime); err != nil {
 		noteSecondBrain(log, "%s: %v", statusPath, err)
 	}
 }
@@ -114,34 +117,34 @@ func parseWaveUpdatedAt(raw string, fallback time.Time) int64 {
 	return 0
 }
 
-func (s *Store) upsertWaveWorkers(dirName, label string, snap waveSnapshot, updatedAt int64) error {
+func (d Deps) upsertWaveWorkers(dirName, label string, snap waveSnapshot, updatedAt int64) error {
 	if len(snap.Workers) == 0 {
 		return nil
 	}
-	stamp := printable(strings.TrimSpace(snap.Stamp))
+	stamp := search.Printable(strings.TrimSpace(snap.Stamp))
 	if stamp == "" {
-		stamp = printable(strings.TrimSpace(dirName))
+		stamp = search.Printable(strings.TrimSpace(dirName))
 	}
-	stamp = encodeWaveStamp(printable(label), stamp)
+	stamp = EncodeWaveStamp(search.Printable(label), stamp)
 	var projRoot string
 	if strings.TrimSpace(snap.ProjectRoot) != "" {
-		projRoot = printable(filepath.Clean(strings.TrimSpace(snap.ProjectRoot)))
+		projRoot = search.Printable(filepath.Clean(strings.TrimSpace(snap.ProjectRoot)))
 	}
-	tx, err := s.db.Begin()
+	tx, err := d.DB.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	for _, w := range snap.Workers {
-		worker := printable(strings.TrimSpace(w.Name))
+		worker := search.Printable(strings.TrimSpace(w.Name))
 		if worker == "" {
 			continue
 		}
 		if _, err := tx.Exec(
 			`INSERT OR REPLACE INTO work_waves(stamp, worker, project_root, state, model, step_count, commits, base_check, judge_model, judge_verdict, updated_at, setup_s, agy_s, check_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			stamp, worker, projRoot, printable(strings.TrimSpace(w.State)), printable(strings.TrimSpace(w.Model)),
-			max(0, w.StepCount), max(0, w.Commits), printable(strings.TrimSpace(w.BaseCheck)),
-			printable(strings.TrimSpace(w.JudgeModel)), printable(strings.TrimSpace(w.JudgeVerdict)), updatedAt,
+			stamp, worker, projRoot, search.Printable(strings.TrimSpace(w.State)), search.Printable(strings.TrimSpace(w.Model)),
+			max(0, w.StepCount), max(0, w.Commits), search.Printable(strings.TrimSpace(w.BaseCheck)),
+			search.Printable(strings.TrimSpace(w.JudgeModel)), search.Printable(strings.TrimSpace(w.JudgeVerdict)), updatedAt,
 			max(0, w.SetupSec), max(0, w.AgySec), max(0, w.CheckSec),
 		); err != nil {
 			return err

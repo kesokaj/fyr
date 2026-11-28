@@ -46,6 +46,7 @@ func TestJoinEventsPutErrors(t *testing.T) {
 // The sessions table that cannot be read, or holds a row that does not
 // scan, fails the join before any event is written.
 func TestJoinEventsSessionReadErrors(t *testing.T) {
+	t.Parallel()
 	for name, stmt := range map[string]string{
 		"query": `ALTER TABLE sessions RENAME TO gone`,
 		"scan":  `UPDATE sessions SET started_at = 'x' WHERE id = 'S2'`,

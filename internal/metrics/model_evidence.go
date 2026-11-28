@@ -5,6 +5,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/metrics/show"
 )
 
 // RoleEvidence holds empirical run counts and decayed totals for one role partition.
@@ -316,7 +318,7 @@ func (s *Store) accumulateJudgeModelEvidence(accs map[string]*modelEvidenceAcc, 
 			return err
 		}
 		m := strings.TrimSpace(workerModel)
-		v := normJudgeVerdict(verdict)
+		v := show.NormJudgeVerdict(verdict)
 		if m == "" || strings.EqualFold(m, "default") || (v != "PASS" && v != "FAIL") {
 			continue
 		}

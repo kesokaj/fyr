@@ -73,7 +73,7 @@ func buildDiagnosticReport(sum Summary, evals []EvalRow, scope, projectRoot stri
 }
 
 func (s *Store) populateDiagnostics(sum *Summary, o ShowOptions, now time.Time) error {
-	if o.skipDeltas || o.Label != "" {
+	if o.SkipDeltas || o.Label != "" {
 		return nil
 	}
 	scope := "global"
@@ -83,7 +83,7 @@ func (s *Store) populateDiagnostics(sum *Summary, o ShowOptions, now time.Time) 
 	var evalRows []EvalRow
 	var prevDigest *DailyDigest
 	if scope == "global" {
-		evalRows = sum.evalRows
+		evalRows = evalRowsFromSummary(sum)
 		day := now.UTC().Format("2006-01-02")
 		if pd, derr := PreviousDailyDigest(s, day); derr == nil && pd != nil && pd.Day == priorDayString(day) {
 			prevDigest = pd

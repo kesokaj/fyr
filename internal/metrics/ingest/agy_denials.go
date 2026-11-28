@@ -1,4 +1,4 @@
-package metrics
+package ingest
 
 import (
 	"strings"
@@ -26,19 +26,19 @@ var hookGuardMarkers = []string{
 	"[KICKOFF_GUARD]",
 }
 
-// classifyHookDenial classifies a tool step's pre-tool hook denial into
+// ClassifyHookDenial classifies a tool step's pre-tool hook denial into
 // "clamped", "ledger", "guard", or "" when not denied.
-func classifyHookDenial(status int, f fields, meta, errDetails []byte) string {
-	if strings.EqualFold(strings.TrimSpace(f.text(34, 4)), "deny") {
-		if k := hookDenialKind(f.text(34, 5)); k != "" {
+func ClassifyHookDenial(status int, f Fields, meta, errDetails []byte) string {
+	if strings.EqualFold(strings.TrimSpace(f.Text(34, 4)), "deny") {
+		if k := HookDenialKind(f.Text(34, 5)); k != "" {
 			return k
 		}
 		return "guard"
 	}
-	if status != agyFailed {
+	if status != AgyFailed {
 		return ""
 	}
-	if k := hookDenialKind(f.text(34, 5)); k != "" {
+	if k := HookDenialKind(f.Text(34, 5)); k != "" {
 		return k
 	}
 	if k := protoHookDenialKind(errDetails, false); k != "" {
@@ -53,14 +53,14 @@ func protoHookDenialKind(blob []byte, skipToolCall bool) string {
 	}
 	flds := search.ProtoFields(blob)
 	if len(flds) == 0 {
-		return hookDenialKind(string(blob))
+		return HookDenialKind(string(blob))
 	}
 	best := ""
 	for _, fld := range flds {
 		if fld.Wire != 2 || (skipToolCall && len(fld.Path) > 0 && fld.Path[0] == 4) {
 			continue
 		}
-		switch k := hookDenialKind(string(fld.Bytes)); k {
+		switch k := HookDenialKind(string(fld.Bytes)); k {
 		case "clamped", "ledger":
 			return k
 		case "guard":
@@ -70,7 +70,8 @@ func protoHookDenialKind(blob []byte, skipToolCall bool) string {
 	return best
 }
 
-func hookDenialKind(s string) string {
+// HookDenialKind classifies a pre-tool hook denial message.
+func HookDenialKind(s string) string {
 	if s == "" {
 		return ""
 	}

@@ -118,28 +118,28 @@ func (a *rowAcc) addStep(s *evalSessionState, st stp) {
 	if a.isReplayedStep(st) {
 		return
 	}
-	a.addActiveTime(s, st.ts)
-	a.in += st.in
-	a.out += st.out
-	a.cache += st.cr + st.cw
-	s.peak = max(s.peak, st.ctx)
-	if st.kind == "user" {
+	a.addActiveTime(s, st.TS)
+	a.in += st.In
+	a.out += st.Out
+	a.cache += st.CR + st.CW
+	s.peak = max(s.peak, st.Ctx)
+	if st.Kind == "user" {
 		a.turns++
 		return
 	}
-	if st.kind == "tool" && st.tool != "" {
+	if st.Kind == "tool" && st.Tool != "" {
 		a.addToolStep(s, st)
 	}
 }
 
 func (a *rowAcc) isReplayedStep(st stp) bool {
-	if st.kind != "tool" && st.kind != "assistant" && st.kind != "generation" {
+	if st.Kind != "tool" && st.Kind != "assistant" && st.Kind != "generation" {
 		return false
 	}
-	if a.seen[st.ext] {
+	if a.seen[st.Ext] {
 		return true
 	}
-	a.seen[st.ext] = true
+	a.seen[st.Ext] = true
 	return false
 }
 
@@ -155,18 +155,18 @@ func (a *rowAcc) addActiveTime(s *evalSessionState, ts int64) {
 
 func (a *rowAcc) addToolStep(s *evalSessionState, st stp) {
 	a.tools++
-	s.seq = append(s.seq, st.tool)
-	if st.isErr && !st.denied {
+	s.seq = append(s.seq, st.Tool)
+	if st.IsErr && !st.Denied {
 		a.errs++
 	}
-	if st.tool != "Bash" {
+	if st.Tool != "Bash" {
 		s.lastHash = ""
 		return
 	}
-	if st.hash != "" && st.hash == s.lastHash {
+	if st.Hash != "" && st.Hash == s.lastHash {
 		a.retries++
 	}
-	s.lastHash = st.hash
+	s.lastHash = st.Hash
 }
 
 // row is the line's numbers: absent where the line has none to give.

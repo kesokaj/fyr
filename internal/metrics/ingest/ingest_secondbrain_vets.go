@@ -1,4 +1,4 @@
-package metrics
+package ingest
 
 import (
 	"database/sql"
@@ -10,13 +10,13 @@ import (
 	"github.com/kesokaj/fyr/internal/sqliteutil"
 )
 
-func (s *Store) readVetHistoryRows(db *sql.DB, root, repoID string, ledger map[turnKey]int) ([]turnVetRow, error) {
+func (d Deps) readVetHistoryRows(db *sql.DB, root, repoID string, ledger map[turnKey]int) ([]turnVetRow, error) {
 	rawRows, err := search.ReadVetHistoryForIngest(db)
 	if err != nil || len(rawRows) == 0 {
 		return nil, err
 	}
 	readFiles := readLedgerPathsByConv(db, root)
-	loadedSkills := s.readLoadedSkillsByConv()
+	loadedSkills := d.ReadLoadedSkillsByConv()
 	out := make([]turnVetRow, 0, len(rawRows))
 	lastIdx := map[string]int{}
 	for _, raw := range rawRows {
@@ -39,7 +39,7 @@ func convertVetHistoryIngestRow(
 	readFiles map[string]map[string]bool,
 	loadedSkills map[string]map[string]bool,
 ) turnVetRow {
-	convID := printable(strings.TrimSpace(raw.ConversationID))
+	convID := search.Printable(strings.TrimSpace(raw.ConversationID))
 	byp := sqliteutil.BoolInt(strings.HasPrefix(strings.TrimSpace(raw.RawPrompt), "!"))
 	timedOut := sqliteutil.BoolInt(raw.TimedOut)
 	k := turnKey{convID: convID, turnNum: raw.TurnNum}
@@ -55,11 +55,11 @@ func convertVetHistoryIngestRow(
 	}
 	return turnVetRow{
 		projectRoot: root, repoID: repoID, convID: convID, turnNum: raw.TurnNum,
-		intent: clipPrintable(raw.Intent, 64), gate: clipPrintable(raw.Gate, 64),
-		suggestedSkills: normalizeSuggestedSkillsCSV(raw.SuggestedSkills),
+		intent: clipIngestText(raw.Intent, 64), gate: clipIngestText(raw.Gate, 64),
+		suggestedSkills: NormalizeSuggestedSkillsCSV(raw.SuggestedSkills),
 		score:           min(100, max(0, raw.Score)), bypassed: byp,
 		skillsCount: countCSVItems(raw.SuggestedSkills), pivotsCount: countCSVItems(raw.PivotFiles),
-		ledger: max(0, saved), directive: clipPrintable(raw.Directive, 128),
+		ledger: max(0, saved), directive: clipIngestText(raw.Directive, 128),
 		subtaskCount: max(0, raw.SubtaskCount), durationMS: max(0, raw.DurationMS),
 		timedOut: timedOut, injectedBytes: max(0, raw.InjectedBytes),
 		pivotsUsedCount: max(0, pivotsUsed), skillsLoadedCount: max(0, skillsLoaded),
@@ -67,11 +67,10 @@ func convertVetHistoryIngestRow(
 	}
 }
 
-// maxSuggestedSkillsBytes caps persisted and transferred turn_vets.suggested_skills
-// CSV lists across ingest, export, and import, trimmed strictly on comma boundaries.
 const maxSuggestedSkillsBytes = 512
 
-func normalizeSuggestedSkillsCSV(s string) string {
+// NormalizeSuggestedSkillsCSV deduplicates and bounds a suggested-skills CSV on comma boundaries.
+func NormalizeSuggestedSkillsCSV(s string) string {
 	items := parseListItems(s)
 	if len(items) == 0 {
 		return ""
@@ -79,7 +78,7 @@ func normalizeSuggestedSkillsCSV(s string) string {
 	seen := map[string]bool{}
 	var b strings.Builder
 	for _, raw := range items {
-		item := clipPrintable(raw, 64)
+		item := clipIngestText(raw, 64)
 		low := strings.ToLower(item)
 		if item == "" || seen[low] {
 			continue
@@ -146,7 +145,7 @@ func readLedgerPathsByConv(db *sql.DB, root string) map[string]map[string]bool {
 		if rows.Scan(&cid, &p) != nil {
 			continue
 		}
-		cid = printable(strings.TrimSpace(cid))
+		cid = search.Printable(strings.TrimSpace(cid))
 		clean := filepath.Clean(strings.TrimSpace(p))
 		if cid == "" || clean == "" {
 			continue
@@ -162,11 +161,12 @@ func readLedgerPathsByConv(db *sql.DB, root string) map[string]map[string]bool {
 	return out
 }
 
-func (s *Store) readLoadedSkillsByConv() map[string]map[string]bool {
-	if s == nil || s.db == nil {
+// ReadLoadedSkillsByConv returns the lowercased loaded skills per session, excluding errored or hook-denied reads.
+func (d Deps) ReadLoadedSkillsByConv() map[string]map[string]bool {
+	if d.DB == nil {
 		return nil
 	}
-	rows, err := s.db.Query(`SELECT session_id, LOWER(skill) FROM steps WHERE skill IS NOT NULL AND skill != '' AND COALESCE(is_error, 0) = 0 AND COALESCE(denied, 0) = 0`)
+	rows, err := d.DB.Query(`SELECT session_id, LOWER(skill) FROM steps WHERE skill IS NOT NULL AND skill != '' AND COALESCE(is_error, 0) = 0 AND COALESCE(denied, 0) = 0`)
 	if err != nil {
 		return nil
 	}
@@ -184,12 +184,12 @@ func (s *Store) readLoadedSkillsByConv() map[string]map[string]bool {
 	return out
 }
 
-func (s *Store) rootNeedsSuggestedSkillsBackfill(root string) bool {
-	if s == nil || s.db == nil {
+func (d Deps) rootNeedsSuggestedSkillsBackfill(root string) bool {
+	if d.DB == nil {
 		return false
 	}
 	var one int
-	err := s.db.QueryRow(`SELECT 1 FROM turn_vets WHERE project_root = ? AND skills_count > 0 AND suggested_skills = '' LIMIT 1`, root).Scan(&one)
+	err := d.DB.QueryRow(`SELECT 1 FROM turn_vets WHERE project_root = ? AND skills_count > 0 AND suggested_skills = '' LIMIT 1`, root).Scan(&one)
 	return err == nil
 }
 
@@ -199,16 +199,12 @@ type skillLoadedUpdate struct {
 	loaded       int
 }
 
-// rejoinTurnVetSkillsLoaded recomputes turn_vets.skills_loaded_count against
-// metrics.db.steps using the persisted suggested_skills CSV, so late-arriving
-// skill read steps update skills_loaded_count even when search.db mtime is
-// unchanged in ingest_state (F-039).
-func (s *Store) rejoinTurnVetSkillsLoaded(log io.Writer) {
-	loadedSkills := s.readLoadedSkillsByConv()
+func (d Deps) rejoinTurnVetSkillsLoaded(log io.Writer) {
+	loadedSkills := d.ReadLoadedSkillsByConv()
 	if len(loadedSkills) == 0 {
 		return
 	}
-	rows, err := s.db.Query(`SELECT project_root, conversation_id, turn_num, suggested_skills, skills_loaded_count FROM turn_vets WHERE suggested_skills != ''`)
+	rows, err := d.DB.Query(`SELECT project_root, conversation_id, turn_num, suggested_skills, skills_loaded_count FROM turn_vets WHERE suggested_skills != ''`)
 	if err != nil {
 		return
 	}
@@ -227,13 +223,13 @@ func (s *Store) rejoinTurnVetSkillsLoaded(log io.Writer) {
 	if len(updates) == 0 {
 		return
 	}
-	if err := s.applySkillLoadedUpdates(updates); err != nil {
+	if err := d.applySkillLoadedUpdates(updates); err != nil {
 		noteSecondBrain(log, "turn_vets skills rejoin: %v", err)
 	}
 }
 
-func (s *Store) applySkillLoadedUpdates(updates []skillLoadedUpdate) error {
-	tx, err := s.db.Begin()
+func (d Deps) applySkillLoadedUpdates(updates []skillLoadedUpdate) error {
+	tx, err := d.DB.Begin()
 	if err != nil {
 		return err
 	}

@@ -198,29 +198,29 @@ func resolveWorktreeRootsFor(convs []agyConv, db *sql.DB, changed map[string]boo
 	dc := diskRootCache{}
 	for i := range convs {
 		c := &convs[i]
-		if c.parent != "" {
-			parents[c.id] = c.parent
+		if c.Parent != "" {
+			parents[c.ID] = c.Parent
 		}
-		if changed == nil || changed[c.id] || byID[c.id] == "" {
-			if main, ok := dc.resolve(c.root); ok {
-				c.root = main
+		if changed == nil || changed[c.ID] || byID[c.ID] == "" {
+			if main, ok := dc.resolve(c.Root); ok {
+				c.Root = main
 			}
 		}
-		if c.root != "" && !isAgyWorktreePath(c.root) {
-			byID[c.id] = filepath.Clean(c.root)
-			knownReal = appendRealProjectCandidate(knownReal, c.root)
+		if c.Root != "" && !isAgyWorktreePath(c.Root) {
+			byID[c.ID] = filepath.Clean(c.Root)
+			knownReal = appendRealProjectCandidate(knownReal, c.Root)
 		}
 	}
 	for {
 		updated := false
 		for i := range convs {
 			c := &convs[i]
-			if c.root != "" && !isAgyWorktreePath(c.root) {
+			if c.Root != "" && !isAgyWorktreePath(c.Root) {
 				continue
 			}
-			if resolved := resolveFallbackRoot(c.id, c.root, c.parent, byID, parents, knownReal); resolved != "" {
-				c.root = resolved
-				byID[c.id] = resolved
+			if resolved := resolveFallbackRoot(c.ID, c.Root, c.Parent, byID, parents, knownReal); resolved != "" {
+				c.Root = resolved
+				byID[c.ID] = resolved
 				updated = true
 			}
 		}
@@ -326,19 +326,19 @@ func resolveSessionRoots(all []sess) (byID map[string]string, wtMap map[string]s
 	var knownReal []string
 	dc := diskRootCache{}
 	for _, x := range all {
-		if x.parent != "" {
-			parents[x.id] = x.parent
+		if x.Parent != "" {
+			parents[x.ID] = x.Parent
 		}
-		if x.root == "" {
+		if x.Root == "" {
 			continue
 		}
-		clean := filepath.Clean(x.root)
+		clean := filepath.Clean(x.Root)
 		if main, ok := dc.resolve(clean); ok {
 			wtMap[clean] = main
-			byID[x.id] = main
+			byID[x.ID] = main
 			knownReal = appendRealProjectCandidate(knownReal, main)
 		} else if !isAgyWorktreePath(clean) {
-			byID[x.id] = clean
+			byID[x.ID] = clean
 			knownReal = appendRealProjectCandidate(knownReal, clean)
 		}
 	}
@@ -350,15 +350,15 @@ func propagateSessionFallbackRoots(all []sess, byID, parents, wtMap map[string]s
 	for {
 		updated := false
 		for _, x := range all {
-			if byID[x.id] != "" {
+			if byID[x.ID] != "" {
 				continue
 			}
 			clean := ""
-			if tr := strings.TrimSpace(x.root); tr != "" {
+			if tr := strings.TrimSpace(x.Root); tr != "" {
 				clean = filepath.Clean(tr)
 			}
-			if r := resolveFallbackRoot(x.id, clean, x.parent, byID, parents, knownReal); r != "" {
-				byID[x.id] = r
+			if r := resolveFallbackRoot(x.ID, clean, x.Parent, byID, parents, knownReal); r != "" {
+				byID[x.ID] = r
 				if clean != "" {
 					wtMap[clean] = r
 				}

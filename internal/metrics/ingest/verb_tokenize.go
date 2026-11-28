@@ -1,4 +1,4 @@
-package metrics
+package ingest
 
 import "strings"
 
@@ -8,11 +8,11 @@ type tokenizer struct {
 	words       []string
 	cur         strings.Builder
 	inWord      bool
-	quoted      bool // the current word holds a quoted or escaped rune; see markQuoted
-	glued       bool // the word is a short flag and its quoted value; see markQuoted
-	parenDepth  int  // open ( and $( subshells
-	caseDepth   int  // open case … esac
-	wantPattern bool // inside a case, before the next pattern's )
+	quoted      bool
+	glued       bool
+	parenDepth  int
+	caseDepth   int
+	wantPattern bool
 }
 
 func (t *tokenizer) flushWord() {
@@ -30,20 +30,24 @@ func (t *tokenizer) flushWord() {
 	}
 	t.quoted, t.glued = false, false
 	if len(t.words) == 0 {
-		switch w {
-		case "case":
-			t.caseDepth++
-		case "esac":
-			if t.caseDepth > 0 {
-				t.caseDepth--
-			}
-			t.wantPattern = false
-		}
+		t.trackCaseKeyword(w)
 	}
 	t.words = append(t.words, w)
 	if w == "in" && len(t.words) >= 3 && t.words[0] == "case" {
-		t.words = nil // the case header carries no command
+		t.words = nil
 		t.wantPattern = true
+	}
+}
+
+func (t *tokenizer) trackCaseKeyword(w string) {
+	switch w {
+	case "case":
+		t.caseDepth++
+	case "esac":
+		if t.caseDepth > 0 {
+			t.caseDepth--
+		}
+		t.wantPattern = false
 	}
 }
 
@@ -55,14 +59,10 @@ func (t *tokenizer) flushSeg() {
 	t.words = nil
 }
 
-// segments splits cmd at ; && || | & newlines and subshell parentheses,
-// outside quotes and expansions, and returns each segment's words.
 func segments(cmd string) [][]string {
 	t := &tokenizer{}
 	rs := []rune(cmd)
 	for i := 0; i < len(rs); i++ {
-		// The three scans keep the order of one switch: quotes and escapes
-		// first, then expansions, then everything else.
 		switch r := rs[i]; {
 		case r == '\'' || r == '"' || r == '\\' && i+1 < len(rs):
 			i = t.scanQuoted(rs, i)
@@ -76,8 +76,6 @@ func segments(cmd string) [][]string {
 	return t.segs
 }
 
-// swallow appends the balanced open…close run starting at rs[i] to the
-// current word, unparsed, and returns the index of its last rune.
 func (t *tokenizer) swallow(rs []rune, i int, open, close rune) int {
 	t.inWord = true
 	t.cur.WriteRune('$')
@@ -97,15 +95,8 @@ func (t *tokenizer) swallow(rs []rune, i int, open, close rune) int {
 	return i
 }
 
-// quotedMark leads a word that quoting made look like a flag: the shell
-// passes `"--x"` as `--x`, but a flag is written bare, so such a word is
-// content (`--title "--hunter2pass"`). With the mark it starts with no dash,
-// so flagName drops it and it cannot be a wrapper's or git's option.
 const quotedMark = "\x00"
 
-// markQuoted notes a quoted or escaped rune. One after `=` sits in a flag's
-// value (`--title="x"`), which flagName already cuts off. One right after a
-// short flag is that flag's glued value (`-m"fix"`): only the flag is kept.
 func (t *tokenizer) markQuoted() {
 	cur := t.cur.String()
 	switch {
@@ -117,15 +108,11 @@ func (t *tokenizer) markQuoted() {
 	}
 }
 
-// runeAt reports whether rs holds r at index i.
 func runeAt(rs []rune, i int, r rune) bool { return i < len(rs) && rs[i] == r }
 
-// scanQuoted adds the quoted run or the escaped rune at rs[i] to the current
-// word and returns the index of its last rune.
 func (t *tokenizer) scanQuoted(rs []rune, i int) int {
 	switch q := rs[i]; q {
 	case '\'', '"':
-		// a quoted run is part of the current word; its content is never split
 		t.inWord = true
 		t.markQuoted()
 		for i++; i < len(rs) && rs[i] != q; i++ {
@@ -134,7 +121,7 @@ func (t *tokenizer) scanQuoted(rs []rune, i int) int {
 			}
 			t.cur.WriteRune(rs[i])
 		}
-	default: // a backslash with a rune after it; a newline continues the line
+	default:
 		i++
 		if rs[i] != '\n' {
 			t.markQuoted()
@@ -145,9 +132,6 @@ func (t *tokenizer) scanQuoted(rs []rune, i int) int {
 	return i
 }
 
-// scanDollar takes the expansion at rs[i]: ${…} and $((…)) join the current
-// word unparsed, and $( opens a subshell's segment. It returns the index of
-// the last rune it took.
 func (t *tokenizer) scanDollar(rs []rune, i int) int {
 	switch {
 	case runeAt(rs, i+1, '{'):
@@ -161,33 +145,15 @@ func (t *tokenizer) scanDollar(rs []rune, i int) int {
 	}
 }
 
-// scanOperator takes the rune at rs[i] outside quotes and expansions: a
-// comment, a redirection's &, a separator, a parenthesis or brace, a blank,
-// or a rune of the current word. It returns the index of the last rune it
-// took.
 func (t *tokenizer) scanOperator(rs []rune, i int) int {
 	r := rs[i]
 	switch {
 	case r == '#' && !t.inWord:
-		for i+1 < len(rs) && rs[i+1] != '\n' {
-			i++
-		}
-	case r == '&' && (i > 0 && (rs[i-1] == '>' || rs[i-1] == '<') || runeAt(rs, i+1, '>')):
-		t.cur.WriteRune(r) // a redirection (2>&1, &>f), never a separator
-		t.inWord = true
-	case r == ';' && runeAt(rs, i+1, ';'):
-		i++
-		t.flushSeg()
-		if t.caseDepth > 0 {
-			t.wantPattern = true
-		}
-	case r == '|' && t.wantPattern:
-		t.flushWord() // an alternative in a case pattern
-	case r == ';' || r == '\n' || r == '|' || r == '&' || r == '`':
-		if (r == '|' || r == '&') && runeAt(rs, i+1, r) {
-			i++
-		}
-		t.flushSeg()
+		return skipComment(rs, i)
+	case isRedirectAmp(rs, i):
+		t.writeWordRune(r)
+	case isSeparatorRune(r):
+		return t.scanSeparator(rs, i)
 	case r == '(':
 		t.flushSeg()
 		t.parenDepth++
@@ -198,17 +164,58 @@ func (t *tokenizer) scanOperator(rs []rune, i int) int {
 	case r == ' ' || r == '\t':
 		t.flushWord()
 	default:
-		t.cur.WriteRune(r)
-		t.inWord = true
+		t.writeWordRune(r)
 	}
 	return i
 }
 
-// closeParen ends a subshell's segment, or a case pattern.
+func (t *tokenizer) writeWordRune(r rune) {
+	t.cur.WriteRune(r)
+	t.inWord = true
+}
+
+func skipComment(rs []rune, i int) int {
+	for i+1 < len(rs) && rs[i+1] != '\n' {
+		i++
+	}
+	return i
+}
+
+func isRedirectAmp(rs []rune, i int) bool {
+	if rs[i] != '&' {
+		return false
+	}
+	prevRedir := i > 0 && (rs[i-1] == '>' || rs[i-1] == '<')
+	return prevRedir || runeAt(rs, i+1, '>')
+}
+
+func isSeparatorRune(r rune) bool {
+	return r == ';' || r == '\n' || r == '|' || r == '&' || r == '`'
+}
+
+func (t *tokenizer) scanSeparator(rs []rune, i int) int {
+	r := rs[i]
+	if r == ';' && runeAt(rs, i+1, ';') {
+		t.flushSeg()
+		if t.caseDepth > 0 {
+			t.wantPattern = true
+		}
+		return i + 1
+	}
+	if r == '|' && t.wantPattern {
+		t.flushWord()
+		return i
+	}
+	if (r == '|' || r == '&') && runeAt(rs, i+1, r) {
+		i++
+	}
+	t.flushSeg()
+	return i
+}
+
 func (t *tokenizer) closeParen() {
 	switch {
 	case t.wantPattern || t.parenDepth == 0:
-		// the end of a case pattern: its words are content
 		t.flushWord()
 		t.words = nil
 		t.wantPattern = false

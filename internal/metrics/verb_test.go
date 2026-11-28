@@ -253,26 +253,3 @@ func TestSQLiteVerbBothNames(t *testing.T) {
 		}
 	}
 }
-
-func TestIsAssignmentIdentBounds(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		in   string
-		want bool
-	}{
-		{"A=1", true},
-		{"_a9=val", true},
-		{"FOO_BAR=baz", true},
-		{"z0=", true},
-		{"9A=1", false},
-		{"=1", false},
-		{"NOEQ", false},
-		{"a-b=1", false},
-		{"a.b=1", false},
-	}
-	for _, tc := range cases {
-		if got := isAssignment(tc.in); got != tc.want {
-			t.Errorf("isAssignment(%q) = %v, want %v", tc.in, got, tc.want)
-		}
-	}
-}

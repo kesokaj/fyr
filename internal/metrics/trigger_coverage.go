@@ -10,6 +10,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/metrics/report"
+	"github.com/kesokaj/fyr/internal/metrics/show"
 )
 
 // TriggerCoverage aggregates the autonomy and feature-use KPIs computed from metrics.db.
@@ -34,9 +35,9 @@ func populateTriggerCoverage(sum *Summary, o ShowOptions, all []sess, trials []t
 		rawWeeks = d.Hours() / (24 * 7)
 		tc.WindowWeeks = round4(rawWeeks)
 	}
-	addWaveTriggerCoverageRows(&tc, data.waves)
+	addWaveTriggerCoverageRows(&tc, data.Waves)
 	for _, tr := range trials {
-		if strings.HasPrefix(tr.label, "auto=") {
+		if strings.HasPrefix(tr.Label, "auto=") {
 			tc.AutoModelRuns++
 		}
 	}
@@ -46,7 +47,7 @@ func populateTriggerCoverage(sum *Summary, o ShowOptions, all []sess, trials []t
 	catalog := discoverInstalledSkills(o.Home)
 	interviewSkills := catalogInterviewSkills(catalog)
 	swarmSkills := catalogSwarmSkills(catalog)
-	addSessionTriggerCoverage(&tc, all, data.steps, data.events, interviewSkills, swarmSkills)
+	addSessionTriggerCoverage(&tc, all, data.Steps, data.Events, interviewSkills, swarmSkills)
 	populateSkillCatalogCoverage(&tc, catalog, sum.C.Skills["agy"])
 	tc.SearchCalls = sum.C.SQLiteVerbs["agy"]
 	tc.GrepCalls = sum.C.GrepCalls["agy"]
@@ -203,20 +204,20 @@ func addWaveTriggerCoverageRows(tc *TriggerCoverage, waves []waveRow) {
 }
 
 func recordWaveCoverageRow(tc *TriggerCoverage, w waveRow) {
-	if strings.HasPrefix(strings.TrimSpace(w.worker), "auto-") {
+	if strings.HasPrefix(strings.TrimSpace(w.Worker), "auto-") {
 		tc.AutoModelRuns++
 		return
 	}
 	tc.WorkerPhases++
-	m := strings.TrimSpace(w.model)
-	bcTrim := strings.TrimSpace(w.baseCheck)
-	jmTrim := strings.TrimSpace(w.judgeModel)
-	jvTrim := strings.TrimSpace(w.judgeVerdict)
+	m := strings.TrimSpace(w.Model)
+	bcTrim := strings.TrimSpace(w.BaseCheck)
+	jmTrim := strings.TrimSpace(w.JudgeModel)
+	jvTrim := strings.TrimSpace(w.JudgeVerdict)
 	if m != "" && !strings.EqualFold(m, "default") && bcTrim != "" && (jmTrim != "" || jvTrim != "") {
 		tc.ConfiguredWorkerPhases++
 	}
 	var ws WorkSummary
-	addWaveWorkerCounts(&ws, w.state, w.model, w.baseCheck, w.judgeModel, w.judgeVerdict)
+	show.AddWaveWorkerCounts(&ws, w.State, w.Model, w.BaseCheck, w.JudgeModel, w.JudgeVerdict)
 	tc.WorkerPassed += ws.Passed
 	tc.BaseCheckPassed += ws.BaseCheckPassed
 	tc.BaseCheckFailed += ws.BaseCheckFailed
@@ -228,10 +229,10 @@ func addSessionTriggerCoverage(tc *TriggerCoverage, all []sess, stepsByID map[st
 	seenQ, seenSteps := map[string]bool{}, map[string]bool{}
 	handBuildSessions := 0
 	for _, x := range all {
-		ev := sessionCommitSummaryFromEvents(eventsByID[x.id])
-		hasWorkVerb := countSessionBuildQuestions(tc, x, stepsByID[x.id], ev.firstCommitMS, seenQ, interviewSkills)
-		hasGate := countSessionV9Coverage(tc, x, stepsByID[x.id], seenSteps, swarmSkills)
-		if x.parent == "" && ev.hasNonAmbigCommit {
+		ev := sessionCommitSummaryFromEvents(eventsByID[x.ID])
+		hasWorkVerb := countSessionBuildQuestions(tc, x, stepsByID[x.ID], ev.firstCommitMS, seenQ, interviewSkills)
+		hasGate := countSessionV9Coverage(tc, x, stepsByID[x.ID], seenSteps, swarmSkills)
+		if x.Parent == "" && ev.hasNonAmbigCommit {
 			tc.BuildSessions++
 			if ev.hasHandoff {
 				tc.DoDClosedSessions++
@@ -239,7 +240,7 @@ func addSessionTriggerCoverage(tc *TriggerCoverage, all []sess, stepsByID map[st
 			if hasGate {
 				tc.DeterministicGateSessions++
 			}
-			if !hasWorkVerb && x.label == "" {
+			if !hasWorkVerb && x.Label == "" {
 				handBuildSessions++
 			}
 		}
@@ -248,25 +249,25 @@ func addSessionTriggerCoverage(tc *TriggerCoverage, all []sess, stepsByID map[st
 }
 
 func countSessionV9Coverage(tc *TriggerCoverage, x sess, steps []stp, seen map[string]bool, swarmSkills map[string]bool) bool {
-	if x.vendor == historical {
+	if x.Vendor == historical {
 		return false
 	}
 	hasGate := false
 	for _, st := range steps {
-		if st.kind == "tool" || st.kind == "assistant" || st.kind == "generation" {
-			key := x.vendor + "\x00" + x.label + "\x00" + st.ext
+		if st.Kind == "tool" || st.Kind == "assistant" || st.Kind == "generation" {
+			key := x.Vendor + "\x00" + x.Label + "\x00" + st.Ext
 			if seen[key] {
 				continue
 			}
 			seen[key] = true
 		}
-		if st.kind != "tool" {
+		if st.Kind != "tool" {
 			continue
 		}
-		if swarmSkills[st.skill] {
+		if swarmSkills[st.Skill] {
 			tc.SwarmSkillLoads++
 		}
-		for _, v := range st.verbs {
+		for _, v := range st.Verbs {
 			switch {
 			case v == "fyr gate" || strings.HasPrefix(v, "fyr gate "):
 				tc.GateVerbs++
@@ -287,29 +288,29 @@ func countSessionBuildQuestions(tc *TriggerCoverage, x sess, steps []stp, firstC
 	workStarted := false
 	hasWorkVerb := false
 	for _, st := range steps {
-		if interviewSkills[st.skill] {
+		if interviewSkills[st.Skill] {
 			interviewSkill = true
 		}
-		for _, v := range st.verbs {
+		for _, v := range st.Verbs {
 			if v == "fyr work" || strings.HasPrefix(v, "fyr work ") {
 				hasWorkVerb = true
 				workStarted = true
 			}
 		}
-		if firstCommitMS > 0 && st.ts >= firstCommitMS {
+		if firstCommitMS > 0 && st.TS >= firstCommitMS {
 			workStarted = true
 		}
-		if st.kind != "tool" || (st.tool != "agy:ask_question" && st.tool != "AskUserQuestion") {
+		if st.Kind != "tool" || (st.Tool != "agy:ask_question" && st.Tool != "AskUserQuestion") {
 			continue
 		}
-		if st.ext != "" {
-			key := x.vendor + "\x00" + st.ext
+		if st.Ext != "" {
+			key := x.Vendor + "\x00" + st.Ext
 			if seenQ[key] {
 				continue
 			}
 			seenQ[key] = true
 		}
-		if x.parent == "" && interviewSkill && !workStarted {
+		if x.Parent == "" && interviewSkill && !workStarted {
 			continue
 		}
 		tc.BuildTimeQuestions++
@@ -320,12 +321,12 @@ func countSessionBuildQuestions(tc *TriggerCoverage, x sess, steps []stp, firstC
 func sessionCommitSummaryFromEvents(events []sessEvent) sessionCommitSummary {
 	var out sessionCommitSummary
 	for _, ev := range events {
-		if ev.kind == "handoff" {
+		if ev.Kind == "handoff" {
 			out.hasHandoff = true
-		} else if ev.kind == "commit" && ev.value != "ambiguous" {
+		} else if ev.Kind == "commit" && ev.Value != "ambiguous" {
 			out.hasNonAmbigCommit = true
-			if ev.ts > 0 && (out.firstCommitMS == 0 || ev.ts < out.firstCommitMS) {
-				out.firstCommitMS = ev.ts
+			if ev.TS > 0 && (out.firstCommitMS == 0 || ev.TS < out.firstCommitMS) {
+				out.firstCommitMS = ev.TS
 			}
 		}
 	}

@@ -109,7 +109,7 @@ func TestWorkWavesStageSecondsSchema7(t *testing.T) {
 	if err := os.MkdirAll(tmpCopy, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	s7.copyDevStoreTables(devPath, tmpCopy, "fyr-work", &logBuf)
+	s7.ingestDeps().CopyDevStoreTables(devPath, tmpCopy, "fyr-work", &logBuf)
 
 	var set2, agy2, chk2 int
 	if err := s7.db.QueryRow(`SELECT setup_s, agy_s, check_s FROM work_waves WHERE worker = 'p7-dev'`).Scan(&set2, &agy2, &chk2); err != nil {
@@ -152,7 +152,7 @@ func TestWorkWavesStageSecondsSchema7(t *testing.T) {
 	}
 	dev6.Close()
 	migrations = saved
-	s7.copyDevStoreTables(dev6Path, tmpCopy, "fyr-work", &logBuf)
+	s7.ingestDeps().CopyDevStoreTables(dev6Path, tmpCopy, "fyr-work", &logBuf)
 	var set6, agy6, chk6 int
 	if err := s7.db.QueryRow(`SELECT setup_s, agy_s, check_s FROM work_waves WHERE worker = 'v6-dev'`).Scan(&set6, &agy6, &chk6); err != nil || set6 != 0 || agy6 != 0 || chk6 != 0 {
 		t.Fatalf("copied v6 dev row = (%d, %d, %d), err=%v; want (0, 0, 0)", set6, agy6, chk6, err)

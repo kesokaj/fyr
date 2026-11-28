@@ -1,24 +1,28 @@
-package metrics
+package show
 
 import (
 	"path/filepath"
 	"strings"
 	"time"
 
+	r "github.com/kesokaj/fyr/internal/metrics/report"
 	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
 const (
-	auditSubagentCap   = 40
-	builderSubagentCap = 120
+	// AuditSubagentCap is the tool-call budget for audit/unknown subagent roles.
+	AuditSubagentCap = 40
+	// BuilderSubagentCap is the tool-call budget for builder/coder subagent roles.
+	BuilderSubagentCap = 120
 )
 
-func collectStepHealth(h *HealthSignals, sum *Summary, all []sess, stepsByID map[string][]stp, home string) map[string]bool {
+// CollectStepHealth computes context-knee hits, over-budget subagents, hook denials, and orchestration counts.
+func CollectStepHealth(h *r.HealthSignals, sum *Summary, all []Sess, stepsByID map[string][]Stp, home string) map[string]bool {
 	h.MainSessions = sum.Sessions["agy"]
 	modelByID := make(map[string]string, len(all))
 	for _, x := range all {
-		modelByID[x.id] = x.model
+		modelByID[x.ID] = x.Model
 	}
 	overrides := models.ContextWindowOverrides(home)
 	for _, p := range sum.B.SessionPeaks["agy"] {
@@ -28,44 +32,37 @@ func collectStepHealth(h *HealthSignals, sum *Summary, all []sess, stepsByID map
 	}
 	overBudget, seen := map[string]bool{}, map[string]bool{}
 	for _, x := range all {
-		if x.vendor == historical {
+		if x.Vendor == Historical {
 			continue
 		}
-		subTools := countSessionStepHealth(h, x, stepsByID[x.id], seen)
-		if x.parent != "" {
-			if subTools > subagentCapForRole(x.agent) {
-				overBudget[x.id] = true
-			}
+		subTools := countSessionStepHealth(h, x, stepsByID[x.ID], seen)
+		if x.Parent != "" && subTools > SubagentCapForRole(x.Agent) {
+			overBudget[x.ID] = true
 		}
 	}
 	h.OrchestrationCalls = h.SubagentDispatches + h.WorkflowCalls + h.SwarmCalls
 	return overBudget
 }
 
-// subagentCapForRole returns the per-subagent tool-call budget cap aligned with
-// internal/search/hook_watchdog.go: 40 for empty/audit/specialized/unknown
-// subagent roles and 120 for builder/coder/self roles.
-func subagentCapForRole(agent string) int {
+// SubagentCapForRole returns the per-subagent tool-call budget cap aligned with
+// internal/search/hook_watchdog.go: 40 for audit/unknown roles, 120 for builders.
+func SubagentCapForRole(agent string) int {
 	if strings.TrimSpace(agent) == "" || search.IsAuditSubagentRole(agent) {
-		return auditSubagentCap
+		return AuditSubagentCap
 	}
-	return builderSubagentCap
+	return BuilderSubagentCap
 }
 
-func countSessionStepHealth(h *HealthSignals, x sess, steps []stp, seen map[string]bool) int {
+func countSessionStepHealth(h *r.HealthSignals, x Sess, steps []Stp, seen map[string]bool) int {
 	subTools := 0
 	for _, st := range steps {
-		if st.kind == "tool" && x.parent != "" && st.tool != "" && !isExemptSubagentStep(st) {
+		if st.Kind == "tool" && x.Parent != "" && st.Tool != "" && !IsExemptSubagentStep(st) {
 			subTools++
 		}
-		if st.kind == "tool" || st.kind == "assistant" || st.kind == "generation" {
-			key := x.vendor + "\x00" + x.label + "\x00" + st.ext
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
+		if isReplayedStep(x, st, seen) {
+			continue
 		}
-		switch st.kind {
+		switch st.Kind {
 		case "compaction":
 			h.StepCompactions++
 		case "tool":
@@ -75,18 +72,19 @@ func countSessionStepHealth(h *HealthSignals, x sess, steps []stp, seen map[stri
 	return subTools
 }
 
-func isExemptSubagentStep(st stp) bool {
-	if st.denied {
+// IsExemptSubagentStep reports whether a subagent tool call is exempt from budget caps.
+func IsExemptSubagentStep(st Stp) bool {
+	if st.Denied {
 		return true
 	}
-	lowTool := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(st.tool)), "agy:")
+	lowTool := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(st.Tool)), "agy:")
 	switch {
 	case lowTool == "finish" || lowTool == "send_message" || lowTool == "sendmessage":
 		return true
 	case lowTool == "bash" || lowTool == "run_command":
-		return isExemptSubagentBashStep(st.verbs)
+		return isExemptSubagentBashStep(st.Verbs)
 	case isWriteOrEditTool(lowTool):
-		return isExemptScratchAgentTarget(st.kindOf, st.hash)
+		return isExemptScratchAgentTarget(st.KindOf, st.Hash)
 	default:
 		return false
 	}
@@ -148,10 +146,10 @@ func isExemptWrapUpVerb(verb string) bool {
 	return false
 }
 
-func classifyToolHealth(h *HealthSignals, st stp) {
-	if st.denied {
+func classifyToolHealth(h *r.HealthSignals, st Stp) {
+	if st.Denied {
 		h.HookDenials++
-		switch st.denialKind {
+		switch st.DenialKind {
 		case "clamped":
 			h.ClampedSaves++
 		case "ledger":
@@ -161,14 +159,14 @@ func classifyToolHealth(h *HealthSignals, st stp) {
 		}
 	}
 	switch {
-	case st.tool == "Agent" || st.tool == "invoke_subagent" || st.tool == "agy:invoke_subagent":
+	case st.Tool == "Agent" || st.Tool == "invoke_subagent" || st.Tool == "agy:invoke_subagent":
 		h.SubagentDispatches++
-	case st.tool == "agy:run_workflow" || st.tool == "run_workflow" || strings.HasSuffix(st.tool, ":run_workflow"):
+	case st.Tool == "agy:run_workflow" || st.Tool == "run_workflow" || strings.HasSuffix(st.Tool, ":run_workflow"):
 		h.WorkflowCalls++
-	case st.tool == "agy:swarm" || st.tool == "swarm" || strings.HasSuffix(st.tool, ":swarm"):
+	case st.Tool == "agy:swarm" || st.Tool == "swarm" || strings.HasSuffix(st.Tool, ":swarm"):
 		h.SwarmCalls++
 	}
-	for _, verb := range st.verbs {
+	for _, verb := range st.Verbs {
 		for _, gate := range []string{"fyr verify", "fyr gate", "fyr land", "fyr close"} {
 			if verb == gate || strings.HasPrefix(verb, gate+" ") {
 				h.DeterministicGates++
@@ -178,9 +176,9 @@ func classifyToolHealth(h *HealthSignals, st stp) {
 	}
 }
 
-func (s *Store) populateModelFamilyHealth(h *HealthSignals, o ShowOptions, since, now time.Time) error {
-	where, args := showWhere(o, since, now)
-	rows, err := s.db.Query(`SELECT id, COALESCE(parent_id,''), COALESCE(agent_type,''), COALESCE(model,'') FROM sessions WHERE `+where+` AND vendor = 'agy'`, args...)
+func (d Deps) populateModelFamilyHealth(h *r.HealthSignals, o Options, since, now time.Time) error {
+	where, args := ShowWhere(o, since, now)
+	rows, err := d.DB.Query(`SELECT id, COALESCE(parent_id,''), COALESCE(agent_type,''), COALESCE(model,'') FROM sessions WHERE `+where+` AND vendor = 'agy'`, args...)
 	if err != nil {
 		return err
 	}
@@ -191,7 +189,7 @@ func (s *Store) populateModelFamilyHealth(h *HealthSignals, o ShowOptions, since
 		if err := rows.Scan(&id, &parent, &agentType, &model); err != nil {
 			return err
 		}
-		if fam := classifyModelFamily(model); fam != "" {
+		if fam := ClassifyModelFamily(model); fam != "" {
 			counts[fam]++
 			total++
 		}
@@ -205,13 +203,14 @@ func (s *Store) populateModelFamilyHealth(h *HealthSignals, o ShowOptions, since
 	if total > 0 {
 		h.ModelFamilyCounts, h.ModelFamilyShare = counts, map[string]float64{}
 		for fam, c := range counts {
-			h.ModelFamilyShare[fam] = round4(float64(c) * 100.0 / float64(total))
+			h.ModelFamilyShare[fam] = r.Round4(float64(c) * 100.0 / float64(total))
 		}
 	}
 	return nil
 }
 
-func classifyModelFamily(model string) string {
+// ClassifyModelFamily buckets a model ID into "gemini", "anthropic", "other", or "".
+func ClassifyModelFamily(model string) string {
 	low := strings.ToLower(strings.TrimSpace(model))
 	if low == "" {
 		return ""
@@ -240,12 +239,12 @@ func isDowngradedModel(model string) bool {
 	return low != "" && (strings.Contains(low, "flash") || strings.Contains(low, "-low"))
 }
 
-func inspectProjectSearchDBs(sum *Summary, home string, o ShowOptions, all []sess, overBudget map[string]bool) {
-	roots := distinctProjectRoots(o, home, all)
+func (d Deps) inspectProjectSearchDBs(sum *Summary, home string, o Options, all []Sess, overBudget map[string]bool) {
+	roots := DistinctProjectRoots(o, home, all, d.Roots.IsSandboxProjectRoot)
 	knownMain, knownSub := indexSessionsByID(all)
 	var acc structuralAcc
 	for _, root := range roots {
-		db, searchDBPath, cleanup, ok := openCopySQLiteFileWithPath(home, root, ".agents", "scratch", "search.db")
+		db, searchDBPath, cleanup, ok := r.OpenCopySQLiteFileWithPath(home, root, ".agents", "scratch", "search.db")
 		if !ok {
 			continue
 		}
@@ -300,9 +299,9 @@ func (a *structuralAcc) finish() search.StructuralSignals {
 		return a.first
 	}
 	if a.weightSum > 0 {
-		a.out.HiddenCouplingRate = round4(a.hcRateSum / a.weightSum)
-		a.out.GodNodeChurnRate = round4(a.churnSum / a.weightSum)
-		a.out.HubConcentration = round4(a.hubSum / a.weightSum)
+		a.out.HiddenCouplingRate = r.Round4(a.hcRateSum / a.weightSum)
+		a.out.GodNodeChurnRate = r.Round4(a.churnSum / a.weightSum)
+		a.out.HubConcentration = r.Round4(a.hubSum / a.weightSum)
 	}
 	return a.out
 }

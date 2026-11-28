@@ -558,9 +558,7 @@ func TestV910MetricsIngestCompactionAndKnee(t *testing.T) {
 }
 
 func TestV910MetricsIngestTruth(t *testing.T) {
-	local := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = local })
+	t.Parallel()
 
 	evalHome := t.TempDir()
 	sb, root := agyFixture(t)
@@ -573,7 +571,7 @@ func TestV910MetricsIngestTruth(t *testing.T) {
 	markRegistered(t, evalHome, root)
 	_ = os.RemoveAll(filepath.Join(root, ".agents", "docs"))
 	addRecord(t, brain.Options{Home: sb, Dir: root, Now: func() time.Time { return when }},
-		brain.AddInput{Kind: "handoff", ID: "HANDOFF-2026-10-07-1001-done", Title: "Handoff — done"}, "done\n")
+		brain.AddInput{Kind: "handoff", ID: "HANDOFF-" + stamp(when) + "-done", Title: "Handoff — done"}, "done\n")
 
 	os.MkdirAll(filepath.Join(root, ".agents", "scratch"), 0o755)
 	sqliteT(t, filepath.Join(root, ".agents", "scratch", "search.db"),

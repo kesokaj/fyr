@@ -1,10 +1,12 @@
-package metrics
+package show
 
 import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"sort"
+
+	r "github.com/kesokaj/fyr/internal/metrics/report"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 // WriteJSON prints the summary as one indented object.
@@ -14,12 +16,10 @@ func (s *Summary) WriteJSON(w io.Writer) error {
 	return enc.Encode(s)
 }
 
-// safeMap is a count map for the terminal: a key holding a character the
-// BUG-152 filter replaces (a row an older build stored raw) prints as "?".
 func safeMap(m map[string]int) map[string]int {
 	out := make(map[string]int, len(m))
 	for k, v := range m {
-		if printable(k) != k {
+		if search.Printable(k) != k {
 			k = "?"
 		}
 		out[k] += v
@@ -27,13 +27,12 @@ func safeMap(m map[string]int) map[string]int {
 	return out
 }
 
-// WriteText prints the summary as one short table per catalogue group, a
-// column per Columns entry; "n/a" is a metric the CLI cannot produce.
+// WriteText prints the summary as one short table per catalogue group.
 func (s *Summary) WriteText(w io.Writer) {
 	fmt.Fprintf(w, "metrics %s .. %s\n", s.Window["since"], s.Window["until"])
 	t := textWriter{w: w, cols: s.columns(), width: 14}
 	for _, v := range t.cols {
-		t.width = max(t.width, len(label(v)))
+		t.width = max(t.width, len(colLabel(v)))
 	}
 	s.textOutcome(t)
 	s.textEfficiency(t)
@@ -44,7 +43,6 @@ func (s *Summary) WriteText(w io.Writer) {
 	}
 }
 
-// textWriter prints the text summary's tables, a column per entry of cols.
 type textWriter struct {
 	w     io.Writer
 	cols  []string
@@ -62,7 +60,7 @@ func (t textWriter) row(name string, f func(v string) string) {
 func (t textWriter) head(title string) {
 	fmt.Fprintf(t.w, "\n%s\n  %-28s", title, "")
 	for _, v := range t.cols {
-		fmt.Fprintf(t.w, " %*s", t.width, label(v))
+		fmt.Fprintf(t.w, " %*s", t.width, colLabel(v))
 	}
 	fmt.Fprintln(t.w)
 }
@@ -89,7 +87,6 @@ func intCol(m map[string]*int) func(string) string {
 	}
 }
 
-// textOutcome prints the sessions table and catalogue group A.
 func (s *Summary) textOutcome(t textWriter) {
 	t.head("sessions")
 	t.row("main sessions", countCol(s.Sessions))
@@ -107,17 +104,12 @@ func (s *Summary) textOutcome(t textWriter) {
 	})
 	fmt.Fprintf(t.w, "  verifier %v; review findings %v; escaped bugs %d; corrections %d\n",
 		safeMap(s.A.Verifier), safeMap(s.A.ReviewFindings), s.A.EscapedBugs, s.A.Corrections)
-	for _, l := range sortedKeys(s.A.PassK) {
+	for _, l := range r.SortedKeys(s.A.PassK) {
 		p := s.A.PassK[l]
-		// A label is any KEY=VALUE, and fyr eval's comes from the suite
-		// file: printed through the filter, as every other key (SD55).
 		fmt.Fprintf(t.w, "  pass^k %s: %d of %d passed, pass^%d = %d; n %d, c %d, errors %d, wilson95 %s, flip %d\n",
-			printable(l), p.Passed, p.K, p.K, p.PassK, p.N, p.C, p.Errors, wilsonText(p.Wilson95), p.Flip)
+			search.Printable(l), p.Passed, p.K, p.K, p.PassK, p.N, p.C, p.Errors, r.WilsonText(p.Wilson95), p.Flip)
 	}
 }
-
-// wilsonText prints an interval as [lo, hi] at four decimals.
-func wilsonText(w [2]float64) string { return fmt.Sprintf("[%.4f, %.4f]", w[0], w[1]) }
 
 func (s *Summary) textEfficiency(t textWriter) {
 	t.head("B. efficiency")
@@ -155,7 +147,7 @@ func (s *Summary) textAdherence(t textWriter) {
 	fmt.Fprintf(t.w, "  forbidden shapes %v\n  first reads %v\n", safeMap(s.C.Forbidden), safeMap(s.C.FirstReads))
 	for _, v := range t.cols {
 		if len(s.C.Skills[v]) > 0 {
-			fmt.Fprintf(t.w, "  skills (%s) %v\n", label(v), safeMap(s.C.Skills[v]))
+			fmt.Fprintf(t.w, "  skills (%s) %v\n", colLabel(v), safeMap(s.C.Skills[v]))
 		}
 	}
 }
@@ -176,16 +168,7 @@ func (s *Summary) textReliability(t textWriter) {
 	t.row("retry loops", countCol(s.D.RetryLoops))
 	for _, v := range t.cols {
 		if len(s.D.SubagentToolCalls[v]) > 0 {
-			fmt.Fprintf(t.w, "  subagent tool calls (%s) %v\n", label(v), safeMap(s.D.SubagentToolCalls[v]))
+			fmt.Fprintf(t.w, "  subagent tool calls (%s) %v\n", colLabel(v), safeMap(s.D.SubagentToolCalls[v]))
 		}
 	}
-}
-
-func sortedKeys[V any](m map[string]V) []string {
-	ks := make([]string, 0, len(m))
-	for k := range m {
-		ks = append(ks, k)
-	}
-	sort.Strings(ks)
-	return ks
 }

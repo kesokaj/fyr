@@ -18,14 +18,14 @@ type (
 
 func (s *Store) populateWindowDeltas(sum *Summary, o ShowOptions, since, now time.Time) error {
 	span := now.Sub(since)
-	if o.skipDeltas || span <= 0 {
+	if o.SkipDeltas || span <= 0 {
 		return nil
 	}
 	prevSince := since.Add(-span)
 	prevOpts := o
 	prevOpts.Since = prevSince
 	prevOpts.Now = since
-	prevOpts.skipDeltas = true
+	prevOpts.SkipDeltas = true
 	prev, err := s.Show(prevOpts)
 	if err != nil {
 		return err
@@ -160,13 +160,21 @@ func populateEvalPassRateDelta(metricsMap map[string]MetricDelta, cur, prev *Sum
 	}
 }
 
+func evalRowsFromSummary(sum *Summary) []EvalRow {
+	if sum == nil {
+		return nil
+	}
+	rows, _ := sum.EvalRows.([]EvalRow)
+	return rows
+}
+
 func evalPassRateFromSummary(sum *Summary) (float64, int) {
 	if sum == nil {
 		return 0, 0
 	}
-	if len(sum.evalRows) > 0 {
+	if evalRows := evalRowsFromSummary(sum); len(evalRows) > 0 {
 		totalRuns, totalPassed := 0, 0
-		for _, r := range sum.evalRows {
+		for _, r := range evalRows {
 			if strings.EqualFold(r.Kind, "indicator") || r.N <= 0 {
 				continue
 			}

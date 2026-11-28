@@ -1,4 +1,4 @@
-package metrics
+package ingest
 
 import (
 	"database/sql"
@@ -12,14 +12,11 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-// agyStep is one row of a conversation's steps table.
 type agyStep struct {
 	idx, typ, status int
 	meta, errDetails []byte
 }
 
-// readAgySteps reads a conversation copy's steps and its generations'
-// metadata, in order; a copy with no gen_metadata table has no generations.
 func readAgySteps(db *sql.DB) ([]agyStep, [][]byte, error) {
 	rows, hasErrDetails, err := queryAgyStepRows(db)
 	if err != nil {
@@ -79,11 +76,9 @@ func readAgyGens(db *sql.DB) ([][]byte, error) {
 	return gens, rows.Err()
 }
 
-// agySession stores the conversation's session row; a value stored before
-// is kept (the run among them), except an unresolved worktree path is updated
-// when resolved, and its end only moves later.
-func (w *writer) agySession(c agyConv) {
-	repoID := w.repoID(c.root)
+// AgySession stores the conversation's session row inside the writer transaction.
+func (w *Writer) AgySession(c AgyConv) {
+	repoID := w.repoID(c.Root)
 	w.exec(`INSERT INTO sessions(id, vendor, project_root, repo_id, parent_id, agent_type, label, outcome, ended_at, run)
 		VALUES (?, 'agy', NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, 0), NULLIF(?, ''))
 		ON CONFLICT(id) DO UPDATE SET
@@ -103,28 +98,25 @@ func (w *writer) agySession(c agyConv) {
 			outcome = COALESCE(sessions.outcome, excluded.outcome),
 			ended_at = MAX(COALESCE(sessions.ended_at, 0), COALESCE(excluded.ended_at, 0)),
 			run = COALESCE(sessions.run, excluded.run)`,
-		c.id, c.root, repoID, c.parent, identifier(c.agent), w.label, w.outcome, c.modified, w.run)
+		c.ID, c.Root, repoID, c.Parent, Identifier(c.Agent), w.label, w.outcome, c.Modified, w.run)
 }
 
-// agySteps stores the user, reply and tool steps, widening the session to
-// each one's time, and returns the replies' times, which date the
-// generations.
-func (w *writer) agySteps(c agyConv, steps []agyStep) []int64 {
+func (w *Writer) agySteps(c AgyConv, steps []agyStep) []int64 {
 	var replyTimes []int64
 	for _, st := range steps {
-		f := fieldMap(st.meta)
-		ts := f.timeMS(1)
+		f := FieldMap(st.meta)
+		ts := f.TimeMS(1)
 		_, ended, startedCol, endedCol, waitCol := stepTimes(st.meta, f)
-		ext := fmt.Sprintf("%s:%d", c.id, st.idx)
+		ext := fmt.Sprintf("%s:%d", c.ID, st.idx)
 		switch st.typ {
-		case agyUser:
-			w.step(c.id, ext, ts, "user")
-		case agyReply:
-			w.timedStep(c.id, ext, ts, "assistant", startedCol, endedCol, waitCol)
+		case AgyUser:
+			w.step(c.ID, ext, ts, "user")
+		case AgyReply:
+			w.timedStep(c.ID, ext, ts, "assistant", startedCol, endedCol, waitCol)
 			replyTimes = append(replyTimes, ts)
-		case agyCheckpoint:
-			w.step(c.id, ext, ts, "compaction")
-		case agyTool:
+		case AgyCheckpoint:
+			w.step(c.ID, ext, ts, "compaction")
+		case AgyTool:
 			w.agyTool(c, ext, ts, st, f, startedCol, endedCol, waitCol)
 		default:
 			continue
@@ -132,39 +124,34 @@ func (w *writer) agySteps(c agyConv, steps []agyStep) []int64 {
 		end := max(ts, ended)
 		if ts > 0 {
 			w.exec(`UPDATE sessions SET started_at = MIN(COALESCE(started_at, ?), ?), ended_at = MAX(COALESCE(ended_at, ?), ?) WHERE id = ?`,
-				ts, ts, end, end, c.id)
+				ts, ts, end, end, c.ID)
 		}
 	}
 	return replyTimes
 }
 
-// statusEntry is one status transition from steps.metadata field 26→1.
 type statusEntry struct {
 	status int
 	at     int64
 }
 
-// statusHistory decodes the repeated status-transition entries in
-// steps.metadata field 26→1 (status varint at 1, Timestamp at 2).
 func statusHistory(meta []byte) []statusEntry {
 	var out []statusEntry
 	for _, f := range search.ProtoFields(meta) {
 		if f.Wire == 2 && len(f.Path) == 2 && f.Path[0] == 26 && f.Path[1] == 1 {
-			ef := fieldMap(f.Bytes)
-			out = append(out, statusEntry{status: int(ef.varint(1)), at: ef.timeMS(2)})
+			ef := FieldMap(f.Bytes)
+			out = append(out, statusEntry{status: int(ef.Varint(1)), at: ef.TimeMS(2)})
 		}
 	}
 	return out
 }
 
-// waitMS is the milliseconds a step spent in status 9 (WAITING, permission
-// or confirmation dialog) across its status history, closed by the next
-// transition or ended.
-func waitMS(meta []byte, ended int64) int64 {
+// WaitMS returns the milliseconds a step spent in status 9 (WAITING).
+func WaitMS(meta []byte, ended int64) int64 {
 	hist := statusHistory(meta)
 	var wait int64
 	for i, e := range hist {
-		if e.status != agyWaiting || e.at <= 0 {
+		if e.status != AgyWaiting || e.at <= 0 {
 			continue
 		}
 		next := ended
@@ -178,19 +165,16 @@ func waitMS(meta []byte, ended int64) int64 {
 	return wait
 }
 
-// stepTimes extracts started_ms, ended_ms and wait_ms from a step's
-// metadata, returning nil values when the step carries no start, end or
-// wait timestamps.
-func stepTimes(meta []byte, f fields) (started, ended int64, startedCol, endedCol, waitCol any) {
-	started = f.timeMS(6)
+func stepTimes(meta []byte, f Fields) (started, ended int64, startedCol, endedCol, waitCol any) {
+	started = f.TimeMS(6)
 	if started == 0 {
-		started = f.timeMS(7)
+		started = f.TimeMS(7)
 	}
-	ended = f.timeMS(8)
+	ended = f.TimeMS(8)
 	if ended == 0 {
-		ended = f.timeMS(7)
+		ended = f.TimeMS(7)
 	}
-	wait := waitMS(meta, ended)
+	wait := WaitMS(meta, ended)
 	if started > 0 {
 		startedCol = started
 	}
@@ -203,95 +187,110 @@ func stepTimes(meta []byte, f fields) (started, ended int64, startedCol, endedCo
 	return started, ended, startedCol, endedCol, waitCol
 }
 
-// agyGensWithOverrides stores one generation step per gen_metadata row: its
-// tokens, its context, and the concrete model ID from (3,28) falling back to
-// (1,19). Bare stems paired with effort-suffixed variants collapse to the
-// concrete ID.
-func (w *writer) agyGensWithOverrides(c agyConv, gens [][]byte, replyTimes []int64, overrides map[string]int64) {
-	seenModels := map[string]bool{}
-	var firstModel string
-	var peakCtx, peakTS int64
-	for i, g := range gens {
-		f := fieldMap(g)
-		var ts any
-		var tsMS int64
-		if i < len(replyTimes) && replyTimes[i] > 0 {
-			ts, tsMS = replyTimes[i], replyTimes[i]
-		}
-		tokIn, tokOut, cacheRead := f.varint(1, 4, 2), f.varint(1, 4, 3), f.varint(1, 4, 5)
-		used := f.varint(1, 9, 10, 1)
-		var ctx any
-		if used > 0 {
-			ctx = used
-		}
-		effCtx := int64(used)
-		if effCtx == 0 {
-			effCtx = int64(tokIn + cacheRead)
-		}
-		if effCtx > peakCtx {
-			peakCtx = effCtx
-			if tsMS > 0 {
-				peakTS = tsMS
-			}
-		}
-		w.exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tok_in, tok_out, cache_read, context)
-			VALUES (?, ?, ?, 'generation', ?, ?, ?, ?) ON CONFLICT(session_id, ext_id) DO UPDATE SET
-				ts = excluded.ts, tok_in = excluded.tok_in, tok_out = excluded.tok_out,
-				cache_read = excluded.cache_read, context = excluded.context`,
-			c.id, fmt.Sprintf("%s:gen:%d", c.id, i), ts, tokIn, tokOut, cacheRead, ctx)
-		if m := genModelID(f); m != "" {
-			if firstModel == "" {
-				firstModel = m
-			}
-			seenModels[strings.ToLower(m)] = true
-		}
+type genScanState struct {
+	seenModels map[string]bool
+	firstModel string
+	peakCtx    int64
+	peakTS     int64
+}
+
+func (st *genScanState) trackContext(effCtx, tsMS int64) {
+	if effCtx <= st.peakCtx {
+		return
 	}
-	sessionModel := normalizeSessionModel(firstModel, seenModels)
+	st.peakCtx = effCtx
+	if tsMS > 0 {
+		st.peakTS = tsMS
+	}
+}
+
+func (st *genScanState) trackModel(m string) {
+	if m == "" {
+		return
+	}
+	if st.firstModel == "" {
+		st.firstModel = m
+	}
+	st.seenModels[strings.ToLower(m)] = true
+}
+
+// AgyGensWithOverrides stores one generation step per gen_metadata row and updates session model/knee state.
+func (w *Writer) AgyGensWithOverrides(c AgyConv, gens [][]byte, replyTimes []int64, overrides map[string]int64) {
+	st := &genScanState{seenModels: map[string]bool{}}
+	for i, g := range gens {
+		w.recordAgyGen(c, i, g, replyTimes, st)
+	}
+	sessionModel := NormalizeSessionModel(st.firstModel, st.seenModels)
 	if sessionModel != "" {
-		w.exec(`UPDATE sessions SET model = ? WHERE id = ?`, sessionModel, c.id)
+		w.exec(`UPDATE sessions SET model = ? WHERE id = ?`, sessionModel, c.ID)
 	}
 	if len(gens) > 0 {
-		w.syncKneeExceededEvent(c, sessionModel, peakCtx, peakTS, overrides)
+		w.syncKneeExceededEvent(c, sessionModel, st.peakCtx, st.peakTS, overrides)
 	}
 }
 
-func genModelID(f fields) string {
-	if m := identifier(f.text(3, 28)); m != "" {
+func (w *Writer) recordAgyGen(c AgyConv, i int, g []byte, replyTimes []int64, st *genScanState) {
+	f := FieldMap(g)
+	var ts any
+	var tsMS int64
+	if i < len(replyTimes) && replyTimes[i] > 0 {
+		ts, tsMS = replyTimes[i], replyTimes[i]
+	}
+	tokIn, tokOut, cacheRead := f.Varint(1, 4, 2), f.Varint(1, 4, 3), f.Varint(1, 4, 5)
+	used := f.Varint(1, 9, 10, 1)
+	var ctx any
+	effCtx := int64(tokIn + cacheRead)
+	if used > 0 {
+		ctx = used
+		effCtx = int64(used)
+	}
+	st.trackContext(effCtx, tsMS)
+	w.exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tok_in, tok_out, cache_read, context)
+		VALUES (?, ?, ?, 'generation', ?, ?, ?, ?) ON CONFLICT(session_id, ext_id) DO UPDATE SET
+			ts = excluded.ts, tok_in = excluded.tok_in, tok_out = excluded.tok_out,
+			cache_read = excluded.cache_read, context = excluded.context`,
+		c.ID, fmt.Sprintf("%s:gen:%d", c.ID, i), ts, tokIn, tokOut, cacheRead, ctx)
+	st.trackModel(genModelID(f))
+}
+
+func genModelID(f Fields) string {
+	if m := Identifier(f.Text(3, 28)); m != "" {
 		return m
 	}
-	return identifier(f.text(1, 19))
+	return Identifier(f.Text(1, 19))
 }
 
-func (w *writer) syncKneeExceededEvent(c agyConv, sessionModel string, peakCtx, peakTS int64, overrides map[string]int64) {
+func (w *Writer) syncKneeExceededEvent(c AgyConv, sessionModel string, peakCtx, peakTS int64, overrides map[string]int64) {
 	knee := models.ContextKneeWithOverrides(sessionModel, overrides)
 	if knee > 0 && peakCtx >= knee {
 		ts := peakTS
 		if ts == 0 {
-			ts = c.modified
+			ts = c.Modified
 		}
 		w.exec(`INSERT INTO events(session_id, ts, kind, ref, value) VALUES (?, ?, 'knee_exceeded', 'context_knee', ?)
 			ON CONFLICT(session_id, kind, ref) DO UPDATE SET ts = excluded.ts, value = excluded.value`,
-			c.id, ts, strconv.FormatInt(peakCtx, 10))
+			c.ID, ts, strconv.FormatInt(peakCtx, 10))
 		return
 	}
-	w.exec(`DELETE FROM events WHERE session_id = ? AND kind = 'knee_exceeded' AND ref = 'context_knee'`, c.id)
+	w.exec(`DELETE FROM events WHERE session_id = ? AND kind = 'knee_exceeded' AND ref = 'context_knee'`, c.ID)
 }
 
-func normalizeSessionModel(first string, seen map[string]bool) string {
+// NormalizeSessionModel collapses bare stems paired with effort variants or formats multi-model orchestrators.
+func NormalizeSessionModel(first string, seen map[string]bool) string {
 	if len(seen) == 0 {
 		return first
 	}
-	models := make([]string, 0, len(seen))
+	list := make([]string, 0, len(seen))
 	for m := range seen {
-		models = append(models, strings.ToLower(strings.TrimSpace(m)))
+		list = append(list, strings.ToLower(strings.TrimSpace(m)))
 	}
-	sort.Strings(models)
-	for _, m := range models {
+	sort.Strings(list)
+	for _, m := range list {
 		if strings.Contains(m, "orchestrator") {
 			return m
 		}
 	}
-	collapsed := collapseBareModelStems(models)
+	collapsed := collapseBareModelStems(list)
 	if len(collapsed) == 1 {
 		if first != "" && strings.EqualFold(first, collapsed[0]) {
 			return first
@@ -332,9 +331,7 @@ func modelStemAndEffort(m string) (string, bool) {
 	return m, false
 }
 
-// agyIngestState records the conversation's source size and modified time,
-// which the next ingest compares to skip an unchanged conversation.
-func (w *writer) agyIngestState(source string, modified int64) {
+func (w *Writer) agyIngestState(source string, modified int64) {
 	fi, err := os.Lstat(source)
 	var size int64
 	if err == nil && fi.Mode().IsRegular() {

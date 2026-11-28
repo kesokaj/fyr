@@ -1,170 +1,74 @@
 package metrics
 
 import (
-	"fmt"
 	"io"
-	"path/filepath"
-	"strings"
 
-	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/metrics/ingest"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-// Options are one ingest's inputs (spec § Verbs). Ingest reads the
-// Antigravity CLI's conversations only; rows an older ingest read from Claude
-// Code stay in the store as history (plan fyr D7).
-type Options struct {
-	Home string
-	// Source is a sandbox home; Label (KEY=VALUE) is required with it, and
-	// Outcome ("pass", "fail", "error" or "") is stamped with it (D11).
-	Source, Label, Outcome string
-	// Run is the trial the Source's sessions belong to (trials.run), written
-	// on each session at insert and never changed after; "" leaves it NULL.
-	// A Go field only: the kit's ingest surface has no flag for it (the
-	// eval-metrics plan D17).
-	Run string
-	// BrainHome is an optional alternate home whose brain.db is also read when
-	// joining trail and feedback events (e.g. an eval sandbox home sb whose
-	// sb/.config/fyr/brain.db holds records written during the trial, F-012).
-	BrainHome string
-}
+const agyFailed = ingest.AgyFailed
 
-// Result counts one ingest.
-type Result struct {
-	Sessions, Steps, Events, TurnVets int
-	Failed                            []string
-}
+var agyTools = ingest.AgyTools
 
-// Line is the summary ingest prints.
-func (r Result) Line() string {
-	// No skipped-lines count: it belonged to the removed transcript-line
-	// reader and was never incremented (SD50 of the 2026-10-27 audit).
-	if r.TurnVets > 0 {
-		return fmt.Sprintf("metrics: %d sessions, %d steps, %d events, %d turn_vets added; %d sources failed",
-			r.Sessions, r.Steps, r.Events, r.TurnVets, len(r.Failed))
-	}
-	return fmt.Sprintf("metrics: %d sessions, %d steps, %d events added; %d sources failed",
-		r.Sessions, r.Steps, r.Events, len(r.Failed))
-}
+type (
+	// Options are one ingest's inputs (spec § Verbs).
+	Options = ingest.Options
+	// Result counts one ingest.
+	Result  = ingest.Result
+	agyConv = ingest.AgyConv
+	fields  = ingest.Fields
+)
 
-// Validate is the usage check: exit 2 when it fails.
-func (o Options) Validate() error {
-	if o.Source != "" && o.Label == "" {
-		return fmt.Errorf("--source needs --label KEY=VALUE")
-	}
-	if o.Label != "" {
-		k, v, ok := strings.Cut(o.Label, "=")
-		if !ok || k == "" || v == "" {
-			return fmt.Errorf("--label %q: want KEY=VALUE", o.Label)
-		}
-	}
-	if o.Outcome != "" && o.Outcome != "pass" && o.Outcome != "fail" && o.Outcome != "error" {
-		return fmt.Errorf("--outcome %q: want pass, fail or error", o.Outcome)
-	}
-	if (o.Outcome != "" || o.Label != "") && o.Source == "" {
-		return fmt.Errorf("--label and --outcome are for a --source run")
-	}
-	return o.validateRun()
-}
-
-// validateRun is the shape a Run must have before it reaches a session:
-// given with a Source only (without one it would stamp the real home's
-// sessions, first-write-wins), printable and short, as a trial's run is
-// (the review of 2026-10-31, finding 2). Ingest checks it too, since the
-// field is set from Go without Validate.
-func (o Options) validateRun() error {
-	switch {
-	case o.Run == "":
-		return nil
-	case o.Source == "":
-		return fmt.Errorf("run is for a --source run")
-	case printable(o.Run) != o.Run || len(o.Run) > trialText:
-		return fmt.Errorf("run %q: not printable or over %d bytes", printable(o.Run), trialText)
-	}
-	return nil
-}
-
-func (o Options) agyRoot() string {
-	if o.Source != "" {
-		return filepath.Join(o.Source, ".gemini", "antigravity-cli")
-	}
-	return filepath.Join(o.Home, ".gemini", "antigravity-cli")
-}
-
-// dreamWork is the dream's working directory in every form for the home
-// whose store is read and for --home, when they differ: a conversation there
-// is the dream's own, never a session (visible dream plan D5, D15).
-func (o Options) dreamWork() []string {
-	out := harness.DreamWorkPaths(o.Home)
-	if o.Source != "" {
-		out = append(out, harness.DreamWorkPaths(o.Source)...)
-	}
-	return out
-}
+// Verb reduces a shell command line to its shape: one string per command in
+// it, "program [subcommand] [flag names…]".
+func Verb(cmd string) []string { return ingest.Verb(cmd) }
 
 // Ingest reads every transcript the options name into s. A source that fails
 // is named in Result.Failed and the rest are still read; the error is only for
 // a store that cannot be written at all, or a Run that must not reach it.
 func Ingest(s *Store, o Options, log io.Writer) (Result, error) {
-	var r Result
-	if err := o.validateRun(); err != nil {
-		return r, fmt.Errorf("metrics: %w", err)
-	}
-	before, err := s.counts()
-	if err != nil {
-		return r, err
-	}
-	s.ingestAgy(o, &r, log)
-	if o.Source != "" && o.Label != "" && o.Run == "" {
-		ingestDevHome(s, o, &r, log)
-	}
-	// A kit learns its run's outcome after the run (accept.py): the label's
-	// sessions with no outcome yet get this one, though no transcript changed.
-	// An earlier run, stamped after its own acceptance, keeps its outcome.
-	if o.Outcome != "" {
-		if _, err := s.db.Exec(`UPDATE sessions SET outcome = ? WHERE label = ? AND outcome IS NULL`, o.Outcome, o.Label); err != nil {
-			r.Failed = append(r.Failed, "outcome")
-			fmt.Fprintln(log, printable(fmt.Sprintf("metrics: outcome: %v", err)))
-		}
-	}
-	// Events come from the real home's projects and its global feedback
-	// records, plus BrainHome when a sandbox holds its own brain.db (F-012).
-	notes, err := s.joinEventsWithBrainHome(o.Home, o.BrainHome)
-	if err != nil {
-		r.Failed = append(r.Failed, "events")
-		fmt.Fprintln(log, printable(fmt.Sprintf("metrics: events: %v", err)))
-	}
-	for _, n := range notes {
-		fmt.Fprintln(log, printable("metrics: note: "+n))
-	}
-	if o.Source == "" {
-		ingestSecondBrainAndWaves(s, o.Home, log)
-	} else {
-		s.ingestSourceSecondBrain(o, log)
-	}
-	after, err := s.counts()
-	if err != nil {
-		return r, err
-	}
-	r.Sessions, r.Steps, r.Events, r.TurnVets = after[0]-before[0], after[1]-before[1], after[2]-before[2], after[3]-before[3]
-	return r, nil
+	return ingest.Ingest(s.ingestDeps(), o, log)
 }
 
-func (s *Store) counts() ([4]int, error) {
-	var c [4]int
-	for i, t := range []string{"sessions", "steps", "events"} {
-		if err := s.db.QueryRow(`SELECT count(*) FROM ` + t).Scan(&c[i]); err != nil {
-			return c, err
-		}
+func (s *Store) ingestDeps() ingest.Deps {
+	return ingest.Deps{
+		DB:                   s.db,
+		StorePath:            s.path,
+		MaxSchemaVersion:     len(migrations),
+		ResolveRepoID:        ResolveRepoID,
+		ResolveMetricsHome:   func(home, storePath string) string { return resolveMetricsHome(ShowOptions{Home: home}, storePath) },
+		ResolveWorktreeRoots: resolveWorktreeRootsFor,
+		IsAgyWorktreePath:    isAgyWorktreePath,
+		IsUsageProbeSummary:  isUsageProbeSummary,
+		JoinEventsWithBrainHome: func(home, brainHome string) ([]string, error) {
+			return s.joinEventsWithBrainHome(home, brainHome)
+		},
+		IsRealDirChain: isRealDirChain,
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM turn_vets`).Scan(&c[3]); err != nil && !strings.Contains(err.Error(), "no such table") {
-		return c, err
-	}
-	return c, nil
 }
 
-// printable is search's filter (BUG-152: by Unicode class, so control,
-// format, line- and paragraph-separator characters all become '?'): a path
-// or a project root ingest prints comes from transcripts, which a --source
-// sandbox writes.
+func (s *Store) ingestWorkWaves(home string, log io.Writer) {
+	s.ingestDeps().IngestWorkWaves(home, log)
+}
+
+func (s *Store) ingestAgyConversationWithOverrides(src string, c agyConv, source, tmp string, o Options, overrides map[string]int64) error {
+	return s.ingestDeps().IngestAgyConversationWithOverrides(src, c, source, tmp, o, overrides)
+}
+
+// printable filters control, format, and separator characters via search.Printable.
 func printable(s string) string { return search.Printable(s) }
+
+func identifier(s string) string                     { return ingest.Identifier(s) }
+func decodeWaveStamp(stored string) (string, string) { return ingest.DecodeWaveStamp(stored) }
+func workRunKey(rawStamp, worker string) string      { return ingest.WorkRunKey(rawStamp, worker) }
+func scopedKey(prefix, val string) string            { return ingest.ScopedKey(prefix, val) }
+func recordRead(cmd string) string                   { return ingest.RecordRead(cmd) }
+func stripHeredocs(cmd string) string                { return ingest.StripHeredocs(cmd) }
+func hookDenialKind(s string) string                 { return ingest.HookDenialKind(s) }
+func normalizeSessionModel(first string, seen map[string]bool) string {
+	return ingest.NormalizeSessionModel(first, seen)
+}
+func normalizeSuggestedSkillsCSV(s string) string { return ingest.NormalizeSuggestedSkillsCSV(s) }
+func waitMS(meta []byte, ended int64) int64       { return ingest.WaitMS(meta, ended) }
+func fieldMap(b []byte) fields                    { return ingest.FieldMap(b) }

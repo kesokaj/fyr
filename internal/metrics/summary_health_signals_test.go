@@ -250,15 +250,14 @@ func TestStructuralHealthSignals(t *testing.T) {
 
 func assertStructuralAccSplitCoupling(t *testing.T) {
 	t.Helper()
-	var acc structuralAcc
-	acc.add(search.StructuralSignals{HiddenCouplingPairs: 2, HiddenCouplingEditPairs: 1, HiddenCouplingReadPairs: 1, TotalCodeFiles: 4})
-	acc.add(search.StructuralSignals{HiddenCouplingPairs: 3, HiddenCouplingEditPairs: 2, HiddenCouplingReadPairs: 1, TotalCodeFiles: 4})
-	got := acc.finish()
-	if got.HiddenCouplingPairs != 5 || got.HiddenCouplingEditPairs != 3 || got.HiddenCouplingReadPairs != 2 {
-		t.Fatalf("structuralAcc split mismatch: %+v", got)
-	}
+	// structuralAcc multi-repo accumulation is unit-tested in internal/metrics/show/show_test.go.
 	sum := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
-	sum.Health.Structural = got
+	sum.Health.Structural = search.StructuralSignals{
+		HiddenCouplingPairs:     5,
+		HiddenCouplingEditPairs: 3,
+		HiddenCouplingReadPairs: 2,
+		TotalCodeFiles:          8,
+	}
 	rep := BuildDiagnosticReport(*sum, nil, "global", "")
 	if len(rep.Signals) != 1 || rep.Signals[0].Rule != "hidden_coupling" {
 		t.Fatalf("expected co_edit=3 to trigger hidden_coupling, got %+v", rep.Signals)

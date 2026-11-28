@@ -3,6 +3,8 @@ package metrics
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/metrics/ingest"
 )
 
 func TestNormalizeSessionModel(t *testing.T) {
@@ -40,21 +42,21 @@ func TestAgyGensPrefersConcreteModelField328WithFallbackTo119(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := writer{tx: tx, salt: "s"}
-	cBoth := agyConv{id: "conv-concrete", root: t.TempDir()}
-	w.agySession(cBoth)
-	w.agyGensWithOverrides(cBoth, [][]byte{
+	w := ingest.NewWriter(tx, "s", "", "", "", ResolveRepoID)
+	cBoth := agyConv{ID: "conv-concrete", Root: t.TempDir()}
+	w.AgySession(cBoth)
+	w.AgyGensWithOverrides(cBoth, [][]byte{
 		genWith("gemini-4-neon", ""),
 		genWith("gemini-4-neon", "gemini-4-neon-high"),
 	}, []int64{1000, 2000}, nil)
 
-	cFallback := agyConv{id: "conv-fallback", root: t.TempDir()}
-	w.agySession(cFallback)
-	w.agyGensWithOverrides(cFallback, [][]byte{
+	cFallback := agyConv{ID: "conv-fallback", Root: t.TempDir()}
+	w.AgySession(cFallback)
+	w.AgyGensWithOverrides(cFallback, [][]byte{
 		genWith("claude-sonnet-5-5", ""),
 	}, []int64{3000}, nil)
-	if w.err != nil {
-		t.Fatal(w.err)
+	if w.Err() != nil {
+		t.Fatal(w.Err())
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)

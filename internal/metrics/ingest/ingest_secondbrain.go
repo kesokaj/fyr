@@ -1,4 +1,4 @@
-package metrics
+package ingest
 
 import (
 	"database/sql"
@@ -29,35 +29,35 @@ type turnVetRow struct {
 	createdAt                                                  int64
 }
 
-func ingestSecondBrainAndWaves(s *Store, home string, log io.Writer) {
-	if s == nil || s.db == nil || strings.TrimSpace(home) == "" {
+func (d Deps) ingestSecondBrainAndWaves(home string, log io.Writer) {
+	if d.DB == nil || strings.TrimSpace(home) == "" {
 		return
 	}
-	s.ingestSecondBrain(home, log)
-	s.ingestWorkWaves(home, log)
+	d.ingestSecondBrain(home, log)
+	d.IngestWorkWaves(home, log)
 }
 
 func noteSecondBrain(log io.Writer, format string, args ...any) {
 	if log == nil {
 		return
 	}
-	fmt.Fprintln(log, printable("metrics: note: "+fmt.Sprintf(format, args...)))
+	fmt.Fprintln(log, search.Printable("metrics: note: "+fmt.Sprintf(format, args...)))
 }
 
-func (s *Store) ingestSecondBrain(home string, log io.Writer) {
-	s.ingestSearchDBRoots(s.candidateProjectRoots(home, log), log)
-	s.rejoinTurnVetSkillsLoaded(log)
+func (d Deps) ingestSecondBrain(home string, log io.Writer) {
+	d.ingestSearchDBRoots(d.candidateProjectRoots(home, log), log)
+	d.rejoinTurnVetSkillsLoaded(log)
 }
 
-func (s *Store) ingestSourceSecondBrain(o Options, log io.Writer) {
-	if s == nil || s.db == nil {
+func (d Deps) ingestSourceSecondBrain(o Options, log io.Writer) {
+	if d.DB == nil {
 		return
 	}
-	s.ingestSearchDBRoots(s.sourceProjectRoots(o), log)
-	s.rejoinTurnVetSkillsLoaded(log)
+	d.ingestSearchDBRoots(d.sourceProjectRoots(o), log)
+	d.rejoinTurnVetSkillsLoaded(log)
 }
 
-func (s *Store) ingestSearchDBRoots(roots []string, log io.Writer) {
+func (d Deps) ingestSearchDBRoots(roots []string, log io.Writer) {
 	if len(roots) == 0 {
 		return
 	}
@@ -69,27 +69,27 @@ func (s *Store) ingestSearchDBRoots(roots []string, log io.Writer) {
 	}()
 	tempDir := func() (string, error) {
 		if tmp == "" {
-			d, err := os.MkdirTemp(filepath.Dir(s.path), "metrics-sb-")
+			dir, err := os.MkdirTemp(filepath.Dir(d.StorePath), "metrics-sb-")
 			if err != nil {
 				return "", err
 			}
-			tmp = d
+			tmp = dir
 		}
 		return tmp, nil
 	}
 	for i, root := range roots {
-		s.ingestProjectSearchDB(root, i, tempDir, log)
+		d.ingestProjectSearchDB(root, i, tempDir, log)
 	}
 }
 
-func (s *Store) sourceProjectRoots(o Options) []string {
+func (d Deps) sourceProjectRoots(o Options) []string {
 	var rows *sql.Rows
 	var err error
 	switch {
 	case o.Run != "":
-		rows, err = s.db.Query(`SELECT DISTINCT project_root FROM sessions WHERE run = ? AND project_root IS NOT NULL AND project_root <> ''`, o.Run)
+		rows, err = d.DB.Query(`SELECT DISTINCT project_root FROM sessions WHERE run = ? AND project_root IS NOT NULL AND project_root <> ''`, o.Run)
 	case o.Label != "":
-		rows, err = s.db.Query(`SELECT DISTINCT project_root FROM sessions WHERE label = ? AND project_root IS NOT NULL AND project_root <> ''`, o.Label)
+		rows, err = d.DB.Query(`SELECT DISTINCT project_root FROM sessions WHERE label = ? AND project_root IS NOT NULL AND project_root <> ''`, o.Label)
 	default:
 		return nil
 	}
@@ -106,7 +106,7 @@ func (s *Store) sourceProjectRoots(o Options) []string {
 	rows.Close()
 	seen := map[string]bool{}
 	for _, r := range sessionRoots {
-		s.addCandidateRoot(seen, r)
+		d.addCandidateRoot(seen, r)
 	}
 	out := make([]string, 0, len(seen))
 	for r := range seen {
@@ -116,9 +116,9 @@ func (s *Store) sourceProjectRoots(o Options) []string {
 	return out
 }
 
-func (s *Store) candidateProjectRoots(home string, log io.Writer) []string {
+func (d Deps) candidateProjectRoots(home string, log io.Writer) []string {
 	seen := map[string]bool{}
-	rows, err := s.db.Query(`SELECT DISTINCT project_root FROM sessions WHERE project_root IS NOT NULL AND project_root <> ''`)
+	rows, err := d.DB.Query(`SELECT DISTINCT project_root FROM sessions WHERE project_root IS NOT NULL AND project_root <> ''`)
 	if err == nil {
 		var sessionRoots []string
 		for rows.Next() {
@@ -129,7 +129,7 @@ func (s *Store) candidateProjectRoots(home string, log io.Writer) []string {
 		}
 		rows.Close()
 		for _, r := range sessionRoots {
-			s.addCandidateRoot(seen, r)
+			d.addCandidateRoot(seen, r)
 		}
 	}
 	projs, perr := search.ListProjects(home)
@@ -137,7 +137,7 @@ func (s *Store) candidateProjectRoots(home string, log io.Writer) []string {
 		noteSecondBrain(log, "global search.db: %v", perr)
 	}
 	for _, p := range projs {
-		s.addCandidateRoot(seen, p.Root)
+		d.addCandidateRoot(seen, p.Root)
 	}
 	out := make([]string, 0, len(seen))
 	for r := range seen {
@@ -147,7 +147,7 @@ func (s *Store) candidateProjectRoots(home string, log io.Writer) []string {
 	return out
 }
 
-func (s *Store) addCandidateRoot(seen map[string]bool, r string) {
+func (d Deps) addCandidateRoot(seen map[string]bool, r string) {
 	r = strings.TrimSpace(r)
 	if r == "" {
 		return
@@ -159,7 +159,7 @@ func (s *Store) addCandidateRoot(seen map[string]bool, r string) {
 		return
 	}
 	anc, isSelf := findAncestorGitRoot(clean)
-	if anc == "" || isSelf || seen[anc] || s.isSearchDBUnchanged(anc) {
+	if anc == "" || isSelf || seen[anc] || d.isSearchDBUnchanged(anc) {
 		return
 	}
 	if top := trail.Toplevel(clean); top != "" {
@@ -187,14 +187,14 @@ func findAncestorGitRoot(dir string) (string, bool) {
 	return "", false
 }
 
-func (s *Store) isSearchDBUnchanged(root string) bool {
+func (d Deps) isSearchDBUnchanged(root string) bool {
 	dbPath := filepath.Join(root, ".agents", "scratch", "search.db")
 	fi, err := os.Lstat(dbPath)
 	if err != nil || !fi.Mode().IsRegular() {
 		return false
 	}
 	size, mtime := searchDBSignature(dbPath, fi)
-	return s.sourceUnchanged(dbPath, size, mtime)
+	return d.sourceUnchanged(dbPath, size, mtime)
 }
 
 func searchDBSignature(dbPath string, fi os.FileInfo) (int64, int64) {
@@ -209,14 +209,14 @@ func searchDBSignature(dbPath string, fi os.FileInfo) (int64, int64) {
 	return size, mtime
 }
 
-func (s *Store) sourceUnchanged(source string, size, mtime int64) bool {
+func (d Deps) sourceUnchanged(source string, size, mtime int64) bool {
 	var prevSize, prevMtime int64
-	err := s.db.QueryRow(`SELECT size, mtime FROM ingest_state WHERE source = ?`, source).Scan(&prevSize, &prevMtime)
+	err := d.DB.QueryRow(`SELECT size, mtime FROM ingest_state WHERE source = ?`, source).Scan(&prevSize, &prevMtime)
 	return err == nil && prevSize == size && prevMtime == mtime
 }
 
-func (s *Store) recordIngestState(source string, size, mtime int64) error {
-	_, err := s.db.Exec(
+func (d Deps) recordIngestState(source string, size, mtime int64) error {
+	_, err := d.DB.Exec(
 		`INSERT INTO ingest_state(source, size, mtime, offset) VALUES (?, ?, ?, 0)
 		ON CONFLICT(source) DO UPDATE SET size = excluded.size, mtime = excluded.mtime`,
 		source, size, mtime,
@@ -224,8 +224,8 @@ func (s *Store) recordIngestState(source string, size, mtime int64) error {
 	return err
 }
 
-func (s *Store) ingestProjectSearchDB(root string, idx int, tempDir func() (string, error), log io.Writer) {
-	if !isRealDirChain(root, ".agents", "scratch") {
+func (d Deps) ingestProjectSearchDB(root string, idx int, tempDir func() (string, error), log io.Writer) {
+	if d.IsRealDirChain != nil && !d.IsRealDirChain(root, ".agents", "scratch") {
 		return
 	}
 	dbPath := filepath.Join(root, ".agents", "scratch", "search.db")
@@ -242,7 +242,7 @@ func (s *Store) ingestProjectSearchDB(root string, idx int, tempDir func() (stri
 		return
 	}
 	size, mtime := searchDBSignature(dbPath, fi)
-	if s.sourceUnchanged(dbPath, size, mtime) && !s.rootNeedsSuggestedSkillsBackfill(filepath.Clean(root)) {
+	if d.sourceUnchanged(dbPath, size, mtime) && !d.rootNeedsSuggestedSkillsBackfill(filepath.Clean(root)) {
 		return
 	}
 	baseTmp, err := tempDir()
@@ -251,16 +251,16 @@ func (s *Store) ingestProjectSearchDB(root string, idx int, tempDir func() (stri
 		return
 	}
 	tmpDir := filepath.Join(baseTmp, strconv.Itoa(idx))
-	if err := s.syncProjectSearchDB(root, dbPath, tmpDir); err != nil {
+	if err := d.syncProjectSearchDB(root, dbPath, tmpDir); err != nil {
 		noteSecondBrain(log, "%s: %v", dbPath, err)
 		return
 	}
-	if err := s.recordIngestState(dbPath, size, mtime); err != nil {
+	if err := d.recordIngestState(dbPath, size, mtime); err != nil {
 		noteSecondBrain(log, "%s: %v", dbPath, err)
 	}
 }
 
-func (s *Store) syncProjectSearchDB(root, dbPath, tmpDir string) error {
+func (d Deps) syncProjectSearchDB(root, dbPath, tmpDir string) error {
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return err
 	}
@@ -274,12 +274,12 @@ func (s *Store) syncProjectSearchDB(root, dbPath, tmpDir string) error {
 		return err
 	}
 	cleanRoot := filepath.Clean(root)
-	repoID := ResolveRepoID(cleanRoot)
-	vets, err := s.readVetHistoryRows(db, cleanRoot, repoID, ledger)
+	repoID := d.resolveRepoID(cleanRoot)
+	vets, err := d.readVetHistoryRows(db, cleanRoot, repoID, ledger)
 	if err != nil {
 		return err
 	}
-	return s.upsertTurnVets(vets)
+	return d.upsertTurnVets(vets)
 }
 
 func readLedgerSavings(db *sql.DB) (map[turnKey]int, error) {
@@ -299,17 +299,17 @@ func readLedgerSavings(db *sql.DB) (map[turnKey]int, error) {
 			return nil, err
 		}
 		if saved > 0 {
-			out[turnKey{convID: printable(strings.TrimSpace(convID)), turnNum: turnNum}] += saved
+			out[turnKey{convID: search.Printable(strings.TrimSpace(convID)), turnNum: turnNum}] += saved
 		}
 	}
 	return out, rows.Err()
 }
 
-func (s *Store) upsertTurnVets(rows []turnVetRow) error {
+func (d Deps) upsertTurnVets(rows []turnVetRow) error {
 	if len(rows) == 0 {
 		return nil
 	}
-	tx, err := s.db.Begin()
+	tx, err := d.DB.Begin()
 	if err != nil {
 		return err
 	}

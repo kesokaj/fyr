@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/metrics/show"
 )
 
 type waveJudgeEntry struct {
@@ -14,34 +16,22 @@ type waveJudgeEntry struct {
 func buildWaveJudgeEntries(waves []waveRow) []waveJudgeEntry {
 	var out []waveJudgeEntry
 	for _, w := range waves {
-		jv := normJudgeVerdict(w.judgeVerdict)
+		jv := show.NormJudgeVerdict(w.JudgeVerdict)
 		if jv == "" {
 			continue
 		}
-		_, raw := decodeWaveStamp(w.stamp)
+		_, raw := decodeWaveStamp(w.Stamp)
 		proj := ""
-		if p := strings.TrimSpace(w.projectRoot); p != "" {
+		if p := strings.TrimSpace(w.ProjectRoot); p != "" {
 			proj = filepath.Clean(p)
 		}
 		out = append(out, waveJudgeEntry{
-			proj: proj, stamp: strings.TrimSpace(w.stamp), rawStamp: raw,
-			worker: strings.TrimSpace(w.worker), verdict: jv,
-			fallbackCounted: sameModelFamily(w.model, w.judgeModel),
+			proj: proj, stamp: strings.TrimSpace(w.Stamp), rawStamp: raw,
+			worker: strings.TrimSpace(w.Worker), verdict: jv,
+			fallbackCounted: sameModelFamily(w.Model, w.JudgeModel),
 		})
 	}
 	return out
-}
-
-func normJudgeVerdict(raw string) string {
-	v := strings.ToUpper(strings.TrimSpace(raw))
-	switch {
-	case v == "PASS":
-		return "PASS"
-	case strings.Contains(v, "FAIL"):
-		return "FAIL"
-	default:
-		return ""
-	}
 }
 
 func matchWaveJudgeEntry(entries []waveJudgeEntry, r JudgeVerdictRow, verdict string) int {
@@ -99,7 +89,7 @@ func (s *Store) populateJudgeVerdictsHealth(sum *Summary, o ShowOptions, waves [
 }
 
 func applyJudgeVerdictRow(sum *Summary, entries []waveJudgeEntry, r JudgeVerdictRow) {
-	v := normJudgeVerdict(r.Verdict)
+	v := show.NormJudgeVerdict(r.Verdict)
 	isFallback := strings.TrimSpace(r.FallbackReason) != ""
 	if idx := matchWaveJudgeEntry(entries, r, v); idx >= 0 {
 		entries[idx].matched = true

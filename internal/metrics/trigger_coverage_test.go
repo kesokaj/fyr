@@ -87,9 +87,7 @@ func assertFloatPtrNear(t *testing.T, name string, got *float64, want float64) {
 }
 
 func TestReportTriggerCoverageKPIs(t *testing.T) {
-	local := time.Local
-	time.Local = time.UTC
-	t.Cleanup(func() { time.Local = local })
+	t.Parallel()
 
 	mainHome := t.TempDir()
 	rootA := filepath.Join(t.TempDir(), "proj-kpi")
@@ -125,8 +123,8 @@ func TestReportTriggerCoverageKPIs(t *testing.T) {
 	// Register rootA and record handoffs for S_LEAD (10:15) and S_HAND_CLOSED (11:15); S_HAND_OPEN has none.
 	markRegistered(t, mainHome, rootA)
 	bo := brain.Options{Home: mainHome, Dir: rootA, Now: func() time.Time { return at(15, 0) }}
-	addRecord(t, bo, brain.AddInput{Kind: "handoff", ID: "HANDOFF-2026-10-08-1015-lead", Title: "Handoff — lead"}, "lead handoff\n")
-	addRecord(t, bo, brain.AddInput{Kind: "handoff", ID: "HANDOFF-2026-10-08-1115-hand", Title: "Handoff — hand"}, "hand handoff\n")
+	addRecord(t, bo, brain.AddInput{Kind: "handoff", ID: "HANDOFF-" + stamp(at(10, 15)) + "-lead", Title: "Handoff — lead"}, "lead handoff\n")
+	addRecord(t, bo, brain.AddInput{Kind: "handoff", ID: "HANDOFF-" + stamp(at(11, 15)) + "-hand", Title: "Handoff — hand"}, "hand handoff\n")
 
 	// Index rootA and seed 4 read-ledger blocks saved in search.db.
 	if err := search.Index(search.Options{Dir: rootA, Home: mainHome}, io.Discard); err != nil {

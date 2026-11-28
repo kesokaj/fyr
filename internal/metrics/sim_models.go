@@ -142,7 +142,7 @@ func postApplyAgySessions(s *Store, sinceMS, nowMS int64) ([]sess, error) {
 func groupSessionsByModel(all []sess) (map[string][]sess, []string) {
 	byModel := make(map[string][]sess)
 	for _, x := range all {
-		m := clipPrintable(x.model, trialText)
+		m := clipPrintable(x.Model, trialText)
 		if m == "" {
 			continue
 		}
@@ -160,12 +160,12 @@ func summarizeModelGroup(s *Store, grp []sess, data *showData, since, now time.T
 	sum := newSummary(since, now)
 	sum.B.ContextTarget = DefaultContextTarget
 	for _, x := range grp {
-		sum.add(x, data.steps[x.id])
-		sum.addSessionEvents(x, data.events[x.id])
+		sum.Add(x, data.Steps[x.ID])
+		sum.AddSessionEvents(x, data.Events[x.ID])
 	}
-	sum.finish(grp, nil, nil)
-	populateAdherenceVerbs(sum, grp, data.steps)
-	collectStepHealth(&sum.Health, sum, grp, data.steps, "")
+	sum.Finish(grp, nil, nil, showEst())
+	populateAdherenceVerbs(sum, grp, data.Steps)
+	collectStepHealth(&sum.Health, sum, grp, data.Steps, "")
 	ids := distinctSessionIDs(grp)
 	if len(ids) > 0 {
 		if err := populateGroupTurnVets(s, sum, ids); err != nil {
@@ -249,7 +249,7 @@ func evaluateFallbackGroupStatus(sum *Summary, grp []sess) string {
 	}
 	pass, fail := 0, 0
 	for _, x := range grp {
-		switch strings.ToLower(strings.TrimSpace(x.outcome)) {
+		switch strings.ToLower(strings.TrimSpace(x.Outcome)) {
 		case "pass":
 			pass++
 		case "fail", "error":

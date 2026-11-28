@@ -112,7 +112,7 @@ func TestSD50WaveStatusIngestStateCacheAndInvalidation(t *testing.T) {
 	}
 
 	// Labelled wave on same status.json path uses distinct ingest_state source key.
-	st.ingestWorkWavesWithLabel(home, "eval=a", nil)
+	st.ingestDeps().IngestWorkWavesWithLabel(home, "eval=a", nil)
 	var lblCnt int
 	if err := st.db.QueryRow(`SELECT count(*) FROM work_waves WHERE stamp LIKE '%:2026-11-19-100000-1111'`).Scan(&lblCnt); err != nil || lblCnt != 1 {
 		t.Fatalf("labelled wave skipped due to unlabelled ingest_state key: cnt=%d err=%v", lblCnt, err)

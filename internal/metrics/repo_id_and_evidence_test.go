@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/metrics/ingest"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -188,10 +189,10 @@ func TestRepoIDWiredAcrossAllTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := writer{tx: tx, salt: "salt"}
-	w.agySession(agyConv{id: "c-wired", root: repo, modified: 1000})
-	if w.err != nil {
-		t.Fatal(w.err)
+	w := ingest.NewWriter(tx, "salt", "", "", "", ResolveRepoID)
+	w.AgySession(agyConv{ID: "c-wired", Root: repo, Modified: 1000})
+	if w.Err() != nil {
+		t.Fatal(w.Err())
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)

@@ -33,23 +33,3 @@ func TestVerbTokenizerArms(t *testing.T) {
 		}
 	}
 }
-
-// A here-string opens no here-document; an unclosed or empty quoted
-// delimiter, and a << with no word after it, leave the rest unparsed.
-func TestHeredocDelimsArms(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct {
-		line     string
-		unparsed bool
-	}{
-		{"cat <<< word", false},
-		{"cat <<'EOF", true},
-		{"cat <<''", true},
-		{"cat << ;", true},
-	} {
-		ds, unparsed := heredocDelims(c.line)
-		if ds != nil || unparsed != c.unparsed {
-			t.Errorf("heredocDelims(%q) = %v, %v; want none, %v", c.line, ds, unparsed, c.unparsed)
-		}
-	}
-}

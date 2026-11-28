@@ -1,12 +1,14 @@
-package metrics
+package show
 
 import (
 	"sort"
 	"strings"
 	"time"
+
+	r "github.com/kesokaj/fyr/internal/metrics/report"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
-// totals per vendor that become rates in finish.
 type acc struct{ tools, errs, sqlite, grep, denials, interrupts, compactions int }
 
 func (s *Summary) acc(v string) *acc {
@@ -19,21 +21,21 @@ func (s *Summary) acc(v string) *acc {
 	return s.accs[v]
 }
 
-func (s *Summary) day(ts int64) *Day {
+func (s *Summary) day(ts int64) *r.Day {
 	d := time.UnixMilli(ts).UTC().Format("2006-01-02")
 	for i := range s.Daily {
 		if s.Daily[i].Date == d {
 			return &s.Daily[i]
 		}
 	}
-	s.Daily = append(s.Daily, Day{Date: d, Sessions: map[string]int{}, ToolCalls: map[string]int{}, Tokens: map[string]int64{},
+	dt := map[string]int64{}
+	s.Daily = append(s.Daily, r.Day{Date: d, Sessions: map[string]int{}, ToolCalls: map[string]int{}, Tokens: dt,
 		CostUSD: map[string]float64{}, SQLiteVerbs: map[string]int{}, GrepCalls: map[string]int{}, Errors: map[string]int{}})
 	return &s.Daily[len(s.Daily)-1]
 }
 
-// isSQLiteVerb counts the binary's search verbs under its name and, for the
-// sessions from before the rename, under sh-agent (fyr D7, D20).
-func isSQLiteVerb(v string) bool {
+// IsSQLiteVerb reports whether v is a fyr/sh-agent search or index verb.
+func IsSQLiteVerb(v string) bool {
 	for _, p := range []string{"fyr search", "fyr index", "sh-agent search", "sh-agent index"} {
 		if strings.HasPrefix(v, p) {
 			return true
@@ -42,13 +44,12 @@ func isSQLiteVerb(v string) bool {
 	return false
 }
 
-func isGrepVerb(v string) bool {
+// IsGrepVerb reports whether v opens with grep or rg.
+func IsGrepVerb(v string) bool {
 	p, _, _ := strings.Cut(v, " ")
 	return p == "grep" || p == "rg"
 }
 
-// columns are s.Columns, or the agy column alone for a summary not yet
-// finished.
 func (s *Summary) columns() []string {
 	if len(s.Columns) == 0 {
 		return []string{"agy"}
@@ -56,20 +57,17 @@ func (s *Summary) columns() []string {
 	return s.Columns
 }
 
-// label is a column's name in a table.
-func label(v string) string {
-	if v == historical {
-		return historical + " (historical)"
+func colLabel(v string) string {
+	if v == Historical {
+		return Historical + " (historical)"
 	}
 	return v
 }
 
-// sessionDay is the UTC day a session started, or ended when no start is
-// recorded; "" when neither is.
-func sessionDay(x sess) string {
-	ts := x.start
+func sessionDay(x Sess) string {
+	ts := x.Start
 	if ts == 0 {
-		ts = x.end
+		ts = x.End
 	}
 	if ts == 0 {
 		return ""
@@ -133,13 +131,14 @@ func isSedReadFlags(flags []string) bool {
 	return hasN && !hasI
 }
 
-func isCDBashVerb(v string) bool {
+// IsCDBashVerb reports whether v is a `cd` command verb.
+func IsCDBashVerb(v string) bool {
 	return v == "cd" || strings.HasPrefix(v, "cd ")
 }
 
 func firstNonCDBashVerb(verbs []string) string {
 	for _, v := range verbs {
-		if isCDBashVerb(v) {
+		if IsCDBashVerb(v) {
 			continue
 		}
 		return v
@@ -147,39 +146,34 @@ func firstNonCDBashVerb(verbs []string) string {
 	return ""
 }
 
-// bashReadTracker identifies true unguarded Bash file-read bypasses within one
-// session (F-022): unranged full-file reads (cat/nl/unranged bat) always count,
-// while allowed first-time ranged/ledger-tracked reads (head/tail/sed -n/bat -r)
-// are excluded unless repeated with the same cmd_hash without an edit/compaction.
-type bashReadTracker struct {
+// BashReadTracker identifies unguarded Bash file-read bypasses within one session.
+type BashReadTracker struct {
 	seenRanged map[string]bool
 }
 
-func (b *bashReadTracker) isUnguardedSkip(st stp) bool {
-	if st.kind == "compaction" || (!st.isErr && !st.denied && (st.tool == "Write" || st.tool == "Edit")) {
+// IsUnguardedSkip reports whether st is an unguarded Bash read bypass.
+func (b *BashReadTracker) IsUnguardedSkip(st Stp) bool {
+	if st.Kind == "compaction" || (!st.IsErr && !st.Denied && (st.Tool == "Write" || st.Tool == "Edit")) {
 		b.seenRanged = nil
 		return false
 	}
-	if st.kind != "tool" || st.tool != "Bash" || st.denied {
+	if st.Kind != "tool" || st.Tool != "Bash" || st.Denied {
 		return false
 	}
-	v := firstNonCDBashVerb(st.verbs)
+	v := firstNonCDBashVerb(st.Verbs)
 	if isUnrangedBashReadVerb(v) {
 		return true
 	}
-	if !isRangedBashReadVerb(v) {
-		return false
-	}
-	if st.hash == "" {
+	if !isRangedBashReadVerb(v) || st.Hash == "" {
 		return false
 	}
 	if b.seenRanged == nil {
 		b.seenRanged = map[string]bool{}
 	}
-	if b.seenRanged[st.hash] {
+	if b.seenRanged[st.Hash] {
 		return true
 	}
-	b.seenRanged[st.hash] = true
+	b.seenRanged[st.Hash] = true
 	return false
 }
 
@@ -189,37 +183,35 @@ type adherenceVerbAcc struct {
 	skips      map[string]int
 }
 
-func (a *adherenceVerbAcc) addSessionSteps(x sess, steps []stp) {
-	var tracker bashReadTracker
+func (a *adherenceVerbAcc) addSessionSteps(x Sess, steps []Stp) {
+	var tracker BashReadTracker
 	for _, st := range steps {
 		a.addStep(x, st, &tracker)
 	}
 }
 
-func (a *adherenceVerbAcc) addStep(x sess, st stp, tracker *bashReadTracker) {
-	if st.kind == "compaction" {
-		tracker.isUnguardedSkip(st)
+func (a *adherenceVerbAcc) addStep(x Sess, st Stp, tracker *BashReadTracker) {
+	if st.Kind == "compaction" {
+		tracker.IsUnguardedSkip(st)
 		return
 	}
-	if st.kind != "tool" && st.kind != "assistant" && st.kind != "generation" {
+	if st.Kind != "tool" && st.Kind != "assistant" && st.Kind != "generation" {
 		return
 	}
-	key := x.vendor + "\x00" + x.label + "\x00" + st.ext
-	if a.seen[key] {
+	if isReplayedStep(x, st, a.seen) {
 		return
 	}
-	a.seen[key] = true
-	if tracker.isUnguardedSkip(st) {
-		a.skips[x.vendor]++
+	if tracker.IsUnguardedSkip(st) {
+		a.skips[x.Vendor]++
 	}
-	if x.vendor != historical && st.kind == "tool" && st.tool == "Bash" {
-		a.countBashVerbs(st.verbs)
+	if x.Vendor != Historical && st.Kind == "tool" && st.Tool == "Bash" {
+		a.countBashVerbs(st.Verbs)
 	}
 }
 
 func (a *adherenceVerbAcc) countBashVerbs(verbs []string) {
 	for _, v := range verbs {
-		if pv := printable(strings.TrimSpace(v)); pv != "" {
+		if pv := search.Printable(strings.TrimSpace(v)); pv != "" {
 			a.verbCounts[pv]++
 		}
 	}
@@ -241,14 +233,15 @@ func (a *adherenceVerbAcc) bashReadSkips(agySessions int) map[string]int {
 	return out
 }
 
-func populateAdherenceVerbs(sum *Summary, all []sess, stepsByID map[string][]stp) {
+// PopulateAdherenceVerbs computes Bash read bypasses and top Bash verbs for sum.
+func PopulateAdherenceVerbs(sum *Summary, all []Sess, stepsByID map[string][]Stp) {
 	acc := adherenceVerbAcc{
 		seen:       map[string]bool{},
 		verbCounts: map[string]int{},
 		skips:      map[string]int{},
 	}
 	for _, x := range all {
-		acc.addSessionSteps(x, stepsByID[x.id])
+		acc.addSessionSteps(x, stepsByID[x.ID])
 	}
 	if skips := acc.bashReadSkips(sum.Sessions["agy"]); skips != nil {
 		sum.C.BashReadSkips = skips
@@ -256,13 +249,13 @@ func populateAdherenceVerbs(sum *Summary, all []sess, stepsByID map[string][]stp
 	sum.C.TopBashVerbs = topVerbCounts(acc.verbCounts, 10)
 }
 
-func topVerbCounts(counts map[string]int, limit int) []VerbCount {
+func topVerbCounts(counts map[string]int, limit int) []r.VerbCount {
 	if len(counts) == 0 || limit <= 0 {
 		return nil
 	}
-	out := make([]VerbCount, 0, len(counts))
+	out := make([]r.VerbCount, 0, len(counts))
 	for v, c := range counts {
-		out = append(out, VerbCount{Verb: v, Count: c})
+		out = append(out, r.VerbCount{Verb: v, Count: c})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Count != out[j].Count {

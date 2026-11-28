@@ -1,4 +1,4 @@
-package metrics
+package ingest
 
 import (
 	"database/sql"
@@ -10,7 +10,8 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-func (s *Store) copyDevStoreTables(srcPath, tmp, label string, log io.Writer) {
+// CopyDevStoreTables copies trials, sessions, steps, verbs, and work_waves from a dev metrics.db under label.
+func (d Deps) CopyDevStoreTables(srcPath, tmp, label string, log io.Writer) {
 	srcDB, err := search.OpenCopy(filepath.Dir(srcPath), filepath.Base(srcPath), tmp)
 	if err != nil {
 		noteSecondBrain(log, "%s: %v", srcPath, err)
@@ -23,24 +24,24 @@ func (s *Store) copyDevStoreTables(srcPath, tmp, label string, log io.Writer) {
 		return
 	}
 	ver, err := strconv.Atoi(verStr)
-	if err != nil || ver < 4 || ver > len(migrations) {
+	if err != nil || ver < 4 || (d.MaxSchemaVersion > 0 && ver > d.MaxSchemaVersion) {
 		noteSecondBrain(log, "%s: unsupported schema %q", srcPath, verStr)
 		return
 	}
-	if err := s.copyDevTrials(srcDB, label, ver >= 5, ver >= 13); err != nil {
+	if err := d.copyDevTrials(srcDB, label, ver >= 5, ver >= 13); err != nil {
 		noteSecondBrain(log, "%s trials: %v", srcPath, err)
 	}
-	if err := s.copyDevSessionsAndSteps(srcDB, label, ver >= 5, ver >= 11); err != nil {
+	if err := d.copyDevSessionsAndSteps(srcDB, label, ver >= 5, ver >= 11); err != nil {
 		noteSecondBrain(log, "%s sessions: %v", srcPath, err)
 	}
 	if ver >= 6 {
-		if err := s.copyDevWorkWaves(srcDB, label, ver >= 7); err != nil {
+		if err := d.copyDevWorkWaves(srcDB, label, ver >= 7); err != nil {
 			noteSecondBrain(log, "%s work_waves: %v", srcPath, err)
 		}
 	}
 }
 
-func (s *Store) copyDevTrials(src *sql.DB, label string, hasStageCols, hasPolicyModel bool) error {
+func (d Deps) copyDevTrials(src *sql.DB, label string, hasStageCols, hasPolicyModel bool) error {
 	stageCols := `NULL, NULL`
 	if hasStageCols {
 		stageCols = `setup_seconds, check_seconds`
@@ -55,7 +56,7 @@ func (s *Store) copyDevTrials(src *sql.DB, label string, hasStageCols, hasPolicy
 		return err
 	}
 	defer rows.Close()
-	tx, err := s.db.Begin()
+	tx, err := d.DB.Begin()
 	if err != nil {
 		return err
 	}
@@ -79,20 +80,20 @@ func insertCopiedTrial(tx *sql.Tx, rows *sql.Rows, label string) error {
 	if err := rows.Scan(&run, &rowVer, &kind, &cluster, &expect, &harnessVal, &cli, &status, &cause, &startedAt, &seconds, &sesSec, &setSec, &chkSec, &policyModel); err != nil {
 		return err
 	}
-	destRun := scopedKey(label, run)
+	destRun := ScopedKey(label, run)
 	if destRun == "" {
 		return nil
 	}
 	_, err := tx.Exec(
 		`INSERT OR IGNORE INTO trials(run, label, row_version, kind, cluster, expect, harness, cli, status, cause, started_at, seconds, session_seconds, setup_seconds, check_seconds, policy_model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		destRun, printable(label), rowVer, nullPrintable(kind), nullPrintable(cluster), nullPrintable(expect),
-		printable(harnessVal), nullPrintable(cli), printable(status), printable(cause),
-		startedAt, seconds, sesSec, setSec, chkSec, clipPrintable(policyModel, trialText),
+		destRun, search.Printable(label), rowVer, nullPrintable(kind), nullPrintable(cluster), nullPrintable(expect),
+		search.Printable(harnessVal), nullPrintable(cli), search.Printable(status), search.Printable(cause),
+		startedAt, seconds, sesSec, setSec, chkSec, clipIngestText(policyModel, trialTextLimit),
 	)
 	return err
 }
 
-func (s *Store) copyDevSessionsAndSteps(src *sql.DB, label string, hasStepTimes, hasRepoID bool) error {
+func (d Deps) copyDevSessionsAndSteps(src *sql.DB, label string, hasStepTimes, hasRepoID bool) error {
 	q := `SELECT id, vendor, project_root, '', parent_id, agent_type, model, outcome, run, started_at, ended_at, cost_usd, duration_ms FROM sessions`
 	if hasRepoID {
 		q = `SELECT id, vendor, project_root, COALESCE(repo_id, ''), parent_id, agent_type, model, outcome, run, started_at, ended_at, cost_usd, duration_ms FROM sessions`
@@ -102,13 +103,13 @@ func (s *Store) copyDevSessionsAndSteps(src *sql.DB, label string, hasStepTimes,
 		return err
 	}
 	defer rows.Close()
-	tx, err := s.db.Begin()
+	tx, err := d.DB.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	for rows.Next() {
-		origID, destID, inserted, err := insertCopiedSession(tx, rows, label)
+		origID, destID, inserted, err := d.insertCopiedSession(tx, rows, label)
 		if err != nil {
 			return err
 		}
@@ -128,7 +129,7 @@ func (s *Store) copyDevSessionsAndSteps(src *sql.DB, label string, hasStepTimes,
 	return tx.Commit()
 }
 
-func insertCopiedSession(tx *sql.Tx, rows *sql.Rows, label string) (string, string, bool, error) {
+func (d Deps) insertCopiedSession(tx *sql.Tx, rows *sql.Rows, label string) (string, string, bool, error) {
 	var origID, repoID string
 	var vendor, root, parent, agent, model, outcome, run sql.NullString
 	var started, ended, dur sql.NullInt64
@@ -136,18 +137,18 @@ func insertCopiedSession(tx *sql.Tx, rows *sql.Rows, label string) (string, stri
 	if err := rows.Scan(&origID, &vendor, &root, &repoID, &parent, &agent, &model, &outcome, &run, &started, &ended, &cost, &dur); err != nil {
 		return "", "", false, err
 	}
-	destID := scopedKey(label, origID)
+	destID := ScopedKey(label, origID)
 	if destID == "" {
 		return "", "", false, nil
 	}
-	repoID = clipPrintable(repoID, 256)
+	repoID = clipIngestText(repoID, 256)
 	if repoID == "" && root.Valid && strings.TrimSpace(root.String) != "" {
-		repoID = clipPrintable(ResolveRepoID(root.String), 256)
+		repoID = clipIngestText(d.resolveRepoID(root.String), 256)
 	}
 	res, err := tx.Exec(
 		`INSERT OR IGNORE INTO sessions(id, vendor, project_root, repo_id, parent_id, agent_type, model, label, outcome, run, started_at, ended_at, cost_usd, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		destID, nullPrintable(vendor), nullPrintable(root), repoID, scopedNullString(label, parent),
-		nullPrintable(agent), nullPrintable(model), printable(label), nullPrintable(outcome),
+		nullPrintable(agent), nullPrintable(model), search.Printable(label), nullPrintable(outcome),
 		scopedNullString(label, run), started, ended, cost, dur,
 	)
 	if err != nil {
@@ -179,7 +180,7 @@ func copyDevSessionSteps(tx *sql.Tx, src *sql.DB, origSID, destSID string, hasSt
 		}
 		if _, err := tx.Exec(
 			`INSERT OR IGNORE INTO steps(session_id, ext_id, ts, kind, tool, skill, target_kind, is_error, denied, tok_in, tok_out, cache_read, cache_write, cmd_hash, context, started_ms, ended_ms, wait_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			destSID, printable(extID), ts, nullPrintable(kind), nullPrintable(tool), nullPrintable(skill),
+			destSID, search.Printable(extID), ts, nullPrintable(kind), nullPrintable(tool), nullPrintable(skill),
 			nullPrintable(targetKind), isErr, denied, tokIn, tokOut, cRead, cWrite, nullPrintable(cmdHash),
 			ctxTok, sMS, eMS, wMS,
 		); err != nil {
@@ -202,14 +203,14 @@ func copyDevSessionVerbs(tx *sql.Tx, src *sql.DB, origSID, destSID string) error
 			return err
 		}
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO step_verbs(session_id, ext_id, n, verb) VALUES (?, ?, ?, ?)`,
-			destSID, printable(extID), n, printable(verb)); err != nil {
+			destSID, search.Printable(extID), n, search.Printable(verb)); err != nil {
 			return err
 		}
 	}
 	return rows.Err()
 }
 
-func (s *Store) copyDevWorkWaves(src *sql.DB, label string, hasStageCols bool) error {
+func (d Deps) copyDevWorkWaves(src *sql.DB, label string, hasStageCols bool) error {
 	q := `SELECT stamp, worker, project_root, state, model, step_count, commits, base_check, judge_model, judge_verdict, updated_at, 0, 0, 0 FROM work_waves`
 	if hasStageCols {
 		q = `SELECT stamp, worker, project_root, state, model, step_count, commits, base_check, judge_model, judge_verdict, updated_at, COALESCE(setup_s, 0), COALESCE(agy_s, 0), COALESCE(check_s, 0) FROM work_waves`
@@ -219,7 +220,7 @@ func (s *Store) copyDevWorkWaves(src *sql.DB, label string, hasStageCols bool) e
 		return err
 	}
 	defer rows.Close()
-	tx, err := s.db.Begin()
+	tx, err := d.DB.Begin()
 	if err != nil {
 		return err
 	}
@@ -231,11 +232,11 @@ func (s *Store) copyDevWorkWaves(src *sql.DB, label string, hasStageCols bool) e
 		if err := rows.Scan(&stamp, &worker, &root, &state, &model, &steps, &commits, &bc, &jm, &jv, &updatedAt, &setupS, &agyS, &checkS); err != nil {
 			return err
 		}
-		enc := encodeWaveStamp(printable(label), printable(stamp))
+		enc := EncodeWaveStamp(search.Printable(label), search.Printable(stamp))
 		if _, err := tx.Exec(
 			`INSERT OR REPLACE INTO work_waves(stamp, worker, project_root, state, model, step_count, commits, base_check, judge_model, judge_verdict, updated_at, setup_s, agy_s, check_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			enc, printable(worker), printable(root), printable(state), printable(model),
-			max(0, steps), max(0, commits), printable(bc), printable(jm), printable(jv), updatedAt,
+			enc, search.Printable(worker), search.Printable(root), search.Printable(state), search.Printable(model),
+			max(0, steps), max(0, commits), search.Printable(bc), search.Printable(jm), search.Printable(jv), updatedAt,
 			max(0, setupS), max(0, agyS), max(0, checkS),
 		); err != nil {
 			return err
@@ -251,12 +252,12 @@ func nullPrintable(ns sql.NullString) any {
 	if !ns.Valid || ns.String == "" {
 		return nil
 	}
-	return printable(ns.String)
+	return search.Printable(ns.String)
 }
 
 func scopedNullString(label string, ns sql.NullString) any {
 	if !ns.Valid || strings.TrimSpace(ns.String) == "" {
 		return nil
 	}
-	return scopedKey(label, ns.String)
+	return ScopedKey(label, ns.String)
 }

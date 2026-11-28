@@ -1,41 +1,7 @@
-package metrics
+package show
 
-import (
-	"fmt"
-	"os"
-	"path/filepath"
-
-	"github.com/kesokaj/fyr/internal/search"
-)
-
-// Snapshot opens a read-only copy of the store at path, made in tmp: a dry
-// run and the dream's prompt read it without creating -wal or -shm beside
-// the store or running a migration. A missing store is os.ErrNotExist.
-func Snapshot(path, tmp string) (*Store, error) {
-	if _, err := os.Lstat(path); err != nil {
-		return nil, err
-	}
-	db, err := search.OpenCopy(filepath.Dir(path), filepath.Base(path), tmp)
-	if err != nil {
-		return nil, err
-	}
-	s := &Store{db: db, path: path}
-	var v string
-	if err := db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&v); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("metrics: %s: %w", path, err)
-	}
-	if v != fmt.Sprint(len(migrations)) {
-		db.Close()
-		return nil, fmt.Errorf("metrics.db schema %s, this binary reads %d; run fyr metrics ingest first", v, len(migrations))
-	}
-	return s, nil
-}
-
-// Numbers is the summary as metric keys and numbers only: every key is one of
-// this package's own names (no tool, skill, agent, label or path), the form
-// the dream's prompt carries (R3, ADR-055a). A metric a CLI cannot produce is
-// absent, never 0.
+// Numbers returns the summary as metric keys and numbers only: every key is a
+// fixed metric name (no tool, skill, agent, label or path).
 func (s *Summary) Numbers() map[string]float64 {
 	n := map[string]float64{}
 	put := func(k string, v float64) { n[k] = v }
@@ -150,8 +116,6 @@ func (s *Summary) putBackgroundRunNumbers(put func(string, float64)) {
 	}
 }
 
-// putColumn puts column v's metrics, each key suffixed with the column's
-// name; a metric the column's CLI cannot produce is not put.
 func (s *Summary) putColumn(put func(string, float64), v string) {
 	put("sessions."+v, float64(s.Sessions[v]))
 	sub := 0
@@ -215,7 +179,6 @@ func (s *Summary) putColumnAdherenceAndReliability(put func(string, float64), v 
 	put("D.retry_loops."+v, float64(s.D.RetryLoops[v]))
 }
 
-// forbiddenKeys maps each forbidden shape to its key in Numbers.
 var forbiddenKeys = [][2]string{
 	{"git add -A", "git_add_all"}, {"git add .", "git_add_dot"}, {"git push --force", "push_force"},
 	{"--no-verify", "no_verify"}, {"commit chained to test", "commit_chained_to_test"},

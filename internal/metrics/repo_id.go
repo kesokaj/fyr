@@ -29,19 +29,3 @@ func ResolveRepoID(root string) string {
 	}
 	return trail.ResolveRepoID(trimmed)
 }
-
-func (w *writer) repoID(root string) string {
-	trimmed := strings.TrimSpace(root)
-	if trimmed == "" || trimmed == search.GlobalWorkspace {
-		return ""
-	}
-	if w.repoIDs == nil {
-		w.repoIDs = map[string]string{}
-	}
-	if id, ok := w.repoIDs[trimmed]; ok {
-		return id
-	}
-	id := ResolveRepoID(trimmed)
-	w.repoIDs[trimmed] = id
-	return id
-}

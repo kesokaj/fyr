@@ -3,6 +3,7 @@ package metrics
 import (
 	"testing"
 
+	"github.com/kesokaj/fyr/internal/metrics/show"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -13,38 +14,38 @@ func TestSubagentCapForRoleAlignedWithSearch(t *testing.T) {
 		wantAudit bool
 		wantCap   int
 	}{
-		// Empty/blank subagent agent_type intentionally falls back to auditSubagentCap (40),
+		// Empty/blank subagent agent_type intentionally falls back to AuditSubagentCap (40),
 		// whereas search.IsAuditSubagentRole treats empty as unresolved (false).
-		{"", false, auditSubagentCap},
-		{"   ", false, auditSubagentCap},
+		{"", false, show.AuditSubagentCap},
+		{"   ", false, show.AuditSubagentCap},
 		// Main is not an audit subagent role.
-		{"main", false, builderSubagentCap},
-		{"MAIN", false, builderSubagentCap},
+		{"main", false, show.BuilderSubagentCap},
+		{"MAIN", false, show.BuilderSubagentCap},
 		// Builder / coder / self roles get the 120-call budget.
-		{"self", false, builderSubagentCap},
-		{"builder", false, builderSubagentCap},
-		{"builder-phase0", false, builderSubagentCap},
-		{"workflow-builder-8a62522f", false, builderSubagentCap},
-		{"coder", false, builderSubagentCap},
-		{"coder-1", false, builderSubagentCap},
+		{"self", false, show.BuilderSubagentCap},
+		{"builder", false, show.BuilderSubagentCap},
+		{"builder-phase0", false, show.BuilderSubagentCap},
+		{"workflow-builder-8a62522f", false, show.BuilderSubagentCap},
+		{"coder", false, show.BuilderSubagentCap},
+		{"coder-1", false, show.BuilderSubagentCap},
 		// Audit, specialized, and custom/unknown roles align on the 40-call audit budget.
-		{"worker-1", true, auditSubagentCap},
-		{"worker-2", true, auditSubagentCap},
-		{"worker-x", true, auditSubagentCap},
-		{"implementer", true, auditSubagentCap},
-		{"reviewer", true, auditSubagentCap},
-		{"workflow-reviewer-abc", true, auditSubagentCap},
-		{"security", true, auditSubagentCap},
-		{"verifier", true, auditSubagentCap},
-		{"explorer", true, auditSubagentCap},
-		{"dreamer", true, auditSubagentCap},
-		{"documentation", true, auditSubagentCap},
-		{"research", true, auditSubagentCap},
-		{"sub-extra", true, auditSubagentCap},
-		{"judge", true, auditSubagentCap},
-		{"custom-role", true, auditSubagentCap},
-		{"custom-audit", true, auditSubagentCap},
-		{"unknown-role", true, auditSubagentCap},
+		{"worker-1", true, show.AuditSubagentCap},
+		{"worker-2", true, show.AuditSubagentCap},
+		{"worker-x", true, show.AuditSubagentCap},
+		{"implementer", true, show.AuditSubagentCap},
+		{"reviewer", true, show.AuditSubagentCap},
+		{"workflow-reviewer-abc", true, show.AuditSubagentCap},
+		{"security", true, show.AuditSubagentCap},
+		{"verifier", true, show.AuditSubagentCap},
+		{"explorer", true, show.AuditSubagentCap},
+		{"dreamer", true, show.AuditSubagentCap},
+		{"documentation", true, show.AuditSubagentCap},
+		{"research", true, show.AuditSubagentCap},
+		{"sub-extra", true, show.AuditSubagentCap},
+		{"judge", true, show.AuditSubagentCap},
+		{"custom-role", true, show.AuditSubagentCap},
+		{"custom-audit", true, show.AuditSubagentCap},
+		{"unknown-role", true, show.AuditSubagentCap},
 	}
 	for _, tc := range cases {
 		if gotAudit := search.IsAuditSubagentRole(tc.role); gotAudit != tc.wantAudit {

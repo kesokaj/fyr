@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/metrics/ingest"
 )
 
 func TestSubagentBudgetCapsBuilderVsAuditRoles(t *testing.T) {
@@ -150,30 +152,30 @@ func TestHookDenialsSeparatedFromToolErrorsAcrossMetrics(t *testing.T) {
 		idx, typ, status int
 		meta, errd       []byte
 	}{
-		{0, agyUser, 3, agyStepMeta(t0, "", nil), nil},
+		{0, ingest.AgyUser, 3, agyStepMeta(t0, "", nil), nil},
 		// Genuine Bash error.
-		{1, agyTool, agyFailed, agyStepMeta(t0+1, "run_command", map[string]string{"CommandLine": "go test ./..."}), pbB(2, []byte("exit status 1"))},
+		{1, ingest.AgyTool, agyFailed, agyStepMeta(t0+1, "run_command", map[string]string{"CommandLine": "go test ./..."}), pbB(2, []byte("exit status 1"))},
 		// [CLAMPED] denial.
-		{2, agyTool, agyFailed, cat(agyStepMeta(t0+2, "read_file", map[string]string{"Path": filepath.Join(root, "big.go")}), pbB(34, cat(pbB(4, []byte("deny")), pbB(5, []byte("[CLAMPED] file too big"))))), nil},
+		{2, ingest.AgyTool, agyFailed, cat(agyStepMeta(t0+2, "read_file", map[string]string{"Path": filepath.Join(root, "big.go")}), pbB(34, cat(pbB(4, []byte("deny")), pbB(5, []byte("[CLAMPED] file too big"))))), nil},
 		// [LEDGER] denial (new marker!).
-		{3, agyTool, agyFailed, agyStepMeta(t0+3, "read_file", map[string]string{"Path": filepath.Join(root, "a.go")}), pbB(2, []byte("[LEDGER] already read this turn"))},
+		{3, ingest.AgyTool, agyFailed, agyStepMeta(t0+3, "read_file", map[string]string{"Path": filepath.Join(root, "a.go")}), pbB(2, []byte("[LEDGER] already read this turn"))},
 		// [MODIFIED] denial (edit guard).
-		{4, agyTool, agyFailed, agyStepMeta(t0+4, "edit_file", map[string]string{"Path": filepath.Join(root, "a.go")}), pbB(2, []byte("[MODIFIED] file changed externally"))},
+		{4, ingest.AgyTool, agyFailed, agyStepMeta(t0+4, "edit_file", map[string]string{"Path": filepath.Join(root, "a.go")}), pbB(2, []byte("[MODIFIED] file changed externally"))},
 		// [VERIFY_STAMP] + [ASK_GUARD] denials.
-		{5, agyTool, agyFailed, agyStepMeta(t0+5, "run_command", map[string]string{"CommandLine": "git commit -m x"}), pbB(2, []byte("[VERIFY_STAMP] dirty go"))},
-		{6, agyTool, agyFailed, agyStepMeta(t0+6, "ask_question", map[string]string{}), pbB(2, []byte("[ASK_GUARD] no build questions"))},
+		{5, ingest.AgyTool, agyFailed, agyStepMeta(t0+5, "run_command", map[string]string{"CommandLine": "git commit -m x"}), pbB(2, []byte("[VERIFY_STAMP] dirty go"))},
+		{6, ingest.AgyTool, agyFailed, agyStepMeta(t0+6, "ask_question", map[string]string{}), pbB(2, []byte("[ASK_GUARD] no build questions"))},
 		// Hook-denied SKILL.md read must not count as loaded skill.
-		{7, agyTool, agyFailed, agyStepMeta(t0+7, "read_file", map[string]string{"Path": "/home/u/.gemini/config/skills/golang/SKILL.md"}), pbB(2, []byte("[UNCHANGED] already read"))},
+		{7, ingest.AgyTool, agyFailed, agyStepMeta(t0+7, "read_file", map[string]string{"Path": "/home/u/.gemini/config/skills/golang/SKILL.md"}), pbB(2, []byte("[UNCHANGED] already read"))},
 		// Succeeded tool call.
-		{8, agyTool, 3, agyStepMeta(t0+8, "read_file", map[string]string{"Path": filepath.Join(root, "ok.go")}), nil},
+		{8, ingest.AgyTool, 3, agyStepMeta(t0+8, "read_file", map[string]string{"Path": filepath.Join(root, "ok.go")}), nil},
 	})
 	writeConv("C_BLD", []struct {
 		idx, typ, status int
 		meta, errd       []byte
 	}{
-		{0, agyUser, 3, agyStepMeta(t0+10, "", nil), nil},
-		{1, agyTool, agyFailed, agyStepMeta(t0+11, "read_file", map[string]string{"Path": filepath.Join(root, "b.go")}), pbB(2, []byte("pre-tool hook denied: [CLAMPED]"))},
-		{2, agyTool, 3, agyStepMeta(t0+12, "edit_file", map[string]string{"Path": filepath.Join(root, "b.go")}), nil},
+		{0, ingest.AgyUser, 3, agyStepMeta(t0+10, "", nil), nil},
+		{1, ingest.AgyTool, agyFailed, agyStepMeta(t0+11, "read_file", map[string]string{"Path": filepath.Join(root, "b.go")}), pbB(2, []byte("pre-tool hook denied: [CLAMPED]"))},
+		{2, ingest.AgyTool, 3, agyStepMeta(t0+12, "edit_file", map[string]string{"Path": filepath.Join(root, "b.go")}), nil},
 	})
 
 	s := openT(t, Path(t.TempDir()))
@@ -185,7 +187,7 @@ func TestHookDenialsSeparatedFromToolErrorsAcrossMetrics(t *testing.T) {
 	}
 
 	// Hook-denied SKILL.md read must not be reported as loaded.
-	loadedSkills := s.readLoadedSkillsByConv()
+	loadedSkills := s.ingestDeps().ReadLoadedSkillsByConv()
 	if loadedSkills["C_MAIN"]["golang"] {
 		t.Errorf("hook-denied SKILL.md read was falsely treated as loaded skill")
 	}

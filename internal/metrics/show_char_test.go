@@ -15,45 +15,45 @@ func TestPopulateAdherenceVerbsCharacterization(t *testing.T) {
 	t.Parallel()
 	sum := &Summary{Sessions: map[string]int{"agy": 2}}
 	all := []sess{
-		{id: "s1", vendor: "agy", label: ""},
-		{id: "s2", vendor: "agy", label: ""},
-		{id: "s-hist", vendor: historical, label: ""},
+		{ID: "s1", Vendor: "agy", Label: ""},
+		{ID: "s2", Vendor: "agy", Label: ""},
+		{ID: "s-hist", Vendor: historical, Label: ""},
 	}
 	stepsByID := map[string][]stp{
 		"s1": {
 			// Unranged reads (including leading cd) count as skips.
-			{ext: "e1", kind: "tool", tool: "Bash", verbs: []string{"cat"}},
-			{ext: "e2", kind: "tool", tool: "Bash", verbs: []string{"cd", "nl"}},
-			{ext: "e3", kind: "tool", tool: "Bash", verbs: []string{"bat"}},
+			{Ext: "e1", Kind: "tool", Tool: "Bash", Verbs: []string{"cat"}},
+			{Ext: "e2", Kind: "tool", Tool: "Bash", Verbs: []string{"cd", "nl"}},
+			{Ext: "e3", Kind: "tool", Tool: "Bash", Verbs: []string{"bat"}},
 			// Denied unranged read does NOT count as skip.
-			{ext: "e4", kind: "tool", tool: "Bash", denied: true, verbs: []string{"cat"}},
+			{Ext: "e4", Kind: "tool", Tool: "Bash", Denied: true, Verbs: []string{"cat"}},
 			// First ranged read allowed; immediate repeat with same hash counts as skip.
-			{ext: "e5", kind: "tool", tool: "Bash", hash: "h-head", verbs: []string{"head"}},
-			{ext: "e6", kind: "tool", tool: "Bash", hash: "h-head", verbs: []string{"head"}},
+			{Ext: "e5", Kind: "tool", Tool: "Bash", Hash: "h-head", Verbs: []string{"head"}},
+			{Ext: "e6", Kind: "tool", Tool: "Bash", Hash: "h-head", Verbs: []string{"head"}},
 			// Successful Edit clears seenRanged; next same hash is allowed again.
-			{ext: "e7", kind: "tool", tool: "Edit"},
-			{ext: "e8", kind: "tool", tool: "Bash", hash: "h-head", verbs: []string{"head"}},
+			{Ext: "e7", Kind: "tool", Tool: "Edit"},
+			{Ext: "e8", Kind: "tool", Tool: "Bash", Hash: "h-head", Verbs: []string{"head"}},
 			// Compaction also clears seenRanged.
-			{ext: "e9", kind: "tool", tool: "Bash", hash: "h-sed", verbs: []string{"sed -n"}},
-			{ext: "e10", kind: "compaction"},
-			{ext: "e11", kind: "tool", tool: "Bash", hash: "h-sed", verbs: []string{"sed -n"}},
+			{Ext: "e9", Kind: "tool", Tool: "Bash", Hash: "h-sed", Verbs: []string{"sed -n"}},
+			{Ext: "e10", Kind: "compaction"},
+			{Ext: "e11", Kind: "tool", Tool: "Bash", Hash: "h-sed", Verbs: []string{"sed -n"}},
 			// In-place sed -i -n is not a ranged read; bat -r is ranged (first call ok).
-			{ext: "e12", kind: "tool", tool: "Bash", hash: "h-sedi", verbs: []string{"sed -i -n"}},
-			{ext: "e13", kind: "tool", tool: "Bash", hash: "h-batr", verbs: []string{"bat -r 1:20"}},
+			{Ext: "e12", Kind: "tool", Tool: "Bash", Hash: "h-sedi", Verbs: []string{"sed -i -n"}},
+			{Ext: "e13", Kind: "tool", Tool: "Bash", Hash: "h-batr", Verbs: []string{"bat -r 1:20"}},
 			// Additional verbs to test top-10 cap and deterministic tie-breaking.
-			{ext: "e14", kind: "tool", tool: "Bash", verbs: []string{"git status", "go test", "go vet", "fyr search"}},
-			{ext: "e15", kind: "tool", tool: "Bash", verbs: []string{"git status", "go test", "alpha", "beta", "gamma", "delta"}},
+			{Ext: "e14", Kind: "tool", Tool: "Bash", Verbs: []string{"git status", "go test", "go vet", "fyr search"}},
+			{Ext: "e15", Kind: "tool", Tool: "Bash", Verbs: []string{"git status", "go test", "alpha", "beta", "gamma", "delta"}},
 		},
 		"s2": {
 			// Duplicate (vendor, label, ext="e1") must be deduplicated across forked sessions.
-			{ext: "e1", kind: "tool", tool: "Bash", verbs: []string{"cat"}},
+			{Ext: "e1", Kind: "tool", Tool: "Bash", Verbs: []string{"cat"}},
 			// Non-tool/assistant/generation step ignored.
-			{ext: "e20", kind: "system", tool: "Bash", verbs: []string{"cat"}},
+			{Ext: "e20", Kind: "system", Tool: "Bash", Verbs: []string{"cat"}},
 		},
 		"s-hist": {
 			// Historical vendor counts BashReadSkips but never enters TopBashVerbs.
-			{ext: "h1", kind: "tool", tool: "Bash", verbs: []string{"cat"}},
-			{ext: "h2", kind: "tool", tool: "Bash", verbs: []string{"hist-only-verb"}},
+			{Ext: "h1", Kind: "tool", Tool: "Bash", Verbs: []string{"cat"}},
+			{Ext: "h2", Kind: "tool", Tool: "Bash", Verbs: []string{"hist-only-verb"}},
 		},
 	}
 

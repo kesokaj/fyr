@@ -21,33 +21,33 @@ func TestRootCanonicalizerNeverCollapsesHome(t *testing.T) {
 	tmpRoot := filepath.Clean(os.TempDir())
 	sandboxDir := filepath.Join("/home/alice", harness.StateDir, "sandbox")
 	all := []sess{
-		{id: "r0", root: "/"},
-		{id: "r1", root: "/home/alice"},
-		{id: "r2", root: "/Users/bob"},
-		{id: "r3", root: tmpRoot},
-		{id: "r4", root: "/tmp/fyr-agy-probes"},
-		{id: "r4b", root: "/tmp/fyr-agy-probes-999"},
-		{id: "r5", root: "/tmp/probes"},
-		{id: "r6", root: sandboxDir},
-		{id: "r7", root: "/tmp/smoke-42"},
-		{id: "r8", root: "/home/alice/code/fyr"},
-		{id: "r9", root: "/home/alice/code/other"},
-		{id: "r10", root: "/Users/bob/app"},
-		{id: "r11", root: "/tmp/real-proj"},
+		{ID: "r0", Root: "/"},
+		{ID: "r1", Root: "/home/alice"},
+		{ID: "r2", Root: "/Users/bob"},
+		{ID: "r3", Root: tmpRoot},
+		{ID: "r4", Root: "/tmp/fyr-agy-probes"},
+		{ID: "r4b", Root: "/tmp/fyr-agy-probes-999"},
+		{ID: "r5", Root: "/tmp/probes"},
+		{ID: "r6", Root: sandboxDir},
+		{ID: "r7", Root: "/tmp/smoke-42"},
+		{ID: "r8", Root: "/home/alice/code/fyr"},
+		{ID: "r9", Root: "/home/alice/code/other"},
+		{ID: "r10", Root: "/Users/bob/app"},
+		{ID: "r11", Root: "/tmp/real-proj"},
 	}
 	if userHome != "" {
-		all = append(all, sess{id: "rh", root: userHome})
+		all = append(all, sess{ID: "rh", Root: userHome})
 	}
 	vets := map[string]*projVetAcc{
-		"/":                   {turns: 1},
-		"/home/alice":         {turns: 1},
-		tmpRoot:               {turns: 1},
-		"/tmp/smoke-42":       {turns: 1},
-		sandboxDir:            {turns: 1},
-		"/tmp/probes":         {turns: 1},
-		"/tmp/fyr-agy-probes": {turns: 1},
-		"/tmp/real-proj":      {turns: 1},
-		"/Users/bob":          {turns: 1},
+		"/":                   {Turns: 1},
+		"/home/alice":         {Turns: 1},
+		tmpRoot:               {Turns: 1},
+		"/tmp/smoke-42":       {Turns: 1},
+		sandboxDir:            {Turns: 1},
+		"/tmp/probes":         {Turns: 1},
+		"/tmp/fyr-agy-probes": {Turns: 1},
+		"/tmp/real-proj":      {Turns: 1},
+		"/Users/bob":          {Turns: 1},
 		"/home/alice/code":    nil,
 	}
 	delete(vets, "/home/alice/code")

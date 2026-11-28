@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/metrics/ingest"
 )
 
 // Every Antigravity tool name the spec's shared vocabulary table maps is
@@ -49,7 +51,7 @@ func TestAgyToolVocabulary(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, w := range want {
-		if _, err := db.Exec(`INSERT INTO steps VALUES (?, ?, 3, ?, NULL, NULL)`, i, agyTool, agyStepMeta(1791367200+uint64(i), w.agy, map[string]string{})); err != nil {
+		if _, err := db.Exec(`INSERT INTO steps VALUES (?, ?, 3, ?, NULL, NULL)`, i, ingest.AgyTool, agyStepMeta(1791367200+uint64(i), w.agy, map[string]string{})); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -100,7 +102,7 @@ func TestAgyPathKeys(t *testing.T) {
 	}
 	for i, st := range steps {
 		meta := agyStepMeta(1791367200+uint64(i), st.tool, map[string]string{st.key: st.path})
-		if _, err := db.Exec(`INSERT INTO steps VALUES (?, ?, 3, ?, NULL, NULL)`, i, agyTool, meta); err != nil {
+		if _, err := db.Exec(`INSERT INTO steps VALUES (?, ?, 3, ?, NULL, NULL)`, i, ingest.AgyTool, meta); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -155,7 +157,7 @@ func TestV910SkillPathAnchored(t *testing.T) {
 	}
 	for i, tc := range cases {
 		meta := agyStepMeta(1791367200+uint64(i), "read_file", map[string]string{"Path": tc.path})
-		if _, err := db.Exec(`INSERT INTO steps VALUES (?, ?, 3, ?, NULL, NULL)`, i, agyTool, meta); err != nil {
+		if _, err := db.Exec(`INSERT INTO steps VALUES (?, ?, 3, ?, NULL, NULL)`, i, ingest.AgyTool, meta); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -1,4 +1,4 @@
-package metrics
+package ingest
 
 import (
 	"crypto/sha256"
@@ -11,13 +11,14 @@ import (
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
-// encodeWaveStamp prefixes a wave stamp with a length-framed label so labelled
+// EncodeWaveStamp prefixes a wave stamp with a length-framed label so labelled
 // dev-home waves coexist in work_waves without schema changes or collisions.
-func encodeWaveStamp(label, rawStamp string) string {
-	_, raw := decodeWaveStamp(strings.TrimSpace(rawStamp))
+func EncodeWaveStamp(label, rawStamp string) string {
+	_, raw := DecodeWaveStamp(strings.TrimSpace(rawStamp))
 	label = strings.TrimSpace(label)
 	if label == "" {
 		return raw
@@ -25,9 +26,9 @@ func encodeWaveStamp(label, rawStamp string) string {
 	return fmt.Sprintf("%d:%s:%s", len(label), label, raw)
 }
 
-// decodeWaveStamp splits an encoded wave stamp into its label and raw stamp;
+// DecodeWaveStamp splits an encoded wave stamp into its label and raw stamp;
 // unlabelled stamps return label == "".
-func decodeWaveStamp(stored string) (label, raw string) {
+func DecodeWaveStamp(stored string) (label, raw string) {
 	nStr, rest, ok := strings.Cut(stored, ":")
 	if !ok || nStr == "" {
 		return "", stored
@@ -52,30 +53,21 @@ func hasASCIIAlpha(s string) bool {
 	return false
 }
 
-func waveMatchesLabel(stamp string, o ShowOptions) bool {
-	lbl, _ := decodeWaveStamp(stamp)
-	if o.Label != "" {
-		return lbl == o.Label
-	}
-	if o.AllLabels {
-		return true
-	}
-	return lbl == ""
+// WorkRunKey returns a bounded run key scoped to a wave stamp and worker name.
+func WorkRunKey(rawStamp, worker string) string {
+	_, raw := DecodeWaveStamp(rawStamp)
+	return ScopedKey("work", raw+"/"+strings.TrimSpace(worker))
 }
 
-func workRunKey(rawStamp, worker string) string {
-	_, raw := decodeWaveStamp(rawStamp)
-	return scopedKey("work", raw+"/"+strings.TrimSpace(worker))
-}
-
-func scopedKey(prefix, val string) string {
-	prefix = printable(strings.TrimSpace(prefix))
-	val = printable(strings.TrimSpace(val))
+// ScopedKey builds a printable, length-bounded composite key with prefix.
+func ScopedKey(prefix, val string) string {
+	prefix = search.Printable(strings.TrimSpace(prefix))
+	val = search.Printable(strings.TrimSpace(val))
 	if val == "" {
 		return ""
 	}
 	joined := prefix + ":" + val
-	if len(joined) <= trialText {
+	if len(joined) <= trialTextLimit {
 		return joined
 	}
 	sum := sha256.Sum256([]byte(prefix + "\x00" + val))
@@ -85,25 +77,23 @@ func scopedKey(prefix, val string) string {
 	return fmt.Sprintf("%s:%x", prefix, sum[:16])
 }
 
-// ingestDevHome ingests labelled work waves, worker sandboxes, and dev-home
-// metrics.db trials/sessions under o.Label without mixing into unlabelled rows.
-func ingestDevHome(s *Store, o Options, r *Result, log io.Writer) {
-	if s == nil || s.db == nil || o.Source == "" || o.Label == "" || o.Run != "" {
+func (d Deps) ingestDevHome(o Options, r *Result, log io.Writer) {
+	if d.DB == nil || o.Source == "" || o.Label == "" || o.Run != "" {
 		return
 	}
-	s.ingestWorkWavesWithLabel(o.Source, o.Label, log)
-	s.ingestDevWorkerSandboxes(o, r, log)
-	s.ingestDevMetricsStore(o, log)
+	d.IngestWorkWavesWithLabel(o.Source, o.Label, log)
+	d.ingestDevWorkerSandboxes(o, r, log)
+	d.ingestDevMetricsStore(o, log)
 }
 
-func (s *Store) ingestDevWorkerSandboxes(o Options, r *Result, log io.Writer) {
+func (d Deps) ingestDevWorkerSandboxes(o Options, r *Result, log io.Writer) {
 	sbRoot := filepath.Join(o.Source, harness.StateDir, "sandbox")
 	for _, proj := range readRegularSubdirs(sbRoot, log) {
-		s.ingestProjectWorkerSandboxes(filepath.Join(sbRoot, proj), o, r, log)
+		d.ingestProjectWorkerSandboxes(filepath.Join(sbRoot, proj), o, r, log)
 	}
 }
 
-func (s *Store) ingestProjectWorkerSandboxes(projDir string, o Options, r *Result, log io.Writer) {
+func (d Deps) ingestProjectWorkerSandboxes(projDir string, o Options, r *Result, log io.Writer) {
 	for _, stamp := range readRegularSubdirs(projDir, log) {
 		stampDir := filepath.Join(projDir, stamp)
 		for _, worker := range readRegularSubdirs(stampDir, log) {
@@ -111,11 +101,11 @@ func (s *Store) ingestProjectWorkerSandboxes(projDir string, o Options, r *Resul
 			if !isRegularDir(workerHome) || !isRegularDir(filepath.Join(workerHome, ".gemini", "antigravity-cli")) {
 				continue
 			}
-			s.ingestAgy(Options{
+			d.ingestAgy(Options{
 				Home:   o.Home,
 				Source: workerHome,
 				Label:  o.Label,
-				Run:    workRunKey(stamp, worker),
+				Run:    WorkRunKey(stamp, worker),
 			}, r, log)
 		}
 	}
@@ -158,8 +148,8 @@ func sameRegularFile(a, b string) bool {
 	return errA == nil && errB == nil && os.SameFile(fa, fb)
 }
 
-func (s *Store) ingestDevMetricsStore(o Options, log io.Writer) {
-	srcPath := Path(o.Source)
+func (d Deps) ingestDevMetricsStore(o Options, log io.Writer) {
+	srcPath := metricsStorePath(o.Source)
 	fi, err := os.Lstat(srcPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return
@@ -172,14 +162,14 @@ func (s *Store) ingestDevMetricsStore(o Options, log io.Writer) {
 		noteSecondBrain(log, "%s: not a regular file", srcPath)
 		return
 	}
-	if sameRegularFile(s.path, srcPath) {
+	if sameRegularFile(d.StorePath, srcPath) {
 		return
 	}
-	tmp, err := os.MkdirTemp(filepath.Dir(s.path), "metrics-agy-")
+	tmp, err := os.MkdirTemp(filepath.Dir(d.StorePath), "metrics-agy-")
 	if err != nil {
 		noteSecondBrain(log, "dev metrics temp dir: %v", err)
 		return
 	}
 	defer os.RemoveAll(tmp)
-	s.copyDevStoreTables(srcPath, tmp, o.Label, log)
+	d.CopyDevStoreTables(srcPath, tmp, o.Label, log)
 }

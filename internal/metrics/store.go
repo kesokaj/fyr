@@ -260,6 +260,30 @@ func OpenMemory() (*Store, error) {
 	return s, nil
 }
 
+// Snapshot opens a read-only copy of the store at path, made in tmp: a dry
+// run and the dream's prompt read it without creating -wal or -shm beside
+// the store or running a migration. A missing store is os.ErrNotExist.
+func Snapshot(path, tmp string) (*Store, error) {
+	if _, err := os.Lstat(path); err != nil {
+		return nil, err
+	}
+	db, err := search.OpenCopy(filepath.Dir(path), filepath.Base(path), tmp)
+	if err != nil {
+		return nil, err
+	}
+	s := &Store{db: db, path: path}
+	var v string
+	if err := db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&v); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("metrics: %s: %w", path, err)
+	}
+	if v != fmt.Sprint(len(migrations)) {
+		db.Close()
+		return nil, fmt.Errorf("metrics.db schema %s, this binary reads %d; run fyr metrics ingest first", v, len(migrations))
+	}
+	return s, nil
+}
+
 func (s *Store) migrate() error {
 	have, hasMeta, err := readSchemaVersion(s.db, s.path)
 	if err != nil {

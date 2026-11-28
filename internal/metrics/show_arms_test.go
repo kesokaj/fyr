@@ -19,16 +19,16 @@ func TestAddArms(t *testing.T) {
 	day := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
 	ms := day.UnixMilli()
 	s := newSummary(day.AddDate(0, 0, -1), day.AddDate(0, 0, 1))
-	main := sess{id: "M", vendor: "agy", start: ms, end: ms + 60000}
-	sub := sess{id: "S", vendor: "agy", parent: "M", start: ms, end: ms + 1000}
-	s.add(main, []stp{
-		{ext: "1", kind: "tool", tool: "Grep", ts: ms + 1000},
-		{ext: "2", kind: "tool", tool: "Bash", hash: "h", ts: ms + 2000, verbs: []string{"fyr search --kind"}},
-		{ext: "3", kind: "tool", tool: "Bash", hash: "h", ts: ms + 3000},
-		{ext: "4", kind: "tool", ts: ms + 4000},
+	main := sess{ID: "M", Vendor: "agy", Start: ms, End: ms + 60000}
+	sub := sess{ID: "S", Vendor: "agy", Parent: "M", Start: ms, End: ms + 1000}
+	s.Add(main, []stp{
+		{Ext: "1", Kind: "tool", Tool: "Grep", TS: ms + 1000},
+		{Ext: "2", Kind: "tool", Tool: "Bash", Hash: "h", TS: ms + 2000, Verbs: []string{"fyr search --kind"}},
+		{Ext: "3", Kind: "tool", Tool: "Bash", Hash: "h", TS: ms + 3000},
+		{Ext: "4", Kind: "tool", TS: ms + 4000},
 	})
-	s.add(sub, []stp{{ext: "5", kind: "tool", tool: "Read", ts: ms + 5000}})
-	s.finish([]sess{main, sub}, nil, nil)
+	s.Add(sub, []stp{{Ext: "5", Kind: "tool", Tool: "Read", TS: ms + 5000}})
+	s.Finish([]sess{main, sub}, nil, nil, showEst())
 
 	for name, c := range map[string][2]int{
 		"subagents unknown":           {s.Subagents["agy"]["unknown"], 1},
@@ -97,7 +97,7 @@ func TestAgyConversationStepErrors(t *testing.T) {
 			db := filepath.Join(src, "conversations", "C9.db")
 			sqliteT(t, db, stmts...)
 			s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
-			if err := s.ingestAgyConversationWithOverrides(src, agyConv{id: "C9"}, db, t.TempDir(), Options{}, nil); err == nil {
+			if err := s.ingestAgyConversationWithOverrides(src, agyConv{ID: "C9"}, db, t.TempDir(), Options{}, nil); err == nil {
 				t.Fatal("ingestAgyConversationWithOverrides: nil error, want the steps read's")
 			}
 			var n int

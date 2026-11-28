@@ -144,7 +144,7 @@ func BuildDailyDigest(store *Store, home, repoRoot string, now time.Time) (Daily
 	if err != nil {
 		return DailyDigest{}, err
 	}
-	prevSum, err := store.Show(ShowOptions{Home: home, Project: repoRoot, Since: since7.Add(-7 * 24 * time.Hour), Now: since7, skipDeltas: true})
+	prevSum, err := store.Show(ShowOptions{Home: home, Project: repoRoot, Since: since7.Add(-7 * 24 * time.Hour), Now: since7, SkipDeltas: true})
 	if err != nil {
 		return DailyDigest{}, err
 	}
@@ -220,9 +220,9 @@ func (s *Store) Trajectories(o TrajectoryOptions) ([]SessionTrajectory, error) {
 			out := make([]report.TrajectoryStep, len(steps))
 			for i, st := range steps {
 				out[i] = report.TrajectoryStep{
-					Kind: st.kind, Tool: st.tool, Hash: st.hash,
-					IsErr: st.isErr, Denied: st.denied,
-					In: st.in, CR: st.cr, CW: st.cw, Ctx: st.ctx,
+					Kind: st.Kind, Tool: st.Tool, Hash: st.Hash,
+					IsErr: st.IsErr, Denied: st.Denied,
+					In: st.In, CR: st.CR, CW: st.CW, Ctx: st.Ctx,
 				}
 			}
 			return out, nil
@@ -269,7 +269,7 @@ func toReportSummary(s *Summary) *report.Summary {
 		TagCohort: s.TagCohort, AgentRoles: s.AgentRoles,
 		Deltas: s.Deltas, Diagnostics: s.Diagnostics, DailyDigest: s.DailyDigest,
 		Projects: s.Projects, Daily: s.Daily, Notes: s.Notes,
-		ReadCalls: s.readCalls, NumbersFn: s.Numbers,
+		ReadCalls: s.ReadCallsMap(), NumbersFn: s.Numbers,
 	}
 }
 
@@ -341,7 +341,7 @@ func mergeDevEvalPassK(sum *Summary, home string, since, now time.Time) {
 	}
 	m := map[string]PassK{}
 	tmp := &Summary{A: Outcome{PassK: m}}
-	tmp.passK(devAll, devTrials, devClaimed)
+	tmp.PassK(devAll, devTrials, devClaimed, showEst())
 	merged, changed := report.MergeUnseenPassK(sum.A.PassK, tmp.A.PassK, evalPrefix)
 	m = merged
 	sum.A.PassK = m
@@ -354,19 +354,11 @@ func openCopySQLiteFile(scratchHome, base string, relParts ...string) (*sql.DB, 
 	return report.OpenCopySQLiteFile(scratchHome, base, relParts...)
 }
 
-func openCopySQLiteFileWithPath(scratchHome, base string, relParts ...string) (*sql.DB, string, func(), bool) {
-	return report.OpenCopySQLiteFileWithPath(scratchHome, base, relParts...)
-}
-
 func readBoundedRegularFile(base string, relParts ...string) ([]byte, bool) {
 	return report.ReadBoundedRegularFile(base, relParts...)
 }
 
 func tableCols(db *sql.DB, table string) map[string]bool { return report.TableCols(db, table) }
-
-func redactHomePath(p string) string { return report.RedactHomePath(p) }
-
-func dedupLedgerSaves(s *Summary) int { return report.DedupLedgerSaves(toReportSummary(s)) }
 
 func priorDayString(day string) string { return report.PriorDayString(day) }
 
