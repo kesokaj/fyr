@@ -1,4 +1,4 @@
-package search
+package symgraph
 
 import (
 	"database/sql"
@@ -20,20 +20,20 @@ func edgeKindBit(kind string) int {
 	}
 }
 
-func buildSnapshotEdgeTables(g *symGraph, symMap map[int]int, fileIdxOf, pkgIdxOf map[string]int, files []GraphFile, numPkgs int) ([]GraphEdge, map[[2]int]edgeAccum, map[[2]int]edgeAccum, [][]int) {
+func buildSnapshotEdgeTables(g *Graph, symMap map[int]int, fileIdxOf, pkgIdxOf map[string]int, files []GraphFile, numPkgs int) ([]GraphEdge, map[[2]int]edgeAccum, map[[2]int]edgeAccum, [][]int) {
 	symAcc := map[[2]int]edgeAccum{}
 	fileAcc := map[[2]int]edgeAccum{}
 	pkgAcc := map[[2]int]edgeAccum{}
 	cycleSet := make([]map[int]bool, numPkgs)
-	for oldU, edges := range g.out {
+	for oldU, edges := range g.Out {
 		uSym, okU := symMap[oldU]
 		if !okU {
 			continue
 		}
-		uFile := fileIdxOf[g.syms[oldU].Path]
+		uFile := fileIdxOf[g.Syms[oldU].Path]
 		for _, e := range edges {
-			if vSym, okV := symMap[e.toIdx]; okV {
-				recordSnapshotSymEdge(e, uSym, vSym, uFile, fileIdxOf[g.syms[e.toIdx].Path], files, symAcc, fileAcc, pkgAcc, cycleSet)
+			if vSym, okV := symMap[e.ToIdx]; okV {
+				recordSnapshotSymEdge(e, uSym, vSym, uFile, fileIdxOf[g.Syms[e.ToIdx].Path], files, symAcc, fileAcc, pkgAcc, cycleSet)
 			}
 		}
 	}
@@ -41,44 +41,49 @@ func buildSnapshotEdgeTables(g *symGraph, symMap map[int]int, fileIdxOf, pkgIdxO
 	return finalizeGraphEdges(symAcc), fileAcc, pkgAcc, mapSetToSortedAdj(cycleSet)
 }
 
-func recordSnapshotSymEdge(e graphEdge, uSym, vSym, uFile, vFile int, files []GraphFile, symAcc, fileAcc, pkgAcc map[[2]int]edgeAccum, cycleSet []map[int]bool) {
+func recordSnapshotSymEdge(e Edge, uSym, vSym, uFile, vFile int, files []GraphFile, symAcc, fileAcc, pkgAcc map[[2]int]edgeAccum, cycleSet []map[int]bool) {
 	uPkg, vPkg := files[uFile].PkgIdx, files[vFile].PkgIdx
 	isTest := files[uFile].IsTest
-	bit := edgeKindBit(e.kind)
+	bit := edgeKindBit(e.Kind)
 	addEdgeAccum(symAcc, uSym, vSym, isTest, bit)
 	addEdgeAccum(fileAcc, uFile, vFile, isTest, bit)
 	addEdgeAccum(pkgAcc, uPkg, vPkg, isTest, bit)
-	if !isTest && !files[vFile].IsTest && !files[uFile].IsDoc && !files[vFile].IsDoc && uPkg != vPkg && isStructuralCycleEdgeKind(e.kind) && (!isGoSource(files[uFile].Path) || e.qualifiedPkg) {
-		if cycleSet[uPkg] == nil {
-			cycleSet[uPkg] = map[int]bool{}
-		}
-		cycleSet[uPkg][vPkg] = true
+	if !isTest && !files[vFile].IsTest && !files[uFile].IsDoc && !files[vFile].IsDoc && uPkg != vPkg && isStructuralCycleEdgeKind(e.Kind) && (!isGoSource(files[uFile].Path) || e.QualifiedPkg) {
+		addCycleAdj(cycleSet, uPkg, vPkg)
 	}
 }
 
-func mergeImportEdgesIntoTables(g *symGraph, fileIdxOf, pkgIdxOf map[string]int, files []GraphFile, fileAcc, pkgAcc map[[2]int]edgeAccum, cycleSet []map[int]bool) {
-	for _, ie := range g.importEdges {
-		uFile, okU := fileIdxOf[ie.fromPath]
-		vPkg, okVPkg := pkgIdxOf[ie.toPkg]
-		if !okU || !okVPkg {
-			continue
+func addCycleAdj(cycleSet []map[int]bool, uPkg, vPkg int) {
+	if cycleSet[uPkg] == nil {
+		cycleSet[uPkg] = map[int]bool{}
+	}
+	cycleSet[uPkg][vPkg] = true
+}
+
+func mergeImportEdgesIntoTables(g *Graph, fileIdxOf, pkgIdxOf map[string]int, files []GraphFile, fileAcc, pkgAcc map[[2]int]edgeAccum, cycleSet []map[int]bool) {
+	for _, ie := range g.ImportEdges {
+		addImportEdgeToTables(ie, fileIdxOf, pkgIdxOf, files, fileAcc, pkgAcc, cycleSet)
+	}
+}
+
+func addImportEdgeToTables(ie ResolvedImportEdge, fileIdxOf, pkgIdxOf map[string]int, files []GraphFile, fileAcc, pkgAcc map[[2]int]edgeAccum, cycleSet []map[int]bool) {
+	uFile, okU := fileIdxOf[ie.FromPath]
+	vPkg, okVPkg := pkgIdxOf[ie.ToPkg]
+	if !okU || !okVPkg {
+		return
+	}
+	uPkg, isTest := files[uFile].PkgIdx, files[uFile].IsTest
+	if ie.ToPath != "" {
+		if vFile, okV := fileIdxOf[ie.ToPath]; okV {
+			addEdgeAccum(fileAcc, uFile, vFile, isTest, EdgeMaskImport)
 		}
-		uPkg := files[uFile].PkgIdx
-		isTest := files[uFile].IsTest
-		if ie.toPath != "" {
-			if vFile, okV := fileIdxOf[ie.toPath]; okV {
-				addEdgeAccum(fileAcc, uFile, vFile, isTest, EdgeMaskImport)
-			}
-		}
-		if uPkg != vPkg {
-			addEdgeAccum(pkgAcc, uPkg, vPkg, isTest, EdgeMaskImport)
-			if !isTest && !files[uFile].IsDoc {
-				if cycleSet[uPkg] == nil {
-					cycleSet[uPkg] = map[int]bool{}
-				}
-				cycleSet[uPkg][vPkg] = true
-			}
-		}
+	}
+	if uPkg == vPkg {
+		return
+	}
+	addEdgeAccum(pkgAcc, uPkg, vPkg, isTest, EdgeMaskImport)
+	if !isTest && !files[uFile].IsDoc {
+		addCycleAdj(cycleSet, uPkg, vPkg)
 	}
 }
 
@@ -168,7 +173,10 @@ func topPageRankIndices(n int, scoreFn func(int) (float64, bool)) []int {
 	return order
 }
 
-func buildSnapshotHiddenCoupling(db *sql.DB, root string, fileIdxOf map[string]int, fileEdges []GraphEdge, astLinked map[[2]string]bool) []GraphHiddenCoupling {
+func buildSnapshotHiddenCoupling(sc *Scope, root string, fileIdxOf map[string]int, fileEdges []GraphEdge, astLinked map[[2]string]bool) []GraphHiddenCoupling {
+	if sc == nil || sc.QueryHiddenCoupling == nil {
+		return nil
+	}
 	linkedIdx := map[[2]int]bool{}
 	for _, e := range fileEdges {
 		a, b := e[0], e[1]
@@ -177,7 +185,7 @@ func buildSnapshotHiddenCoupling(db *sql.DB, root string, fileIdxOf map[string]i
 		}
 		linkedIdx[[2]int{a, b}] = true
 	}
-	hints := queryHiddenCouplingPairs(db, root, defaultHiddenCouplingMinCount, astLinked)
+	hints := sc.QueryHiddenCoupling(sc.DB, root, DefaultHiddenCouplingMinCount, astLinked)
 	var out []GraphHiddenCoupling
 	for _, h := range hints {
 		uIdx, okU := fileIdxOf[h.FileA]
@@ -201,7 +209,7 @@ func buildSnapshotHiddenCoupling(db *sql.DB, root string, fileIdxOf map[string]i
 	return out
 }
 
-func appendVendoredGraphData(db *sql.DB, projects []string, includeDocs bool, files []indexedFileMeta, syms []RankedSymbol) ([]indexedFileMeta, []RankedSymbol, []rawSymRef, error) {
+func appendVendoredGraphData(db *sql.DB, projects []string, includeDocs bool, files []FileMeta, syms []RankedSymbol) ([]FileMeta, []RankedSymbol, []RawSymRef, error) {
 	q, args := queryIndexedFilesSQL(db, projects)
 	vendFiles, err := scanIndexedFilesDB(db, q, args, includeDocs, true)
 	if err != nil || len(vendFiles) == 0 {
@@ -209,15 +217,15 @@ func appendVendoredGraphData(db *sql.DB, projects []string, includeDocs bool, fi
 	}
 	roots := map[string]*os.Root{}
 	defer closeRoots(roots)
-	var rawRefs []rawSymRef
+	var rawRefs []RawSymRef
 	for i := range vendFiles {
 		m := vendFiles[i]
-		text, ok := readVendoredFileText(roots, m.project, m.path)
+		text, ok := readVendoredFileText(roots, m.Project, m.Path)
 		if !ok {
 			continue
 		}
-		if m.lineCount <= 0 {
-			m.lineCount = len(splitLines(text))
+		if m.LineCount <= 0 {
+			m.LineCount = len(SplitLines(text))
 		}
 		files = append(files, m)
 		vSyms, vRefs := extractVendoredSymbolsAndRefs(m, text, includeDocs, len(syms))
@@ -225,10 +233,10 @@ func appendVendoredGraphData(db *sql.DB, projects []string, includeDocs bool, fi
 		rawRefs = append(rawRefs, vRefs...)
 	}
 	sort.Slice(files, func(i, j int) bool {
-		if files[i].path != files[j].path {
-			return files[i].path < files[j].path
+		if files[i].Path != files[j].Path {
+			return files[i].Path < files[j].Path
 		}
-		return files[i].project < files[j].project
+		return files[i].Project < files[j].Project
 	})
 	return files, syms, rawRefs, nil
 }
@@ -246,7 +254,7 @@ func readVendoredFileText(roots map[string]*os.Root, project, relPath string) (s
 		}
 		roots[project] = fsRoot
 	}
-	return readIndexable(fsRoot, filepath.FromSlash(relPath))
+	return ReadIndexable(fsRoot, filepath.FromSlash(relPath))
 }
 
 func closeRoots(roots map[string]*os.Root) {
@@ -257,37 +265,37 @@ func closeRoots(roots map[string]*os.Root) {
 	}
 }
 
-func extractVendoredSymbolsAndRefs(m indexedFileMeta, text string, includeDocs bool, baseIdx int) ([]RankedSymbol, []rawSymRef) {
-	norm, alias, ok := vendoredExtractAlias(m.path)
+func extractVendoredSymbolsAndRefs(m FileMeta, text string, includeDocs bool, baseIdx int) ([]RankedSymbol, []RawSymRef) {
+	norm, alias, ok := VendoredExtractAlias(m.Path)
 	if !ok {
 		return nil, nil
 	}
-	syRows, refRows := extractSymbolsAndRefs(alias, text)
+	syRows, refRows := ExtractSymbolsAndRefs(alias, text)
 	var syms []RankedSymbol
 	for _, sy := range syRows {
-		if !includeDocs && (isDocPath(norm) || sy.kind == "heading") {
+		if !includeDocs && (IsDocPath(norm) || sy.Kind == "heading") {
 			continue
 		}
-		pkg := sy.pkg
-		if !isDocPath(norm) && sy.kind != "heading" {
-			pkg = m.pkg
+		pkg := sy.Pkg
+		if !IsDocPath(norm) && sy.Kind != "heading" {
+			pkg = m.Pkg
 		}
 		syms = append(syms, RankedSymbol{
-			Idx: baseIdx + len(syms), Project: m.project, Path: m.path, OID: m.oid,
-			Name: sy.name, Recv: sy.recv, Kind: sy.kind, Pkg: pkg,
-			StartLine: sy.startLine, EndLine: sy.endLine, Sig: sy.sig,
-			Exported: sy.exported != 0, BodyHash: sy.bodyHash,
+			Idx: baseIdx + len(syms), Project: m.Project, Path: m.Path, OID: m.OID,
+			Name: sy.Name, Recv: sy.Recv, Kind: sy.Kind, Pkg: pkg,
+			StartLine: sy.StartLine, EndLine: sy.EndLine, Sig: sy.Sig,
+			Exported: sy.Exported != 0, BodyHash: sy.BodyHash,
 		})
 	}
-	var refs []rawSymRef
+	var refs []RawSymRef
 	for _, sr := range refRows {
-		if !includeDocs && (isDocPath(norm) || sr.kind == "doc_ref") {
+		if !includeDocs && (IsDocPath(norm) || sr.Kind == "doc_ref") {
 			continue
 		}
-		refs = append(refs, rawSymRef{
-			path: m.path, oid: m.oid, fromSym: sr.fromSym,
-			toPkg: stripVendoredExtractPrefix(sr.toPkg), toName: sr.toName,
-			kind: sr.kind, confidence: sr.confidence, weight: sr.weight, line: sr.line,
+		refs = append(refs, RawSymRef{
+			Path: m.Path, OID: m.OID, FromSym: sr.FromSym,
+			ToPkg: stripVendoredExtractPrefix(sr.ToPkg), ToName: sr.ToName,
+			Kind: sr.Kind, Confidence: sr.Confidence, Weight: sr.Weight, Line: sr.Line,
 		})
 	}
 	return syms, refs

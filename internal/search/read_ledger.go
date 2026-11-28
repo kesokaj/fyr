@@ -163,7 +163,7 @@ func fileSkeletonSummary(_, resolvedPath, text string) string {
 	syms, _ := extractSymbolsAndRefsForIndex(resolvedPath, text)
 	lines := make([]string, 0, len(syms))
 	for _, sy := range syms {
-		lines = append(lines, fmt.Sprintf("%d-%d  %s", sy.startLine, sy.endLine, sy.sig))
+		lines = append(lines, fmt.Sprintf("%d-%d  %s", sy.StartLine, sy.EndLine, sy.Sig))
 	}
 	return strings.Join(lines, "\n")
 }

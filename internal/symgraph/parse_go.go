@@ -1,4 +1,4 @@
-package search
+package symgraph
 
 import (
 	"go/ast"
@@ -106,7 +106,7 @@ func isStdlibTypeExpr(expr ast.Expr, imports map[string]string) bool {
 	return false
 }
 
-func callTarget(fset *token.FileSet, fun ast.Expr, fromSym string, imports map[string]string, locals, stdlibVars map[string]bool) (symRefRow, bool) {
+func callTarget(fset *token.FileSet, fun ast.Expr, fromSym string, imports map[string]string, locals, stdlibVars map[string]bool) (SymRefRow, bool) {
 	switch idx := fun.(type) {
 	case *ast.IndexExpr:
 		fun = idx.X
@@ -116,40 +116,40 @@ func callTarget(fset *token.FileSet, fun ast.Expr, fromSym string, imports map[s
 	switch fn := fun.(type) {
 	case *ast.Ident:
 		if isGoPredeclared(fn.Name) || locals[fn.Name] {
-			return symRefRow{}, false
+			return SymRefRow{}, false
 		}
-		return symRefRow{fromSym: fromSym, toName: fn.Name, kind: "call", confidence: ConfidenceExtracted, weight: WeightExtracted, line: fset.Position(fn.Pos()).Line}, true
+		return SymRefRow{FromSym: fromSym, ToName: fn.Name, Kind: "call", Confidence: ConfidenceExtracted, Weight: WeightExtracted, Line: fset.Position(fn.Pos()).Line}, true
 	case *ast.SelectorExpr:
 		return selectorCallTarget(fset, fn, fromSym, imports, stdlibVars)
 	}
-	return symRefRow{}, false
+	return SymRefRow{}, false
 }
 
-func importSelectorCallTarget(fset *token.FileSet, sel *ast.SelectorExpr, fromSym, root string, imports map[string]string, stdlibVars map[string]bool) (symRefRow, bool, bool) {
+func importSelectorCallTarget(fset *token.FileSet, sel *ast.SelectorExpr, fromSym, root string, imports map[string]string, stdlibVars map[string]bool) (SymRefRow, bool, bool) {
 	if imp, isImp := imports[root]; isImp {
 		if isStdlibImport(imp) {
-			return symRefRow{}, false, true
+			return SymRefRow{}, false, true
 		}
 		if _, direct := sel.X.(*ast.Ident); direct {
-			return symRefRow{fromSym: fromSym, toPkg: imp, toName: sel.Sel.Name, kind: "call", confidence: ConfidenceExtracted, weight: WeightExtracted, line: fset.Position(sel.Sel.Pos()).Line}, true, true
+			return SymRefRow{FromSym: fromSym, ToPkg: imp, ToName: sel.Sel.Name, Kind: "call", Confidence: ConfidenceExtracted, Weight: WeightExtracted, Line: fset.Position(sel.Sel.Pos()).Line}, true, true
 		}
 	}
 	if stdlibVars[root] {
-		return symRefRow{}, false, true
+		return SymRefRow{}, false, true
 	}
-	return symRefRow{}, false, false
+	return SymRefRow{}, false, false
 }
 
-func selectorCallTarget(fset *token.FileSet, sel *ast.SelectorExpr, fromSym string, imports map[string]string, stdlibVars map[string]bool) (symRefRow, bool) {
+func selectorCallTarget(fset *token.FileSet, sel *ast.SelectorExpr, fromSym string, imports map[string]string, stdlibVars map[string]bool) (SymRefRow, bool) {
 	if root := rootIdent(sel.X); root != "" {
 		if row, ok, handled := importSelectorCallTarget(fset, sel, fromSym, root, imports, stdlibVars); handled {
 			return row, ok
 		}
 	}
 	if isStdlibOnlyMethod(sel.Sel.Name) || isSQLChain(sel.X) {
-		return symRefRow{}, false
+		return SymRefRow{}, false
 	}
-	return symRefRow{fromSym: fromSym, toName: sel.Sel.Name, kind: "call", confidence: ConfidenceExtracted, weight: WeightExtracted, line: fset.Position(sel.Sel.Pos()).Line}, true
+	return SymRefRow{FromSym: fromSym, ToName: sel.Sel.Name, Kind: "call", Confidence: ConfidenceExtracted, Weight: WeightExtracted, Line: fset.Position(sel.Sel.Pos()).Line}, true
 }
 
 func rootIdent(expr ast.Expr) string {

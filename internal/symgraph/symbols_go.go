@@ -1,4 +1,4 @@
-package search
+package symgraph
 
 import (
 	"go/ast"
@@ -15,26 +15,28 @@ const (
 	WeightInferred      = 0.7
 )
 
-type symbolRow struct {
-	oid, name, recv, kind, pkg, sig, bodyHash string
-	startLine, endLine, exported              int
+// SymbolRow is one extracted symbol declaration ready for SQLite insertion.
+type SymbolRow struct {
+	OID, Name, Recv, Kind, Pkg, Sig, BodyHash string
+	StartLine, EndLine, Exported              int
 }
 
-type symRefRow struct {
-	oid, fromSym, toPkg, toName, kind, confidence string
-	weight                                        float64
-	line                                          int
+// SymRefRow is one extracted symbol reference ready for SQLite insertion.
+type SymRefRow struct {
+	OID, FromSym, ToPkg, ToName, Kind, Confidence string
+	Weight                                        float64
+	Line                                          int
 }
 
-func extractGoSymbolsCore(filePath, text string, includeImplicit bool) ([]symbolRow, []symRefRow) {
-	if isExcludedASTPath(filePath) || isGeneratedGoText(text) {
+func extractGoSymbolsCore(filePath, text string, includeImplicit bool) ([]SymbolRow, []SymRefRow) {
+	if IsExcludedASTPath(filePath) || isGeneratedGoText(text) {
 		return nil, nil
 	}
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filePath, text, parser.SkipObjectResolution)
-	pkgName := canonicalPkgDir(filePath)
-	var syms []symbolRow
-	var refs []symRefRow
+	pkgName := CanonicalPkgDir(filePath)
+	var syms []SymbolRow
+	var refs []SymRefRow
 	if f != nil {
 		imports := parseGoImports(f)
 		refs = append(refs, extractGoImportRefs(fset, f)...)
@@ -44,17 +46,17 @@ func extractGoSymbolsCore(filePath, text string, includeImplicit bool) ([]symbol
 	}
 	if err != nil {
 		fbSyms, fbRefs := parseGoFallback(text, pkgName)
-		syms = mergeSymbols(syms, fbSyms)
+		syms = MergeSymbols(syms, fbSyms)
 		refs = append(refs, fbRefs...)
 	}
 	if includeImplicit {
-		refs = append(refs, matchImplicitInterfaces(syms)...)
+		refs = append(refs, MatchImplicitInterfaces(syms)...)
 	}
-	return syms, dedupSymRefs(refs)
+	return syms, DedupSymRefs(refs)
 }
 
-func extractGoImportRefs(fset *token.FileSet, f *ast.File) []symRefRow {
-	var out []symRefRow
+func extractGoImportRefs(fset *token.FileSet, f *ast.File) []SymRefRow {
+	var out []SymRefRow
 	for _, imp := range f.Imports {
 		if imp.Path == nil {
 			continue
@@ -63,10 +65,10 @@ func extractGoImportRefs(fset *token.FileSet, f *ast.File) []symRefRow {
 		if p == "" || isStdlibImport(p) {
 			continue
 		}
-		out = append(out, symRefRow{
-			fromSym: "<import>", toPkg: p, toName: "<import>",
-			kind: "import", confidence: ConfidenceExtracted, weight: WeightExtracted,
-			line: fset.Position(imp.Pos()).Line,
+		out = append(out, SymRefRow{
+			FromSym: "<import>", ToPkg: p, ToName: "<import>",
+			Kind: "import", Confidence: ConfidenceExtracted, Weight: WeightExtracted,
+			Line: fset.Position(imp.Pos()).Line,
 		})
 	}
 	return out
@@ -93,9 +95,9 @@ func isStdlibImport(impPath string) bool {
 	return !strings.Contains(first, ".")
 }
 
-func walkGoFile(fset *token.FileSet, f *ast.File, text, pkgName string, imports map[string]string) ([]symbolRow, []symRefRow) {
-	var syms []symbolRow
-	var refs []symRefRow
+func walkGoFile(fset *token.FileSet, f *ast.File, text, pkgName string, imports map[string]string) ([]SymbolRow, []SymRefRow) {
+	var syms []SymbolRow
+	var refs []SymRefRow
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
@@ -112,9 +114,9 @@ func walkGoFile(fset *token.FileSet, f *ast.File, text, pkgName string, imports 
 	return syms, refs
 }
 
-func extractGoFuncSym(fset *token.FileSet, fd *ast.FuncDecl, text, pkgName string) (symbolRow, bool) {
+func extractGoFuncSym(fset *token.FileSet, fd *ast.FuncDecl, text, pkgName string) (SymbolRow, bool) {
 	if fd.Name == nil {
-		return symbolRow{}, false
+		return SymbolRow{}, false
 	}
 	recv := goRecvTypeName(fd)
 	kind := "func"
@@ -123,10 +125,10 @@ func extractGoFuncSym(fset *token.FileSet, fd *ast.FuncDecl, text, pkgName strin
 	}
 	start := fset.Position(fd.Pos()).Line
 	end := max(start, fset.Position(fd.End()).Line)
-	return symbolRow{
-		name: fd.Name.Name, recv: recv, kind: kind, pkg: pkgName,
-		startLine: start, endLine: end, sig: goFuncSig(fset, fd, text),
-		exported: boolInt(ast.IsExported(fd.Name.Name)), bodyHash: hashNodeText(fset, fd.Pos(), fd.End(), text),
+	return SymbolRow{
+		Name: fd.Name.Name, Recv: recv, Kind: kind, Pkg: pkgName,
+		StartLine: start, EndLine: end, Sig: goFuncSig(fset, fd, text),
+		Exported: boolToInt(ast.IsExported(fd.Name.Name)), BodyHash: HashNodeText(fset, fd.Pos(), fd.End(), text),
 	}, true
 }
 
@@ -155,12 +157,12 @@ func goFuncSig(fset *token.FileSet, fd *ast.FuncDecl, text string) string {
 	if fd.Body != nil {
 		endPos = fd.Body.Pos()
 	}
-	return strings.TrimSpace(strings.Join(strings.Fields(sliceNodeText(fset, fd.Pos(), endPos, text)), " "))
+	return strings.TrimSpace(strings.Join(strings.Fields(SliceNodeText(fset, fd.Pos(), endPos, text)), " "))
 }
 
-func extractGoGenDecl(fset *token.FileSet, gd *ast.GenDecl, text, pkgName string, imports map[string]string) ([]symbolRow, []symRefRow) {
-	var syms []symbolRow
-	var refs []symRefRow
+func extractGoGenDecl(fset *token.FileSet, gd *ast.GenDecl, text, pkgName string, imports map[string]string) ([]SymbolRow, []SymRefRow) {
+	var syms []SymbolRow
+	var refs []SymRefRow
 	for _, spec := range gd.Specs {
 		switch sp := spec.(type) {
 		case *ast.TypeSpec:
@@ -174,7 +176,7 @@ func extractGoGenDecl(fset *token.FileSet, gd *ast.GenDecl, text, pkgName string
 	return syms, refs
 }
 
-func extractGoTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *ast.TypeSpec, text, pkgName string, imports map[string]string) ([]symbolRow, []symRefRow) {
+func extractGoTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *ast.TypeSpec, text, pkgName string, imports map[string]string) ([]SymbolRow, []SymRefRow) {
 	if ts.Name == nil {
 		return nil, nil
 	}
@@ -185,12 +187,12 @@ func extractGoTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *ast.TypeSpec, t
 	case *ast.InterfaceType:
 		kind = "interface"
 	}
-	start, end := specLineSpan(fset, gd, ts)
+	start, end := SpecLineSpan(fset, gd, ts)
 	name := ts.Name.Name
-	syms := []symbolRow{{
-		name: name, kind: kind, pkg: pkgName, startLine: start, endLine: end,
-		sig: "type " + name + " " + kind, exported: boolInt(ast.IsExported(name)),
-		bodyHash: hashNodeText(fset, ts.Pos(), ts.End(), text),
+	syms := []SymbolRow{{
+		Name: name, Kind: kind, Pkg: pkgName, StartLine: start, EndLine: end,
+		Sig: "type " + name + " " + kind, Exported: boolToInt(ast.IsExported(name)),
+		BodyHash: HashNodeText(fset, ts.Pos(), ts.End(), text),
 	}}
 	if iface, ok := ts.Type.(*ast.InterfaceType); ok {
 		syms = append(syms, extractIfaceMethods(fset, name, pkgName, iface, text)...)
@@ -198,38 +200,38 @@ func extractGoTypeSpec(fset *token.FileSet, gd *ast.GenDecl, ts *ast.TypeSpec, t
 	return syms, extractTypeExprRefs(fset, ts.Type, name, imports)
 }
 
-func extractIfaceMethods(fset *token.FileSet, ifaceName, pkgName string, iface *ast.InterfaceType, text string) []symbolRow {
+func extractIfaceMethods(fset *token.FileSet, ifaceName, pkgName string, iface *ast.InterfaceType, text string) []SymbolRow {
 	if iface.Methods == nil {
 		return nil
 	}
-	var out []symbolRow
+	var out []SymbolRow
 	for _, field := range iface.Methods.List {
 		if _, ok := field.Type.(*ast.FuncType); !ok || len(field.Names) == 0 {
 			continue
 		}
 		start := fset.Position(field.Pos()).Line
 		end := fset.Position(field.End()).Line
-		sig := strings.TrimSpace(strings.Join(strings.Fields(sliceNodeText(fset, field.Pos(), field.End(), text)), " "))
-		hash := hashNodeText(fset, field.Pos(), field.End(), text)
+		sig := strings.TrimSpace(strings.Join(strings.Fields(SliceNodeText(fset, field.Pos(), field.End(), text)), " "))
+		hash := HashNodeText(fset, field.Pos(), field.End(), text)
 		for _, id := range field.Names {
-			out = append(out, symbolRow{
-				name: id.Name, recv: ifaceName, kind: "interface_method", pkg: pkgName,
-				startLine: start, endLine: end, sig: sig,
-				exported: boolInt(ast.IsExported(id.Name)), bodyHash: hash,
+			out = append(out, SymbolRow{
+				Name: id.Name, Recv: ifaceName, Kind: "interface_method", Pkg: pkgName,
+				StartLine: start, EndLine: end, Sig: sig,
+				Exported: boolToInt(ast.IsExported(id.Name)), BodyHash: hash,
 			})
 		}
 	}
 	return out
 }
 
-func extractGoValueSpec(fset *token.FileSet, gd *ast.GenDecl, vs *ast.ValueSpec, text, pkgName string, imports map[string]string) ([]symbolRow, []symRefRow) {
+func extractGoValueSpec(fset *token.FileSet, gd *ast.GenDecl, vs *ast.ValueSpec, text, pkgName string, imports map[string]string) ([]SymbolRow, []SymRefRow) {
 	valKind := "var"
 	if gd.Tok == token.CONST {
 		valKind = "const"
 	}
-	start, end := specLineSpan(fset, gd, vs)
-	hash := hashNodeText(fset, vs.Pos(), vs.End(), text)
-	var syms []symbolRow
+	start, end := SpecLineSpan(fset, gd, vs)
+	hash := HashNodeText(fset, vs.Pos(), vs.End(), text)
+	var syms []SymbolRow
 	var fromSym string
 	for _, id := range vs.Names {
 		if id.Name == "_" || id.Name == "" {
@@ -238,10 +240,10 @@ func extractGoValueSpec(fset *token.FileSet, gd *ast.GenDecl, vs *ast.ValueSpec,
 		if fromSym == "" {
 			fromSym = id.Name
 		}
-		syms = append(syms, symbolRow{
-			name: id.Name, recv: "", kind: valKind, pkg: pkgName,
-			startLine: start, endLine: end, sig: valKind + " " + id.Name,
-			exported: boolInt(ast.IsExported(id.Name)), bodyHash: hash,
+		syms = append(syms, SymbolRow{
+			Name: id.Name, Recv: "", Kind: valKind, Pkg: pkgName,
+			StartLine: start, EndLine: end, Sig: valKind + " " + id.Name,
+			Exported: boolToInt(ast.IsExported(id.Name)), BodyHash: hash,
 		})
 	}
 	if fromSym == "" {

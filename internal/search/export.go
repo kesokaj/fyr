@@ -56,7 +56,7 @@ func Unticked(text string) int {
 	n := 0
 	var f fence
 	for _, l := range splitLines(text) {
-		if f.step(l) || f.inside() {
+		if f.Step(l) || f.Inside() {
 			continue
 		}
 		if unticked.MatchString(l) {

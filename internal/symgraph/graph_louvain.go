@@ -1,4 +1,4 @@
-package search
+package symgraph
 
 import (
 	"math"
@@ -218,7 +218,8 @@ func canonicalizeCommunities(comm []int) []int {
 	return out
 }
 
-func (g *symGraph) packageCommunities() map[string]int {
+// PackageCommunities partitions production packages into deterministic Louvain communities.
+func (g *Graph) PackageCommunities() map[string]int {
 	if g == nil {
 		return nil
 	}

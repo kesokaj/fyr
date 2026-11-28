@@ -10,13 +10,6 @@ import (
 	"time"
 )
 
-// LinkedRecord is a BUG-NNN or ADR-NNN record linked to a file or symbol.
-type LinkedRecord struct {
-	ID     string
-	Status string
-	Title  string
-}
-
 // Options are the flags of `fyr search` and `fyr index`.
 type Options struct {
 	Dir                 string                                                                               // working directory the command runs in

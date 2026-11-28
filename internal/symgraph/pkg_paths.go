@@ -1,4 +1,4 @@
-package search
+package symgraph
 
 import (
 	"database/sql"
@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-func canonicalPkgDir(filePath string) string {
+func CanonicalPkgDir(filePath string) string {
 	p := strings.ReplaceAll(strings.TrimSpace(filePath), "\\", "/")
 	p = strings.TrimPrefix(path.Clean(p), "./")
 	for strings.HasPrefix(p, "../") {
@@ -37,11 +37,11 @@ func topLevelLayer(p string) string {
 	return first
 }
 
-func isCodePath(p string) bool {
+func IsCodePath(p string) bool {
 	return codeExt[strings.ToLower(path.Ext(p))]
 }
 
-func isDocPath(p string) bool {
+func IsDocPath(p string) bool {
 	switch strings.ToLower(path.Ext(p)) {
 	case ".md", ".mdx":
 		return true
@@ -57,7 +57,7 @@ func isTSSource(p string) bool {
 	return false
 }
 
-func isTestPath(p string) bool {
+func IsTestPath(p string) bool {
 	low := strings.ToLower(strings.ReplaceAll(p, "\\", "/"))
 	base := path.Base(low)
 	if strings.HasSuffix(base, "_test.go") || strings.HasSuffix(base, "_test.py") || strings.HasPrefix(base, "test_") {
@@ -91,7 +91,7 @@ func normalizeASTPath(p string) string {
 	return norm
 }
 
-func isExcludedASTPath(p string) bool {
+func IsExcludedASTPath(p string) bool {
 	return isExcludedASTPathOpt(p, false)
 }
 
@@ -124,7 +124,7 @@ func IsVendoredSkillPath(p string) bool {
 	return norm != "" && isVendoredSkillPath(norm)
 }
 
-func vendoredExtractAlias(p string) (string, string, bool) {
+func VendoredExtractAlias(p string) (string, string, bool) {
 	norm := normalizeASTPath(p)
 	if norm == "" || !isVendoredSkillPath(norm) || isExcludedASTPathOpt(norm, true) {
 		return "", "", false
@@ -153,7 +153,7 @@ func isVendoredSkillPath(norm string) bool {
 }
 
 func isGeneratedGoText(text string) bool {
-	for i, line := range splitLines(text) {
+	for i, line := range SplitLines(text) {
 		if i > 40 {
 			break
 		}
@@ -168,21 +168,17 @@ func isGeneratedGoText(text string) bool {
 	return false
 }
 
-func loadGoModules(sc *scope) map[string]string {
+func LoadGoModules(sc *Scope) map[string]string {
 	if sc == nil {
 		return map[string]string{}
 	}
-	var db *sql.DB
-	if sc.st != nil {
-		db = sc.st.db
-	}
-	return loadGoModulesFromDB(db, sc.projects)
+	return LoadGoModulesFromDB(sc.DB, sc.Projects)
 }
 
-func loadGoModulesFromDB(db *sql.DB, projects []string) map[string]string {
+func LoadGoModulesFromDB(db *sql.DB, projects []string) map[string]string {
 	out := map[string]string{}
 	for _, root := range projects {
-		readGoModAt(root, "go.mod", out)
+		ReadGoModAt(root, "go.mod", out)
 	}
 	if db == nil || len(projects) == 0 {
 		return out
@@ -196,14 +192,14 @@ func loadGoModulesFromDB(db *sql.DB, projects []string) map[string]string {
 	defer rows.Close()
 	for rows.Next() {
 		var proj, relPath string
-		if rows.Scan(&proj, &relPath) == nil && !isExcludedASTPath(relPath) {
-			readGoModAt(proj, relPath, out)
+		if rows.Scan(&proj, &relPath) == nil && !IsExcludedASTPath(relPath) {
+			ReadGoModAt(proj, relPath, out)
 		}
 	}
 	return out
 }
 
-func readGoModAt(root, relPath string, out map[string]string) {
+func ReadGoModAt(root, relPath string, out map[string]string) {
 	if root == "" || relPath == "" {
 		return
 	}
@@ -217,7 +213,7 @@ func readGoModAt(root, relPath string, out map[string]string) {
 	}
 	defer r.Close()
 	fi, err := r.Lstat(rel)
-	if err != nil || !fi.Mode().IsRegular() || fi.Size() > maxFileBytes {
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() > MaxFileBytes {
 		return
 	}
 	f, err := r.Open(rel)
@@ -225,19 +221,19 @@ func readGoModAt(root, relPath string, out map[string]string) {
 		return
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, maxFileBytes+1))
-	if err != nil || len(data) > maxFileBytes {
+	data, err := io.ReadAll(io.LimitReader(f, MaxFileBytes+1))
+	if err != nil || len(data) > MaxFileBytes {
 		return
 	}
 	if mod := parseGoModModule(string(data)); mod != "" {
 		if _, exists := out[mod]; !exists {
-			out[mod] = canonicalPkgDir(relPath)
+			out[mod] = CanonicalPkgDir(relPath)
 		}
 	}
 }
 
 func parseGoModModule(text string) string {
-	for _, line := range splitLines(text) {
+	for _, line := range SplitLines(text) {
 		if idx := strings.Index(line, "//"); idx >= 0 {
 			line = line[:idx]
 		}
@@ -249,7 +245,7 @@ func parseGoModModule(text string) string {
 	return ""
 }
 
-func resolveImportTarget(fromPath, toPkg string, goMods map[string]string, pkgSet map[string]bool, fileByStem map[string]string) (string, string, bool) {
+func ResolveImportTarget(fromPath, toPkg string, goMods map[string]string, pkgSet map[string]bool, fileByStem map[string]string) (string, string, bool) {
 	if toPkg == "" {
 		return "", "", false
 	}
@@ -303,14 +299,14 @@ func resolveTSImportTarget(toPkg string, pkgSet map[string]bool, fileByStem map[
 		return "", "", false
 	}
 	if f, ok := fileByStem[clean]; ok {
-		return canonicalPkgDir(f), f, true
+		return CanonicalPkgDir(f), f, true
 	}
 	stem := trimTSExtension(clean)
 	if f, ok := fileByStem[stem]; ok {
-		return canonicalPkgDir(f), f, true
+		return CanonicalPkgDir(f), f, true
 	}
 	if f, ok := fileByStem[stem+"/index"]; ok {
-		return canonicalPkgDir(f), f, true
+		return CanonicalPkgDir(f), f, true
 	}
 	if pkgSet[clean] {
 		return clean, "", true

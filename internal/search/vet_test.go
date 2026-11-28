@@ -861,9 +861,9 @@ func TestFTSTurnCacheScopedPerStore(t *testing.T) {
 	t.Parallel()
 	s1 := &store{}
 	s2 := &store{}
-	want := []ftsChunkHit{{path: "internal/vet/vet.go", line: 10, heading: "vet"}}
+	want := []ftsChunkHit{{Path: "internal/vet/vet.go", Line: 10, Heading: "vet"}}
 	s1.storeFTSTurnCache("k1", want)
-	if got, ok := s1.lookupFTSTurnCache("k1"); !ok || len(got) != 1 || got[0].path != want[0].path {
+	if got, ok := s1.lookupFTSTurnCache("k1"); !ok || len(got) != 1 || got[0].Path != want[0].Path {
 		t.Fatalf("s1 lookup = (%+v, %v), want cached hit", got, ok)
 	}
 	if got, ok := s2.lookupFTSTurnCache("k1"); ok || len(got) != 0 {

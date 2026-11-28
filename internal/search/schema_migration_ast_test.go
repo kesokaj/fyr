@@ -341,13 +341,13 @@ func UseAlpha() error {
 	if err != nil {
 		t.Fatalf("loadSymGraphOpts: %v", err)
 	}
-	_, deps := g.summarizePackages()
+	_, deps := g.SummarizePackages()
 	if strings.Join(deps["internal/alpha"], ",") != "internal/beta" {
 		t.Fatalf("internal/alpha deps = %v, want [internal/beta] (aliased import resolved, external ignored)", deps["internal/alpha"])
 	}
-	for _, idx := range g.byName["Open"] {
-		if len(g.in[idx]) != 0 {
-			t.Fatalf("phantom fallthrough edge attached to internal/unrelated.Open: %+v", g.in[idx])
+	for _, idx := range g.ByName["Open"] {
+		if len(g.In[idx]) != 0 {
+			t.Fatalf("phantom fallthrough edge attached to internal/unrelated.Open: %+v", g.In[idx])
 		}
 	}
 	assertNoStdlibOrModlessTailPhantom(t)

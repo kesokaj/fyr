@@ -56,7 +56,7 @@ func ActiveSessionHandler() error {
 	if err != nil {
 		t.Fatalf("loadSymGraphOpts: %v", err)
 	}
-	ranked := g.rank("ReconcileIndex", map[string]bool{"internal/core/session_active.go": true})
+	ranked := g.Rank("ReconcileIndex", map[string]bool{"internal/core/session_active.go": true})
 	if len(ranked) == 0 {
 		t.Fatalf("expected non-empty ranked symbols, got 0")
 	}
@@ -402,7 +402,7 @@ func BenchmarkPersonalizedPageRank(b *testing.B) {
 	active := map[string]bool{"internal/core/session_active.go": true}
 	b.ResetTimer()
 	for range b.N {
-		if ranked := g.rank("ReconcileIndex", active); len(ranked) == 0 {
+		if ranked := g.Rank("ReconcileIndex", active); len(ranked) == 0 {
 			b.Fatal("expected non-empty ranked symbols")
 		}
 	}

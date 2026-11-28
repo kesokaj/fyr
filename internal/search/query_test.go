@@ -17,11 +17,11 @@ func TestChunkMarkdownHeadingsAndWindows(t *testing.T) {
 	if len(cs) != 4 {
 		t.Fatalf("want 4 chunks (Top, Second split into 3), got %d: %+v", len(cs), cs)
 	}
-	if cs[0].heading != "Top" || cs[0].line != 1 || cs[1].heading != "Second" || cs[1].line != 6 || cs[2].line != 46 || cs[3].line != 86 {
+	if cs[0].Heading != "Top" || cs[0].Line != 1 || cs[1].Heading != "Second" || cs[1].Line != 6 || cs[2].Line != 46 || cs[3].Line != 86 {
 		t.Errorf("unexpected chunks: %+v", cs)
 	}
 	go_ := chunkText("x.go", strings.Repeat("x\n", 41))
-	if len(go_) != 2 || go_[1].line != 41 || go_[0].heading != "" {
+	if len(go_) != 2 || go_[1].Line != 41 || go_[0].Heading != "" {
 		t.Errorf("code windows: %+v", go_)
 	}
 }
@@ -32,7 +32,7 @@ func TestRefsIDsAndPaths(t *testing.T) {
 	want := map[string]int{"BUG-049": 1, "ADR-033a": 1, "internal/harness/repo.go": 1, "cmd/x/main.go": 2, "plans/x.md": 2, "internal/y.go": 2}
 	got := map[string]int{}
 	for _, r := range rs {
-		got[r.target] = r.line
+		got[r.Target] = r.Line
 	}
 	for k, line := range want {
 		if got[k] != line {
@@ -171,14 +171,14 @@ func TestRefsPrefilterIsEquivalent(t *testing.T) {
 		add := func(x string) {
 			if x != "" && !seen[x] {
 				seen[x] = true
-				want = append(want, ref{line: i + 1, target: x})
+				want = append(want, ref{Line: i + 1, Target: x})
 			}
 		}
-		for _, m := range idToken.FindAllString(l, -1) {
+		for _, m := range idRefRe.FindAllString(l, -1) {
 			add(m)
 		}
-		for _, m := range pathToken.FindAllString(l, -1) {
-			if x := normalizeRef(m); strings.ContainsAny(x, "/.") && !idToken.MatchString(x) {
+		for _, m := range pathRefRe.FindAllString(l, -1) {
+			if x := normalizeRef(m); strings.ContainsAny(x, "/.") && !idRefRe.MatchString(x) {
 				add(x)
 			}
 		}
@@ -245,7 +245,7 @@ func runTask(task string) error {
 	syms, refs := extractSymbolsAndRefs("internal/demo/worker.go", src)
 	gotSyms := map[string]symbolRow{}
 	for _, s := range syms {
-		gotSyms[s.recv+"."+s.name] = s
+		gotSyms[s.Recv+"."+s.Name] = s
 	}
 	for _, want := range []struct {
 		key, kind string
@@ -260,14 +260,14 @@ func runTask(task string) error {
 		{".runTask", "func", 0},
 	} {
 		sy, ok := gotSyms[want.key]
-		if !ok || sy.kind != want.kind || sy.exported != want.exported || sy.bodyHash == "" {
+		if !ok || sy.Kind != want.kind || sy.Exported != want.exported || sy.BodyHash == "" {
 			t.Errorf("symbol %s: got %+v (ok=%v), want kind=%s exported=%d", want.key, sy, ok, want.kind, want.exported)
 		}
 	}
 
 	hasRef := func(from, pkg, name, kind, conf string, weight float64) bool {
 		for _, r := range refs {
-			if r.fromSym == from && r.toPkg == pkg && r.toName == name && r.kind == kind && r.confidence == conf && r.weight == weight {
+			if r.FromSym == from && r.ToPkg == pkg && r.ToName == name && r.Kind == kind && r.Confidence == conf && r.Weight == weight {
 				return true
 			}
 		}
@@ -294,7 +294,7 @@ func runTask(task string) error {
 	}
 	_, manyRefs := extractSymbolsAndRefs("internal/demo/many.go", many.String())
 	for _, r := range manyRefs {
-		if r.confidence == "INFERRED" {
+		if r.Confidence == "INFERRED" {
 			t.Fatalf("expected 0 INFERRED edges when implementers > %d, got %+v", maxImplicitImplementers, r)
 		}
 	}
@@ -304,7 +304,7 @@ func runTask(task string) error {
 	bSyms, bRefs := extractSymbolsAndRefs("internal/demo/broken.go", broken)
 	foundAfter := false
 	for _, s := range bSyms {
-		if s.name == "AfterBroken" {
+		if s.Name == "AfterBroken" {
 			foundAfter = true
 		}
 	}
@@ -316,17 +316,17 @@ func runTask(task string) error {
 func TestExtractCodeAndMarkdownDocRefs(t *testing.T) {
 	t.Parallel()
 	tsSyms, tsRefs := extractSymbolsAndRefs("web/app.ts", "export async function fetchUser(id: string) {\n  return parseUser(id)\n}\n")
-	if len(tsSyms) != 1 || tsSyms[0].name != "fetchUser" || tsSyms[0].exported != 1 || len(tsRefs) != 1 || tsRefs[0].toName != "parseUser" {
+	if len(tsSyms) != 1 || tsSyms[0].Name != "fetchUser" || tsSyms[0].Exported != 1 || len(tsRefs) != 1 || tsRefs[0].ToName != "parseUser" {
 		t.Errorf("TS extraction: syms=%+v refs=%+v", tsSyms, tsRefs)
 	}
 
 	pySyms, pyRefs := extractSymbolsAndRefs("scripts/run.py", "class Engine:\n    def execute(self):\n        helper_step()\n")
-	if len(pySyms) != 2 || pySyms[1].recv != "Engine" || pySyms[1].name != "execute" || len(pyRefs) != 1 || pyRefs[0].fromSym != "Engine.execute" || pyRefs[0].toName != "helper_step" {
+	if len(pySyms) != 2 || pySyms[1].Recv != "Engine" || pySyms[1].Name != "execute" || len(pyRefs) != 1 || pyRefs[0].FromSym != "Engine.execute" || pyRefs[0].ToName != "helper_step" {
 		t.Errorf("Python extraction: syms=%+v refs=%+v", pySyms, pyRefs)
 	}
 
 	shSyms, shRefs := extractSymbolsAndRefs("scripts/check.sh", "#!/bin/sh\nrun_gate() {\n  verify_tree()\n}\n")
-	if len(shSyms) != 1 || shSyms[0].name != "run_gate" || len(shRefs) != 1 || shRefs[0].toName != "verify_tree" {
+	if len(shSyms) != 1 || shSyms[0].Name != "run_gate" || len(shRefs) != 1 || shRefs[0].ToName != "verify_tree" {
 		t.Errorf("Shell extraction: syms=%+v refs=%+v", shSyms, shRefs)
 	}
 
@@ -334,8 +334,8 @@ func TestExtractCodeAndMarkdownDocRefs(t *testing.T) {
 	_, mdRefs := extractSymbolsAndRefs("README.md", md)
 	got := map[string]symRefRow{}
 	for _, r := range mdRefs {
-		got[r.toPkg+"."+r.toName] = r
-		if r.fromSym != "<doc>" || r.kind != "doc_ref" || r.confidence != "INFERRED" || r.weight != 0.7 {
+		got[r.ToPkg+"."+r.ToName] = r
+		if r.FromSym != "<doc>" || r.Kind != "doc_ref" || r.Confidence != "INFERRED" || r.Weight != 0.7 {
 			t.Errorf("unexpected doc_ref metadata: %+v", r)
 		}
 	}
@@ -366,9 +366,9 @@ func TestFyrGoCallerResolution(t *testing.T) {
 			}
 			syms, refs := extractSymbolsAndRefs(filepath.ToSlash(p), string(data))
 			for _, s := range syms {
-				declared[s.name] = true
-				if s.recv != "" {
-					declared[s.recv+"."+s.name] = true
+				declared[s.Name] = true
+				if s.Recv != "" {
+					declared[s.Recv+"."+s.Name] = true
 				}
 			}
 			allRefs = append(allRefs, refs...)
@@ -380,11 +380,11 @@ func TestFyrGoCallerResolution(t *testing.T) {
 	}
 	total, resolved := 0, 0
 	for _, r := range allRefs {
-		if r.kind != "call" && r.kind != "type_ref" {
+		if r.Kind != "call" && r.Kind != "type_ref" {
 			continue
 		}
 		total++
-		if declared[r.toName] {
+		if declared[r.ToName] {
 			resolved++
 		}
 	}

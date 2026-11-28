@@ -1,4 +1,4 @@
-package search
+package symgraph
 
 import (
 	"cmp"
@@ -20,65 +20,77 @@ func querySeedFileOIDsDBCtx(ctx context.Context, db *sql.DB, projects []string, 
 	}
 	oids := map[string]bool{}
 	for _, f := range matched {
-		if active[f.path] {
-			oids[f.oid] = true
+		if active[f.Path] {
+			oids[f.OID] = true
 		}
 	}
 	hasExplicit := false
 	for _, f := range matched {
-		if fileMatchesBoundedTerms(f.path, filteredTerms) {
+		if fileMatchesBoundedTerms(f.Path, filteredTerms) {
 			hasExplicit = true
 			if len(oids) < maxSeedFiles {
-				oids[f.oid] = true
+				oids[f.OID] = true
 			}
 		}
 	}
 	return oids, hasExplicit, nil
 }
 
-func scanSeedFileCandidatesCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, active map[string]bool, terms []string) ([]indexedFileMeta, error) {
+func scanSeedFileCandidatesCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, active map[string]bool, terms []string) ([]FileMeta, error) {
 	if len(projects) == 1 {
-		rows, err := db.QueryContext(ctx, `SELECT path, oid FROM files WHERE project = ?`, projects[0])
-		if err != nil {
+		return scanSingleProjectSeedFilesCtx(ctx, db, projects[0], includeDocs, active, terms)
+	}
+	return scanMultiProjectSeedFilesCtx(ctx, db, projects, includeDocs, active, terms)
+}
+
+func scanSingleProjectSeedFilesCtx(ctx context.Context, db *sql.DB, project string, includeDocs bool, active map[string]bool, terms []string) ([]FileMeta, error) {
+	rows, err := db.QueryContext(ctx, `SELECT path, oid FROM files WHERE project = ?`, project)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FileMeta
+	for rows.Next() {
+		var fp, oid string
+		if err := rows.Scan(&fp, &oid); err != nil {
 			return nil, err
 		}
-		defer rows.Close()
-		var out []indexedFileMeta
-		for rows.Next() {
-			var fp, oid string
-			if err := rows.Scan(&fp, &oid); err != nil {
-				return nil, err
-			}
-			if (active[fp] || fileMatchesBoundedTerms(fp, terms)) && keepScannedFile(fp, includeDocs, false) {
-				out = append(out, indexedFileMeta{project: projects[0], path: fp, oid: oid, pkg: canonicalPkgDir(fp)})
-			}
+		if keepSeedCandidate(fp, includeDocs, active, terms) {
+			out = append(out, FileMeta{Project: project, Path: fp, OID: oid, Pkg: CanonicalPkgDir(fp)})
 		}
-		return out, rows.Err()
 	}
+	return out, rows.Err()
+}
+
+func scanMultiProjectSeedFilesCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, active map[string]bool, terms []string) ([]FileMeta, error) {
 	pSQL, pArgs := projectsInClause(projects)
 	rows, err := db.QueryContext(ctx, `SELECT project, path, oid FROM files WHERE project IN `+pSQL+` ORDER BY path`, pArgs...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []indexedFileMeta
+	var out []FileMeta
 	for rows.Next() {
-		var m indexedFileMeta
-		if err := rows.Scan(&m.project, &m.path, &m.oid); err != nil {
+		var m FileMeta
+		if err := rows.Scan(&m.Project, &m.Path, &m.OID); err != nil {
 			return nil, err
 		}
-		if (active[m.path] || fileMatchesBoundedTerms(m.path, terms)) && keepScannedFile(m.path, includeDocs, false) {
-			m.pkg = canonicalPkgDir(m.path)
+		if keepSeedCandidate(m.Path, includeDocs, active, terms) {
+			m.Pkg = CanonicalPkgDir(m.Path)
 			out = append(out, m)
 		}
 	}
 	return out, rows.Err()
 }
 
+func keepSeedCandidate(fp string, includeDocs bool, active map[string]bool, terms []string) bool {
+	return (active[fp] || fileMatchesBoundedTerms(fp, terms)) && keepScannedFile(fp, includeDocs, false)
+}
+
 func querySeedSymbolsDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, seedOIDs map[string]bool, hasExplicitFileSeed bool, terms []string, maxNames int) ([]RankedSymbol, error) {
 	var merged []RankedSymbol
 	if len(seedOIDs) > 0 {
-		byOID, err := querySymbolsByOIDsDBCtx(ctx, db, projects, includeDocs, sortedMapKeys(seedOIDs))
+		byOID, err := querySymbolsByOIDsDBCtx(ctx, db, projects, includeDocs, SortedMapKeys(seedOIDs))
 		if err != nil {
 			return nil, err
 		}
@@ -97,9 +109,9 @@ func querySeedSymbolsDBCtx(ctx context.Context, db *sql.DB, projects []string, i
 	}
 	minLikeLen := 4
 	if maxNames <= maxBoundedHookSeedNames {
-		minLikeLen = hookMinIdentLen
+		minLikeLen = HookMinIdentLen
 	}
-	likeSyms, err := querySeedSymbolsLikeMinLenDBCtx(ctx, db, projects, includeDocs, terms, maxNames, minLikeLen)
+	likeSyms, err := QuerySeedSymbolsLikeMinLenDBCtx(ctx, db, projects, includeDocs, terms, maxNames, minLikeLen)
 	if err != nil {
 		return nil, err
 	}

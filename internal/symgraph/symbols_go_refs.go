@@ -1,4 +1,4 @@
-package search
+package symgraph
 
 import (
 	"go/ast"
@@ -6,12 +6,13 @@ import (
 	"sort"
 )
 
-const maxImplicitImplementers = 10
+// MaxImplicitImplementers caps inferred interface implementers per interface.
+const MaxImplicitImplementers = 10
 
-func extractGoFuncRefs(fset *token.FileSet, fd *ast.FuncDecl, sy symbolRow, imports map[string]string) []symRefRow {
-	fromSym := sy.name
-	if sy.recv != "" {
-		fromSym = sy.recv + "." + sy.name
+func extractGoFuncRefs(fset *token.FileSet, fd *ast.FuncDecl, sy SymbolRow, imports map[string]string) []SymRefRow {
+	fromSym := sy.Name
+	if sy.Recv != "" {
+		fromSym = sy.Recv + "." + sy.Name
 	}
 	refs := extractTypeExprRefs(fset, fd.Type, fromSym, imports)
 	if fd.Body == nil {
@@ -21,11 +22,11 @@ func extractGoFuncRefs(fset *token.FileSet, fd *ast.FuncDecl, sy symbolRow, impo
 	return append(refs, extractExprRefs(fset, fd.Body, fromSym, imports, locals, stdlibVars)...)
 }
 
-func extractTypeExprRefs(fset *token.FileSet, node ast.Node, fromSym string, imports map[string]string) []symRefRow {
+func extractTypeExprRefs(fset *token.FileSet, node ast.Node, fromSym string, imports map[string]string) []SymRefRow {
 	if node == nil {
 		return nil
 	}
-	var refs []symRefRow
+	var refs []SymRefRow
 	ast.Inspect(node, func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.Field:
@@ -34,20 +35,20 @@ func extractTypeExprRefs(fset *token.FileSet, node ast.Node, fromSym string, imp
 		case *ast.SelectorExpr:
 			if id, ok := x.X.(*ast.Ident); ok {
 				if imp, isImp := imports[id.Name]; isImp && !isStdlibImport(imp) {
-					refs = append(refs, symRefRow{
-						fromSym: fromSym, toPkg: imp, toName: x.Sel.Name,
-						kind: "type_ref", confidence: ConfidenceExtracted, weight: WeightExtracted,
-						line: fset.Position(x.Sel.Pos()).Line,
+					refs = append(refs, SymRefRow{
+						FromSym: fromSym, ToPkg: imp, ToName: x.Sel.Name,
+						Kind: "type_ref", Confidence: ConfidenceExtracted, Weight: WeightExtracted,
+						Line: fset.Position(x.Sel.Pos()).Line,
 					})
 				}
 			}
 			return false
 		case *ast.Ident:
 			if !isGoPredeclared(x.Name) {
-				refs = append(refs, symRefRow{
-					fromSym: fromSym, toPkg: "", toName: x.Name,
-					kind: "type_ref", confidence: ConfidenceExtracted, weight: WeightExtracted,
-					line: fset.Position(x.Pos()).Line,
+				refs = append(refs, SymRefRow{
+					FromSym: fromSym, ToPkg: "", ToName: x.Name,
+					Kind: "type_ref", Confidence: ConfidenceExtracted, Weight: WeightExtracted,
+					Line: fset.Position(x.Pos()).Line,
 				})
 			}
 		}
@@ -63,7 +64,7 @@ type exprRefCollector struct {
 	locals     map[string]bool
 	stdlibVars map[string]bool
 	skipSel    map[*ast.SelectorExpr]bool
-	refs       []symRefRow
+	refs       []SymRefRow
 }
 
 func (c *exprRefCollector) visit(n ast.Node) bool {
@@ -100,10 +101,10 @@ func (c *exprRefCollector) addIdentRef(expr ast.Expr) {
 	if !ok || c.locals[id.Name] || isGoPredeclared(id.Name) {
 		return
 	}
-	c.refs = append(c.refs, symRefRow{
-		fromSym: c.fromSym, toName: id.Name, kind: "call",
-		confidence: ConfidenceExtracted, weight: WeightExtracted,
-		line: c.fset.Position(id.Pos()).Line,
+	c.refs = append(c.refs, SymRefRow{
+		FromSym: c.fromSym, ToName: id.Name, Kind: "call",
+		Confidence: ConfidenceExtracted, Weight: WeightExtracted,
+		Line: c.fset.Position(id.Pos()).Line,
 	})
 }
 
@@ -119,14 +120,14 @@ func (c *exprRefCollector) visitSelector(x *ast.SelectorExpr) {
 	if !isImp || isStdlibImport(imp) {
 		return
 	}
-	c.refs = append(c.refs, symRefRow{
-		fromSym: c.fromSym, toPkg: imp, toName: x.Sel.Name, kind: "call",
-		confidence: ConfidenceExtracted, weight: WeightExtracted,
-		line: c.fset.Position(x.Sel.Pos()).Line,
+	c.refs = append(c.refs, SymRefRow{
+		FromSym: c.fromSym, ToPkg: imp, ToName: x.Sel.Name, Kind: "call",
+		Confidence: ConfidenceExtracted, Weight: WeightExtracted,
+		Line: c.fset.Position(x.Sel.Pos()).Line,
 	})
 }
 
-func extractExprRefs(fset *token.FileSet, node ast.Node, fromSym string, imports map[string]string, locals, stdlibVars map[string]bool) []symRefRow {
+func extractExprRefs(fset *token.FileSet, node ast.Node, fromSym string, imports map[string]string, locals, stdlibVars map[string]bool) []SymRefRow {
 	if node == nil {
 		return nil
 	}
@@ -141,36 +142,36 @@ func extractExprRefs(fset *token.FileSet, node ast.Node, fromSym string, imports
 	return c.refs
 }
 
-func matchImplicitInterfaces(syms []symbolRow) []symRefRow {
+func MatchImplicitInterfaces(syms []SymbolRow) []SymRefRow {
 	ifaces, ifaceMethods, recvMethods := groupInterfaceAndRecvMethods(syms)
-	var out []symRefRow
+	var out []SymRefRow
 	for key, iface := range ifaces {
 		req := ifaceMethods[key]
 		if len(req) == 0 {
 			continue
 		}
 		impls := findInterfaceImplementers(iface, req, recvMethods)
-		if len(impls) == 0 || len(impls) > maxImplicitImplementers {
+		if len(impls) == 0 || len(impls) > MaxImplicitImplementers {
 			continue
 		}
 		for _, impl := range impls {
-			out = append(out, symRefRow{
-				oid: iface.oid, fromSym: iface.name, toPkg: impl.pkg, toName: impl.recv,
-				kind: "implements", confidence: ConfidenceInferred, weight: WeightInferred, line: iface.startLine,
+			out = append(out, SymRefRow{
+				OID: iface.OID, FromSym: iface.Name, ToPkg: impl.pkg, ToName: impl.recv,
+				Kind: "implements", Confidence: ConfidenceInferred, Weight: WeightInferred, Line: iface.StartLine,
 			})
 			for _, m := range req {
-				out = append(out, symRefRow{
-					oid: iface.oid, fromSym: iface.name + "." + m.name, toPkg: impl.pkg, toName: impl.recv + "." + m.name,
-					kind: "iface_call", confidence: ConfidenceInferred, weight: WeightInferred, line: m.startLine,
+				out = append(out, SymRefRow{
+					OID: iface.OID, FromSym: iface.Name + "." + m.Name, ToPkg: impl.pkg, ToName: impl.recv + "." + m.Name,
+					Kind: "iface_call", Confidence: ConfidenceInferred, Weight: WeightInferred, Line: m.StartLine,
 				})
 			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].fromSym != out[j].fromSym {
-			return out[i].fromSym < out[j].fromSym
+		if out[i].FromSym != out[j].FromSym {
+			return out[i].FromSym < out[j].FromSym
 		}
-		return out[i].toName < out[j].toName
+		return out[i].ToName < out[j].ToName
 	})
 	return out
 }

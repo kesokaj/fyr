@@ -424,12 +424,12 @@ func TestBoundedSymGraphPriorityHopsAndSingleWordFTS(t *testing.T) {
 	}
 	defer sc.close()
 
-	g, err := sc.loadBoundedSymGraph("Update UniqueTargetSymbol", map[string]bool{"a_active.go": true}, false, 2)
+	g, err := sc.loadBoundedSymGraph("Update UniqueTargetSymbol", map[string]bool{"a_active.go": true}, 2)
 	if err != nil {
 		t.Fatalf("loadBoundedSymGraph: %v", err)
 	}
-	if len(g.byPath["z_caller.go"]) == 0 {
-		t.Fatalf("bounded graph starved z_caller.go; loaded paths=%v", mapKeysSlice(g.byPath))
+	if len(g.ByPath["z_caller.go"]) == 0 {
+		t.Fatalf("bounded graph starved z_caller.go; loaded paths=%v", mapKeysSlice(g.ByPath))
 	}
 
 	// Single conceptual non-symbol word matches comment via 1-word FTS seeding.
@@ -472,26 +472,26 @@ func TestBoundedSymGraphPriorityHopsAndSingleWordFTS(t *testing.T) {
 		t.Fatalf("need >%d stopwords for test, got %d", maxBoundedQueryTerms, len(stops))
 	}
 	stopPrefix := strings.Join(stops, " ")
-	gStop, err := sc.loadBoundedSymGraph(stopPrefix+" UniqueTargetSymbol", nil, false, 1)
+	gStop, err := sc.loadBoundedSymGraph(stopPrefix+" UniqueTargetSymbol", nil, 1)
 	if err != nil {
 		t.Fatalf("loadBoundedSymGraph stopwords symbol: %v", err)
 	}
-	if len(gStop.byPath["z_target.go"]) == 0 || len(gStop.byPath["z_caller.go"]) == 0 {
-		t.Fatalf("leading stopwords crowded out target/caller; paths=%v", mapKeysSlice(gStop.byPath))
+	if len(gStop.ByPath["z_target.go"]) == 0 || len(gStop.ByPath["z_caller.go"]) == 0 {
+		t.Fatalf("leading stopwords crowded out target/caller; paths=%v", mapKeysSlice(gStop.ByPath))
 	}
-	gFileStop, err := sc.loadBoundedSymGraph(stopPrefix+" hop_d.go", nil, false, 0)
+	gFileStop, err := sc.loadBoundedSymGraph(stopPrefix+" hop_d.go", nil, 0)
 	if err != nil {
 		t.Fatalf("loadBoundedSymGraph stopwords file: %v", err)
 	}
-	if len(gFileStop.byPath["hop_d.go"]) == 0 {
-		t.Fatalf("leading stopwords crowded out hop_d.go file seed; paths=%v", mapKeysSlice(gFileStop.byPath))
+	if len(gFileStop.ByPath["hop_d.go"]) == 0 {
+		t.Fatalf("leading stopwords crowded out hop_d.go file seed; paths=%v", mapKeysSlice(gFileStop.ByPath))
 	}
-	gSlug, err := sc.loadBoundedSymGraph(".agents/skills/auto-distilled-uniquetargetsymbol-run", nil, false, 1)
+	gSlug, err := sc.loadBoundedSymGraph(".agents/skills/auto-distilled-uniquetargetsymbol-run", nil, 1)
 	if err != nil {
 		t.Fatalf("loadBoundedSymGraph compound slug: %v", err)
 	}
-	if len(gSlug.byPath["z_target.go"]) == 0 || len(gSlug.byPath["z_caller.go"]) == 0 {
-		t.Fatalf("compound slug missed target/caller; paths=%v", mapKeysSlice(gSlug.byPath))
+	if len(gSlug.ByPath["z_target.go"]) == 0 || len(gSlug.ByPath["z_caller.go"]) == 0 {
+		t.Fatalf("compound slug missed target/caller; paths=%v", mapKeysSlice(gSlug.ByPath))
 	}
 }
 
@@ -594,12 +594,12 @@ func TestBoundedSymGraphQueryPlansUseIndexes(t *testing.T) {
 	assertQueryPlanSingle(t, st, "SELECT DISTINCT name FROM symbols", "COVERING INDEX symbols_name")
 	assertFTSFallbackQueryPlan(t, st, dir)
 	sc := &scope{st: st, projects: []string{dir}}
-	g, err := sc.loadBoundedSymGraph("customreconcile", nil, false, 1)
+	g, err := sc.loadBoundedSymGraph("customreconcile", nil, 1)
 	if err != nil {
 		t.Fatalf("loadBoundedSymGraph fallback: %v", err)
 	}
-	if len(g.byName["MyCustomReconcileHelper"]) == 0 {
-		t.Fatalf("lowercase substring fallback missed MyCustomReconcileHelper: syms=%d", len(g.syms))
+	if len(g.ByName["MyCustomReconcileHelper"]) == 0 {
+		t.Fatalf("lowercase substring fallback missed MyCustomReconcileHelper: syms=%d", len(g.Syms))
 	}
 }
 
@@ -693,18 +693,18 @@ func TestBoundedSymGraphHop1ScopesToPrioritySymbol(t *testing.T) {
 	}
 	defer st.close()
 	sc := &scope{st: st, projects: []string{dir}}
-	g, err := sc.loadBoundedSymGraph("Modify PriorityTargetFunc in target.go", nil, false, 1)
+	g, err := sc.loadBoundedSymGraph("Modify PriorityTargetFunc in target.go", nil, 1)
 	if err != nil {
 		t.Fatalf("loadBoundedSymGraph: %v", err)
 	}
 	for _, want := range []string{"target.go", "callee.go", "caller.go"} {
-		if len(g.byPath[want]) == 0 {
-			t.Errorf("hop1 graph missing %s; got %v", want, mapKeysSlice(g.byPath))
+		if len(g.ByPath[want]) == 0 {
+			t.Errorf("hop1 graph missing %s; got %v", want, mapKeysSlice(g.ByPath))
 		}
 	}
 	for _, unwanted := range []string{"hub.go", "noise1.go", "noise2.go", "noise3.go", "noise4.go", "noise5.go"} {
-		if len(g.byPath[unwanted]) > 0 {
-			t.Errorf("hop1 graph leaked unrelated CloseAll file %s; got %v", unwanted, mapKeysSlice(g.byPath))
+		if len(g.ByPath[unwanted]) > 0 {
+			t.Errorf("hop1 graph leaked unrelated CloseAll file %s; got %v", unwanted, mapKeysSlice(g.ByPath))
 		}
 	}
 }

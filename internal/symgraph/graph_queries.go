@@ -1,4 +1,4 @@
-package search
+package symgraph
 
 import (
 	"fmt"
@@ -9,9 +9,10 @@ import (
 
 const maxSymbolPathHops = 6
 
-func (sc *scope) findSymbolPath(o Options, out io.Writer) error {
+// FindSymbolPath prints the shortest directed (or undirected fallback) symbol path between o.Path and o.To.
+func (sc *Scope) FindSymbolPath(o SliceOptions, out io.Writer) error {
 	fromSpec, toSpec := o.Path, o.To
-	g, err := sc.loadSymGraphOpts(o.IncludeDocs)
+	g, err := sc.LoadSymGraphOpts(o.IncludeDocs)
 	if err != nil {
 		return err
 	}
@@ -31,29 +32,29 @@ func (sc *scope) findSymbolPath(o Options, out io.Writer) error {
 		fmt.Fprintf(out, "# path: %s -> %s (no path within %d hops)\n", fromSpec, toSpec, maxSymbolPathHops)
 		return nil
 	}
-	first := g.syms[steps[0].toIdx]
+	first := g.Syms[steps[0].ToIdx]
 	fmt.Fprintf(out, "# path: %s -> %s (%d hops)\n", fromSpec, toSpec, len(steps)-1)
 	fmt.Fprintf(out, "0. %s:%d  %s\n", first.Path, first.StartLine, first.QualName())
 	for i := 1; i < len(steps); i++ {
 		e := steps[i]
-		dst := g.syms[e.toIdx]
+		dst := g.Syms[e.ToIdx]
 		fmt.Fprintf(out, "%d. %s:%d --%s [%s]-> %s:%d  %s\n",
-			i, e.fromPath, e.line, e.kind, e.confidence, dst.Path, dst.StartLine, dst.QualName())
+			i, e.FromPath, e.Line, e.Kind, e.Confidence, dst.Path, dst.StartLine, dst.QualName())
 	}
 	return nil
 }
 
-func (g *symGraph) matchSymbolNodes(spec string) []int {
+func (g *Graph) matchSymbolNodes(spec string) []int {
 	spec = strings.TrimSpace(spec)
 	if idxs := g.byQual[spec]; len(idxs) > 0 {
 		return idxs
 	}
-	if idxs := g.byName[spec]; len(idxs) > 0 {
+	if idxs := g.ByName[spec]; len(idxs) > 0 {
 		return idxs
 	}
 	low := strings.ToLower(spec)
 	var out []int
-	for i, s := range g.syms {
+	for i, s := range g.Syms {
 		if strings.ToLower(s.QualName()) == low || strings.ToLower(s.Name) == low || strings.ToLower(s.Pkg+"."+s.Name) == low {
 			out = append(out, i)
 		}
@@ -63,10 +64,10 @@ func (g *symGraph) matchSymbolNodes(spec string) []int {
 
 type prevStep struct {
 	prev int
-	edge graphEdge
+	edge Edge
 }
 
-func (g *symGraph) bfsShortestPath(srcs, dsts []int, undirected bool) []graphEdge {
+func (g *Graph) bfsShortestPath(srcs, dsts []int, undirected bool) []Edge {
 	isDst := map[int]bool{}
 	for _, d := range dsts {
 		isDst[d] = true
@@ -78,7 +79,7 @@ func (g *symGraph) bfsShortestPath(srcs, dsts []int, undirected bool) []graphEdg
 		dist[s] = 0
 		queue = append(queue, s)
 		if isDst[s] {
-			return []graphEdge{{toIdx: s}}
+			return []Edge{{ToIdx: s}}
 		}
 	}
 	for len(queue) > 0 {
@@ -88,43 +89,43 @@ func (g *symGraph) bfsShortestPath(srcs, dsts []int, undirected bool) []graphEdg
 			continue
 		}
 		for _, e := range g.neighborsForBFS(u, undirected) {
-			if _, seen := dist[e.toIdx]; seen {
+			if _, seen := dist[e.ToIdx]; seen {
 				continue
 			}
-			dist[e.toIdx] = dist[u] + 1
-			parent[e.toIdx] = prevStep{prev: u, edge: e}
-			if isDst[e.toIdx] {
-				return reconstructPath(e.toIdx, parent)
+			dist[e.ToIdx] = dist[u] + 1
+			parent[e.ToIdx] = prevStep{prev: u, edge: e}
+			if isDst[e.ToIdx] {
+				return reconstructPath(e.ToIdx, parent)
 			}
-			queue = append(queue, e.toIdx)
+			queue = append(queue, e.ToIdx)
 		}
 	}
 	return nil
 }
 
-func (g *symGraph) neighborsForBFS(u int, undirected bool) []graphEdge {
+func (g *Graph) neighborsForBFS(u int, undirected bool) []Edge {
 	if !undirected {
-		return g.out[u]
+		return g.Out[u]
 	}
-	edges := append([]graphEdge(nil), g.out[u]...)
-	for _, e := range g.in[u] {
-		if e.fromIdx >= 0 {
-			edges = append(edges, graphEdge{
-				fromIdx: u, toIdx: e.fromIdx, kind: e.kind, confidence: e.confidence,
-				weight: e.weight, line: e.line, fromPath: e.fromPath,
+	edges := append([]Edge(nil), g.Out[u]...)
+	for _, e := range g.In[u] {
+		if e.FromIdx >= 0 {
+			edges = append(edges, Edge{
+				FromIdx: u, ToIdx: e.FromIdx, Kind: e.Kind, Confidence: e.Confidence,
+				Weight: e.Weight, Line: e.Line, FromPath: e.FromPath,
 			})
 		}
 	}
 	return edges
 }
 
-func reconstructPath(target int, parent map[int]prevStep) []graphEdge {
-	var rev []graphEdge
+func reconstructPath(target int, parent map[int]prevStep) []Edge {
+	var rev []Edge
 	cur := target
 	for {
 		p, ok := parent[cur]
 		if !ok {
-			rev = append(rev, graphEdge{toIdx: cur})
+			rev = append(rev, Edge{ToIdx: cur})
 			break
 		}
 		rev = append(rev, p.edge)
@@ -136,12 +137,13 @@ func reconstructPath(target int, parent map[int]prevStep) []graphEdge {
 	return rev
 }
 
-func (sc *scope) findAffected(o Options, out io.Writer) error {
-	g, err := sc.loadSymGraphOpts(o.IncludeDocs)
+// FindAffected prints the 2-hop reverse blast radius, tests, linked records, and co-change hints for o.Affected.
+func (sc *Scope) FindAffected(o SliceOptions, out io.Writer) error {
+	g, err := sc.LoadSymGraphOpts(o.IncludeDocs)
 	if err != nil {
 		return err
 	}
-	seeds, paths := g.resolveAffectedSeeds(sc.normalizePath(o.Affected))
+	seeds, paths := g.resolveAffectedSeeds(sc.NormalizePath(o.Affected))
 	if len(seeds) == 0 {
 		return fmt.Errorf("search: no indexed file or symbol matching %q", o.Affected)
 	}
@@ -151,24 +153,38 @@ func (sc *scope) findAffected(o Options, out io.Writer) error {
 	writeAffectedList(out, "transitive_callers:", transitive)
 	writeAffectedList(out, "tests_to_run:", tests)
 	fmt.Fprintln(out, "linked_records:")
-	recs := sc.activeLinkedRecords(paths, o.BrainRefs)
+	recs := sc.linkedRecords(paths, o.BrainRefs)
 	if len(recs) == 0 {
 		fmt.Fprintln(out, "  (none)")
 	}
 	for _, r := range recs {
 		fmt.Fprintf(out, "  %s [%s] %s\n", r.ID, r.Status, r.Title)
 	}
-	if hints := sc.activeCoChangeHints(paths); len(hints) > 0 {
+	if hints := sc.coChangeHints(paths); len(hints) > 0 {
 		writeAffectedList(out, "co_change_hint:", hints)
 	}
 	return nil
 }
 
-func (g *symGraph) resolveAffectedSeeds(target string) ([]int, map[string]bool) {
+func (sc *Scope) linkedRecords(paths map[string]bool, brainRefs func(string) []LinkedRecord) []LinkedRecord {
+	if sc == nil || sc.LinkedRecords == nil {
+		return nil
+	}
+	return sc.LinkedRecords(paths, brainRefs)
+}
+
+func (sc *Scope) coChangeHints(paths map[string]bool) []string {
+	if sc == nil || sc.CoChangeHints == nil {
+		return nil
+	}
+	return sc.CoChangeHints(paths)
+}
+
+func (g *Graph) resolveAffectedSeeds(target string) ([]int, map[string]bool) {
 	paths := map[string]bool{}
 	seen := map[int]bool{}
 	var seeds []int
-	for p, idxs := range g.byPath {
+	for p, idxs := range g.ByPath {
 		if p == target || strings.HasSuffix(p, "/"+target) {
 			paths[p] = true
 			for _, idx := range idxs {
@@ -180,7 +196,7 @@ func (g *symGraph) resolveAffectedSeeds(target string) ([]int, map[string]bool) 
 		}
 	}
 	for _, idx := range g.matchSymbolNodes(target) {
-		paths[g.syms[idx].Path] = true
+		paths[g.Syms[idx].Path] = true
 		if !seen[idx] {
 			seen[idx] = true
 			seeds = append(seeds, idx)
@@ -189,46 +205,60 @@ func (g *symGraph) resolveAffectedSeeds(target string) ([]int, map[string]bool) 
 	return seeds, paths
 }
 
-func (g *symGraph) collectReverseBlast(seeds []int, paths map[string]bool) ([]string, []string, []string) {
-	hop := map[int]int{}
+func (g *Graph) collectReverseBlast(seeds []int, paths map[string]bool) ([]string, []string, []string) {
+	hop := make(map[int]int, len(seeds))
 	for _, s := range seeds {
 		hop[s] = 0
 	}
-	var hop1 []int
-	var direct, transitive, tests []string
 	seenTest := map[string]bool{}
-	for _, u := range seeds {
-		for _, e := range g.in[u] {
-			if e.fromIdx < 0 {
-				if !strings.HasSuffix(e.fromPath, "_test.go") {
-					direct = append(direct, fmt.Sprintf("%s:%d [%s]", e.fromPath, e.line, e.confidence))
-				}
-				continue
-			}
-			if _, seen := hop[e.fromIdx]; !seen {
-				hop[e.fromIdx] = 1
-				hop1 = append(hop1, e.fromIdx)
-				direct, tests = g.appendCallerHit(e, paths, seenTest, direct, tests)
-			}
-		}
-	}
-	for _, u := range hop1 {
-		for _, e := range g.in[u] {
-			if e.fromIdx >= 0 {
-				if _, seen := hop[e.fromIdx]; !seen {
-					hop[e.fromIdx] = 2
-					transitive, tests = g.appendCallerHit(e, paths, seenTest, transitive, tests)
-				}
-			}
-		}
-	}
+	hop1, direct, tests := g.collectDirectBlast(seeds, hop, paths, seenTest)
+	transitive, tests := g.collectTransitiveBlast(hop1, hop, paths, seenTest, tests)
 	return direct, transitive, tests
 }
 
-func (g *symGraph) appendCallerHit(e graphEdge, paths, seenTest map[string]bool, callers, tests []string) ([]string, []string) {
-	s := g.syms[e.fromIdx]
+func (g *Graph) collectDirectBlast(seeds []int, hop map[int]int, paths, seenTest map[string]bool) ([]int, []string, []string) {
+	var hop1 []int
+	var direct, tests []string
+	for _, u := range seeds {
+		for _, e := range g.In[u] {
+			if e.FromIdx < 0 {
+				if !strings.HasSuffix(e.FromPath, "_test.go") {
+					direct = append(direct, fmt.Sprintf("%s:%d [%s]", e.FromPath, e.Line, e.Confidence))
+				}
+				continue
+			}
+			if _, seen := hop[e.FromIdx]; seen {
+				continue
+			}
+			hop[e.FromIdx] = 1
+			hop1 = append(hop1, e.FromIdx)
+			direct, tests = g.appendCallerHit(e, paths, seenTest, direct, tests)
+		}
+	}
+	return hop1, direct, tests
+}
+
+func (g *Graph) collectTransitiveBlast(hop1 []int, hop map[int]int, paths, seenTest map[string]bool, tests []string) ([]string, []string) {
+	var transitive []string
+	for _, u := range hop1 {
+		for _, e := range g.In[u] {
+			if e.FromIdx < 0 {
+				continue
+			}
+			if _, seen := hop[e.FromIdx]; seen {
+				continue
+			}
+			hop[e.FromIdx] = 2
+			transitive, tests = g.appendCallerHit(e, paths, seenTest, transitive, tests)
+		}
+	}
+	return transitive, tests
+}
+
+func (g *Graph) appendCallerHit(e Edge, paths, seenTest map[string]bool, callers, tests []string) ([]string, []string) {
+	s := g.Syms[e.FromIdx]
 	paths[s.Path] = true
-	line := fmt.Sprintf("%s:%d-%d (%s) [%s]", s.Path, s.StartLine, s.EndLine, s.QualName(), e.confidence)
+	line := fmt.Sprintf("%s:%d-%d (%s) [%s]", s.Path, s.StartLine, s.EndLine, s.QualName(), e.Confidence)
 	if isTestSymbol(s) {
 		if !seenTest[line] {
 			seenTest[line] = true
@@ -254,28 +284,29 @@ func writeAffectedList(out io.Writer, header string, items []string) {
 	}
 }
 
-func (sc *scope) repoMapSummary(o Options, out io.Writer) error {
-	g, err := sc.loadSymGraphOpts(o.IncludeDocs)
+// RepoMapSummary prints the top-10 God Nodes, package import map, and package dependency cycles.
+func (sc *Scope) RepoMapSummary(o SliceOptions, out io.Writer) error {
+	g, err := sc.LoadSymGraphOpts(o.IncludeDocs)
 	if err != nil {
 		return err
 	}
-	ranked := g.rank("", nil)
+	ranked := g.Rank("", nil)
 	fmt.Fprintln(out, "god_nodes (top 10 by PageRank):")
 	for i := 0; i < min(10, len(ranked)); i++ {
 		s := ranked[i]
 		fmt.Fprintf(out, "  %d. %s:%d-%d (%s)  score=%.4f refs=%d\n", i+1, s.Path, s.StartLine, s.EndLine, s.QualName(), s.Score, s.InRefs)
 	}
-	pkgs, pkgDeps := g.summarizePackages()
+	pkgs, pkgDeps := g.SummarizePackages()
 	fmt.Fprintln(out, "packages:")
 	for _, p := range pkgs {
-		deps := pkgDeps[p.name]
+		deps := pkgDeps[p.Name]
 		if len(deps) > 0 {
-			fmt.Fprintf(out, "  %s (%d symbols) -> %s\n", p.name, p.count, strings.Join(deps, ", "))
+			fmt.Fprintf(out, "  %s (%d symbols) -> %s\n", p.Name, p.Count, strings.Join(deps, ", "))
 		} else {
-			fmt.Fprintf(out, "  %s (%d symbols)\n", p.name, p.count)
+			fmt.Fprintf(out, "  %s (%d symbols)\n", p.Name, p.Count)
 		}
 	}
-	cycles := findPackageCycles(pkgDeps)
+	cycles := FindPackageCycles(pkgDeps)
 	fmt.Fprintln(out, "import_cycles:")
 	if len(cycles) == 0 {
 		fmt.Fprintln(out, "  none (DAG verified)")

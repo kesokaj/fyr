@@ -1,4 +1,4 @@
-package search
+package symgraph
 
 import (
 	"bytes"
@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/vet"
 )
 
 const (
@@ -14,43 +16,44 @@ const (
 	hop1SnippetLines = 5
 )
 
-type sliceLineCache map[string][]string
+// SliceLineCache caches split file lines during slice capsule rendering.
+type SliceLineCache map[string][]string
 
-func (sc *scope) renderSliceCapsule(o Options, g *symGraph, tiers sliceTiers, maxBytes int) string {
+func (sc *Scope) renderSliceCapsule(o SliceOptions, g *Graph, tiers SliceTiers, maxBytes int) string {
 	var buf bytes.Buffer
 	hdr := fmt.Sprintf("# slice: %s (budget: %d tokens)\n", o.Slice, o.Budget)
 	if len(hdr) <= maxBytes {
 		buf.WriteString(hdr)
 	}
 	paths := map[string]bool{}
-	for _, idx := range tiers.hop0 {
-		paths[g.syms[idx].Path] = true
+	for _, idx := range tiers.Hop0 {
+		paths[g.Syms[idx].Path] = true
 	}
-	for _, c := range tiers.hop1 {
-		paths[g.syms[c.idx].Path] = true
+	for _, c := range tiers.Hop1 {
+		paths[g.Syms[c.Idx].Path] = true
 	}
 	var extrasBuf bytes.Buffer
 	extrasCap := min(max(0, maxBytes-buf.Len()), max(360, maxBytes/2))
 	sc.appendSliceExtras(&extrasBuf, o, paths, extrasCap)
 	symMax := max(buf.Len(), maxBytes-extrasBuf.Len())
 	hop0Cap, hop1Cap := symMax, symMax
-	if len(tiers.hop1) > 0 && len(tiers.hop2) > 0 {
+	if len(tiers.Hop1) > 0 && len(tiers.Hop2) > 0 {
 		hop0Cap = symMax * 60 / 100
 		hop1Cap = symMax * 85 / 100
-	} else if len(tiers.hop1) > 0 {
+	} else if len(tiers.Hop1) > 0 {
 		hop0Cap = symMax * 75 / 100
 	}
-	cache := sliceLineCache{}
-	for _, idx := range tiers.hop0 {
-		s := g.syms[idx]
-		sc.appendWithinBudget(&buf, sc.formatHop0Symbol(cache, s, hop0Cap-buf.Len()), hop0Cap)
+	cache := SliceLineCache{}
+	for _, idx := range tiers.Hop0 {
+		s := g.Syms[idx]
+		sc.appendWithinBudget(&buf, sc.FormatHop0Symbol(cache, s, hop0Cap-buf.Len()), hop0Cap)
 	}
-	for _, c := range tiers.hop1 {
-		s := g.syms[c.idx]
+	for _, c := range tiers.Hop1 {
+		s := g.Syms[c.Idx]
 		sc.appendWithinBudget(&buf, sc.formatHop1Symbol(cache, s, c, hop1Cap-buf.Len()), hop1Cap)
 	}
-	for _, idx := range tiers.hop2 {
-		s := g.syms[idx]
+	for _, idx := range tiers.Hop2 {
+		s := g.Syms[idx]
 		line := fmt.Sprintf("[Hop 2] %s:%d-%d (%s)  %s\n", s.Path, s.StartLine, s.EndLine, s.QualName(), s.Sig)
 		sc.appendWithinBudget(&buf, line, symMax)
 	}
@@ -58,48 +61,42 @@ func (sc *scope) renderSliceCapsule(o Options, g *symGraph, tiers sliceTiers, ma
 	return buf.String()
 }
 
-func (sc *scope) appendWithinBudget(buf *bytes.Buffer, block string, capBytes int) {
+func (sc *Scope) appendWithinBudget(buf *bytes.Buffer, block string, capBytes int) {
 	if block != "" && buf.Len()+len(block) <= capBytes {
 		buf.WriteString(block)
 	}
 }
 
-func (sc *scope) appendSliceExtras(buf *bytes.Buffer, o Options, paths map[string]bool, maxBytes int) {
-	recs := sc.activeLinkedRecords(paths, o.BrainRefs)
-	if len(recs) > 0 {
-		wroteHdr := false
+func (sc *Scope) appendSliceExtras(buf *bytes.Buffer, o SliceOptions, paths map[string]bool, maxBytes int) {
+	if recs := sc.linkedRecords(paths, o.BrainRefs); len(recs) > 0 {
+		lines := make([]string, 0, len(recs))
 		for _, r := range recs {
-			line := fmt.Sprintf("  %s [%s] %s\n", r.ID, r.Status, r.Title)
-			if !wroteHdr {
-				if buf.Len()+len("linked_records:\n")+len(line) > maxBytes {
-					break
-				}
-				buf.WriteString("linked_records:\n")
-				wroteHdr = true
-			}
-			sc.appendWithinBudget(buf, line, maxBytes)
+			lines = append(lines, fmt.Sprintf("  %s [%s] %s\n", r.ID, r.Status, r.Title))
 		}
+		sc.appendTitledLines(buf, "linked_records:\n", lines, maxBytes)
 	}
-	hints := sc.activeCoChangeHints(paths)
-	if len(hints) > 0 {
-		wroteHdr := false
+	if hints := sc.coChangeHints(paths); len(hints) > 0 {
+		lines := make([]string, 0, len(hints))
 		for _, h := range hints {
-			line := "  " + h + "\n"
-			if !wroteHdr {
-				if buf.Len()+len("co_change_hint:\n")+len(line) > maxBytes {
-					break
-				}
-				buf.WriteString("co_change_hint:\n")
-				wroteHdr = true
-			}
-			sc.appendWithinBudget(buf, line, maxBytes)
+			lines = append(lines, "  "+h+"\n")
 		}
+		sc.appendTitledLines(buf, "co_change_hint:\n", lines, maxBytes)
 	}
 	sc.appendSliceContracts(buf, o, paths, maxBytes)
 }
 
-func (sc *scope) appendSliceContracts(buf *bytes.Buffer, o Options, paths map[string]bool, maxBytes int) {
-	if o.BrainSpecBodies == nil || len(paths) == 0 {
+func (sc *Scope) appendTitledLines(buf *bytes.Buffer, title string, lines []string, maxBytes int) {
+	if len(lines) == 0 || buf.Len()+len(title)+len(lines[0]) > maxBytes {
+		return
+	}
+	buf.WriteString(title)
+	for _, line := range lines {
+		sc.appendWithinBudget(buf, line, maxBytes)
+	}
+}
+
+func (sc *Scope) appendSliceContracts(buf *bytes.Buffer, o SliceOptions, paths map[string]bool, maxBytes int) {
+	if o.FormatSpecDigest == nil || len(paths) == 0 {
 		return
 	}
 	const hdr = "spec_contracts:\n"
@@ -113,7 +110,7 @@ func (sc *scope) appendSliceContracts(buf *bytes.Buffer, o Options, paths map[st
 	}
 	sort.Strings(pathList)
 	if o.Hook != "" {
-		digest := FormatContractDigest(o.BrainSpecBodies(o.Dir, o.Home, pathList), min(defaultContractDigestBytes, avail-len(hdr)))
+		digest := o.FormatSpecDigest(pathList, min(DefaultContractDigestBytes, avail-len(hdr)))
 		if digest == "" {
 			return
 		}
@@ -122,8 +119,8 @@ func (sc *scope) appendSliceContracts(buf *bytes.Buffer, o Options, paths map[st
 		}
 		return
 	}
-	capB := min(defaultContractDigestBytes, avail)
-	digest := FormatContractDigest(o.BrainSpecBodies(o.Dir, o.Home, pathList), capB-len(hdr))
+	capB := min(DefaultContractDigestBytes, avail)
+	digest := o.FormatSpecDigest(pathList, capB-len(hdr))
 	if digest == "" {
 		return
 	}
@@ -142,7 +139,7 @@ func (sc *scope) appendSliceContracts(buf *bytes.Buffer, o Options, paths map[st
 }
 
 func formatFencedSliceContracts(hdr, digest string, avail int) string {
-	f := New(digest)
+	f := vet.New(digest)
 	overhead := len(hdr) + len(indentBlockLines(f.Data("spec_contracts", "trail", "")))
 	bodyBudget := avail - overhead
 	if bodyBudget < 24 {
@@ -158,7 +155,7 @@ func formatFencedSliceContracts(hdr, digest string, avail int) string {
 			continue
 		}
 		if len(kept) == 0 && bodyBudget-3 >= 16 {
-			if clipped := truncateBytesUTF8(line, bodyBudget-3); clipped != "" {
+			if clipped := TruncateBytesUTF8(line, bodyBudget-3); clipped != "" {
 				kept = append(kept, clipped)
 			}
 		}
@@ -188,7 +185,8 @@ func indentBlockLines(text string) string {
 	return b.String()
 }
 
-func (sc *scope) formatHop0Symbol(cache sliceLineCache, s RankedSymbol, remBytes int) string {
+// FormatHop0Symbol formats a full Hop-0 symbol body block fitted to remBytes.
+func (sc *Scope) FormatHop0Symbol(cache SliceLineCache, s RankedSymbol, remBytes int) string {
 	makeHdr := func(end int) string {
 		return fmt.Sprintf("[Hop 0] %s:%d-%d (%s)\n", s.Path, s.StartLine, end, s.QualName())
 	}
@@ -202,10 +200,10 @@ func (sc *scope) formatHop0Symbol(cache sliceLineCache, s RankedSymbol, remBytes
 	return fitLinesToBudget(makeHdr, lines, s.StartLine, remBytes)
 }
 
-func (sc *scope) formatHop1Symbol(cache sliceLineCache, s RankedSymbol, c hop1Cand, remBytes int) string {
-	conf := c.confidence
+func (sc *Scope) formatHop1Symbol(cache SliceLineCache, s RankedSymbol, c Hop1Cand, remBytes int) string {
+	conf := c.Confidence
 	if conf == "" {
-		conf = "EXTRACTED"
+		conf = ConfidenceExtracted
 	}
 	span := s.EndLine - s.StartLine + 1
 	if span <= hop1MaxFullLines {
@@ -219,8 +217,8 @@ func (sc *scope) formatHop1Symbol(cache sliceLineCache, s RankedSymbol, c hop1Ca
 		return fitLinesToBudget(makeHdr, lines, s.StartLine, remBytes)
 	}
 	start := s.StartLine
-	if c.callLine >= s.StartLine && c.callLine <= s.EndLine {
-		start = max(s.StartLine, c.callLine-2)
+	if c.CallLine >= s.StartLine && c.CallLine <= s.EndLine {
+		start = max(s.StartLine, c.CallLine-2)
 	}
 	end := min(s.EndLine, start+hop1SnippetLines-1)
 	makeHdr := func(last int) string {
@@ -257,34 +255,44 @@ func fitLinesToBudget(makeHdr func(endLine int) string, lines []string, startLin
 	return hdr + body.String()
 }
 
-func (sc *scope) readLinesRangeCached(cache sliceLineCache, oid, relPath string, startLine, endLine int) []string {
-	if cache != nil {
-		if all, ok := cache[relPath]; ok {
-			s, e := max(1, startLine), min(len(all), endLine)
-			if s <= e {
-				return all[s-1 : e]
-			}
-			return nil
-		}
+func (sc *Scope) readLinesRangeCached(cache SliceLineCache, oid, relPath string, startLine, endLine int) []string {
+	if all, ok := cache[relPath]; ok {
+		return sliceLineWindow(all, startLine, endLine)
 	}
-	for _, root := range sc.projects {
-		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relPath)))
-		if err != nil {
-			continue
-		}
-		all := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	if all, ok := sc.loadFileLines(relPath); ok {
 		if cache != nil {
 			cache[relPath] = all
 		}
-		s, e := max(1, startLine), min(len(all), endLine)
-		if s <= e {
-			return all[s-1 : e]
-		}
+		return sliceLineWindow(all, startLine, endLine)
+	}
+	if sc == nil || sc.LineText == nil {
 		return nil
 	}
 	var out []string
 	for line := startLine; line <= endLine; line++ {
-		out = append(out, sc.lineText(oid, line))
+		out = append(out, sc.LineText(oid, line))
 	}
 	return out
+}
+
+func (sc *Scope) loadFileLines(relPath string) ([]string, bool) {
+	if sc == nil {
+		return nil, false
+	}
+	for _, root := range sc.Projects {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relPath)))
+		if err != nil {
+			continue
+		}
+		return strings.Split(strings.TrimSuffix(string(data), "\n"), "\n"), true
+	}
+	return nil, false
+}
+
+func sliceLineWindow(all []string, startLine, endLine int) []string {
+	s, e := max(1, startLine), min(len(all), endLine)
+	if s > e {
+		return nil
+	}
+	return all[s-1 : e]
 }

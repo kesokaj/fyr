@@ -42,13 +42,13 @@ Final body line.
 	}
 	for i, w := range want {
 		got := syms[i]
-		if got.name != w.name || got.sig != w.sig || got.kind != "heading" || got.pkg != "" || got.exported != 0 {
+		if got.Name != w.name || got.Sig != w.sig || got.Kind != "heading" || got.Pkg != "" || got.Exported != 0 {
 			t.Fatalf("sym[%d] = %+v, want name=%q sig=%q kind=heading pkg=\"\" exported=0", i, got, w.name, w.sig)
 		}
-		if got.startLine != w.start || got.endLine != w.end {
-			t.Fatalf("sym[%d] span = %d..%d, want %d..%d", i, got.startLine, got.endLine, w.start, w.end)
+		if got.StartLine != w.start || got.EndLine != w.end {
+			t.Fatalf("sym[%d] span = %d..%d, want %d..%d", i, got.StartLine, got.EndLine, w.start, w.end)
 		}
-		if got.bodyHash == "" {
+		if got.BodyHash == "" {
 			t.Fatalf("sym[%d] missing bodyHash", i)
 		}
 	}

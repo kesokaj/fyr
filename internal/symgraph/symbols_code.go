@@ -1,22 +1,25 @@
-package search
+package symgraph
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"go/ast"
+	"go/token"
 	"path"
 	"regexp"
 	"strings"
 )
 
-func extractSymbolsAndRefs(filePath, text string) ([]symbolRow, []symRefRow) {
+func ExtractSymbolsAndRefs(filePath, text string) ([]SymbolRow, []SymRefRow) {
 	return extractSymbolsAndRefsCore(filePath, text, true)
 }
 
-func extractSymbolsAndRefsForIndex(filePath, text string) ([]symbolRow, []symRefRow) {
+func ExtractSymbolsAndRefsForIndex(filePath, text string) ([]SymbolRow, []SymRefRow) {
 	return extractSymbolsAndRefsCore(filePath, text, false)
 }
 
-func extractSymbolsAndRefsCore(filePath, text string, includeImplicitGo bool) ([]symbolRow, []symRefRow) {
-	if isExcludedASTPath(filePath) {
+func extractSymbolsAndRefsCore(filePath, text string, includeImplicitGo bool) ([]SymbolRow, []SymRefRow) {
+	if IsExcludedASTPath(filePath) {
 		return nil, nil
 	}
 	switch strings.ToLower(path.Ext(filePath)) {
@@ -29,46 +32,46 @@ func extractSymbolsAndRefsCore(filePath, text string, includeImplicitGo bool) ([
 	case ".sh":
 		return extractShSymbols(filePath, text)
 	case ".md":
-		return extractMarkdownSymbols(filePath, text)
+		return ExtractMarkdownSymbols(filePath, text)
 	}
 	return nil, nil
 }
 
 type recvKey struct{ pkg, recv string }
 
-func groupInterfaceAndRecvMethods(syms []symbolRow) (map[recvKey]symbolRow, map[recvKey][]symbolRow, map[recvKey]map[string]bool) {
-	ifaces := map[recvKey]symbolRow{}
-	ifaceMethods := map[recvKey][]symbolRow{}
+func groupInterfaceAndRecvMethods(syms []SymbolRow) (map[recvKey]SymbolRow, map[recvKey][]SymbolRow, map[recvKey]map[string]bool) {
+	ifaces := map[recvKey]SymbolRow{}
+	ifaceMethods := map[recvKey][]SymbolRow{}
 	recvMethods := map[recvKey]map[string]bool{}
 	for _, sy := range syms {
-		switch sy.kind {
+		switch sy.Kind {
 		case "interface":
-			ifaces[recvKey{sy.pkg, sy.name}] = sy
+			ifaces[recvKey{sy.Pkg, sy.Name}] = sy
 		case "interface_method":
-			k := recvKey{sy.pkg, sy.recv}
+			k := recvKey{sy.Pkg, sy.Recv}
 			ifaceMethods[k] = append(ifaceMethods[k], sy)
 		case "method":
-			if sy.recv != "" {
-				k := recvKey{sy.pkg, sy.recv}
+			if sy.Recv != "" {
+				k := recvKey{sy.Pkg, sy.Recv}
 				if recvMethods[k] == nil {
 					recvMethods[k] = map[string]bool{}
 				}
-				recvMethods[k][sy.name] = true
+				recvMethods[k][sy.Name] = true
 			}
 		}
 	}
 	return ifaces, ifaceMethods, recvMethods
 }
 
-func findInterfaceImplementers(iface symbolRow, req []symbolRow, recvMethods map[recvKey]map[string]bool) []recvKey {
+func findInterfaceImplementers(iface SymbolRow, req []SymbolRow, recvMethods map[recvKey]map[string]bool) []recvKey {
 	var out []recvKey
 	for rk, mset := range recvMethods {
-		if rk.recv == iface.name {
+		if rk.recv == iface.Name {
 			continue
 		}
 		ok := true
 		for _, m := range req {
-			if !mset[m.name] {
+			if !mset[m.Name] {
 				ok = false
 				break
 			}
@@ -138,7 +141,7 @@ func isSQLChain(expr ast.Expr) bool {
 var (
 	goFuncLineRe = regexp.MustCompile(`^func\s+(?:\(\s*[A-Za-z0-9_]*\s*\*?([A-Za-z_][A-Za-z0-9_]*)(?:\[[^\]]*\])?\s*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:\[[^\]]*\])?\(`)
 	goTypeLineRe = regexp.MustCompile(`^type\s+([A-Za-z_][A-Za-z0-9_]*)\s+(struct|interface|[A-Za-z0-9_.*\[\]]+)`)
-	callTokenRe  = regexp.MustCompile(`(?:([A-Za-z_][A-Za-z0-9_]*)\.)?([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	callIdentRe  = regexp.MustCompile(`(?:([A-Za-z_][A-Za-z0-9_]*)\.)?([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	tsDeclRe     = regexp.MustCompile(`^\s*(export\s+)?(?:default\s+)?(?:async\s+)?(function|class|interface|type|const)\s+([A-Za-z_$][A-Za-z0-9_$]*)`)
 	pyDeclRe     = regexp.MustCompile(`^(\s*)(?:async\s+)?(def|class)\s+([A-Za-z_][A-Za-z0-9_]*)`)
 	shDeclRe     = regexp.MustCompile(`^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_-]*)\s*(?:\(\s*\))?\s*\{?|([A-Za-z_][A-Za-z0-9_-]*)\s*\(\s*\)\s*\{)`)
@@ -155,49 +158,49 @@ var (
 	}
 )
 
-func parseGoFallbackFuncLine(trim, pkgName string, lineNum int) (symbolRow, []symRefRow, string, bool) {
+func parseGoFallbackFuncLine(trim, pkgName string, lineNum int) (SymbolRow, []SymRefRow, string, bool) {
 	m := goFuncLineRe.FindStringSubmatch(trim)
 	if m == nil {
-		return symbolRow{}, nil, "", false
+		return SymbolRow{}, nil, "", false
 	}
 	recv, name := m[1], m[2]
 	kind, curSym := "func", name
 	if recv != "" {
 		kind, curSym = "method", recv+"."+name
 	}
-	sy := symbolRow{
-		name: name, recv: recv, kind: kind, pkg: pkgName,
-		startLine: lineNum, endLine: lineNum, sig: strings.TrimSuffix(trim, "{"),
-		exported: boolInt(ast.IsExported(name)), bodyHash: hashString(trim),
+	sy := SymbolRow{
+		Name: name, Recv: recv, Kind: kind, Pkg: pkgName,
+		StartLine: lineNum, EndLine: lineNum, Sig: strings.TrimSuffix(trim, "{"),
+		Exported: boolToInt(ast.IsExported(name)), BodyHash: HashString(trim),
 	}
-	var refs []symRefRow
+	var refs []SymRefRow
 	if _, body, ok := strings.Cut(trim, "{"); ok && body != "" {
 		refs = scanLineCalls(body, curSym, lineNum, goPredeclared)
 	}
 	return sy, refs, curSym, true
 }
 
-func parseGoFallbackTypeLine(trim, pkgName string, lineNum int) (symbolRow, string, bool) {
+func parseGoFallbackTypeLine(trim, pkgName string, lineNum int) (SymbolRow, string, bool) {
 	m := goTypeLineRe.FindStringSubmatch(trim)
 	if m == nil {
-		return symbolRow{}, "", false
+		return SymbolRow{}, "", false
 	}
 	name, kind := m[1], m[2]
 	if kind != "struct" && kind != "interface" {
 		kind = "type"
 	}
-	sy := symbolRow{
-		name: name, kind: kind, pkg: pkgName, startLine: lineNum, endLine: lineNum,
-		sig: "type " + name + " " + kind, exported: boolInt(ast.IsExported(name)), bodyHash: hashString(trim),
+	sy := SymbolRow{
+		Name: name, Kind: kind, Pkg: pkgName, StartLine: lineNum, EndLine: lineNum,
+		Sig: "type " + name + " " + kind, Exported: boolToInt(ast.IsExported(name)), BodyHash: HashString(trim),
 	}
 	return sy, name, true
 }
 
-func parseGoFallback(text, pkgName string) ([]symbolRow, []symRefRow) {
-	var syms []symbolRow
-	var refs []symRefRow
+func parseGoFallback(text, pkgName string) ([]SymbolRow, []SymRefRow) {
+	var syms []SymbolRow
+	var refs []SymRefRow
 	curSym := ""
-	for i, l := range splitLines(text) {
+	for i, l := range SplitLines(text) {
 		trim := strings.TrimSpace(l)
 		if sy, lineRefs, sym, ok := parseGoFallbackFuncLine(trim, pkgName, i+1); ok {
 			curSym = sym
@@ -217,14 +220,14 @@ func parseGoFallback(text, pkgName string) ([]symbolRow, []symRefRow) {
 	return syms, refs
 }
 
-func extractPySymbols(filePath, text string) ([]symbolRow, []symRefRow) {
-	if isExcludedASTPath(filePath) {
+func extractPySymbols(filePath, text string) ([]SymbolRow, []SymRefRow) {
+	if IsExcludedASTPath(filePath) {
 		return nil, nil
 	}
-	pkg := canonicalPkgDir(filePath)
-	lines := splitLines(text)
-	var syms []symbolRow
-	var refs []symRefRow
+	pkg := CanonicalPkgDir(filePath)
+	lines := SplitLines(text)
+	var syms []SymbolRow
+	var refs []SymRefRow
 	curClass, curSym := "", "<module>"
 	for i, l := range lines {
 		if m := pyDeclRe.FindStringSubmatch(l); m != nil {
@@ -237,25 +240,25 @@ func extractPySymbols(filePath, text string) ([]symbolRow, []symRefRow) {
 			} else {
 				curClass, curSym = "", name
 			}
-			syms = append(syms, symbolRow{
-				name: name, recv: recv, kind: kind, pkg: pkg, startLine: i + 1, endLine: i + 1,
-				sig: strings.TrimSpace(l), exported: boolInt(!strings.HasPrefix(name, "_")), bodyHash: hashString(l),
+			syms = append(syms, SymbolRow{
+				Name: name, Recv: recv, Kind: kind, Pkg: pkg, StartLine: i + 1, EndLine: i + 1,
+				Sig: strings.TrimSpace(l), Exported: boolToInt(!strings.HasPrefix(name, "_")), BodyHash: HashString(l),
 			})
 			continue
 		}
 		refs = append(refs, scanLineCalls(strings.TrimSpace(l), curSym, i+1, codeSkip)...)
 	}
-	return syms, dedupSymRefs(refs)
+	return syms, DedupSymRefs(refs)
 }
 
-func extractShSymbols(filePath, text string) ([]symbolRow, []symRefRow) {
-	if isExcludedASTPath(filePath) {
+func extractShSymbols(filePath, text string) ([]SymbolRow, []SymRefRow) {
+	if IsExcludedASTPath(filePath) {
 		return nil, nil
 	}
-	pkg := canonicalPkgDir(filePath)
-	lines := splitLines(text)
-	var syms []symbolRow
-	var refs []symRefRow
+	pkg := CanonicalPkgDir(filePath)
+	lines := SplitLines(text)
+	var syms []SymbolRow
+	var refs []SymRefRow
 	curSym := "<script>"
 	for i, l := range lines {
 		trim := strings.TrimSpace(l)
@@ -268,28 +271,99 @@ func extractShSymbols(filePath, text string) ([]symbolRow, []symRefRow) {
 				name = m[2]
 			}
 			curSym = name
-			syms = append(syms, symbolRow{
-				name: name, kind: "func", pkg: pkg, startLine: i + 1, endLine: i + 1,
-				sig: name + "()", exported: 1, bodyHash: hashString(trim),
+			syms = append(syms, SymbolRow{
+				Name: name, Kind: "func", Pkg: pkg, StartLine: i + 1, EndLine: i + 1,
+				Sig: name + "()", Exported: 1, BodyHash: HashString(trim),
 			})
 			continue
 		}
 		refs = append(refs, scanLineCalls(trim, curSym, i+1, codeSkip)...)
 	}
-	return syms, dedupSymRefs(refs)
+	return syms, DedupSymRefs(refs)
 }
 
-func scanLineCalls(line, fromSym string, lineNum int, skip map[string]bool) []symRefRow {
-	var out []symRefRow
-	for _, m := range callTokenRe.FindAllStringSubmatch(line, -1) {
+func scanLineCalls(line, fromSym string, lineNum int, skip map[string]bool) []SymRefRow {
+	var out []SymRefRow
+	for _, m := range callIdentRe.FindAllStringSubmatch(line, -1) {
 		pkg, name := m[1], m[2]
 		if skip[name] || skip[pkg] {
 			continue
 		}
-		out = append(out, symRefRow{
-			fromSym: fromSym, toPkg: pkg, toName: name, kind: "call",
-			confidence: ConfidenceExtracted, weight: WeightExtracted, line: lineNum,
+		out = append(out, SymRefRow{
+			FromSym: fromSym, ToPkg: pkg, ToName: name, Kind: "call",
+			Confidence: ConfidenceExtracted, Weight: WeightExtracted, Line: lineNum,
 		})
 	}
 	return out
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// DedupSymRefs removes duplicate symbol reference rows while preserving order.
+func DedupSymRefs(refs []SymRefRow) []SymRefRow {
+	type refDedup struct {
+		from, pkg, name, kind string
+		line                  int
+	}
+	seen := map[refDedup]bool{}
+	var out []SymRefRow
+	for _, r := range refs {
+		if r.ToName == "" {
+			continue
+		}
+		k := refDedup{r.FromSym, r.ToPkg, r.ToName, r.Kind, r.Line}
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// MergeSymbols appends symbols from extra not already present in base.
+func MergeSymbols(base, extra []SymbolRow) []SymbolRow {
+	seen := map[string]bool{}
+	for _, s := range base {
+		seen[s.Recv+"."+s.Name] = true
+	}
+	for _, s := range extra {
+		if !seen[s.Recv+"."+s.Name] {
+			seen[s.Recv+"."+s.Name] = true
+			base = append(base, s)
+		}
+	}
+	return base
+}
+
+// SpecLineSpan returns the 1-based start and end lines for a Go declaration spec.
+func SpecLineSpan(fset *token.FileSet, gd *ast.GenDecl, sp ast.Spec) (int, int) {
+	if len(gd.Specs) == 1 {
+		return fset.Position(gd.Pos()).Line, fset.Position(gd.End()).Line
+	}
+	return fset.Position(sp.Pos()).Line, fset.Position(sp.End()).Line
+}
+
+// SliceNodeText slices the exact source substring covered by [start, end).
+func SliceNodeText(fset *token.FileSet, start, end token.Pos, text string) string {
+	s, e := fset.Position(start).Offset, fset.Position(end).Offset
+	if s < 0 || e < s || e > len(text) {
+		return ""
+	}
+	return text[s:e]
+}
+
+// HashNodeText returns the 16-hex SHA-256 prefix of the AST node's source text.
+func HashNodeText(fset *token.FileSet, start, end token.Pos, text string) string {
+	return HashString(SliceNodeText(fset, start, end, text))
+}
+
+// HashString returns the 16-hex SHA-256 prefix of s.
+func HashString(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:8])
 }

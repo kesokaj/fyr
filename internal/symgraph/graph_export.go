@@ -1,7 +1,6 @@
-package search
+package symgraph
 
 import (
-	"io"
 	"path/filepath"
 	"sort"
 )
@@ -111,40 +110,37 @@ type GraphSnapshot struct {
 	StructuralSignals StructuralSignals     `json:"structuralSignals"`
 }
 
-// LoadGraphSnapshot reconciles the checkout index and returns its AST + telemetry snapshot.
-func LoadGraphSnapshot(opts Options, gopts GraphOptions) (*GraphSnapshot, error) {
-	includeDocs := opts.IncludeDocs || gopts.IncludeDocs
-	prepOpts := opts
-	prepOpts.Global = false
-	prepOpts.IncludeDocs = includeDocs
-	sc, err := prepare(prepOpts, io.Discard)
-	if err != nil {
-		return nil, err
-	}
-	defer sc.close()
+// LoadGraphSnapshot builds an AST + behavioral telemetry snapshot from an open Scope.
+func (sc *Scope) LoadGraphSnapshot(gopts GraphOptions, includeDocs bool) (*GraphSnapshot, error) {
 	root := ""
-	if len(sc.projects) > 0 {
-		root = sc.projects[0]
+	if len(sc.Projects) > 0 {
+		root = sc.Projects[0]
 	}
-	goMods := loadGoModules(sc)
-	g, err := buildSymGraphFromDBOpts(sc.st.db, sc.projects, goMods, includeDocs, gopts.IncludeVendored)
+	goMods := LoadGoModules(sc)
+	g, err := BuildSymGraphFromDBOpts(sc.DB, sc.Projects, goMods, includeDocs, gopts.IncludeVendored)
 	if err != nil {
 		return nil, err
 	}
 	prodGraph := g
 	if includeDocs || gopts.IncludeVendored {
-		prodGraph, err = buildSymGraphFromDBOpts(sc.st.db, sc.projects, goMods, false, false)
+		prodGraph, err = BuildSymGraphFromDBOpts(sc.DB, sc.Projects, goMods, false, false)
 		if err != nil {
 			return nil, err
 		}
 	}
-	sig := computeStructuralSignalsFromGraph(sc.st.db, root, prodGraph)
+	var sig StructuralSignals
+	if sc.ComputeSignals != nil {
+		sig = sc.ComputeSignals(sc.DB, root, prodGraph)
+	}
 	return assembleGraphSnapshot(sc, root, g, gopts, includeDocs, sig), nil
 }
 
-func assembleGraphSnapshot(sc *scope, root string, g *symGraph, gopts GraphOptions, includeDocs bool, sig StructuralSignals) *GraphSnapshot {
-	_ = g.rank("", nil)
-	churnMap, _ := queryFileChurnStats(sc.st.db, root)
+func assembleGraphSnapshot(sc *Scope, root string, g *Graph, gopts GraphOptions, includeDocs bool, sig StructuralSignals) *GraphSnapshot {
+	_ = g.Rank("", nil)
+	var churnMap map[string]FileChurnStat
+	if sc.QueryFileChurnStats != nil {
+		churnMap, _ = sc.QueryFileChurnStats(sc.DB, root)
+	}
 	files, fileIdxOf, pkgs, pkgIdxOf := buildSnapshotFilesAndPkgs(g, gopts.IncludeTests, includeDocs, churnMap)
 	syms, symMap := buildSnapshotSymbols(g, fileIdxOf, pkgIdxOf, files, pkgs)
 	symEdges, fileAcc, pkgAcc, prodCycleAdj := buildSnapshotEdgeTables(g, symMap, fileIdxOf, pkgIdxOf, files, len(pkgs))
@@ -153,7 +149,7 @@ func assembleGraphSnapshot(sc *scope, root string, g *symGraph, gopts GraphOptio
 	assignSnapshotDegreesAndCommunities(pkgs, pkgEdges, files, fileEdges, syms, symEdges)
 	markSnapshotGodNodes(pkgs, files, syms)
 	pkgCycles := TarjanSCC(len(pkgs), prodCycleAdj)
-	hidden := buildSnapshotHiddenCoupling(sc.st.db, root, fileIdxOf, fileEdges, collectUndirectedASTFilePairs(g))
+	hidden := buildSnapshotHiddenCoupling(sc, root, fileIdxOf, fileEdges, g.CollectUndirectedASTFilePairs())
 	return &GraphSnapshot{
 		RepoRoot:          root,
 		RepoName:          filepath.Base(root),
@@ -169,20 +165,20 @@ func assembleGraphSnapshot(sc *scope, root string, g *symGraph, gopts GraphOptio
 	}
 }
 
-func buildSnapshotFilesAndPkgs(g *symGraph, includeTests, includeDocs bool, churn map[string]fileChurnStat) ([]GraphFile, map[string]int, []GraphPackage, map[string]int) {
+func buildSnapshotFilesAndPkgs(g *Graph, includeTests, includeDocs bool, churn map[string]FileChurnStat) ([]GraphFile, map[string]int, []GraphPackage, map[string]int) {
 	pkgSet := map[string]bool{}
-	var keptFiles []indexedFileMeta
-	for _, f := range g.files {
-		if (!includeTests && isTestPath(f.path)) || (!includeDocs && isDocPath(f.path)) {
+	var keptFiles []FileMeta
+	for _, f := range g.Files {
+		if (!includeTests && IsTestPath(f.Path)) || (!includeDocs && IsDocPath(f.Path)) {
 			continue
 		}
-		if f.pkg == "" {
-			f.pkg = canonicalPkgDir(f.path)
+		if f.Pkg == "" {
+			f.Pkg = CanonicalPkgDir(f.Path)
 		}
 		keptFiles = append(keptFiles, f)
-		pkgSet[f.pkg] = true
+		pkgSet[f.Pkg] = true
 	}
-	pkgNames := sortedMapKeys(pkgSet)
+	pkgNames := SortedMapKeys(pkgSet)
 	pkgs := make([]GraphPackage, len(pkgNames))
 	pkgIdxOf := make(map[string]int, len(pkgNames))
 	for i, name := range pkgNames {
@@ -192,27 +188,27 @@ func buildSnapshotFilesAndPkgs(g *symGraph, includeTests, includeDocs bool, chur
 	files := make([]GraphFile, len(keptFiles))
 	fileIdxOf := make(map[string]int, len(keptFiles))
 	for i, f := range keptFiles {
-		fileIdxOf[f.path] = i
-		pIdx := pkgIdxOf[f.pkg]
-		ch := churn[f.path]
+		fileIdxOf[f.Path] = i
+		pIdx := pkgIdxOf[f.Pkg]
+		ch := churn[f.Path]
 		files[i] = GraphFile{
-			Idx: i, Path: f.path, Pkg: f.pkg, PkgIdx: pIdx, Layer: topLevelLayer(f.path),
-			IsTest: isTestPath(f.path), IsDoc: isDocPath(f.path), LineCount: f.lineCount,
-			ClampHits: ch.clampHits, RepeatReads: ch.repeatReads, ChurnScore: ch.clampHits + ch.repeatReads,
+			Idx: i, Path: f.Path, Pkg: f.Pkg, PkgIdx: pIdx, Layer: topLevelLayer(f.Path),
+			IsTest: IsTestPath(f.Path), IsDoc: IsDocPath(f.Path), LineCount: f.LineCount,
+			ClampHits: ch.ClampHits, RepeatReads: ch.RepeatReads, ChurnScore: ch.ClampHits + ch.RepeatReads,
 		}
 		pkgs[pIdx].FileCount++
-		pkgs[pIdx].LineCount += f.lineCount
-		pkgs[pIdx].ClampHits += ch.clampHits
-		pkgs[pIdx].RepeatReads += ch.repeatReads
-		pkgs[pIdx].ChurnScore += ch.clampHits + ch.repeatReads
+		pkgs[pIdx].LineCount += f.LineCount
+		pkgs[pIdx].ClampHits += ch.ClampHits
+		pkgs[pIdx].RepeatReads += ch.RepeatReads
+		pkgs[pIdx].ChurnScore += ch.ClampHits + ch.RepeatReads
 	}
 	return files, fileIdxOf, pkgs, pkgIdxOf
 }
 
-func buildSnapshotSymbols(g *symGraph, fileIdxOf, pkgIdxOf map[string]int, files []GraphFile, pkgs []GraphPackage) ([]GraphSymbol, map[int]int) {
+func buildSnapshotSymbols(g *Graph, fileIdxOf, pkgIdxOf map[string]int, files []GraphFile, pkgs []GraphPackage) ([]GraphSymbol, map[int]int) {
 	symMap := map[int]int{}
 	var syms []GraphSymbol
-	for oldIdx, s := range g.syms {
+	for oldIdx, s := range g.Syms {
 		fIdx, ok := fileIdxOf[s.Path]
 		if !ok {
 			continue
@@ -225,12 +221,12 @@ func buildSnapshotSymbols(g *symGraph, fileIdxOf, pkgIdxOf map[string]int, files
 			Idx: newIdx, Name: s.Name, QualName: s.QualName(), Recv: s.Recv, Kind: s.Kind,
 			Pkg: pkg, PkgIdx: pIdx, File: s.Path, FileIdx: fIdx,
 			StartLine: s.StartLine, EndLine: s.EndLine, Sig: s.Sig,
-			Exported: s.Exported, IsTest: files[fIdx].IsTest, PageRank: roundSignal4(s.Score),
+			Exported: s.Exported, IsTest: files[fIdx].IsTest, PageRank: RoundSignal4(s.Score),
 		})
 		files[fIdx].SymbolCount++
-		files[fIdx].PageRank = roundSignal4(files[fIdx].PageRank + s.Score)
+		files[fIdx].PageRank = RoundSignal4(files[fIdx].PageRank + s.Score)
 		pkgs[pIdx].SymbolCount++
-		pkgs[pIdx].PageRank = roundSignal4(pkgs[pIdx].PageRank + s.Score)
+		pkgs[pIdx].PageRank = RoundSignal4(pkgs[pIdx].PageRank + s.Score)
 	}
 	return syms, symMap
 }

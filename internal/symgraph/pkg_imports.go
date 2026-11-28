@@ -1,4 +1,4 @@
-package search
+package symgraph
 
 import (
 	"sort"
@@ -7,15 +7,16 @@ import (
 
 const maxPackageCycles = 64
 
-type pkgStat struct {
-	name  string
-	count int
+// PkgStat holds a package name and its indexed production symbol count.
+type PkgStat struct {
+	Name  string
+	Count int
 }
 
 func isGoSource(p string) bool { return strings.HasSuffix(p, ".go") }
 
 func isProdPkgPath(pkg, p string) bool {
-	return pkg != "" && !isDocPath(p) && !isTestPath(p) && !isExcludedASTPath(p)
+	return pkg != "" && !IsDocPath(p) && !IsTestPath(p) && !IsExcludedASTPath(p)
 }
 
 func addPkgDep(depSet map[string]map[string]bool, fromPkg, toPkg string) {
@@ -28,7 +29,7 @@ func addPkgDep(depSet map[string]map[string]bool, fromPkg, toPkg string) {
 // summarizePackages counts indexed production symbols per canonical package and
 // builds the directed package dependency graph strictly over extracted
 // import | call | type_ref edges (excluding inferred iface_call/implements).
-func (g *symGraph) summarizePackages() ([]pkgStat, map[string][]string) {
+func (g *Graph) SummarizePackages() ([]PkgStat, map[string][]string) {
 	counts := g.seedProdPackages()
 	depSet := map[string]map[string]bool{}
 	g.collectSymbolPkgDeps(counts, depSet)
@@ -36,38 +37,38 @@ func (g *symGraph) summarizePackages() ([]pkgStat, map[string][]string) {
 	return sortedPkgStats(counts, depSet)
 }
 
-func (g *symGraph) seedProdPackages() map[string]int {
+func (g *Graph) seedProdPackages() map[string]int {
 	counts := map[string]int{}
-	for _, f := range g.files {
-		if isProdPkgPath(f.pkg, f.path) {
-			counts[f.pkg] = 0
+	for _, f := range g.Files {
+		if isProdPkgPath(f.Pkg, f.Path) {
+			counts[f.Pkg] = 0
 		}
 	}
 	return counts
 }
 
-func (g *symGraph) isCrossPkgStructuralEdge(from RankedSymbol, fromIsGo bool, e graphEdge) (string, bool) {
-	to := g.syms[e.toIdx]
-	if to.Pkg == from.Pkg || e.confidence != ConfidenceExtracted || !isStructuralCycleEdgeKind(e.kind) {
+func (g *Graph) isCrossPkgStructuralEdge(from RankedSymbol, fromIsGo bool, e Edge) (string, bool) {
+	to := g.Syms[e.ToIdx]
+	if to.Pkg == from.Pkg || e.Confidence != ConfidenceExtracted || !isStructuralCycleEdgeKind(e.Kind) {
 		return "", false
 	}
 	if !isProdPkgPath(to.Pkg, to.Path) || fromIsGo != isGoSource(to.Path) {
 		return "", false
 	}
-	if fromIsGo && !e.qualifiedPkg {
+	if fromIsGo && !e.QualifiedPkg {
 		return "", false
 	}
 	return to.Pkg, true
 }
 
-func (g *symGraph) collectSymbolPkgDeps(counts map[string]int, depSet map[string]map[string]bool) {
-	for i, s := range g.syms {
+func (g *Graph) collectSymbolPkgDeps(counts map[string]int, depSet map[string]map[string]bool) {
+	for i, s := range g.Syms {
 		if !isProdPkgPath(s.Pkg, s.Path) {
 			continue
 		}
 		counts[s.Pkg]++
 		sIsGo := isGoSource(s.Path)
-		for _, e := range g.out[i] {
+		for _, e := range g.Out[i] {
 			if toPkg, ok := g.isCrossPkgStructuralEdge(s, sIsGo, e); ok {
 				addPkgDep(depSet, s.Pkg, toPkg)
 			}
@@ -75,35 +76,35 @@ func (g *symGraph) collectSymbolPkgDeps(counts map[string]int, depSet map[string
 	}
 }
 
-func (g *symGraph) collectImportPkgDeps(counts map[string]int, depSet map[string]map[string]bool) {
-	for _, ie := range g.importEdges {
-		if ie.fromPkg == "" || ie.toPkg == "" || ie.fromPkg == ie.toPkg || isDocPath(ie.fromPath) || isTestPath(ie.fromPath) {
+func (g *Graph) collectImportPkgDeps(counts map[string]int, depSet map[string]map[string]bool) {
+	for _, ie := range g.ImportEdges {
+		if ie.FromPkg == "" || ie.ToPkg == "" || ie.FromPkg == ie.ToPkg || IsDocPath(ie.FromPath) || IsTestPath(ie.FromPath) {
 			continue
 		}
-		if _, ok := counts[ie.toPkg]; ok {
-			addPkgDep(depSet, ie.fromPkg, ie.toPkg)
+		if _, ok := counts[ie.ToPkg]; ok {
+			addPkgDep(depSet, ie.FromPkg, ie.ToPkg)
 		}
 	}
 }
 
-func sortedPkgStats(counts map[string]int, depSet map[string]map[string]bool) ([]pkgStat, map[string][]string) {
-	pkgs := make([]pkgStat, 0, len(counts))
+func sortedPkgStats(counts map[string]int, depSet map[string]map[string]bool) ([]PkgStat, map[string][]string) {
+	pkgs := make([]PkgStat, 0, len(counts))
 	deps := make(map[string][]string, len(counts))
 	for p, c := range counts {
-		pkgs = append(pkgs, pkgStat{name: p, count: c})
+		pkgs = append(pkgs, PkgStat{Name: p, Count: c})
 		for d := range depSet[p] {
 			deps[p] = append(deps[p], d)
 		}
 		sort.Strings(deps[p])
 	}
-	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].name < pkgs[j].name })
+	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].Name < pkgs[j].Name })
 	return pkgs, deps
 }
 
 const maxPackageCycleSteps = 10000
 
 // findPackageCycles prunes non-cyclic edges via Tarjan SCC and formats canonical cycles.
-func findPackageCycles(deps map[string][]string) []string {
+func FindPackageCycles(deps map[string][]string) []string {
 	return formatSCCPackageCycles(deps)
 }
 

@@ -153,7 +153,7 @@ func (sc *scope) buildVetSliceCtx(ctx context.Context, o Options, prompt string,
 	}
 	active := sc.sessionActiveFiles(o.Session, o.ActiveFiles)
 	g, err := sc.loadBoundedSymGraphCtx(ctx, prompt, active, false, 1)
-	if err != nil || len(g.syms) == 0 || (ctx != nil && ctx.Err() != nil) {
+	if err != nil || len(g.Syms) == 0 || (ctx != nil && ctx.Err() != nil) {
 		return SliceResult{}, nil
 	}
 	hits, _ := countMatchingSymbols(g, prompt)
@@ -164,7 +164,7 @@ func (sc *scope) buildVetSliceCtx(ctx context.Context, o Options, prompt string,
 	if ctx != nil && ctx.Err() != nil {
 		return SliceResult{}, nil
 	}
-	pkgComms := g.packageCommunities()
+	pkgComms := g.PackageCommunities()
 	if !confident && !state.Compacted {
 		return SliceResult{SymbolHits: hits, Files: nil, PkgCommunities: pkgComms}, nil
 	}
@@ -205,7 +205,7 @@ func countMatchingSymbols(g *symGraph, prompt string) (int, map[string]bool) {
 	terms := parseQueryTerms(prompt)
 	hits := 0
 	fileSet := map[string]bool{}
-	for _, s := range g.syms {
+	for _, s := range g.Syms {
 		if matchesPromptTerms(s, terms) {
 			hits++
 			fileSet[s.Path] = true
@@ -220,7 +220,7 @@ func (sc *scope) renderHookOrVetCapsule(o Options, g *symGraph, prompt string, r
 	if o.BrainRefsForDir != nil && o.Dir != "" {
 		sliceOpts.BrainRefs = func(target string) []LinkedRecord { return o.BrainRefsForDir(o.Dir, target) }
 	}
-	tiers := g.selectSliceTiers(prompt, ranked, 1)
+	tiers := g.SelectSliceTiers(prompt, ranked, 1)
 	capsule := strings.TrimSpace(sc.renderCompactHookCapsule(sliceOpts, g, tiers, compactHookMaxBytes))
 	if capsule == "" {
 		return "", nil, nil, 0
@@ -230,7 +230,7 @@ func (sc *scope) renderHookOrVetCapsule(o Options, g *symGraph, prompt string, r
 }
 
 func rankAndCheckConfidence(g *symGraph, prompt string, active map[string]bool) ([]RankedSymbol, bool) {
-	if prompt == "" || len(g.syms) == 0 {
+	if prompt == "" || len(g.Syms) == 0 {
 		return nil, false
 	}
 	var longTerms []string
@@ -243,7 +243,7 @@ func rankAndCheckConfidence(g *symGraph, prompt string, active map[string]bool) 
 		return nil, false
 	}
 	matched := map[int]bool{}
-	for i, s := range g.syms {
+	for i, s := range g.Syms {
 		if s.Kind == "heading" {
 			continue
 		}
@@ -254,7 +254,7 @@ func rankAndCheckConfidence(g *symGraph, prompt string, active map[string]bool) 
 	if len(matched) == 0 {
 		return nil, false
 	}
-	ranked := g.rank(prompt, active)
+	ranked := g.Rank(prompt, active)
 	if len(ranked) == 0 {
 		return nil, false
 	}
@@ -272,12 +272,12 @@ func medianRankScore(g *symGraph, ranked []RankedSymbol, matched map[int]bool) f
 	neighbors := map[int]bool{}
 	for idx := range matched {
 		neighbors[idx] = true
-		for _, e := range g.out[idx] {
-			neighbors[e.toIdx] = true
+		for _, e := range g.Out[idx] {
+			neighbors[e.ToIdx] = true
 		}
-		for _, e := range g.in[idx] {
-			if e.fromIdx >= 0 {
-				neighbors[e.fromIdx] = true
+		for _, e := range g.In[idx] {
+			if e.FromIdx >= 0 {
+				neighbors[e.FromIdx] = true
 			}
 		}
 	}

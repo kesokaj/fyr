@@ -136,7 +136,7 @@ func buildClampSkeleton(resolvedPath, text string) string {
 	if len(syms) > 0 {
 		var lines []string
 		for _, sy := range syms {
-			lines = append(lines, fmt.Sprintf("%d-%d  %s", sy.startLine, sy.endLine, sy.sig))
+			lines = append(lines, fmt.Sprintf("%d-%d  %s", sy.StartLine, sy.EndLine, sy.Sig))
 			if len(lines) >= clampMaxSkeletonLines {
 				break
 			}

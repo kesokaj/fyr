@@ -1,4 +1,4 @@
-package search
+package symgraph
 
 import (
 	"regexp"
@@ -12,18 +12,19 @@ type mdHeading struct {
 	title string
 }
 
-type mdFence struct {
+// MDFence tracks CommonMark fenced code blocks.
+type MDFence struct {
 	char byte
 	len  int
 }
 
-func extractMarkdownSymbols(_ string, text string) ([]symbolRow, []symRefRow) {
-	lines := splitLines(text)
+func ExtractMarkdownSymbols(_ string, text string) ([]SymbolRow, []SymRefRow) {
+	lines := SplitLines(text)
 	headings := collectMarkdownHeadings(lines)
 	if len(headings) == 0 {
 		return nil, extractMarkdownDocRefs(text)
 	}
-	syms := make([]symbolRow, 0, len(headings))
+	syms := make([]SymbolRow, 0, len(headings))
 	for i, h := range headings {
 		endLine := len(lines)
 		if i+1 < len(headings) {
@@ -34,15 +35,15 @@ func extractMarkdownSymbols(_ string, text string) ([]symbolRow, []symRefRow) {
 		}
 		body := strings.Join(lines[h.line-1:endLine], "\n")
 		sig := strings.Repeat("#", h.level) + " " + h.title
-		syms = append(syms, symbolRow{
-			name:      h.title,
-			kind:      "heading",
-			pkg:       "",
-			startLine: h.line,
-			endLine:   endLine,
-			sig:       sig,
-			exported:  0,
-			bodyHash:  hashString(body),
+		syms = append(syms, SymbolRow{
+			Name:      h.title,
+			Kind:      "heading",
+			Pkg:       "",
+			StartLine: h.line,
+			EndLine:   endLine,
+			Sig:       sig,
+			Exported:  0,
+			BodyHash:  HashString(body),
 		})
 	}
 	return syms, extractMarkdownDocRefs(text)
@@ -50,9 +51,9 @@ func extractMarkdownSymbols(_ string, text string) ([]symbolRow, []symRefRow) {
 
 func collectMarkdownHeadings(lines []string) []mdHeading {
 	var headings []mdHeading
-	var f mdFence
+	var f MDFence
 	for i, line := range lines {
-		if f.step(line) || f.len > 0 || leadingIndentCols(line) >= 4 {
+		if f.Step(line) || f.len > 0 || leadingIndentCols(line) >= 4 {
 			continue
 		}
 		trim := strings.TrimSpace(line)
@@ -70,7 +71,7 @@ func collectMarkdownHeadings(lines []string) []mdHeading {
 	return headings
 }
 
-func (f *mdFence) step(line string) bool {
+func (f *MDFence) Step(line string) bool {
 	if leadingIndentCols(line) >= 4 {
 		return false
 	}
@@ -130,7 +131,7 @@ var (
 	mdTickRe  = regexp.MustCompile("`([^`\\n]{2,120})`")
 	docIdent  = regexp.MustCompile(`^(?:\(\*?([A-Za-z_][A-Za-z0-9_]*)\)\.|([A-Za-z_][A-Za-z0-9_]*)\.)?([A-Za-z_][A-Za-z0-9_]*)(?:\(.*\))?$`)
 	docStop   = searchWordSet("true false null none main bash text json yaml html todo pass fail")
-	docExtSet = buildDocExtSet(refExtensions, "db", "txt", "log", "lock", "jsonl", "html", "css", "svg", "png")
+	docExtSet = buildDocExtSet(RefExtensions, "db", "txt", "log", "lock", "jsonl", "html", "css", "svg", "png")
 )
 
 func buildDocExtSet(base []string, extra ...string) map[string]bool {
@@ -144,23 +145,23 @@ func buildDocExtSet(base []string, extra ...string) map[string]bool {
 	return out
 }
 
-func extractMarkdownDocRefs(text string) []symRefRow {
-	var out []symRefRow
-	var f fence
-	for i, l := range splitLines(text) {
-		if f.step(l) || f.inside() || !strings.Contains(l, "`") {
+func extractMarkdownDocRefs(text string) []SymRefRow {
+	var out []SymRefRow
+	var f Fence
+	for i, l := range SplitLines(text) {
+		if f.Step(l) || f.Inside() || !strings.Contains(l, "`") {
 			continue
 		}
 		for _, m := range mdTickRe.FindAllStringSubmatch(l, -1) {
 			if pkg, name, ok := parseDocSymbolSpan(strings.TrimSpace(m[1])); ok {
-				out = append(out, symRefRow{
-					fromSym: "<doc>", toPkg: pkg, toName: name, kind: "doc_ref",
-					confidence: ConfidenceInferred, weight: WeightInferred, line: i + 1,
+				out = append(out, SymRefRow{
+					FromSym: "<doc>", ToPkg: pkg, ToName: name, Kind: "doc_ref",
+					Confidence: ConfidenceInferred, Weight: WeightInferred, Line: i + 1,
 				})
 			}
 		}
 	}
-	return dedupSymRefs(out)
+	return DedupSymRefs(out)
 }
 
 func parseDocSymbolSpan(span string) (string, string, bool) {

@@ -36,15 +36,15 @@ func lookupWorkerHop0AST(explicitRoot, prompt string, files []string) ([]string,
 	defer st.close()
 	sc := &scope{st: st, projects: []string{explicitRoot}}
 	active := resolveWorkerSeedPaths(sc, files)
-	g, err := sc.loadBoundedSymGraph(prompt, active, false, 1)
-	if err != nil || len(g.syms) == 0 {
+	g, err := sc.loadBoundedSymGraph(prompt, active, 1)
+	if err != nil || len(g.Syms) == 0 {
 		return nil, nil
 	}
 	hop0Idxs := selectWorkerHop0Idxs(sc, g, prompt, matchGraphFiles(g, files))
 	var lines, astFiles []string
 	seen := map[string]bool{}
 	for _, idx := range hop0Idxs {
-		s := g.syms[idx]
+		s := g.Syms[idx]
 		if clean := printable(fmt.Sprintf("[Hop 0] %s:%d-%d (%s) — %s", s.Path, s.StartLine, s.EndLine, s.QualName(), compactSig(s.Sig, 90))); clean != "" {
 			lines = append(lines, clean)
 		}
@@ -67,8 +67,8 @@ func resolveWorkerSeedPaths(sc *scope, files []string) map[string]bool {
 	allPaths := make([]string, 0, len(indexed))
 	hasPath := make(map[string]bool, len(indexed))
 	for _, f := range indexed {
-		allPaths = append(allPaths, f.path)
-		hasPath[f.path] = true
+		allPaths = append(allPaths, f.Path)
+		hasPath[f.Path] = true
 	}
 	return matchPathList(allPaths, hasPath, files)
 }
@@ -82,7 +82,7 @@ func selectWorkerHop0Idxs(sc *scope, g *symGraph, prompt string, active map[stri
 		return nil
 	}
 	if !confident {
-		ranked = g.rank(prompt, active)
+		ranked = g.Rank(prompt, active)
 	}
 	low := strings.ToLower(prompt)
 	sort.SliceStable(ranked, func(i, j int) bool {
@@ -91,7 +91,7 @@ func selectWorkerHop0Idxs(sc *scope, g *symGraph, prompt string, active map[stri
 		return mi && !mj
 	})
 	if confident {
-		return g.selectSliceTiers(prompt, ranked, 0).hop0
+		return g.SelectSliceTiers(prompt, ranked, 0).Hop0
 	}
 	var idxs []int
 	for _, s := range ranked {
@@ -108,9 +108,9 @@ func matchGraphFiles(g *symGraph, files []string) map[string]bool {
 	if len(files) == 0 {
 		return map[string]bool{}
 	}
-	allPaths := make([]string, 0, len(g.byPath))
-	hasPath := make(map[string]bool, len(g.byPath))
-	for p := range g.byPath {
+	allPaths := make([]string, 0, len(g.ByPath))
+	hasPath := make(map[string]bool, len(g.ByPath))
+	for p := range g.ByPath {
 		allPaths = append(allPaths, p)
 		hasPath[p] = true
 	}

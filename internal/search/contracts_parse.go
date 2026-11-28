@@ -33,7 +33,7 @@ func splitLevel2Sections(body string) map[string][]string {
 	cur := ""
 	var f fence
 	for _, line := range lines {
-		if f.step(line) || f.inside() {
+		if f.Step(line) || f.Inside() {
 			if cur != "" {
 				out[cur] = append(out[cur], line)
 			}
@@ -81,8 +81,8 @@ func extractFencedBlocks(lines []string) []string {
 	var cur []string
 	var f fence
 	for _, line := range lines {
-		wasInside := f.inside()
-		isFence := f.step(line)
+		wasInside := f.Inside()
+		isFence := f.Step(line)
 		switch {
 		case isFence && !wasInside:
 			cur = []string{sanitizeCodeLine(strings.TrimSpace(line))}
@@ -103,7 +103,7 @@ func extractDataBullets(lines []string) []string {
 	var out []string
 	var f fence
 	for _, line := range lines {
-		if f.step(line) || f.inside() {
+		if f.Step(line) || f.Inside() {
 			continue
 		}
 		expanded := strings.ReplaceAll(strings.TrimRight(line, "\r"), "\t", "  ")
@@ -129,7 +129,7 @@ func extractFailureTables(lines []string) []faultTable {
 	var f fence
 	fenced := make([]bool, len(lines))
 	for i, line := range lines {
-		fenced[i] = f.step(line) || f.inside()
+		fenced[i] = f.Step(line) || f.Inside()
 	}
 	for i := 0; i+1 < len(lines); i++ {
 		if fenced[i] || fenced[i+1] {

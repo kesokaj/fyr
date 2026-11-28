@@ -458,12 +458,12 @@ func (s *store) reconcileGoInterfaces(project string) error {
 	for rows.Next() {
 		var fPath string
 		var sy symbolRow
-		if err := rows.Scan(&fPath, &sy.oid, &sy.name, &sy.recv, &sy.kind, &sy.startLine); err != nil {
+		if err := rows.Scan(&fPath, &sy.OID, &sy.Name, &sy.Recv, &sy.Kind, &sy.StartLine); err != nil {
 			rows.Close()
 			return err
 		}
 		if !isExcludedASTPath(fPath) {
-			sy.pkg = canonicalPkgDir(fPath)
+			sy.Pkg = canonicalPkgDir(fPath)
 			syms = append(syms, sy)
 		}
 	}
@@ -480,7 +480,7 @@ func (s *store) reconcileGoInterfaces(project string) error {
 	}
 	defer insStmt.Close()
 	for _, r := range matchImplicitInterfaces(syms) {
-		if _, err := insStmt.Exec(r.oid, r.fromSym, r.toPkg, r.toName, r.kind, r.confidence, r.weight, r.line); err != nil {
+		if _, err := insStmt.Exec(r.OID, r.FromSym, r.ToPkg, r.ToName, r.Kind, r.Confidence, r.Weight, r.Line); err != nil {
 			return err
 		}
 	}

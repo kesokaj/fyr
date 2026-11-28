@@ -2,42 +2,14 @@ package search
 
 import (
 	"database/sql"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/kesokaj/fyr/internal/symgraph"
 )
 
 const defaultHiddenCouplingMinCount = 3
-
-// StructuralSignals holds strictly numeric, shape-only structural and behavioral health metrics.
-type StructuralSignals struct {
-	HiddenCouplingPairs     int     `json:"hiddenCouplingPairs"`
-	HiddenCouplingEditPairs int     `json:"hiddenCouplingEditPairs"`
-	HiddenCouplingReadPairs int     `json:"hiddenCouplingReadPairs"`
-	HiddenCouplingRate      float64 `json:"hiddenCouplingRate"`
-	GodNodeClampHits        int     `json:"godNodeClampHits"`
-	GodNodeRepeatReads      int     `json:"godNodeRepeatReads"`
-	GodNodeChurnRate        float64 `json:"godNodeChurnRate"`
-	ProdPkgCycles           int     `json:"prodPkgCycles"`
-	HubConcentration        float64 `json:"hubConcentration"`
-	LargeFilesOver350       int     `json:"largeFilesOver350"`
-	TotalCodeFiles          int     `json:"totalCodeFiles"`
-	TotalProdPkgs           int     `json:"totalProdPkgs"`
-}
-
-// HiddenCouplingHint is a project-local redacted co-activity pair lacking any AST edge.
-type HiddenCouplingHint struct {
-	FileA string `json:"fileA"`
-	FileB string `json:"fileB"`
-	Kind  string `json:"kind"`
-	Count int    `json:"count"`
-}
-
-type fileChurnStat struct {
-	clampHits   int
-	repeatReads int
-}
 
 // ReadStructuralSignals computes shape-only AST and ledger signals from dbPath without writing to it.
 func ReadStructuralSignals(dbPath, repoRoot string) (StructuralSignals, error) {
@@ -133,19 +105,19 @@ func resolveDBProjects(db *sql.DB, repoRoot string) []string {
 func computeStructuralSignalsFromGraph(db *sql.DB, repoRoot string, g *symGraph) StructuralSignals {
 	var sig StructuralSignals
 	prodPkgs := map[string]bool{}
-	for _, f := range g.files {
-		if !isCodePath(f.path) || isTestPath(f.path) || isDocPath(f.path) {
+	for _, f := range g.Files {
+		if !isCodePath(f.Path) || isTestPath(f.Path) || isDocPath(f.Path) {
 			continue
 		}
 		sig.TotalCodeFiles++
-		if f.lineCount > 350 {
+		if f.LineCount > 350 {
 			sig.LargeFilesOver350++
 		}
-		if f.pkg != "" {
-			prodPkgs[f.pkg] = true
+		if f.Pkg != "" {
+			prodPkgs[f.Pkg] = true
 		}
 	}
-	_, pkgDeps := g.summarizePackages()
+	_, pkgDeps := g.SummarizePackages()
 	for p := range pkgDeps {
 		prodPkgs[p] = true
 	}
@@ -158,8 +130,8 @@ func computeStructuralSignalsFromGraph(db *sql.DB, repoRoot string, g *symGraph)
 	sig.HubConcentration = hubConc
 	for gf := range godFiles {
 		st := churnMap[gf]
-		sig.GodNodeClampHits += st.clampHits
-		sig.GodNodeRepeatReads += st.repeatReads
+		sig.GodNodeClampHits += st.ClampHits
+		sig.GodNodeRepeatReads += st.RepeatReads
 	}
 	if totalReadEvents > 0 && (sig.GodNodeClampHits+sig.GodNodeRepeatReads) > 0 {
 		sig.GodNodeChurnRate = roundSignal4(float64(sig.GodNodeClampHits+sig.GodNodeRepeatReads) / float64(totalReadEvents))
@@ -176,7 +148,7 @@ func computeStructuralSignalsFromGraph(db *sql.DB, repoRoot string, g *symGraph)
 }
 
 func computeGodNodeFilesAndHubShare(g *symGraph) (map[string]bool, float64) {
-	ranked := g.rank("", nil)
+	ranked := g.Rank("", nil)
 	var prod []RankedSymbol
 	totalMass := 0.0
 	for _, s := range ranked {
@@ -202,33 +174,7 @@ func computeGodNodeFilesAndHubShare(g *symGraph) (map[string]bool, float64) {
 }
 
 func collectUndirectedASTFilePairs(g *symGraph) map[[2]string]bool {
-	pairs := map[[2]string]bool{}
-	add := func(a, b string) {
-		if a == "" || b == "" || a == b {
-			return
-		}
-		if a > b {
-			a, b = b, a
-		}
-		pairs[[2]string{a, b}] = true
-	}
-	for i, s := range g.syms {
-		for _, e := range g.out[i] {
-			add(s.Path, g.syms[e.toIdx].Path)
-		}
-	}
-	for _, ie := range g.importEdges {
-		if ie.toPath != "" {
-			add(ie.fromPath, ie.toPath)
-		} else {
-			for _, f := range g.files {
-				if f.pkg == ie.toPkg {
-					add(ie.fromPath, f.path)
-				}
-			}
-		}
-	}
-	return pairs
+	return g.CollectUndirectedASTFilePairs()
 }
 
 func queryFileChurnStats(db *sql.DB, repoRoot string) (map[string]fileChurnStat, int) {
@@ -254,9 +200,9 @@ func queryFileChurnStats(db *sql.DB, repoRoot string) (map[string]fileChurnStat,
 		h := max(1, hits)
 		st := out[rel]
 		if sLine == clampOnceSentinelLine && eLine == clampOnceSentinelLine {
-			st.clampHits += h
+			st.ClampHits += h
 		} else if h > 1 {
-			st.repeatReads += h - 1
+			st.RepeatReads += h - 1
 		}
 		totalEvents += h
 		out[rel] = st
@@ -279,5 +225,5 @@ func normalizeRepoRel(repoRoot, canonRoot, p string) string {
 }
 
 func roundSignal4(v float64) float64 {
-	return math.Round(v*10000) / 10000
+	return symgraph.RoundSignal4(v)
 }
