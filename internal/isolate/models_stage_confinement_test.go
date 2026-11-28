@@ -16,6 +16,7 @@ import (
 )
 
 func TestV910IsolateStageModelsCatalog(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	realHome := filepath.Join(base, "real")
 	scratchHome := filepath.Join(base, "scratch")
@@ -86,6 +87,7 @@ func TestV910IsolateStageModelsCatalog(t *testing.T) {
 }
 
 func TestV910IsolateSeatbeltAgyBundleAndConfinement(t *testing.T) {
+	t.Parallel()
 	// Case 1: macOS .app bundle under user Applications.
 	realHome := "/Users/op"
 	appBin := "/Users/op/Applications/Antigravity.app/Contents/MacOS/agy"
@@ -269,6 +271,7 @@ exit 0
 }
 
 func TestV910IsolateJudgeFailFastErrNoAuthToken(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	home := filepath.Join(base, "scratch-home")
 	realHome := filepath.Join(base, "real-home")
@@ -335,6 +338,7 @@ func TestV910IsolateJudgeFailFastErrNoAuthToken(t *testing.T) {
 }
 
 func TestV910IsolateFailClosedEmptyRealHome(t *testing.T) {
+	t.Parallel()
 	if isSafeAgyBundleDir("/Users/op/Applications/Antigravity.app", "") {
 		t.Fatal("isSafeAgyBundleDir returned true when realHome is empty; want fail-closed false")
 	}

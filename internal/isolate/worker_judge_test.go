@@ -96,6 +96,7 @@ printf '{"verdict":"PASS","reason":"confined ok"}\n'
 }
 
 func TestRunJudgePrintTimeoutUnconfinedAndTokenRules(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	home := filepath.Join(tmp, "home")
 	repoDir := filepath.Join(tmp, "repo")
@@ -252,6 +253,7 @@ func TestWorkerFinishChecksJudge(t *testing.T) {
 }
 
 func TestParseJudgeVerdict(t *testing.T) {
+	t.Parallel()
 	t.Run("accepts agy envelope and bare JSON", func(t *testing.T) {
 		cases := []struct {
 			name, raw, wantV, wantR string
@@ -380,6 +382,7 @@ func setupLargeDiffRepo(t *testing.T) (repo, baseHead string) {
 }
 
 func TestWorkerJudgePromptCapOver140KiB(t *testing.T) {
+	t.Parallel()
 	repo, baseHead := setupLargeDiffRepo(t)
 	ctx := context.Background()
 	diff, err := workerDiffForJudge(ctx, repo, baseHead)

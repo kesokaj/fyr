@@ -1,4 +1,4 @@
-package isolate
+package acp
 
 import (
 	"bufio"
@@ -65,7 +65,7 @@ func readBoundedLine(r *bufio.Reader, limit int) ([]byte, error) {
 	}
 }
 
-func (c *ACPClient) sendRequest(id int64, method string, params any) error {
+func (c *Client) sendRequest(id int64, method string, params any) error {
 	raw, err := json.Marshal(params)
 	if err != nil {
 		return err
@@ -81,7 +81,7 @@ func (c *ACPClient) sendRequest(id int64, method string, params any) error {
 	return err
 }
 
-func (c *ACPClient) sendResponse(id json.RawMessage, result any, rpcErr *jsonrpcError) {
+func (c *Client) sendResponse(id json.RawMessage, result any, rpcErr *jsonrpcError) {
 	var raw json.RawMessage
 	if result != nil {
 		raw, _ = json.Marshal(result)

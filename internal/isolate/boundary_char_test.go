@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/isolate/acp"
 )
 
 func writeCharFile(t *testing.T, path, content string) string {
@@ -26,6 +27,7 @@ func writeCharFile(t *testing.T, path, content string) string {
 }
 
 func TestFingerprintWithBoundaryMatrix(t *testing.T) {
+	t.Parallel()
 	t.Run("missing watched paths produce empty map", func(t *testing.T) {
 		fp := fingerprintWith(t.TempDir(), false, nil)
 		if len(fp) != 0 {
@@ -165,6 +167,7 @@ func TestFingerprintWithBoundaryMatrix(t *testing.T) {
 }
 
 func TestFirstCommandBinBoundaryMatrix(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		seg  string
@@ -200,8 +203,8 @@ func TestFirstCommandBinBoundaryMatrix(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := firstCommandBin(tc.seg); got != tc.want {
-				t.Errorf("firstCommandBin(%q) = %q, want %q", tc.seg, got, tc.want)
+			if got := acp.FirstCommandBin(tc.seg); got != tc.want {
+				t.Errorf("acp.FirstCommandBin(%q) = %q, want %q", tc.seg, got, tc.want)
 			}
 		})
 	}
@@ -234,6 +237,7 @@ func writeArchiveTemp(t *testing.T, data []byte) *os.File {
 }
 
 func TestValidGoPkgArchiveBoundaryMatrix(t *testing.T) {
+	t.Parallel()
 	validSingle := append([]byte(arMagic), makeArMember("__.PKGDEF", []byte("go object linux amd64\n"), true)...)
 	validMulti := append([]byte(arMagic), makeArMember("__.PKGDEF", []byte("go object odd"), true)...)
 	validMulti = append(validMulti, makeArMember("_go_.o", []byte("even"), true)...)

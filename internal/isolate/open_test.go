@@ -7,6 +7,7 @@ import (
 )
 
 func TestOpenRegularRefusesAHardLink(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	victim := filepath.Join(dir, "operator-file")
 	put(t, victim, "keep me", 0o600)

@@ -216,50 +216,92 @@ func reportStoreEntry(rel string, mode fs.FileMode) bool {
 // the reports/ dir node and every reportStoreEntry, and with it a non-nil
 // brainWatch still watches brain.db by mode and per-scope digest
 // (fingerprintBrainFile, ADR-506).
+type fingerprinter struct {
+	skipStores bool
+	brainWatch func(string) (string, bool)
+	fp         map[string]string
+}
+
 func fingerprintWith(realHome string, skipStores bool, brainWatch func(string) (string, bool)) map[string]string {
-	fp := map[string]string{}
-	for _, dir := range watched {
-		name := filepath.FromSlash(dir)
-		top := filepath.Join(realHome, name)
-		root := top
-		if r, err := filepath.EvalSymlinks(top); err == nil {
-			root = r // the directory itself may be a link (a dotfiles setup)
-		} else if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-			rel, _ := filepath.Rel(root, p)
-			key := filepath.Join(name, rel)
-			if err != nil {
-				fp[key] = "unreadable: " + err.Error()
-				return nil
-			}
-			if dir == harness.StateDir && d.IsDir() && slices.Contains(sandboxDirs, rel) {
-				if rel == "work" {
-					fingerprintWorkDir(p, name, fp)
-				}
-				return filepath.SkipDir
-			}
-			if dir == harness.StateDir && skipStores {
-				if storeEntry(rel, d.Type()) {
-					if brainWatch != nil && strings.HasPrefix(rel, "brain.db") {
-						fingerprintBrainFile(p, d, rel, key, brainWatch, fp)
-					}
-					if d.IsDir() {
-						return filepath.SkipDir
-					}
-					return nil
-				}
-				// Skip reports/ dir node without SkipDir so WalkDir still checks every child.
-				if (d.IsDir() && rel == "reports") || reportStoreEntry(filepath.ToSlash(rel), d.Type()) {
-					return nil
-				}
-			}
-			fp[key] = entryPrint(p, d)
-			return nil
-		})
+	f := fingerprinter{
+		skipStores: skipStores,
+		brainWatch: brainWatch,
+		fp:         map[string]string{},
 	}
-	return fp
+	for _, dir := range watched {
+		f.walkWatched(realHome, dir)
+	}
+	return f.fp
+}
+
+func (f *fingerprinter) walkWatched(realHome, dir string) {
+	name := filepath.FromSlash(dir)
+	top := filepath.Join(realHome, name)
+	root, ok := resolveWatchedRoot(top)
+	if !ok {
+		return
+	}
+	isState := dir == harness.StateDir
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		return f.visit(root, name, isState, p, d, err)
+	})
+}
+
+func resolveWatchedRoot(top string) (string, bool) {
+	r, err := filepath.EvalSymlinks(top)
+	if err == nil {
+		return r, true // the directory itself may be a link (a dotfiles setup)
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", false
+	}
+	return top, true
+}
+
+func (f *fingerprinter) visit(root, name string, isState bool, p string, d fs.DirEntry, err error) error {
+	rel, _ := filepath.Rel(root, p)
+	key := filepath.Join(name, rel)
+	if err != nil {
+		f.fp[key] = "unreadable: " + err.Error()
+		return nil
+	}
+	if isState {
+		if handled, walkErr := f.visitStateEntry(p, d, name, rel, key); handled {
+			return walkErr
+		}
+	}
+	f.fp[key] = entryPrint(p, d)
+	return nil
+}
+
+func (f *fingerprinter) visitStateEntry(p string, d fs.DirEntry, name, rel, key string) (bool, error) {
+	if d.IsDir() && slices.Contains(sandboxDirs, rel) {
+		if rel == "work" {
+			fingerprintWorkDir(p, name, f.fp)
+		}
+		return true, filepath.SkipDir
+	}
+	if !f.skipStores {
+		return false, nil
+	}
+	return f.visitSkippedStore(p, d, rel, key)
+}
+
+func (f *fingerprinter) visitSkippedStore(p string, d fs.DirEntry, rel, key string) (bool, error) {
+	if storeEntry(rel, d.Type()) {
+		if f.brainWatch != nil && strings.HasPrefix(rel, "brain.db") {
+			fingerprintBrainFile(p, d, rel, key, f.brainWatch, f.fp)
+		}
+		if d.IsDir() {
+			return true, filepath.SkipDir
+		}
+		return true, nil
+	}
+	// Skip reports/ dir node without SkipDir so WalkDir still checks every child.
+	if (d.IsDir() && rel == "reports") || reportStoreEntry(filepath.ToSlash(rel), d.Type()) {
+		return true, nil
+	}
+	return false, nil
 }
 
 // fingerprintWorkDir watches the fixed files inside ~/.config/fyr/work while

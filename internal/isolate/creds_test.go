@@ -25,6 +25,7 @@ var (
 // Dropped, with no Go equivalent (D15): a shell function shadowing grep, find
 // or od; a grep that cannot read for -o; bash -x.
 func TestCredsLeftovers(t *testing.T) {
+	t.Parallel()
 	for name, plant := range map[string]func(t *testing.T, h string){
 		"an SSH key copied in": func(t *testing.T, h string) { put(t, filepath.Join(h, ".ssh", "id_ed25519"), "", 0o600) },
 		"gcloud credentials": func(t *testing.T, h string) {
@@ -207,6 +208,7 @@ func sharedFyrBin(t *testing.T) (bin, root string) {
 // and seeded brain.db trail records, and >maxScan ELF/Mach-O Go build-cache
 // outputs pass, while novel credentials planted anywhere fail closed.
 func TestScanCredsIgnoresFyrOwnPatterns(t *testing.T) {
+	t.Parallel()
 	bin, root := sharedFyrBin(t)
 	rawBin, err := os.ReadFile(bin)
 	if err != nil {

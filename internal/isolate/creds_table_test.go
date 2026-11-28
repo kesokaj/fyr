@@ -14,6 +14,7 @@ import (
 // fails here (IN46 of the 2026-10-27 audit: half the patterns had no hit
 // test, almost none a near-miss).
 func TestCredsEveryPattern(t *testing.T) {
+	t.Parallel()
 	a := func(n int) string { return strings.Repeat("A", n) }
 	content := []struct{ kind, hit, miss string }{
 		{"github-token", "gho_" + a(30), "gho_" + a(29)},
@@ -81,6 +82,7 @@ func TestCredsEveryPattern(t *testing.T) {
 // ASN.1 header bytes still fail closed, and bare markers or Go struct tags in
 // baseline source never excuse novel unparsed or non-colon leaks.
 func TestScanCredsDistinguishesPKCS8KeysAndBareMarkers(t *testing.T) {
+	t.Parallel()
 	sb := t.TempDir()
 	beginPKCS8 := "-----" + "BEGIN " + "PRIVATE " + "KEY-----"
 	endPKCS8 := "-----END " + "PRIVATE " + "KEY-----"

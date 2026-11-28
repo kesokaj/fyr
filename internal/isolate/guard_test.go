@@ -42,6 +42,7 @@ func gitInit(t *testing.T, dir string) {
 // install source or a parent of it, is refused, and so is a relative one; a
 // refused root is never created.
 func TestGuardRefusedRoots(t *testing.T) {
+	t.Parallel()
 	tmp := outsideTemp(t)
 	home, src := filepath.Join(tmp, "home"), filepath.Join(tmp, "src", "harness")
 	for _, d := range []string{home, src} {
@@ -154,6 +155,7 @@ func TestGuardOutsideCheckoutFailsClosed(t *testing.T) {
 // names the path; the eval/ directory, the token and the conversations do
 // not count; a home with none of them is no error (BUG-158).
 func TestGuardFingerprint(t *testing.T) {
+	t.Parallel()
 	tmp := outsideTemp(t)
 	real := filepath.Join(tmp, "real")
 	if len(fingerprintWith(real, false, nil)) != 0 {
@@ -247,6 +249,7 @@ func TestGuardFingerprint(t *testing.T) {
 // The work/ side fails on a watched that skips eval/ alone; the eval/ side
 // guards the regression.
 func TestGuardFingerprintSkipsSandboxRoots(t *testing.T) {
+	t.Parallel()
 	real := filepath.Join(outsideTemp(t), "real")
 	fyr := filepath.Join(real, harness.StateDir)
 	write := func(rel string) {
@@ -278,6 +281,7 @@ func TestGuardFingerprintSkipsSandboxRoots(t *testing.T) {
 }
 
 func TestGuardSkipStoresDreamCouplingAndReports(t *testing.T) {
+	t.Parallel()
 	tmp := outsideTemp(t)
 	linkTarget := filepath.Join(tmp, "symlink-target")
 	if err := os.WriteFile(linkTarget, []byte("linked"), 0o600); err != nil {

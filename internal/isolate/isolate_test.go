@@ -271,6 +271,7 @@ func TestAppendSafePATHDirsSymlink(t *testing.T) {
 }
 
 func TestSeatbeltProfileRender(t *testing.T) {
+	t.Parallel()
 	prof, err := renderSeatbeltProfile(Policy{
 		Argv:    []string{"/opt/agy/bin/agy"},
 		Dir:     "/tmp/box/app",
@@ -310,6 +311,7 @@ func TestSeatbeltProfileRender(t *testing.T) {
 }
 
 func TestChooseRunner(t *testing.T) {
+	t.Parallel()
 	okFn := func() error { return nil }
 	failFn := func(msg string) func() error { return func() error { return errors.New(msg) } }
 
@@ -343,6 +345,7 @@ func TestChooseRunner(t *testing.T) {
 }
 
 func TestIsolatePackageDeps(t *testing.T) {
+	t.Parallel()
 	out, err := exec.Command("go", "list", "-f", "{{join .Deps \"\\n\"}}", ".").CombinedOutput()
 	if err != nil {
 		t.Fatalf("go list: %v\n%s", err, out)

@@ -23,6 +23,7 @@ func encodeKeychainToken(t *testing.T, fields map[string]any) string {
 }
 
 func TestDecodeKeychainToken(t *testing.T) {
+	t.Parallel()
 	key := "access_" + "token"
 	raw := encodeKeychainToken(t, map[string]any{key: "abc", "unknown_field": "drop"})
 	got, err := DecodeKeychainToken(raw)

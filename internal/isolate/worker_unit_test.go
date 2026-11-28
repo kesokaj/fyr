@@ -14,6 +14,7 @@ import (
 )
 
 func TestRunGroupSetsidAndKillsSubshell(t *testing.T) {
+	t.Parallel()
 	cmd := exec.Command("sh", "-c", "sleep 30 & wait")
 	start := time.Now()
 	err := runGroup(cmd, 150*time.Millisecond)
@@ -30,6 +31,7 @@ func TestRunGroupSetsidAndKillsSubshell(t *testing.T) {
 }
 
 func TestExportBoxRecordsUsesVerifiedSelf(t *testing.T) {
+	t.Parallel()
 	sbDir := filepath.Join(t.TempDir(), "sb")
 	b := New(Config{Dir: sbDir, Prefix: "test: rec", Out: &strings.Builder{}})
 	if !b.Make() {
@@ -65,6 +67,7 @@ func TestExportBoxRecordsUsesVerifiedSelf(t *testing.T) {
 }
 
 func TestParseTrailAndWindow(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 19, 8, 30, 0, 0, time.UTC)
 	line := `{"id":"HANDOFF-1","kind":"handoff","status":"closed","date":"2026-11-19","title":"t","updated":"2026-11-19T08:30:00Z","body":"b"}`
 	recs, err := parseTrail([]byte(line + "\n" + line + "\n"))
@@ -87,6 +90,7 @@ func TestParseTrailAndWindow(t *testing.T) {
 }
 
 func TestKickoffDisjointAndUTF8Truncation(t *testing.T) {
+	t.Parallel()
 	kDir := t.TempDir()
 	k1Path := filepath.Join(kDir, "task-a.md")
 	k2Path := filepath.Join(kDir, "task-b.md")

@@ -13,6 +13,7 @@ import (
 )
 
 func TestABIMaskAndCleanIsolateEnv(t *testing.T) {
+	t.Parallel()
 	if abiMask(0) != 0 || abiMask(1) != (1<<13)-1 || abiMask(2) != (1<<14)-1 || abiMask(3) != (1<<15)-1 || abiMask(5) != (1<<16)-1 {
 		t.Fatalf("unexpected abiMask values: %d %d %d", abiMask(1), abiMask(3), abiMask(5))
 	}

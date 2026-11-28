@@ -1,15 +1,16 @@
-package isolate
+package acp
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"strings"
 	"sync"
 )
 
-// ACPEvent is one normalized event emitted during an ACP prompt turn.
-type ACPEvent struct {
+// Event is one normalized event emitted during an ACP prompt turn.
+type Event struct {
 	Kind      string `json:"kind"` // "init", "tool_call", "tool_update", "subagent", "message", "usage", "result"
 	SessionID string `json:"session_id"`
 	StepIndex int    `json:"step_index,omitempty"`
@@ -28,12 +29,13 @@ type PromptResponse struct {
 	OutputTok  int
 }
 
-type acpUpdateEnvelope struct {
-	SessionID string          `json:"sessionId"`
-	Update    acpUpdateDetail `json:"update"`
+type updateEnvelope struct {
+	SessionID string       `json:"sessionId"`
+	Update    UpdateDetail `json:"update"`
 }
 
-type acpUpdateDetail struct {
+// UpdateDetail carries the payload of a normalized ACP session/update event.
+type UpdateDetail struct {
 	SessionUpdate string          `json:"sessionUpdate"`
 	Text          string          `json:"text"`
 	Content       json.RawMessage `json:"content"`
@@ -72,10 +74,10 @@ type promptState struct {
 	stepIdx int
 	inTok   int
 	outTok  int
-	onEvent func(ACPEvent)
+	onEvent func(Event)
 }
 
-func (s *promptState) emit(line map[string]any, ev *ACPEvent) {
+func (s *promptState) emit(line map[string]any, ev *Event) {
 	if b, err := json.Marshal(line); err == nil {
 		s.ndjson.Write(b)
 		s.ndjson.WriteByte('\n')
@@ -88,12 +90,12 @@ func (s *promptState) emit(line map[string]any, ev *ACPEvent) {
 // Prompt sends one user turn on sessionID, collects streaming `session/update`
 // notifications until `session/prompt` returns, and returns the assembled text
 // and normalized NDJSON lines for `events.jsonl`.
-func (c *ACPClient) Prompt(ctx context.Context, sessionID, model, cwd, text string, onEvent func(ACPEvent)) (*PromptResponse, []byte, error) {
+func (c *Client) Prompt(ctx context.Context, sessionID, model, cwd, text string, onEvent func(Event)) (*PromptResponse, []byte, error) {
 	c.turnMu.Lock()
 	defer c.turnMu.Unlock()
 
 	st := &promptState{onEvent: onEvent}
-	initEv := ACPEvent{Kind: "init", SessionID: sessionID, Summary: model}
+	initEv := Event{Kind: "init", SessionID: sessionID, Summary: model}
 	st.emit(map[string]any{"event": "init", "session_id": sessionID, "model": model, "cwd": cwd}, &initEv)
 
 	c.setNotifyHandler(func(method string, params json.RawMessage) {
@@ -136,18 +138,20 @@ func (s *promptState) finish(sessionID string, rawRes promptRPCResult, err error
 	if s.textBuf.Len() == 0 && rawRes.Text != "" {
 		s.textBuf.WriteString(rawRes.Text)
 	}
-	stop := firstNonEmpty(rawRes.StopReason, "end_turn")
-	resEv := ACPEvent{Kind: "result", SessionID: sessionID, Status: stop, InputTok: s.inTok, OutputTok: s.outTok}
-	s.emit(map[string]any{
+	stop := cmp.Or(rawRes.StopReason, "end_turn")
+	resEv := Event{Kind: "result", SessionID: sessionID, Status: stop, InputTok: s.inTok, OutputTok: s.outTok}
+	line := map[string]any{
 		"event": "result", "session_id": sessionID, "stop_reason": stop,
-		"input_tokens": s.inTok, "output_tokens": s.outTok,
-	}, &resEv)
+	}
+	line["input_tokens"] = s.inTok
+	line["output_tokens"] = s.outTok
+	s.emit(line, &resEv)
 	return &PromptResponse{
 		Text: s.textBuf.String(), StopReason: stop, InputTok: s.inTok, OutputTok: s.outTok,
 	}, s.ndjson.Bytes(), err
 }
 
-func (c *ACPClient) setNotifyHandler(fn func(method string, params json.RawMessage)) {
+func (c *Client) setNotifyHandler(fn func(method string, params json.RawMessage)) {
 	c.mu.Lock()
 	c.notifyFn = fn
 	c.mu.Unlock()
@@ -155,9 +159,9 @@ func (c *ACPClient) setNotifyHandler(fn func(method string, params json.RawMessa
 
 func handleUpdateNotification(
 	sid string, params json.RawMessage, textBuf *strings.Builder,
-	stepIdx, inTok, outTok *int, emit func(map[string]any, *ACPEvent),
+	stepIdx, inTok, outTok *int, emit func(map[string]any, *Event),
 ) {
-	var env acpUpdateEnvelope
+	var env updateEnvelope
 	if err := json.Unmarshal(params, &env); err != nil {
 		return
 	}
@@ -168,7 +172,7 @@ func handleUpdateNotification(
 		textBuf.WriteString(chunk)
 	case "tool_call", "tool_call_update":
 		*stepIdx++
-		ev := buildToolEvent(sid, *stepIdx, u)
+		ev := BuildToolEvent(sid, *stepIdx, u)
 		emit(map[string]any{
 			"event": "step_update", "session_id": sid, "kind": ev.Kind,
 			"step_index": ev.StepIndex, "tool_name": ev.ToolName,
@@ -210,10 +214,11 @@ func extractUpdateText(direct string, raw json.RawMessage) string {
 	return ""
 }
 
-func buildToolEvent(sid string, idx int, u acpUpdateDetail) ACPEvent {
+// BuildToolEvent normalizes an ACP tool_call or tool_call_update detail into an Event.
+func BuildToolEvent(sid string, idx int, u UpdateDetail) Event {
 	inMap := rawInputMap(u.RawInput)
-	name := firstNonEmpty(u.Name, u.Title, u.Kind, "tool")
-	summary := firstNonEmpty(u.Title, strField(inMap, "CommandLine", "commandLine", "command_line", "command", "Path", "path", "target_file", "targetFile", "query"))
+	name := cmp.Or(u.Name, u.Title, u.Kind, "tool")
+	summary := cmp.Or(u.Title, strField(inMap, "CommandLine", "commandLine", "command_line", "command", "Path", "path", "target_file", "targetFile", "query"))
 	kind := "tool_call"
 	if u.SessionUpdate == "tool_call_update" {
 		kind = "tool_update"
@@ -229,8 +234,8 @@ func buildToolEvent(sid string, idx int, u acpUpdateDetail) ACPEvent {
 			summary = subType
 		}
 	}
-	return ACPEvent{
+	return Event{
 		Kind: kind, SessionID: sid, StepIndex: idx,
-		ToolName: name, Summary: summary, Status: firstNonEmpty(u.Status, "running"),
+		ToolName: name, Summary: summary, Status: cmp.Or(u.Status, "running"),
 	}
 }

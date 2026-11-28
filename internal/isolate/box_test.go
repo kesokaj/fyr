@@ -176,6 +176,7 @@ func TestBoxLaterSessionNeedsIntact(t *testing.T) {
 }
 
 func TestBoxAgyArgsRejectsInvalidModel(t *testing.T) {
+	t.Parallel()
 	bGood := &Box{c: Config{Model: "gemini-4-neon-xhigh", PrintTimeout: "5m"}, app: "/app"}
 	argsGood := bGood.agyArgs("hi")
 	if !strings.Contains(strings.Join(argsGood, " "), "--model gemini-4-neon-xhigh") {

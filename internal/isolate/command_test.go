@@ -259,6 +259,7 @@ func TestRejectsAncestorPathsForGoModCacheAndPATH(t *testing.T) {
 }
 
 func TestCommandLandlockDeniesRealHomeWrite(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "linux" {
 		t.Skip("Landlock enforcement test runs on Linux")
 	}

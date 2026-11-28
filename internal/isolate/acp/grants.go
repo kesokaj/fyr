@@ -1,12 +1,13 @@
-package isolate
+package acp
 
 import (
+	"cmp"
 	"encoding/json"
 	"slices"
 	"strings"
 )
 
-func pickOptionID(opts []acpPermOption, allow bool) string {
+func pickOptionID(opts []permOption, allow bool) string {
 	want := "reject"
 	fallback := "reject_once"
 	if allow {
@@ -23,20 +24,20 @@ func pickOptionID(opts []acpPermOption, allow bool) string {
 	return fallback
 }
 
-func checkToolGrant(grants []string, p acpPermParams) (bool, string) {
+func checkToolGrant(grants []string, p permParams) (bool, string) {
 	inMap := rawInputMap(p.ToolCall.RawInput)
 	cmdStr := p.Command
 	if cmdStr == "" {
 		cmdStr = strField(inMap, "CommandLine", "commandLine", "command_line", "command", "cmd")
 	}
-	name := firstNonEmpty(p.ToolName, p.Tool, p.ToolCall.Name, p.ToolCall.Title, p.ToolCall.Kind)
+	name := cmp.Or(p.ToolName, p.Tool, p.ToolCall.Name, p.ToolCall.Title, p.ToolCall.Kind)
 	if cmdStr == "" && strings.HasPrefix(name, "command(") && strings.HasSuffix(name, ")") {
 		cmdStr = strings.TrimSuffix(strings.TrimPrefix(name, "command("), ")")
 	}
 	if cmdStr == "" && isCommandTool(name, p.ToolCall.Kind) && p.ToolCall.Title != "" && !isCommandTool(p.ToolCall.Title, "") {
 		cmdStr = strings.Trim(p.ToolCall.Title, "`")
 	}
-	desc := firstNonEmpty(name, "unknown_tool")
+	desc := cmp.Or(name, "unknown_tool")
 	if cmdStr != "" {
 		desc = "command(" + cmdStr + ")"
 	}
@@ -47,7 +48,7 @@ func checkToolGrant(grants []string, p acpPermParams) (bool, string) {
 		if slices.Contains(grants, "command(*)") {
 			return true, desc
 		}
-		return matchCommandGrants(grants, firstNonEmpty(cmdStr, name)), desc
+		return matchCommandGrants(grants, cmp.Or(cmdStr, name)), desc
 	}
 	if isReadTool(name, p.ToolCall.Kind) {
 		return slices.Contains(grants, "read_file(*)"), desc
@@ -59,12 +60,12 @@ func checkToolGrant(grants []string, p acpPermParams) (bool, string) {
 }
 
 func matchCommandGrants(grants []string, cmdStr string) bool {
-	segs := splitShellSegments(cmdStr)
+	segs := SplitShellSegments(cmdStr)
 	if len(segs) == 0 {
 		return false
 	}
 	for _, seg := range segs {
-		bin := firstCommandBin(seg)
+		bin := FirstCommandBin(seg)
 		if isShellBuiltinNoop(bin) {
 			continue
 		}
@@ -86,29 +87,14 @@ type shellFrame struct {
 	cur       []byte
 }
 
-func splitShellSegments(s string) []string {
+// SplitShellSegments splits a shell command line into top-level and subshell
+// command segments, returning nil on unclosed quotes, unmatched delimiters, or
+// escape hazards that must fail closed.
+func SplitShellSegments(s string) []string {
 	stack := []shellFrame{{}}
 	var out, subSegs []string
 	for i := 0; i < len(s); i++ {
-		top := &stack[len(stack)-1]
-		if top.quote == '\'' {
-			next, ok := stepShellSingleQuote(s, i, top)
-			if !ok {
-				return nil
-			}
-			i = next
-			continue
-		}
-		if s[i] == '\\' {
-			if i+1 >= len(s) || (top.close == '`' && s[i+1] == '`') {
-				return nil
-			}
-			top.cur = append(top.cur, s[i])
-			top.cur = append(top.cur, s[i+1])
-			i++
-			continue
-		}
-		next, ok := stepShellFrame(s, i, &stack, &out, &subSegs)
+		next, ok := stepShellByte(s, i, &stack, &out, &subSegs)
 		if !ok {
 			return nil
 		}
@@ -119,6 +105,25 @@ func splitShellSegments(s string) []string {
 	}
 	flushShellSegment(&stack[0].cur, &out)
 	return append(out, subSegs...)
+}
+
+func stepShellByte(s string, i int, stack *[]shellFrame, out, subSegs *[]string) (int, bool) {
+	top := &(*stack)[len(*stack)-1]
+	if top.quote == '\'' {
+		return stepShellSingleQuote(s, i, top)
+	}
+	if s[i] == '\\' {
+		return stepShellBackslash(s, i, top)
+	}
+	return stepShellFrame(s, i, stack, out, subSegs)
+}
+
+func stepShellBackslash(s string, i int, top *shellFrame) (int, bool) {
+	if i+1 >= len(s) || (top.close == '`' && s[i+1] == '`') {
+		return 0, false
+	}
+	top.cur = append(top.cur, s[i], s[i+1])
+	return i + 1, true
 }
 
 func stepShellFrame(s string, i int, stack *[]shellFrame, out, subSegs *[]string) (int, bool) {
@@ -310,15 +315,6 @@ func strField(m map[string]any, keys ...string) string {
 				}
 				return s
 			}
-		}
-	}
-	return ""
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
 		}
 	}
 	return ""

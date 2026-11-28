@@ -1,4 +1,4 @@
-package isolate
+package acp
 
 import (
 	"path/filepath"
@@ -13,48 +13,69 @@ type shellWord struct {
 	redirAttached bool
 }
 
-func firstCommandBin(seg string) string {
+// FirstCommandBin returns the base name of the first executable invoked by a
+// single shell segment, skipping leading redirections, assignments, and safe
+// `env` prefixes, or "" when the segment is empty or fails closed.
+func FirstCommandBin(seg string) string {
 	words, ok := splitShellWords(seg)
 	if !ok {
 		return ""
 	}
 	inEnv := false
-	for i := 0; i < len(words); i++ {
-		w := words[i]
-		if w.redirAttached {
-			continue
+	for i := 0; i < len(words); {
+		step, bin, stop := stepCommandWord(words, i, &inEnv)
+		if stop {
+			return bin
 		}
-		if w.redirOp {
-			if i+1 >= len(words) || words[i+1].redirOp || words[i+1].redirAttached {
-				return ""
-			}
-			i++
-			continue
-		}
-		if w.assignOK {
-			continue
-		}
-		if inEnv {
-			if !w.quoted && (w.val == "-i" || w.val == "-") {
-				continue
-			}
-			if !w.quoted && w.val == "--" {
-				inEnv = false
-				continue
-			}
-			if strings.HasPrefix(w.val, "-") {
-				return ""
-			}
-		} else if !w.quoted && w.val == "env" {
-			inEnv = true
-			continue
-		}
-		if w.val == "" {
-			return ""
-		}
-		return filepath.Base(w.val)
+		i += step
 	}
 	return ""
+}
+
+func stepCommandWord(words []shellWord, i int, inEnv *bool) (step int, bin string, stop bool) {
+	w := words[i]
+	if w.redirAttached || w.assignOK {
+		return 1, "", false
+	}
+	if w.redirOp {
+		if !validRedirTarget(words, i) {
+			return 0, "", true
+		}
+		return 2, "", false
+	}
+	skip, fail := consumeEnvWord(w, inEnv)
+	if fail {
+		return 0, "", true
+	}
+	if skip {
+		return 1, "", false
+	}
+	if w.val == "" {
+		return 0, "", true
+	}
+	return 0, filepath.Base(w.val), true
+}
+
+func validRedirTarget(words []shellWord, i int) bool {
+	return i+1 < len(words) && !words[i+1].redirOp && !words[i+1].redirAttached
+}
+
+func consumeEnvWord(w shellWord, inEnv *bool) (skip, fail bool) {
+	if !*inEnv {
+		if !w.quoted && w.val == "env" {
+			*inEnv = true
+			return true, false
+		}
+		return false, false
+	}
+	if !w.quoted && (w.val == "-i" || w.val == "-") {
+		return true, false
+	}
+	if !w.quoted && w.val == "--" {
+		*inEnv = false
+		return true, false
+	}
+	return false, strings.HasPrefix(w.val, "-")
 }
 
 func splitShellWords(seg string) ([]shellWord, bool) {
@@ -108,34 +129,46 @@ func scanWordToken(seg string, start int) (string, int, wordMeta, bool) {
 	var buf []byte
 	var m wordMeta
 	sawEq := false
-	for i := start; i < len(seg); i++ {
-		ch := seg[i]
-		if isShellSpace(ch) || ch == '<' || ch == '>' {
+	for i := start; i < len(seg); {
+		if isWordDelimiter(seg[i]) {
 			return string(buf), i, m, true
 		}
-		if next, ok := appendQuotedSegment(seg, i, &buf, &m); next > i || !ok {
-			if !ok {
-				return "", 0, wordMeta{}, false
-			}
-			i = next - 1
-			continue
+		next, ok := stepWordTokenChar(seg, i, &buf, &m, &sawEq)
+		if !ok {
+			return "", 0, wordMeta{}, false
 		}
-		if ch == '\\' {
-			if i+1 >= len(seg) {
-				return "", 0, wordMeta{}, false
-			}
-			m.quoted = true
-			buf = append(buf, seg[i+1])
-			i++
-			continue
-		}
-		if ch == '=' && !sawEq && !m.quoted {
-			sawEq = true
-			m.assignOK = isShellIdent(string(buf))
-		}
-		buf = append(buf, ch)
+		i = next
 	}
 	return string(buf), len(seg), m, true
+}
+
+func isWordDelimiter(ch byte) bool {
+	return isShellSpace(ch) || ch == '<' || ch == '>'
+}
+
+func stepWordTokenChar(seg string, i int, buf *[]byte, m *wordMeta, sawEq *bool) (int, bool) {
+	next, ok := appendQuotedSegment(seg, i, buf, m)
+	if !ok {
+		return 0, false
+	}
+	if next > i {
+		return next, true
+	}
+	ch := seg[i]
+	if ch == '\\' {
+		if i+1 >= len(seg) {
+			return 0, false
+		}
+		m.quoted = true
+		*buf = append(*buf, seg[i+1])
+		return i + 2, true
+	}
+	if ch == '=' && !*sawEq && !m.quoted {
+		*sawEq = true
+		m.assignOK = isShellIdent(string(*buf))
+	}
+	*buf = append(*buf, ch)
+	return i + 1, true
 }
 
 func appendQuotedSegment(seg string, i int, buf *[]byte, m *wordMeta) (int, bool) {

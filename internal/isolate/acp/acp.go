@@ -1,4 +1,4 @@
-package isolate
+package acp
 
 import (
 	"bufio"
@@ -13,14 +13,14 @@ import (
 	"sync/atomic"
 )
 
-// ACPCommand returns the argv flags used to start agy in Agent Client Protocol
+// Command returns the argv flags used to start agy in Agent Client Protocol
 // stdio mode with process isolation per session.
-func ACPCommand() []string {
+func Command() []string {
 	return []string{"acp", "--stdio", "--process-per-session"}
 }
 
-// ACPClient speaks JSON-RPC 2.0 to an `agy acp --stdio` subprocess.
-type ACPClient struct {
+// Client speaks JSON-RPC 2.0 to an `agy acp --stdio` subprocess.
+type Client struct {
 	r        *bufio.Reader
 	w        io.Writer
 	writeMu  sync.Mutex
@@ -36,9 +36,9 @@ type ACPClient struct {
 	closeErr error
 }
 
-// NewACPClient starts the background reader loop over r and sends requests on w.
-func NewACPClient(r io.Reader, w io.Writer, grants []string, onDenied func(tool string)) *ACPClient {
-	c := &ACPClient{
+// NewClient starts the background reader loop over r and sends requests on w.
+func NewClient(r io.Reader, w io.Writer, grants []string, onDenied func(tool string)) *Client {
+	c := &Client{
 		r:        bufio.NewReaderSize(r, 64<<10),
 		w:        w,
 		grants:   slices.Clone(grants),
@@ -51,7 +51,7 @@ func NewACPClient(r io.Reader, w io.Writer, grants []string, onDenied func(tool 
 }
 
 // Close stops the client and unblocks any pending calls.
-func (c *ACPClient) Close() error {
+func (c *Client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	select {
@@ -62,7 +62,7 @@ func (c *ACPClient) Close() error {
 	return c.closeErr
 }
 
-func (c *ACPClient) readLoop() {
+func (c *Client) readLoop() {
 	var readErr error
 	for {
 		line, err := readBoundedLine(c.r, maxACPLine)
@@ -88,7 +88,7 @@ func (c *ACPClient) readLoop() {
 	c.mu.Unlock()
 }
 
-func (c *ACPClient) dispatchLine(line []byte) {
+func (c *Client) dispatchLine(line []byte) {
 	trimmed := strings.TrimSpace(string(line))
 	if trimmed == "" || !strings.HasPrefix(trimmed, "{") {
 		return
@@ -97,37 +97,42 @@ func (c *ACPClient) dispatchLine(line []byte) {
 	if err := json.Unmarshal([]byte(trimmed), &msg); err != nil {
 		return
 	}
-	if hasRPCID(msg.ID) && msg.Method == "" {
-		id, ok := parseRPCIntID(msg.ID)
-		if !ok {
-			return
-		}
-		c.mu.Lock()
-		ch, ok := c.pending[id]
-		if ok {
-			delete(c.pending, id)
-		}
-		c.mu.Unlock()
-		if ok {
-			ch <- msg
-		}
-		return
-	}
-	if hasRPCID(msg.ID) && msg.Method != "" {
+	switch {
+	case hasRPCID(msg.ID) && msg.Method == "":
+		c.deliverResponse(msg)
+	case hasRPCID(msg.ID):
 		go c.handleServerRequest(msg.ID, msg.Method, msg.Params)
-		return
-	}
-	if msg.Method != "" {
-		c.mu.Lock()
-		fn := c.notifyFn
-		c.mu.Unlock()
-		if fn != nil {
-			fn(msg.Method, msg.Params)
-		}
+	case msg.Method != "":
+		c.deliverNotification(msg.Method, msg.Params)
 	}
 }
 
-func (c *ACPClient) call(ctx context.Context, method string, params, out any) error {
+func (c *Client) deliverResponse(msg jsonrpcMessage) {
+	id, ok := parseRPCIntID(msg.ID)
+	if !ok {
+		return
+	}
+	c.mu.Lock()
+	ch, ok := c.pending[id]
+	if ok {
+		delete(c.pending, id)
+	}
+	c.mu.Unlock()
+	if ok {
+		ch <- msg
+	}
+}
+
+func (c *Client) deliverNotification(method string, params json.RawMessage) {
+	c.mu.Lock()
+	fn := c.notifyFn
+	c.mu.Unlock()
+	if fn != nil {
+		fn(method, params)
+	}
+}
+
+func (c *Client) call(ctx context.Context, method string, params, out any) error {
 	id := c.nextID.Add(1)
 	ch := make(chan jsonrpcMessage, 1)
 	c.mu.Lock()
@@ -165,14 +170,14 @@ func (c *ACPClient) call(ctx context.Context, method string, params, out any) er
 	}
 }
 
-func (c *ACPClient) removePending(id int64) {
+func (c *Client) removePending(id int64) {
 	c.mu.Lock()
 	delete(c.pending, id)
 	c.mu.Unlock()
 }
 
 // Initialize negotiates ACP protocol version 1 with the server.
-func (c *ACPClient) Initialize(ctx context.Context) error {
+func (c *Client) Initialize(ctx context.Context) error {
 	req := map[string]any{
 		"protocolVersion": 1,
 		"clientInfo":      map[string]any{"name": "fyr", "version": "1.0"},
@@ -181,7 +186,7 @@ func (c *ACPClient) Initialize(ctx context.Context) error {
 }
 
 // NewSession creates a new ACP session in cwd and returns its sessionId.
-func (c *ACPClient) NewSession(ctx context.Context, cwd string) (string, error) {
+func (c *Client) NewSession(ctx context.Context, cwd string) (string, error) {
 	req := map[string]any{"cwd": cwd, "mcpServers": []any{}}
 	var res struct {
 		SessionID string `json:"sessionId"`
@@ -196,7 +201,7 @@ func (c *ACPClient) NewSession(ctx context.Context, cwd string) (string, error) 
 }
 
 // SetSessionModel selects the model for sessionID.
-func (c *ACPClient) SetSessionModel(ctx context.Context, sessionID, model string) error {
+func (c *Client) SetSessionModel(ctx context.Context, sessionID, model string) error {
 	if model == "" {
 		return nil
 	}
@@ -205,7 +210,7 @@ func (c *ACPClient) SetSessionModel(ctx context.Context, sessionID, model string
 }
 
 // SetSessionMode sets the permission mode (e.g. "accept-edits") for sessionID.
-func (c *ACPClient) SetSessionMode(ctx context.Context, sessionID, mode string) error {
+func (c *Client) SetSessionMode(ctx context.Context, sessionID, mode string) error {
 	if mode == "" {
 		return nil
 	}
@@ -214,7 +219,7 @@ func (c *ACPClient) SetSessionMode(ctx context.Context, sessionID, mode string) 
 }
 
 // Steer sends a mid-session steering prompt to sessionID without waiting for turnMu.
-func (c *ACPClient) Steer(ctx context.Context, sessionID, text string) error {
+func (c *Client) Steer(ctx context.Context, sessionID, text string) error {
 	req := map[string]any{
 		"sessionId": sessionID,
 		"prompt":    []map[string]any{{"type": "text", "text": text}},
@@ -223,36 +228,36 @@ func (c *ACPClient) Steer(ctx context.Context, sessionID, text string) error {
 }
 
 // CloseSession closes sessionID on the ACP server.
-func (c *ACPClient) CloseSession(ctx context.Context, sessionID string) error {
+func (c *Client) CloseSession(ctx context.Context, sessionID string) error {
 	return c.call(ctx, "session/close", map[string]any{"sessionId": sessionID}, nil)
 }
 
-type acpPermParams struct {
-	ToolName string          `json:"toolName"`
-	Tool     string          `json:"tool"`
-	Command  string          `json:"command"`
-	ToolCall acpPermToolCall `json:"toolCall"`
-	Options  []acpPermOption `json:"options"`
+type permParams struct {
+	ToolName string       `json:"toolName"`
+	Tool     string       `json:"tool"`
+	Command  string       `json:"command"`
+	ToolCall permToolCall `json:"toolCall"`
+	Options  []permOption `json:"options"`
 }
 
-type acpPermToolCall struct {
+type permToolCall struct {
 	Title    string          `json:"title"`
 	Name     string          `json:"name"`
 	Kind     string          `json:"kind"`
 	RawInput json.RawMessage `json:"rawInput"`
 }
 
-type acpPermOption struct {
+type permOption struct {
 	OptionID string `json:"optionId"`
 	Kind     string `json:"kind"`
 }
 
-func (c *ACPClient) handleServerRequest(id json.RawMessage, method string, params json.RawMessage) {
+func (c *Client) handleServerRequest(id json.RawMessage, method string, params json.RawMessage) {
 	if method != "session/request_permission" {
 		c.sendResponse(id, nil, &jsonrpcError{Code: -32601, Message: "method not found: " + method})
 		return
 	}
-	var p acpPermParams
+	var p permParams
 	_ = json.Unmarshal(params, &p)
 	allowed, desc := checkToolGrant(c.grants, p)
 	if !allowed && c.onDenied != nil {

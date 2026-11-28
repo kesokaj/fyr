@@ -15,6 +15,7 @@ import (
 // carries the redaction patterns as text), and AWS's published example key
 // are not credentials; a clean home has none.
 func TestCredsNotCredentials(t *testing.T) {
+	t.Parallel()
 	rsaHdr := "-----" + "BEGIN RSA " + "PRIVATE " + "KEY-----"
 	for name, plant := range map[string]func(t *testing.T, h string){
 		"a clean home": func(t *testing.T, h string) {},
@@ -66,6 +67,7 @@ func TestCredsNotCredentials(t *testing.T) {
 // was linked (this harness's trail quotes a key header, A5) is not a leak;
 // a new path, a new kind or a grown count is, and a problem always is.
 func TestCredsBaseline(t *testing.T) {
+	t.Parallel()
 	sshHdr := "-----" + "BEGIN OPENSSH " + "PRIVATE " + "KEY-----"
 	rsaHdr := "-----" + "BEGIN RSA " + "PRIVATE " + "KEY-----"
 	h := t.TempDir()
@@ -136,6 +138,7 @@ func TestCredsLinkProblems(t *testing.T) {
 // is never walked, so a credential written through it would go unseen, and
 // it counts.
 func TestCredsBaselineLinkOutsideCounts(t *testing.T) {
+	t.Parallel()
 	h, elsewhere := t.TempDir(), t.TempDir()
 	if err := os.Symlink(elsewhere, filepath.Join(h, "out")); err != nil {
 		t.Fatal(err)
@@ -155,6 +158,7 @@ func TestCredsBaselineLinkOutsideCounts(t *testing.T) {
 // node_modules, the lockfile itself, a plain file named node_modules and a
 // scan root named node_modules are read as before.
 func TestCredsLockedModules(t *testing.T) {
+	t.Parallel()
 	h := t.TempDir()
 	base := scanCreds(h)
 	outside := filepath.Join(t.TempDir(), "token.txt")
@@ -363,6 +367,7 @@ func TestScanCredsTmpGoBuildArchivesAndPlantedCreds(t *testing.T) {
 }
 
 func TestUnescapeLayerSpanEscapedBoundary(t *testing.T) {
+	t.Parallel()
 	rt := "refresh_" + "token"
 	tests := []struct {
 		name     string

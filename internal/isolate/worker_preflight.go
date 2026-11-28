@@ -204,16 +204,31 @@ func branchesFree(root string, ks []Kickoff) error {
 func disjoint(ks []Kickoff) error {
 	for i, a := range ks {
 		for _, b := range ks[i+1:] {
-			for _, ea := range a.Files {
-				for _, eb := range b.Files {
-					if ea == eb || (strings.HasSuffix(ea, "/") && strings.HasPrefix(eb, ea)) || (strings.HasSuffix(eb, "/") && strings.HasPrefix(ea, eb)) {
-						return fmt.Errorf("the Kickoffs %s and %s overlap on %s and %s", a.Path, b.Path, ea, eb)
-					}
-				}
+			if ea, eb, ok := overlappingFiles(a.Files, b.Files); ok {
+				return fmt.Errorf("the Kickoffs %s and %s overlap on %s and %s", a.Path, b.Path, ea, eb)
 			}
 		}
 	}
 	return nil
+}
+
+func overlappingFiles(as, bs []string) (string, string, bool) {
+	for _, ea := range as {
+		for _, eb := range bs {
+			if pathsOverlap(ea, eb) {
+				return ea, eb, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+func pathsOverlap(a, b string) bool {
+	if a == b {
+		return true
+	}
+	return (strings.HasSuffix(a, "/") && strings.HasPrefix(b, a)) ||
+		(strings.HasSuffix(b, "/") && strings.HasPrefix(a, b))
 }
 
 func headCommit(root string) (string, error) {
