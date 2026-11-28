@@ -19,18 +19,7 @@ type workEvTally struct {
 // AggregateWorkEvidence scans <home>/.config/fyr/work/*/status.json and merges extra evidence.
 func AggregateWorkEvidence(home string, extra map[string]ModelEvidence) map[string]ModelEvidence {
 	acc := map[string]*workEvTally{}
-	if home != "" && CheckHomeDir(home) == nil {
-		workDir := filepath.Join(home, harness.StateDir, "work")
-		if st, lerr := os.Lstat(workDir); lerr == nil && st.IsDir() && st.Mode()&os.ModeSymlink == 0 {
-			if dirs, err := os.ReadDir(workDir); err == nil {
-				for _, d := range dirs {
-					if d.IsDir() {
-						mergeStatusFileEvidence(filepath.Join(workDir, d.Name(), "status.json"), acc)
-					}
-				}
-			}
-		}
-	}
+	scanWorkDirEvidence(home, acc)
 	out := make(map[string]ModelEvidence, len(acc)+len(extra))
 	for id, t := range acc {
 		mean := 0.0
@@ -45,6 +34,26 @@ func AggregateWorkEvidence(home string, extra map[string]ModelEvidence) map[stri
 		out[id] = cur
 	}
 	return out
+}
+
+func scanWorkDirEvidence(home string, acc map[string]*workEvTally) {
+	if home == "" || CheckHomeDir(home) != nil {
+		return
+	}
+	workDir := filepath.Join(home, harness.StateDir, "work")
+	st, err := os.Lstat(workDir)
+	if err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
+		return
+	}
+	dirs, err := os.ReadDir(workDir)
+	if err != nil {
+		return
+	}
+	for _, d := range dirs {
+		if d.IsDir() {
+			mergeStatusFileEvidence(filepath.Join(workDir, d.Name(), "status.json"), acc)
+		}
+	}
 }
 
 func mergeStatusFileEvidence(path string, acc map[string]*workEvTally) {

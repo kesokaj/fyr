@@ -158,6 +158,7 @@ func TestImportRejectsInvalidArchivesBeforeOpeningDB(t *testing.T) {
 }
 
 func TestImportSecurityHardeningRegressions(t *testing.T) {
+	t.Parallel()
 	empty := []byte{}
 	manWithTrailing := append(validManifestBytes(t, 4, 11, empty, empty), []byte(` {"extra":true}`)...)
 	assertRejectedNoDBTouch(t, writeCustomZip(t, []rawZipSpec{

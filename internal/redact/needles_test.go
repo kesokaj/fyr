@@ -27,6 +27,7 @@ var needleNearMiss = map[string]string{
 // then fails a test) and a near-miss that stays (SD40 of the 2026-10-27
 // audit: ten needles had no positive row, about fifteen no near-miss).
 func TestEveryNeedleHasAShapeAndANearMiss(t *testing.T) {
+	t.Parallel()
 	needles := map[string]bool{}
 	for _, n := range prefixNeedles {
 		needles[n] = true
@@ -82,6 +83,7 @@ func needlesIn(s string) []string {
 // `jwt short` caught every `jwt` row, and the `jwt` rule could be deleted
 // with the suite green).
 func TestEveryKeywordNeedleBinds(t *testing.T) {
+	t.Parallel()
 	for _, k := range keywordNeedles {
 		bound := false
 		for _, s := range shapeSecrets {
@@ -197,6 +199,7 @@ var keywordNearMiss = []struct {
 }
 
 func TestEveryKeywordNeedleHasANearMiss(t *testing.T) {
+	t.Parallel()
 	byName := make(map[string]string, len(keywordNearMiss))
 	for _, entry := range keywordNearMiss {
 		if _, dup := byName[entry.name]; dup {

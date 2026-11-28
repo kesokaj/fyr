@@ -74,6 +74,7 @@ func seedSourceState(t *testing.T) (home, dirAlpha, dirBeta string, tOld, tNew t
 }
 
 func TestExportDefaultExcludesMemoryAndWritesAtomic0600Manifest(t *testing.T) {
+	t.Parallel()
 	srcHome, dirAlpha, _, _, tNew := seedSourceState(t)
 	outZip := filepath.Join(t.TempDir(), "default.zip")
 	res, err := Export(ExportOptions{Home: srcHome, Dir: dirAlpha, OutPath: outZip, FyrVersion: "v9.6.0-test", Now: func() time.Time { return tNew }})
@@ -105,6 +106,7 @@ func TestExportDefaultExcludesMemoryAndWritesAtomic0600Manifest(t *testing.T) {
 }
 
 func TestRoundTripIncludeMemoryDryRunIdempotencyAndOperatorGuard(t *testing.T) {
+	t.Parallel()
 	srcHome, dirAlpha, _, _, tNew := seedSourceState(t)
 	bundle := filepath.Join(t.TempDir(), "with-mem.zip")
 	if expRes, err := Export(ExportOptions{Home: srcHome, Dir: dirAlpha, IncludeMemory: true, OutPath: bundle, FyrVersion: "v9.6.0", Now: func() time.Time { return tNew }}); err != nil || !expRes.Manifest.IncludeMemory || expRes.Manifest.Counts.BrainRecords != 7 {
@@ -140,6 +142,7 @@ func TestRoundTripIncludeMemoryDryRunIdempotencyAndOperatorGuard(t *testing.T) {
 }
 
 func TestRepoCurrentSinceSymlinkAndEmptyManifest(t *testing.T) {
+	t.Parallel()
 	srcHome, dirAlpha, _, _, tNew := seedSourceState(t)
 	expFiltered, err := Export(ExportOptions{
 		Home: srcHome, Dir: dirAlpha, Repo: "current",
@@ -180,6 +183,7 @@ func TestRepoCurrentSinceSymlinkAndEmptyManifest(t *testing.T) {
 }
 
 func TestV910MetricsV14AndStateRoundTrip(t *testing.T) {
+	t.Parallel()
 	srcHome, dirAlpha, _, tNow := seedV14MetricsSource(t)
 	bundle := filepath.Join(t.TempDir(), "v14-state.zip")
 	expRes, err := Export(ExportOptions{

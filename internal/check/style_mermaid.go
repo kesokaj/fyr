@@ -76,30 +76,36 @@ func countSequenceNodes(lines []string) int {
 			continue
 		}
 		low := strings.ToLower(l)
-		if strings.HasPrefix(low, "participant ") || strings.HasPrefix(low, "actor ") {
-			_, rest, _ := strings.Cut(l, " ")
-			rest = strings.TrimSpace(rest)
-			if idx := strings.Index(strings.ToLower(rest), " as "); idx >= 0 {
-				rest = strings.TrimSpace(rest[:idx])
-			}
-			if id := strings.Trim(strings.TrimSuffix(rest, ":"), `"`); id != "" {
-				nodes[id] = true
-			}
-			continue
-		}
-		if seqSkipKeywords[strings.Fields(low)[0]] {
+		if addSequenceDecl(l, low, nodes) || seqSkipKeywords[strings.Fields(low)[0]] {
 			continue
 		}
 		if left, right, ok := splitSequenceArrow(l); ok {
-			if left != "" && !seqSkipKeywords[strings.ToLower(left)] {
-				nodes[left] = true
-			}
-			if right != "" && !seqSkipKeywords[strings.ToLower(right)] {
-				nodes[right] = true
-			}
+			addSequenceNode(nodes, left)
+			addSequenceNode(nodes, right)
 		}
 	}
 	return len(nodes)
+}
+
+func addSequenceDecl(line, low string, nodes map[string]bool) bool {
+	if !strings.HasPrefix(low, "participant ") && !strings.HasPrefix(low, "actor ") {
+		return false
+	}
+	_, rest, _ := strings.Cut(line, " ")
+	rest = strings.TrimSpace(rest)
+	if idx := strings.Index(strings.ToLower(rest), " as "); idx >= 0 {
+		rest = strings.TrimSpace(rest[:idx])
+	}
+	if id := strings.Trim(strings.TrimSuffix(rest, ":"), `"`); id != "" {
+		nodes[id] = true
+	}
+	return true
+}
+
+func addSequenceNode(nodes map[string]bool, id string) {
+	if id != "" && !seqSkipKeywords[strings.ToLower(id)] {
+		nodes[id] = true
+	}
 }
 
 func splitSequenceArrow(line string) (string, string, bool) {
@@ -121,35 +127,59 @@ func splitSequenceArrow(line string) (string, string, bool) {
 
 func countStateNodes(lines []string) int {
 	nodes := map[string]bool{}
-	add := func(raw string) {
-		if id := strings.TrimSpace(raw); id != "" && id != "[*]" {
-			nodes[id] = true
-		}
-	}
 	for _, raw := range lines {
 		l := strings.TrimSpace(stripMermaidComment(raw))
 		low := strings.ToLower(l)
-		if l == "" || l == "{" || l == "}" || strings.HasPrefix(low, "statediagram") || strings.HasPrefix(low, "direction ") || strings.HasPrefix(low, "note ") || low == "end note" || strings.HasPrefix(low, "classdef ") || strings.HasPrefix(low, "class ") || strings.HasPrefix(low, "style ") {
+		if isStateSkipLine(l, low) {
 			continue
 		}
 		if before, after, ok := strings.Cut(l, "-->"); ok {
-			add(before)
-			if r, _, hasColon := strings.Cut(after, ":"); hasColon {
-				after = r
-			}
-			add(after)
-		} else if strings.HasPrefix(low, "state ") {
-			rest := strings.TrimSuffix(strings.TrimSpace(l[len("state"):]), "{")
-			if _, after, ok := strings.Cut(rest, " as "); ok {
-				if fs := strings.Fields(after); len(fs) > 0 {
-					add(fs[0])
-				}
-			} else if fs := strings.Fields(rest); len(fs) > 0 {
-				add(strings.Trim(fs[0], `"`))
-			}
+			addStateNode(nodes, before)
+			after, _, _ = strings.Cut(after, ":")
+			addStateNode(nodes, after)
+			continue
+		}
+		if strings.HasPrefix(low, "state ") {
+			addStateNode(nodes, parseStateDecl(l))
 		}
 	}
 	return len(nodes)
+}
+
+func isStateSkipLine(l, low string) bool {
+	switch l {
+	case "", "{", "}":
+		return true
+	}
+	if low == "end note" {
+		return true
+	}
+	for _, pfx := range []string{"statediagram", "direction ", "note ", "classdef ", "class ", "style "} {
+		if strings.HasPrefix(low, pfx) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseStateDecl(line string) string {
+	rest := strings.TrimSuffix(strings.TrimSpace(line[len("state"):]), "{")
+	if _, after, ok := strings.Cut(rest, " as "); ok {
+		if fs := strings.Fields(after); len(fs) > 0 {
+			return fs[0]
+		}
+		return ""
+	}
+	if fs := strings.Fields(rest); len(fs) > 0 {
+		return strings.Trim(fs[0], `"`)
+	}
+	return ""
+}
+
+func addStateNode(nodes map[string]bool, raw string) {
+	if id := strings.TrimSpace(raw); id != "" && id != "[*]" {
+		nodes[id] = true
+	}
 }
 
 func countFlowchartNodes(lines []string) int {
@@ -164,13 +194,8 @@ func countFlowchartNodes(lines []string) int {
 			continue
 		}
 		if first == "subgraph" {
-			if _, rest, ok := strings.Cut(l, " "); ok {
-				rest = strings.TrimSpace(rest)
-				if rest != "" && rest[0] != '"' {
-					if end := readNodeID(rest, 0); end > 0 {
-						subgraphs[rest[:end]] = true
-					}
-				}
+			if id := parseSubgraphID(l); id != "" {
+				subgraphs[id] = true
 			}
 			continue
 		}
@@ -182,21 +207,40 @@ func countFlowchartNodes(lines []string) int {
 	return len(nodes)
 }
 
+func parseSubgraphID(line string) string {
+	_, rest, ok := strings.Cut(line, " ")
+	if !ok {
+		return ""
+	}
+	rest = strings.TrimSpace(rest)
+	if rest == "" || rest[0] == '"' {
+		return ""
+	}
+	if end := readNodeID(rest, 0); end > 0 {
+		return rest[:end]
+	}
+	return ""
+}
+
 func scanFlowchartNodes(l string, nodes map[string]bool) {
 	var noClose map[string]bool
 	for i := 0; i < len(l); {
 		if l[i] == ' ' || l[i] == '\t' || l[i] == ';' || l[i] == '&' {
 			i++
-		} else if next := skipFlowchartEdge(l, i, &noClose); next > i {
+			continue
+		}
+		if next := skipFlowchartEdge(l, i, &noClose); next > i {
 			i = next
-		} else if end := readNodeID(l, i); end > i {
+			continue
+		}
+		if end := readNodeID(l, i); end > i {
 			if id := l[i:end]; !mermaidSkipKeywords[strings.ToLower(id)] {
 				nodes[id] = true
 			}
 			i = skipShapeAndClass(l, end)
-		} else {
-			i++
+			continue
 		}
+		i++
 	}
 }
 
@@ -242,14 +286,20 @@ func skipBalancedShape(s string, i int, open, closeCh byte) int {
 	for j := i + 1; j < len(s); j++ {
 		if s[j] == '"' {
 			inQuote = !inQuote
-		} else if !inQuote {
-			if s[j] == open && open != '>' {
-				depth++
-			} else if s[j] == closeCh {
-				if depth--; depth == 0 {
-					return j + 1
-				}
-			}
+			continue
+		}
+		if inQuote {
+			continue
+		}
+		if s[j] == open && open != '>' {
+			depth++
+			continue
+		}
+		if s[j] != closeCh {
+			continue
+		}
+		if depth--; depth == 0 {
+			return j + 1
 		}
 	}
 	return len(s)
@@ -262,41 +312,64 @@ func skipFlowchartEdge(s string, i int, noClose *map[string]bool) int {
 		}
 		return i + 1
 	}
-	matched := false
-	for _, pfx := range edgePrefixes {
-		if strings.HasPrefix(s[i:], pfx) {
-			matched = true
-			break
-		}
-	}
-	if !matched {
+	if !hasEdgePrefix(s[i:]) {
 		return i
 	}
-	j := i
-	if s[j] == '<' || s[j] == 'o' || s[j] == 'x' {
-		j++
-	}
-	for j < len(s) && (s[j] == '-' || s[j] == '.' || s[j] == '=' || s[j] == '~') {
-		j++
-	}
-	if j < len(s) && (s[j] == '>' || ((s[j] == 'o' || s[j] == 'x') && (j+1 == len(s) || !isNodeIDChar(s[j+1])))) {
-		j++
-	}
+	j := scanEdgeTokenEnd(s, i)
 	if j < len(s) && s[j] == '|' {
 		if end := strings.IndexByte(s[j+1:], '|'); end >= 0 {
 			return j + end + 2
 		}
 	}
-	tok := s[i:j]
-	if cls := edgeClosers[tok]; len(cls) > 0 && j < len(s) && (s[j] == ' ' || s[j] == '\t') && !(*noClose)[tok] {
-		if end, ok := findEdgeTextClose(s, j, cls); ok {
-			return end
+	return skipEdgeLabelText(s, j, s[i:j], noClose)
+}
+
+func hasEdgePrefix(s string) bool {
+	for _, pfx := range edgePrefixes {
+		if strings.HasPrefix(s, pfx) {
+			return true
 		}
-		if *noClose == nil {
-			*noClose = make(map[string]bool, len(edgeClosers))
-		}
-		(*noClose)[tok] = true
 	}
+	return false
+}
+
+func scanEdgeTokenEnd(s string, i int) int {
+	j := i
+	if s[j] == '<' || s[j] == 'o' || s[j] == 'x' {
+		j++
+	}
+	for j < len(s) && isEdgeBodyByte(s[j]) {
+		j++
+	}
+	if j < len(s) && isEdgeHeadEnd(s, j) {
+		j++
+	}
+	return j
+}
+
+func isEdgeBodyByte(b byte) bool {
+	return b == '-' || b == '.' || b == '=' || b == '~'
+}
+
+func isEdgeHeadEnd(s string, j int) bool {
+	if s[j] == '>' {
+		return true
+	}
+	return (s[j] == 'o' || s[j] == 'x') && (j+1 == len(s) || !isNodeIDChar(s[j+1]))
+}
+
+func skipEdgeLabelText(s string, j int, tok string, noClose *map[string]bool) int {
+	cls := edgeClosers[tok]
+	if len(cls) == 0 || j >= len(s) || (s[j] != ' ' && s[j] != '\t') || (*noClose)[tok] {
+		return j
+	}
+	if end, ok := findEdgeTextClose(s, j, cls); ok {
+		return end
+	}
+	if *noClose == nil {
+		*noClose = make(map[string]bool, len(edgeClosers))
+	}
+	(*noClose)[tok] = true
 	return j
 }
 

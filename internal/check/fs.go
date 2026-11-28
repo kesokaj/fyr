@@ -87,22 +87,32 @@ func (k *checker) noIndexed() func(dir string) bool {
 		}
 	}
 	return func(dir string) bool {
-		for d := dir; ; d = path.Dir(d) {
-			if _, seen := marked[d]; !seen {
-				m := false
-				for _, name := range trail.NoIndexMarkers {
-					if _, err := k.root.Lstat(filepath.Join(filepath.FromSlash(d), name)); err == nil {
-						m = true
-					}
-				}
-				marked[d] = m
-			}
-			if marked[d] {
-				return true
-			}
-			if d == "." {
-				return false
-			}
+		return k.isDirNoIndexed(dir, marked)
+	}
+}
+
+func (k *checker) isDirNoIndexed(dir string, marked map[string]bool) bool {
+	for d := dir; ; d = path.Dir(d) {
+		val, seen := marked[d]
+		if !seen {
+			val = k.hasNoIndexMarker(d)
+			marked[d] = val
+		}
+		if val {
+			return true
+		}
+		if d == "." {
+			return false
 		}
 	}
+}
+
+func (k *checker) hasNoIndexMarker(dir string) bool {
+	base := filepath.FromSlash(dir)
+	for _, name := range trail.NoIndexMarkers {
+		if _, err := k.root.Lstat(filepath.Join(base, name)); err == nil {
+			return true
+		}
+	}
+	return false
 }

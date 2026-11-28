@@ -57,6 +57,7 @@ func sampleMaliciousInput() Input {
 }
 
 func TestGraphEscapingXSS(t *testing.T) {
+	t.Parallel()
 	payload := Build(sampleMaliciousInput())
 
 	// Verify package brainLinks aggregation deduplicated shared BUG IDs and sorted all IDs.
@@ -166,6 +167,7 @@ func TestGraphEscapingXSS(t *testing.T) {
 }
 
 func TestGraphDOTAndMarkdown(t *testing.T) {
+	t.Parallel()
 	p := Build(sampleMaliciousInput())
 
 	var dot1, dot2 bytes.Buffer
@@ -233,6 +235,7 @@ func TestGraphDOTAndMarkdown(t *testing.T) {
 }
 
 func TestGraphHiddenCouplingMetaCounts(t *testing.T) {
+	t.Parallel()
 	p := Build(Input{
 		RepoName: "split-hc",
 		Files: []FileInput{
@@ -268,6 +271,7 @@ func TestGraphHiddenCouplingMetaCounts(t *testing.T) {
 }
 
 func TestGraphWriteFile0600(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	outPath := filepath.Join(dir, "sub", "graph.html")
 
@@ -356,6 +360,7 @@ func TestGraphWriteFile0600(t *testing.T) {
 }
 
 func TestGraphPackageDeps(t *testing.T) {
+	t.Parallel()
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)

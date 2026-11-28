@@ -106,6 +106,7 @@ func readZipEntry(t *testing.T, zipPath, name string) ([]byte, os.FileMode, int)
 }
 
 func TestStateSIMRoundTrip(t *testing.T) {
+	t.Parallel()
 	t.Run("round_trip_dryrun_idempotency_and_v13_trial", testSIMRoundTripCore)
 	t.Run("default_export_omits_sim", testSIMDefaultExportOmitsEntry)
 	t.Run("redaction_and_home_scrubbing", testSIMRedactionAndHomeScrub)

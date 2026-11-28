@@ -25,6 +25,7 @@ import (
 const wantDefaultCSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:"
 
 func TestWebPreviewPackageDeps(t *testing.T) {
+	t.Parallel()
 	assertSourceImportsStdlibOnly(t)
 
 	cmd := exec.Command("go", "list", "-deps", ".")
@@ -71,6 +72,7 @@ func assertSourceImportsStdlibOnly(t *testing.T) {
 }
 
 func TestGenerateToken(t *testing.T) {
+	t.Parallel()
 	t1, err := generateToken(rand.Reader)
 	if err != nil {
 		t.Fatalf("generateToken: %v", err)
@@ -94,6 +96,7 @@ func TestGenerateToken(t *testing.T) {
 }
 
 func TestNewHandlerGoldenAndHEAD(t *testing.T) {
+	t.Parallel()
 	const tok = "0123456789abcdef0123456789abcdef"
 	rawBody := []byte("<!doctype html><h1>Report</h1>")
 	assets := map[string]Asset{
@@ -127,6 +130,7 @@ func TestNewHandlerGoldenAndHEAD(t *testing.T) {
 }
 
 func TestNewHandlerCSPAndContentTypeOverrides(t *testing.T) {
+	t.Parallel()
 	const tok = "0123456789abcdef0123456789abcdef"
 	const customCSP = "default-src 'none'; img-src 'self'"
 	h := NewHandler(tok, map[string]Asset{
@@ -154,6 +158,7 @@ func TestNewHandlerCSPAndContentTypeOverrides(t *testing.T) {
 }
 
 func TestNewHandlerMethodNotAllowed(t *testing.T) {
+	t.Parallel()
 	const tok = "abcdef0123456789abcdef0123456789"
 	h := NewHandler(tok, map[string]Asset{"/": {ContentType: "text/html", Body: []byte("ok")}}, "")
 
@@ -199,6 +204,7 @@ func TestNewHandlerRejectsInvalidTokensAndDiskFiles(t *testing.T) {
 }
 
 func TestNewHandlerRejectsPathTraversal(t *testing.T) {
+	t.Parallel()
 	const tok = "fedcba9876543210fedcba9876543210"
 	h := NewHandler(tok, map[string]Asset{
 		"/":            {ContentType: "text/html", Body: []byte("index")},
@@ -285,6 +291,7 @@ func waitForLine(t *testing.T, b *syncBuffer) string {
 }
 
 func TestServeLoopbackAndCleanShutdown(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
@@ -376,6 +383,7 @@ func assertRawTraversal404(t *testing.T, hostPort, tok string) {
 }
 
 func TestServeNonLoopbackWarning(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
@@ -402,6 +410,7 @@ func TestServeNonLoopbackWarning(t *testing.T) {
 }
 
 func TestServeOptionsAndErrors(t *testing.T) {
+	t.Parallel()
 	urls, nonLoop := previewURLs("192.0.2.10:8080", &net.TCPAddr{IP: net.ParseIP("192.0.2.10"), Port: 8080}, "tok")
 	if !nonLoop || len(urls) != 1 || urls[0] != "http://192.0.2.10:8080/tok/" {
 		t.Errorf("specific IP previewURLs = (%v, %v)", urls, nonLoop)
@@ -427,6 +436,7 @@ func TestServeOptionsAndErrors(t *testing.T) {
 }
 
 func TestConcurrentRequestsAndPrecedence(t *testing.T) {
+	t.Parallel()
 	const tok = "11223344556677889900aabbccddeeff"
 	h := NewHandler(tok, map[string]Asset{
 		"":           {ContentType: "text/plain", Body: []byte("bare-root")},

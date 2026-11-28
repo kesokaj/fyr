@@ -14,6 +14,7 @@ import (
 )
 
 func TestDSN(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	tricky := filepath.Join(dir, "dir?a=1#frag%20", "db.sqlite")
 	got := DSN(tricky)
@@ -74,6 +75,7 @@ func makeBusyError(t *testing.T) error {
 }
 
 func TestIsBusyAndIsUnreadable(t *testing.T) {
+	t.Parallel()
 	busyErr := makeBusyError(t)
 	if !IsBusy(busyErr) {
 		t.Fatalf("IsBusy(%v) = false, want true", busyErr)
@@ -116,6 +118,7 @@ func TestIsBusyAndIsUnreadable(t *testing.T) {
 }
 
 func TestOpenDBWithRetry(t *testing.T) {
+	t.Parallel()
 	// Negative case: nil openFn.
 	if _, err := OpenDBWithRetry(10*time.Millisecond, nil); err == nil {
 		t.Fatal("nil openFn succeeded, want error")
@@ -161,6 +164,7 @@ func TestOpenDBWithRetry(t *testing.T) {
 }
 
 func TestBoolInt(t *testing.T) {
+	t.Parallel()
 	if got := BoolInt(true); got != 1 {
 		t.Fatalf("BoolInt(true) = %d, want 1", got)
 	}
@@ -170,6 +174,7 @@ func TestBoolInt(t *testing.T) {
 }
 
 func TestTempDBReadWriteAndUserVersion(t *testing.T) {
+	t.Parallel()
 	p := filepath.Join(t.TempDir(), "app.db")
 	db, err := sql.Open("sqlite", DSN(p))
 	if err != nil {

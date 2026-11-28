@@ -65,6 +65,7 @@ func charGraphInput() Input {
 }
 
 func TestGraphBuildAndLayoutCharacterization(t *testing.T) {
+	t.Parallel()
 	p1 := Build(charGraphInput())
 	p2 := Build(charGraphInput())
 
@@ -156,6 +157,7 @@ func assertGraphLayoutInvariants(t *testing.T, p *Payload) {
 }
 
 func TestGraphRenderDOTHTMLMarkdownCharacterization(t *testing.T) {
+	t.Parallel()
 	p := Build(charGraphInput())
 
 	t.Run("RenderDOT deterministic and escaped", func(t *testing.T) {
@@ -266,6 +268,7 @@ func TestGraphRenderDOTHTMLMarkdownCharacterization(t *testing.T) {
 }
 
 func TestGraphWriteFileCharacterization(t *testing.T) {
+	t.Parallel()
 	t.Run("regular file create force and refusal without force", func(t *testing.T) {
 		dst := filepath.Join(t.TempDir(), "nested", "out", "graph.dot")
 		if err := WriteFile(dst, []byte("v1"), false); err != nil {

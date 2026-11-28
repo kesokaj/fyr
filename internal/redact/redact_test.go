@@ -11,6 +11,7 @@ import (
 const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEAsecretbody\nmoresecretbody\n-----END RSA PRIVATE KEY-----"
 
 func TestRedactJSONL(t *testing.T) {
+	t.Parallel()
 	pemJSON, _ := json.Marshal("here is my key " + pem)
 	quote := `{"n":12345678901234567890,"user_quote":` + string(pemJSON) + `}`
 	akia := `{"project":"/p","user_quote":"use AKIAIOSFODNN7EXAMPLE for the demo","tags":["ok"]}`
@@ -170,6 +171,7 @@ var shapeSecrets = []string{
 // example of the SD41 kinds, so a needle tightened past the documented shape
 // fails here (none of them carries FAKEVALUE, so they are not shapeSecrets).
 func TestVendorDocExamples(t *testing.T) {
+	t.Parallel()
 	for _, ex := range []string{"dckr_pat_124509ugsdjga93", "dckr_oat_7awgM4jG5SQvxcvmNzhKj8PQjxo", "xxxxxx.atlasv1.zzzzzzzzzzzzz"} {
 		if out := Redact("note: " + ex + "\n"); out != redactedValue+"\n" {
 			t.Errorf("%q: got %q, want the line redacted", ex, out)
@@ -178,6 +180,7 @@ func TestVendorDocExamples(t *testing.T) {
 }
 
 func TestRedactShapes(t *testing.T) {
+	t.Parallel()
 	for _, sec := range shapeSecrets {
 		quoted, _ := json.Marshal(map[string]string{"user_quote": "they said " + sec})
 		for name, in := range map[string]struct {
@@ -304,6 +307,7 @@ func TestRedactShapes(t *testing.T) {
 // quoted password behind a JSON escape (the gate security review of
 // v2.6.2..66f3412, finding 2).
 func TestRedactFlagAtValueStart(t *testing.T) {
+	t.Parallel()
 	for _, line := range []string{`{"text":"-uadmin:FAKEVALUE"}`, `{"text":"-u \"admin:FAKEVALUE\""}`, `{"text":"--user=\"admin:FAKEVALUE\""}`,
 		`{"cmd":"curl -u\tadmin:FAKEVALUE"}`, `{"cmd":"ARGS=-uadmin:FAKEVALUE"}`, `{"cmd":"(-uadmin:FAKEVALUE)"}`} {
 		out, recs := redactLines([]byte(line+"\n"), true)
@@ -317,6 +321,7 @@ func TestRedactFlagAtValueStart(t *testing.T) {
 }
 
 func TestRedactStructuralGaps(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name, in string
 		jsonl    bool
@@ -352,6 +357,7 @@ func TestRedactStructuralGaps(t *testing.T) {
 }
 
 func TestRedactCleanIsByteIdentical(t *testing.T) {
+	t.Parallel()
 	jsonl := "{\"a\":\"x\",  \"b\":[1,2]}\n\n{\"c\":null}"
 	md := "# Proposal\n\nNothing to hide.\n"
 	for name, tc := range map[string]struct {
@@ -369,6 +375,7 @@ func TestRedactCleanIsByteIdentical(t *testing.T) {
 }
 
 func TestRedactLines(t *testing.T) {
+	t.Parallel()
 	in := "# Proposal\n\nbefore\n" + pem + "\nafter password=hunter2\nlast\n"
 	out, recs := redactLines([]byte(in), false)
 	want := "# Proposal\n\nbefore\n[redacted by fyr: 4 lines]\n" + redactedValue + "\nlast\n"
@@ -388,6 +395,7 @@ func TestRedactLines(t *testing.T) {
 
 // A needle in a KEY takes its line like any other hit.
 func TestRedactKeyHit(t *testing.T) {
+	t.Parallel()
 	out, recs := redactLines([]byte(`{"token=abc":"v"}`), true)
 	if string(out) != marker(redactedValue, true) || len(recs) != 1 {
 		t.Errorf("key hit: out=%s recs=%+v", out, recs)
@@ -397,6 +405,7 @@ func TestRedactKeyHit(t *testing.T) {
 // TestRedactText: the exported Redact (fyr dream) removes every shape
 // in shapeSecrets, and leaves clean text byte-identical.
 func TestRedactText(t *testing.T) {
+	t.Parallel()
 	for _, sec := range shapeSecrets {
 		in := "before\nthe user pasted " + sec + " here\nafter\n"
 		got := Redact(in)
@@ -414,6 +423,7 @@ func TestRedactText(t *testing.T) {
 }
 
 func TestRedactJSONLEscapedKeyAndPEM(t *testing.T) {
+	t.Parallel()
 	escapedKey := `{"pass` + `\u0077ord": "my ` + `pass"}` + "\n"
 	outKey, recsKey := redactLines([]byte(escapedKey), true)
 	if len(recsKey) != 1 || strings.Contains(string(outKey), "my "+"pass") {
@@ -443,6 +453,7 @@ func TestRedactJSONLEscapedKeyAndPEM(t *testing.T) {
 }
 
 func TestRedactJSONLRecoveryAndPlainText(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		in   string
@@ -476,6 +487,7 @@ func pemMarker(verb, label string) string {
 }
 
 func TestRedactPEMCaseAndMultiBlock(t *testing.T) {
+	t.Parallel()
 	rsaKey := "RSA PRI" + "VATE KEY"
 	opensshKey := "OPENSSH PRI" + "VATE KEY"
 	mismatchedEnd := pemMarker("BEGIN", rsaKey) + "\nFAKEBODY1\n" +
