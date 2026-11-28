@@ -11,12 +11,14 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/isolate"
+	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -275,3 +277,42 @@ func RemoveTimer(home, goos string) (bool, error) { return unit.Remove(home, goo
 // OtherSystemTimerFiles lists this home's units of the other operating
 // system, which a removal here never touches.
 func OtherSystemTimerFiles(home, goos string) []string { return unit.OtherSystemFiles(home, goos) }
+
+// Enabled reports whether fyr auto is turned on in auto.json without creating
+// or mutating the file. Corrupt configuration fails closed with an error.
+func Enabled(home string) (bool, error) {
+	cfg, found, err := Load(home)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, nil
+	}
+	return cfg.Enabled, nil
+}
+
+// ProjectRetroWatermark returns the last retro-lite timestamp, whether pending
+// memory candidates exist, and the last memory-candidates timestamp recorded
+// for root in auto/runs.json. Missing state returns zero values; corrupt state
+// fails closed with an error.
+func ProjectRetroWatermark(home, root string) (retro time.Time, pendingMem bool, mem time.Time, err error) {
+	st, found, err := loadState(home)
+	if err != nil {
+		return time.Time{}, false, time.Time{}, err
+	}
+	if !found {
+		return time.Time{}, false, time.Time{}, nil
+	}
+	key := search.GlobalWorkspace
+	if root != search.GlobalWorkspace {
+		key = filepath.Clean(root)
+	}
+	p := st.Projects[key]
+	return p.LastRetroLite, p.PendingMemoryCandidates > 0, p.LastMemoryCandidates, nil
+}
+
+// IsEphemeralOrRefused reports whether root is an ephemeral workspace or
+// refused system root under home.
+func IsEphemeralOrRefused(root, home string) bool {
+	return dream.IsRefusedWorkspace(root, home)
+}
