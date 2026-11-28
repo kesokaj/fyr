@@ -684,3 +684,100 @@ func TestRecordAndReportOptsOfCacheOnNil(t *testing.T) {
 		t.Fatalf("reportOptsOf on *metricsOpts returned unexpected ptr or mutated opts")
 	}
 }
+
+func TestD1ASTVetHookVerbsAndShims(t *testing.T) {
+	t.Setenv(harness.ChildEnv, "1")
+	repo, _ := gitFixture(t)
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte(".agents/scratch/*\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "svc.go"), []byte("package main\n\n// Reconcile runs sync (BUG-007).\nfunc Reconcile() error {\n\treturn Helper()\n}\n\nfunc Helper() error {\n\treturn nil\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"ast", "--map", "--home", home}, "god_nodes"},
+		{[]string{"ast", "--skeleton", "svc.go", "--home", home}, "4-6  func Reconcile() error"},
+		{[]string{"ast", "--slice", "Reconcile", "--budget", "1800", "--home", home}, "[Hop 0]"},
+		{[]string{"ast", "--path", "Reconcile", "Helper", "--home", home}, "Reconcile -> Helper"},
+		{[]string{"ast", "--affected", "Helper", "--home", home}, "direct_callers:"},
+		{[]string{"vet", "Fix panic in Reconcile in svc.go", "--home", home}, "[FYR_TURN_CONTRACT]"},
+		{[]string{"vet", "Fix", "panic", "in", "Reconcile", "--home", home}, "[FYR_TURN_CONTRACT]"},
+		// Deprecated v9.x forwarding shims on fyr search stay functional.
+		{[]string{"search", "--map", "--home", home}, "god_nodes"},
+		{[]string{"search", "--vet", "Fix panic in Reconcile in svc.go", "--home", home}, "[FYR_TURN_CONTRACT]"},
+	} {
+		var out bytes.Buffer
+		if err := run(tc.args, &out); err != nil {
+			t.Fatalf("run(%v): %v\n%s", tc.args, err, out.String())
+		}
+		if !strings.Contains(out.String(), tc.want) {
+			t.Errorf("run(%v) missing %q in:\n%s", tc.args, tc.want, out.String())
+		}
+	}
+
+	origStdin := stdin
+	t.Cleanup(func() { stdin = origStdin })
+	hookPayload := `{"conversationId":"d1-hook","workspacePaths":["` + filepath.ToSlash(repo) + `"],"invocationNum":1,"lastUserInput":"Check Reconcile behavior"}`
+	for _, args := range [][]string{
+		{"hook", "pre-invocation", "--home", home},
+		{"hook", "pre-invocation", "--json", "--home", home},
+		{"search", "--hook", "pre-invocation", "--home", home},
+	} {
+		stdin = strings.NewReader(hookPayload)
+		var out bytes.Buffer
+		if err := run(args, &out); err != nil {
+			t.Fatalf("run(%v): %v\n%s", args, err, out.String())
+		}
+		if !strings.Contains(out.String(), `"injectSteps"`) || !strings.Contains(out.String(), "[Hop 0]") {
+			t.Errorf("run(%v) missing capsule:\n%s", args, out.String())
+		}
+		var obj map[string]any
+		if err := json.Unmarshal(bytes.TrimSpace(out.Bytes()), &obj); err != nil {
+			t.Errorf("run(%v) not valid JSON (%v):\n%s", args, err, out.String())
+		}
+	}
+
+	// Must-fail cases: 0-mode ast refusal (including bare words), empty vet prompt, bad hook args/event.
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"ast", "--home", home}, "fyr ast: give --slice, --contracts, --skeleton, --path, --affected or --map"},
+		{[]string{"ast", "Reconcile", "--home", home}, "fyr ast: give --slice, --contracts, --skeleton, --path, --affected or --map"},
+		{[]string{"ast", "--map", "--skeleton", "svc.go", "--home", home}, "exclude each other"},
+		{[]string{"vet", "--home", home}, "usage: fyr vet"},
+		{[]string{"hook", "--home", home}, "usage: fyr hook"},
+		{[]string{"hook", "session-start", "extra", "--home", home}, "usage: fyr hook"},
+		{[]string{"hook", "not-an-event", "--home", home}, "must be one of"},
+	} {
+		var out bytes.Buffer
+		err := run(tc.args, &out)
+		if exitOf(err) != 2 || !strings.Contains(out.String(), tc.want) {
+			t.Errorf("run(%v): exit=%d want 2, want %q in:\n%s", tc.args, exitOf(err), tc.want, out.String())
+		}
+	}
+
+	// Verify astOptsOf and vetOptsOf cache on nil without overwriting foreign opts.
+	ac := &runtimeCtx{}
+	if a1 := astOptsOf(ac); ac.opts != a1 || astOptsOf(ac) != a1 {
+		t.Fatalf("astOptsOf did not cache fallback on nil c.opts")
+	}
+	vc := &runtimeCtx{}
+	if v1 := vetOptsOf(vc); vc.opts != v1 || vetOptsOf(vc) != v1 {
+		t.Fatalf("vetOptsOf did not cache fallback on nil c.opts")
+	}
+	foreign := &jsonOpts{jsonOut: true}
+	fc := &runtimeCtx{opts: foreign}
+	if _ = astOptsOf(fc); fc.opts != foreign {
+		t.Fatalf("astOptsOf overwrote foreign opts")
+	}
+	if _ = vetOptsOf(fc); fc.opts != foreign {
+		t.Fatalf("vetOptsOf overwrote foreign opts")
+	}
+}

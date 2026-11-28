@@ -16,6 +16,9 @@
 //	fyr state       export or import a portable state zip bundle
 //	fyr resume      read-only seven-step session resume
 //	fyr search      ranked search of records and files
+//	fyr ast         AST slices, contracts, skeletons, paths, blast radius and map
+//	fyr vet         9-mode intent, 6-anchor vetter and skill/record match
+//	fyr hook        Antigravity CLI lifecycle hooks
 //	fyr index       reconcile the search index; --register opts in
 //	fyr graph       interactive AST and telemetry constellation
 //	fyr dream       consolidate project memory and trail into proposals

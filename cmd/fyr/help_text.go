@@ -40,6 +40,9 @@ Records and search
   state        export or import a portable state zip bundle
   resume       read-only seven-step session resume
   search       ranked search of records and files
+  ast          AST slices, contracts, skeletons, paths, blast radius and map
+  vet          9-mode intent, 6-anchor vetter and skill/record match
+  hook         Antigravity CLI lifecycle hooks
   index        reconcile the search index; --register opts in
   graph        interactive AST and telemetry constellation
 
@@ -95,7 +98,7 @@ var coreVerbPages = map[string]verbPage{
 			"has, except the Claude Code files an install before fyr wrote under",
 			"~/.claude, which it keeps and stops managing (DEPLOY-remote § Crossing",
 			"to fyr). It edits no vendor setting. Running it again changes only",
-			"what drifted. sync is an alias of install.",
+			"what drifted. sync is an alias of install (deprecated; removed in v10.0.0).",
 		},
 	},
 	"update": {
@@ -240,9 +243,52 @@ var coreVerbPages = map[string]verbPage{
 			"never answers from another branch. --refs finds every record naming an",
 			"ID, a file or a directory (trailing /); --open lists open bugs, plans",
 			"with unticked boxes, current specs, guides and deploy docs, and queued",
-			"proposals. --slice, --contracts, --skeleton, --path, --affected and --map",
-			"query AST symbols, specs and refs; --vet runs the 9-mode intent, 6-anchor",
-			"and skill/record vetter; --hook serves Antigravity CLI hooks.",
+			"proposals. Deprecated v9.x shims (removed in v10.0.0): --slice,",
+			"--contracts, --skeleton, --path, --affected and --map (use fyr ast);",
+			"--vet (use fyr vet); and --hook (use fyr hook).",
+		},
+	},
+	"ast": {
+		synopsis: []string{
+			"usage: fyr ast --slice QUERY [--hops N] [--budget N] [--session ID]",
+			"               [--include-docs] [--global] [--json]",
+			"       fyr ast --contracts TARGET [--budget N] [--global] [--json]",
+			"       fyr ast --skeleton FILE [--global] [--json]",
+			"       fyr ast --path SYM [--to SYM] [--global] [--json]",
+			"       fyr ast --affected TARGET [--global] [--json]",
+			"       fyr ast --map [--include-docs] [--global] [--json]",
+		},
+		about: []string{
+			"Queries this checkout's deterministic AST index (.agents/scratch/search.db,",
+			"reconciled against git first) without running full-text file search.",
+			"--slice builds a PageRank context capsule; --contracts projects signatures,",
+			"linked SPEC-* contracts and ADR guardrails; --skeleton prints declaration",
+			"line ranges; --path finds shortest call/type/interface paths; --affected",
+			"computes reverse-BFS blast radius; --map prints top God Nodes and cycles.",
+			"Exit 0 ok, 1 index or I/O error, 2 a usage error or refusal.",
+		},
+	},
+	"vet": {
+		synopsis: []string{
+			"usage: fyr vet [--global] [--json] <prompt>...",
+		},
+		about: []string{
+			"Runs the 9-mode intent classifier, 6-anchor prompt vetter, and",
+			"skill/record matcher against this checkout's AST index and brain store.",
+			"Pass --global to include shared global records and registered projects.",
+			"Exit 0 ok, 1 store or I/O error, 2 a usage error or refusal.",
+		},
+	},
+	"hook": {
+		synopsis: []string{
+			"usage: fyr hook <session-start|pre-invocation|pre-tool-use|",
+			"                 post-tool-use|stop> [--json]",
+		},
+		about: []string{
+			"Serves Antigravity CLI lifecycle hooks, reading the JSON event payload on",
+			"stdin and writing hook output to stdout within the < 250 ms budget.",
+			"With --json, writes JSON hook payloads verbatim or wraps text output in",
+			"a JSON envelope. Exit 0 ok, 1 error, 2 a usage error or refusal.",
 		},
 	},
 	"index": {

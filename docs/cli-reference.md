@@ -20,11 +20,12 @@ Every `fyr` command accepts these flags before or after the command name. Withou
 Use this index to jump to any `fyr` command.
 
 <details>
-<summary>All commands (31)</summary>
+<summary>All commands (34)</summary>
 
 | Command | Group | Summary |
 |---|---|---|
 | [`fyr adopt`](#fyr-adopt) | Harness | copy a skill from elsewhere into skills/ |
+| [`fyr ast`](#fyr-ast) | Records and search | AST slices, contracts, skeletons, paths, blast radius and map |
 | [`fyr auto`](#fyr-auto) | Background and measurement | idle-time runs: on, off, status, run, log, sim |
 | [`fyr check`](#fyr-check) | Background and measurement | read-only drift check of this checkout's docs |
 | [`fyr close`](#fyr-close) | Background and measurement | write one handoff record embedding the fresh verify stamp |
@@ -35,6 +36,7 @@ Use this index to jump to any `fyr` command.
 | [`fyr git-check`](#fyr-git-check) | Background and measurement | read-only post-dispatch git status, log and tag check |
 | [`fyr graph`](#fyr-graph) | Records and search | interactive AST and telemetry constellation |
 | [`fyr help`](#fyr-help) | Harness | print the short command list or one command help page |
+| [`fyr hook`](#fyr-hook) | Records and search | Antigravity CLI lifecycle hooks |
 | [`fyr index`](#fyr-index) | Records and search | reconcile the search index; --register opts in |
 | [`fyr install`](#fyr-install) | Harness | deploy the harness into ~/.gemini/config |
 | [`fyr land`](#fyr-land) | Background and measurement | gate, squash-verify in worktree, ff main and delete branch |
@@ -54,6 +56,7 @@ Use this index to jump to any `fyr` command.
 | [`fyr update`](#fyr-update) | Harness | move this place to the newest harness |
 | [`fyr verify`](#fyr-verify) | Background and measurement | run gofmt, go vet, go test -race, check and write stamp |
 | [`fyr version`](#fyr-version) | Background and measurement | print the build version |
+| [`fyr vet`](#fyr-vet) | Records and search | 9-mode intent, 6-anchor vetter and skill/record match |
 | [`fyr watch`](#fyr-watch) | Background and measurement | inspect sessions, artifacts and processes for hangs |
 
 </details>
@@ -76,6 +79,41 @@ usage: fyr adopt <name|path> [--force] [--json]
 |---|---|---|
 | `fyr adopt --force` | — | replace a skill of the same name already in skills/ |
 | `fyr adopt --json` | — | print the result as JSON |
+
+### `fyr ast`
+
+AST slices, contracts, skeletons, paths, blast radius and map.
+
+```text
+usage: fyr ast --slice QUERY [--hops N] [--budget N] [--session ID]
+               [--include-docs] [--global] [--json]
+       fyr ast --contracts TARGET [--budget N] [--global] [--json]
+       fyr ast --skeleton FILE [--global] [--json]
+       fyr ast --path SYM [--to SYM] [--global] [--json]
+       fyr ast --affected TARGET [--global] [--json]
+       fyr ast --map [--include-docs] [--global] [--json]
+```
+
+<details>
+<summary>Flags (13)</summary>
+
+| Flag | Argument | Description |
+|---|---|---|
+| `fyr ast --affected` | `TARGET` | reverse-BFS blast radius (<= 2 hops) for TARGET path or symbol |
+| `fyr ast --budget` | `N` | slice, contracts: token budget N estimated as chars/4 (default 2000; 1500 for --contracts) |
+| `fyr ast --contracts` | `TARGET` | deterministic AST signatures, linked SPEC-* contracts and ADR guardrails for TARGET |
+| `fyr ast --global` | — | also read global records and registered projects from the brain store |
+| `fyr ast --hops` | `N` | slice: maximum graph hops N, 0-6 (default 2) |
+| `fyr ast --include-docs` | — | include Markdown docs and headings in AST maps and slices |
+| `fyr ast --json` | — | print the result as JSON |
+| `fyr ast --map` | — | top-10 God Nodes by PageRank, package deps and cycle check |
+| `fyr ast --path` | `SYM` | shortest call/type/interface path from SYM (<= 6 hops) |
+| `fyr ast --session` | `ID` | slice: conversation ID whose read files get the 50x boost |
+| `fyr ast --skeleton` | `FILE` | declaration-only start-end signature lines for FILE |
+| `fyr ast --slice` | `QUERY` | 0/1/2-hop context capsule for QUERY ranked by PageRank |
+| `fyr ast --to` | `SYM` | path: target symbol SYM (or give as positional argument) |
+
+</details>
 
 ### `fyr auto`
 
@@ -339,6 +377,19 @@ usage: fyr help [<command>]
 ```
 
 This command takes only global flags.
+
+### `fyr hook`
+
+Antigravity CLI lifecycle hooks.
+
+```text
+usage: fyr hook <session-start|pre-invocation|pre-tool-use|
+                 post-tool-use|stop> [--json]
+```
+
+| Flag | Argument | Description |
+|---|---|---|
+| `fyr hook --json` | — | print the result as JSON |
 
 ### `fyr index`
 
@@ -723,25 +774,25 @@ usage: fyr search [--limit N] [--kind K] [--global] [--json] <words>...
 
 | Flag | Argument | Description |
 |---|---|---|
-| `fyr search --affected` | `TARGET` | reverse-BFS blast radius (<= 2 hops) for TARGET path or symbol |
-| `fyr search --budget` | `N` | slice, contracts: token budget N estimated as chars/4 (default 2000; 1500 for --contracts) |
-| `fyr search --contracts` | `TARGET` | deterministic AST signatures, linked SPEC-* contracts and ADR guardrails for TARGET |
+| `fyr search --affected` | `TARGET` | reverse-BFS blast radius (<= 2 hops) for TARGET path or symbol (deprecated: use fyr ast; v10.0.0) |
+| `fyr search --budget` | `N` | slice, contracts: token budget N estimated as chars/4 (default 2000; 1500 for --contracts) (deprecated: use fyr ast; v10.0.0) |
+| `fyr search --contracts` | `TARGET` | deterministic AST signatures, linked SPEC-* contracts and ADR guardrails for TARGET (deprecated: use fyr ast; v10.0.0) |
 | `fyr search --global` | — | also the global records and every project registered with index --register, from the brain store |
-| `fyr search --hook` | `EVENT` | Antigravity lifecycle hook EVENT: session-start, pre-invocation, pre-tool-use, post-tool-use or stop |
-| `fyr search --hops` | `N` | slice: maximum graph hops N, 0-6 (default 2) |
-| `fyr search --include-docs` | — | include Markdown docs and headings in AST maps and slices |
+| `fyr search --hook` | `EVENT` | Antigravity lifecycle hook EVENT: session-start, pre-invocation, pre-tool-use, post-tool-use or stop (deprecated: use fyr hook; v10.0.0) |
+| `fyr search --hops` | `N` | slice: maximum graph hops N, 0-6 (default 2) (deprecated: use fyr ast; v10.0.0) |
+| `fyr search --include-docs` | — | include Markdown docs and headings in AST maps and slices (deprecated: use fyr ast; v10.0.0) |
 | `fyr search --json` | — | print hits or query results as JSON |
 | `fyr search --kind` | `K` | only hits of kind K: bug adr plan change handoff review testing retro spec deploy trail code doc feedback proposal learning guide memory |
 | `fyr search --limit` | `N` | print at most N records and as many files, 1-50 (default 10) |
-| `fyr search --map` | — | top-10 God Nodes by PageRank, package deps and cycle check |
+| `fyr search --map` | — | top-10 God Nodes by PageRank, package deps and cycle check (deprecated: use fyr ast; v10.0.0) |
 | `fyr search --open` | — | open bugs, plans with unticked boxes, and the other open records |
-| `fyr search --path` | `SYM` | shortest call/type/interface path from SYM (<= 6 hops) |
+| `fyr search --path` | `SYM` | shortest call/type/interface path from SYM (<= 6 hops) (deprecated: use fyr ast; v10.0.0) |
 | `fyr search --refs` | `REF` | every record naming REF: an ID, a file, or a directory (trailing /) |
-| `fyr search --session` | `ID` | slice: conversation ID whose read files get the 50x boost |
-| `fyr search --skeleton` | `FILE` | declaration-only start-end signature lines for FILE |
-| `fyr search --slice` | `QUERY` | 0/1/2-hop context capsule for QUERY ranked by PageRank |
-| `fyr search --to` | `SYM` | path: target symbol SYM (or give as positional argument) |
-| `fyr search --vet` | `PROMPT` | 9-mode intent, 6-anchor vetter and skill/record match for PROMPT |
+| `fyr search --session` | `ID` | slice: conversation ID whose read files get the 50x boost (deprecated: use fyr ast; v10.0.0) |
+| `fyr search --skeleton` | `FILE` | declaration-only start-end signature lines for FILE (deprecated: use fyr ast; v10.0.0) |
+| `fyr search --slice` | `QUERY` | 0/1/2-hop context capsule for QUERY ranked by PageRank (deprecated: use fyr ast; v10.0.0) |
+| `fyr search --to` | `SYM` | path: target symbol SYM (or give as positional argument) (deprecated: use fyr ast; v10.0.0) |
+| `fyr search --vet` | `PROMPT` | 9-mode intent, 6-anchor vetter and skill/record match for PROMPT (deprecated: use fyr vet; v10.0.0) |
 
 </details>
 
@@ -853,6 +904,19 @@ usage: fyr version [--json]
 | Flag | Argument | Description |
 |---|---|---|
 | `fyr version --json` | — | print the result as JSON |
+
+### `fyr vet`
+
+9-mode intent, 6-anchor vetter and skill/record match.
+
+```text
+usage: fyr vet [--global] [--json] <prompt>...
+```
+
+| Flag | Argument | Description |
+|---|---|---|
+| `fyr vet --global` | — | also read global records and registered projects from the brain store |
+| `fyr vet --json` | — | print the result as JSON |
 
 ### `fyr watch`
 

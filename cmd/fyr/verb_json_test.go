@@ -49,9 +49,9 @@ func TestV910All30VerbsJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Run("all_30_verbs_declare_json_and_help_fits", func(t *testing.T) {
-		if len(allVerbs()) != 30 {
-			t.Fatalf("len(verbs) = %d, want 30", len(allVerbs()))
+	t.Run("all_33_verbs_declare_json_and_help_fits", func(t *testing.T) {
+		if len(allVerbs()) != 33 {
+			t.Fatalf("len(verbs) = %d, want 33", len(allVerbs()))
 		}
 		for _, name := range verbKeys() {
 			c := newCtx(name, allVerbs()[name], io.Discard)
@@ -430,6 +430,59 @@ func TestV910All30VerbsJSON(t *testing.T) {
 		assertNotJSON(t, "eval --list text", txt)
 
 		testEvalTrialJSON(t, repo)
+	})
+
+	t.Run("ast_vet_hook", func(t *testing.T) {
+		home := t.TempDir()
+		proj := checkRepo(t, map[string]string{
+			".gitignore": ".agents/scratch/*\n",
+			"svc.go":     "package main\n\nfunc CheckFlags() error { return nil }\n",
+		})
+
+		out, code := runCLI(t, "ast", "--map", "--json", "--dir", proj, "--home", home)
+		if code != 0 {
+			t.Fatalf("ast --map --json exit %d:\n%s", code, out)
+		}
+		_ = mustJSONObject(t, "ast --map --json", out)
+		if !strings.Contains(out, "god_nodes") {
+			t.Errorf("ast --map --json missing god_nodes:\n%s", out)
+		}
+		txt, code := runCLI(t, "ast", "--map", "--dir", proj, "--home", home)
+		if code != 0 || !strings.Contains(txt, "god_nodes") {
+			t.Fatalf("ast --map text exit %d:\n%s", code, txt)
+		}
+		assertNotJSON(t, "ast --map text", txt)
+
+		out, code = runCLI(t, "vet", "--json", "--dir", proj, "--home", home, "check flags")
+		if code != 0 {
+			t.Fatalf("vet --json exit %d:\n%s", code, out)
+		}
+		_ = mustJSONObject(t, "vet --json", out)
+		if !strings.Contains(out, "[FYR_TURN_CONTRACT]") {
+			t.Errorf("vet --json missing turn contract:\n%s", out)
+		}
+		txt, code = runCLI(t, "vet", "--dir", proj, "--home", home, "check flags")
+		if code != 0 || !strings.Contains(txt, "[FYR_TURN_CONTRACT]") {
+			t.Fatalf("vet text exit %d:\n%s", code, txt)
+		}
+		assertNotJSON(t, "vet text", txt)
+
+		origStdin := stdin
+		t.Cleanup(func() { stdin = origStdin })
+		stdin = strings.NewReader("")
+		out, code = runCLI(t, "hook", "session-start", "--json", "--dir", proj, "--home", home)
+		if code != 0 {
+			t.Fatalf("hook session-start --json exit %d:\n%s", code, out)
+		}
+		obj := mustJSONObject(t, "hook session-start --json", out)
+		if obj["injectSteps"] == nil && obj["ok"] != true {
+			t.Errorf("hook session-start --json unexpected: %v", obj)
+		}
+		stdin = strings.NewReader("")
+		txt, code = runCLI(t, "hook", "session-start", "--dir", proj, "--home", home)
+		if code != 0 || !strings.Contains(txt, "SESSION_START") {
+			t.Fatalf("hook session-start text exit %d:\n%s", code, txt)
+		}
 	})
 }
 

@@ -22,10 +22,10 @@ import (
 // functions in cmd/fyr/.
 func TestAllVerbsAndNoProdInit(t *testing.T) {
 	got := allVerbs()
-	if len(got) != 30 {
-		t.Fatalf("len(allVerbs()) = %d, want 30", len(got))
+	if len(got) != 33 {
+		t.Fatalf("len(allVerbs()) = %d, want 33", len(got))
 	}
-	for _, name := range []string{"check", "eval", "auto", "verify", "gate", "land", "close", "models", "memory", "state", "watch"} {
+	for _, name := range []string{"check", "eval", "auto", "verify", "gate", "land", "close", "models", "memory", "state", "watch", "hook", "ast", "vet"} {
 		vb, ok := got[name]
 		if !ok || vb.run == nil {
 			t.Errorf("verb %q missing or nil run in allVerbs()", name)

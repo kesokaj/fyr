@@ -226,19 +226,19 @@ func registerSearchFlags(c *runtimeCtx) {
 	c.fs.BoolVar(&o.openRecords, "open", false, "open bugs, plans with unticked boxes, and the other open records")
 	c.fs.BoolVar(&o.global, "global", false, "also the global records and every project registered with index --register, from the brain store")
 	c.fs.BoolVar(&o.jsonOut, "json", false, "print hits or query results as JSON")
-	c.fs.StringVar(&o.sliceQuery, "slice", "", "0/1/2-hop context capsule for `QUERY` ranked by PageRank")
-	c.fs.StringVar(&o.contractsTarget, "contracts", "", "deterministic AST signatures, linked SPEC-* contracts and ADR guardrails for `TARGET`")
-	c.fs.IntVar(&o.sliceHops, "hops", 0, "slice: maximum graph hops `N`, 0-6 (default 2)")
-	c.fs.IntVar(&o.sliceBudget, "budget", 0, "slice, contracts: token budget `N` estimated as chars/4 (default 2000; 1500 for --contracts)")
-	c.fs.StringVar(&o.sliceSession, "session", "", "slice: conversation `ID` whose read files get the 50x boost")
-	c.fs.StringVar(&o.skeletonPath, "skeleton", "", "declaration-only start-end signature lines for `FILE`")
-	c.fs.StringVar(&o.pathFrom, "path", "", "shortest call/type/interface path from `SYM` (<= 6 hops)")
-	c.fs.StringVar(&o.pathTo, "to", "", "path: target symbol `SYM` (or give as positional argument)")
-	c.fs.StringVar(&o.affectedTarget, "affected", "", "reverse-BFS blast radius (<= 2 hops) for `TARGET` path or symbol")
-	c.fs.BoolVar(&o.repoMap, "map", false, "top-10 God Nodes by PageRank, package deps and cycle check")
-	c.fs.BoolVar(&o.includeDocs, "include-docs", false, "include Markdown docs and headings in AST maps and slices")
-	c.fs.StringVar(&o.vetPrompt, "vet", "", "9-mode intent, 6-anchor vetter and skill/record match for `PROMPT`")
-	c.fs.StringVar(&o.hookEvent, "hook", "", "Antigravity lifecycle hook `EVENT`: session-start, pre-invocation, pre-tool-use, post-tool-use or stop")
+	c.fs.StringVar(&o.sliceQuery, "slice", "", "0/1/2-hop context capsule for `QUERY` ranked by PageRank (deprecated: use fyr ast; v10.0.0)")
+	c.fs.StringVar(&o.contractsTarget, "contracts", "", "deterministic AST signatures, linked SPEC-* contracts and ADR guardrails for `TARGET` (deprecated: use fyr ast; v10.0.0)")
+	c.fs.IntVar(&o.sliceHops, "hops", 0, "slice: maximum graph hops `N`, 0-6 (default 2) (deprecated: use fyr ast; v10.0.0)")
+	c.fs.IntVar(&o.sliceBudget, "budget", 0, "slice, contracts: token budget `N` estimated as chars/4 (default 2000; 1500 for --contracts) (deprecated: use fyr ast; v10.0.0)")
+	c.fs.StringVar(&o.sliceSession, "session", "", "slice: conversation `ID` whose read files get the 50x boost (deprecated: use fyr ast; v10.0.0)")
+	c.fs.StringVar(&o.skeletonPath, "skeleton", "", "declaration-only start-end signature lines for `FILE` (deprecated: use fyr ast; v10.0.0)")
+	c.fs.StringVar(&o.pathFrom, "path", "", "shortest call/type/interface path from `SYM` (<= 6 hops) (deprecated: use fyr ast; v10.0.0)")
+	c.fs.StringVar(&o.pathTo, "to", "", "path: target symbol `SYM` (or give as positional argument) (deprecated: use fyr ast; v10.0.0)")
+	c.fs.StringVar(&o.affectedTarget, "affected", "", "reverse-BFS blast radius (<= 2 hops) for `TARGET` path or symbol (deprecated: use fyr ast; v10.0.0)")
+	c.fs.BoolVar(&o.repoMap, "map", false, "top-10 God Nodes by PageRank, package deps and cycle check (deprecated: use fyr ast; v10.0.0)")
+	c.fs.BoolVar(&o.includeDocs, "include-docs", false, "include Markdown docs and headings in AST maps and slices (deprecated: use fyr ast; v10.0.0)")
+	c.fs.StringVar(&o.vetPrompt, "vet", "", "9-mode intent, 6-anchor vetter and skill/record match for `PROMPT` (deprecated: use fyr vet; v10.0.0)")
+	c.fs.StringVar(&o.hookEvent, "hook", "", "Antigravity lifecycle hook `EVENT`: session-start, pre-invocation, pre-tool-use, post-tool-use or stop (deprecated: use fyr hook; v10.0.0)")
 }
 
 // indexOpts holds parsed flags for `fyr index`.
@@ -294,6 +294,21 @@ func runIndexVerb(c *runtimeCtx) error {
 	return err
 }
 
+func buildSearchOptions(c *runtimeCtx, wd string, o search.Options) search.Options {
+	cache := newTurnBrainCache(c.home, o.Global)
+	o.Dir = wd
+	o.Home = c.home
+	o.HookIn = stdin
+	o.BrainRefs = makeBrainRefs(cache, wd)
+	o.BrainRefsForDir = makeBrainRefsForDir(cache)
+	o.BrainReprime = makeBrainReprime()
+	o.BrainTurnContext = makeBrainTurnContext(cache)
+	o.BrainTurnContextCtx = makeBrainTurnContextCtx(cache)
+	o.BrainSpecBodies = makeBrainSpecBodies(cache)
+	o.SkillCatalog = makeSkillCatalog()
+	return o
+}
+
 // runSearch serves `search`; it needs no harness tree, and a release-binary or
 // zip place has none (plan D10).
 func runSearch(c *runtimeCtx) error {
@@ -302,34 +317,22 @@ func runSearch(c *runtimeCtx) error {
 		return err
 	}
 	so := searchOptsOf(c)
-	cache := newTurnBrainCache(c.home, so.global)
-	o := search.Options{
-		Dir: wd, Home: c.home, Words: c.fs.Args(), Refs: so.refs, Open: so.openRecords,
+	o := buildSearchOptions(c, wd, search.Options{
+		Words: c.fs.Args(), Refs: so.refs, Open: so.openRecords,
 		Kind: so.kind, Limit: so.limit, Global: so.global,
 		Slice: so.sliceQuery, Hops: so.sliceHops, Budget: so.sliceBudget, Session: so.sliceSession,
 		Contracts: so.contractsTarget,
 		Skeleton:  so.skeletonPath, Path: so.pathFrom, To: so.pathTo, Affected: so.affectedTarget, Map: so.repoMap,
-		IncludeDocs: so.includeDocs, Vet: so.vetPrompt, Hook: so.hookEvent, HookIn: stdin,
-		BrainRefs:           makeBrainRefs(cache, wd),
-		BrainRefsForDir:     makeBrainRefsForDir(cache),
-		BrainReprime:        makeBrainReprime(),
-		BrainTurnContext:    makeBrainTurnContext(cache),
-		BrainTurnContextCtx: makeBrainTurnContextCtx(cache),
-		BrainSpecBodies:     makeBrainSpecBodies(cache),
-		SkillCatalog:        makeSkillCatalog(),
-	}
+		IncludeDocs: so.includeDocs, Vet: so.vetPrompt, Hook: so.hookEvent,
+	})
 	if err = search.Validate(o); err == nil {
-		err = c.execSearch(o)
+		err = c.execSearchWithJSON(o, so.jsonOut)
 	}
-	if search.IsUsage(err) {
-		fmt.Fprintln(c.out, "fyr", err)
-		return exitCode(2)
-	}
-	return err
+	return finishSearchErr(c.out, err)
 }
 
-func (c *runtimeCtx) execSearch(o search.Options) error {
-	if !searchOptsOf(c).jsonOut || o.Hook != "" {
+func (c *runtimeCtx) execSearchWithJSON(o search.Options, asJSON bool) error {
+	if !asJSON || o.Hook != "" {
 		if !isGraphSearchMode(o) {
 			recordHits(c, o)
 		}
