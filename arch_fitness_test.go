@@ -20,7 +20,7 @@ const fyrModulePath = "github.com/kesokaj/fyr"
 
 var (
 	leafPackages         = map[string]bool{".": true, "internal/trail": true, "internal/redact": true, "internal/graph": true, "internal/webpreview": true}
-	sqliteAllowlist      = map[string]bool{"internal/search": true, "internal/metrics": true, "internal/sqliteutil": true}
+	sqliteAllowlist      = map[string]bool{"internal/sqliteutil": true}
 	orchestratorPackages = map[string]bool{"internal/auto": true, "internal/dream": true, "internal/gate": true}
 )
 
@@ -28,10 +28,8 @@ var (
 // file (ceiling ratchet: new/unlisted init() or growth fails; shrinking/removal
 // passes so later cleanup waves stay merge-order independent).
 const initCeilingTable = `
-	cmd/fyr/check.go=1 cmd/fyr/eval_flags.go=1 cmd/fyr/verb_auto.go=1 cmd/fyr/verb_gate.go=1
-	cmd/fyr/verb_models.go=1 cmd/fyr/verb_search_memory.go=1 cmd/fyr/verb_state.go=1
-	cmd/fyr/verb_watch.go=1 internal/auto/kickoff.go=1 internal/isolate/creds.go=1 internal/metrics/verb.go=1
-	internal/redact/redact.go=1 internal/search/parse.go=1 internal/search/symbols_code.go=1 internal/search/symbols_md.go=1
+	internal/isolate/creds.go=1 internal/metrics/verb.go=1 internal/redact/redact.go=1
+	internal/search/parse.go=1 internal/search/symbols_code.go=1 internal/search/symbols_md.go=1
 `
 
 // dupHelperCeilingTable pins current cross-package duplicate unexported top-level
@@ -43,7 +41,7 @@ const dupHelperCeilingTable = `
 	firstString=2 gitConfigValue=2 head=2 isAllDigits=2 isPathWordByte=2
 	label=2 lock=2 oneLine=3 open=2 openStore=2
 	parseLine=2 printable=2 projectKey=2 readBounded=2 recordTime=3
-	removeWorktree=2 runGroup=2 saveState=2 scanVetHistoryRow=2 shaPrefixMatch=2
+	removeWorktree=2 runGroup=2 saveState=2 shaPrefixMatch=2
 	short=3 sortFindings=3 sortedKeys=3 splitShellSegments=2 statePath=2
 	tickRun=2 tryOpen=2 within=3
 `
@@ -249,8 +247,8 @@ func TestPackageLayeringBites(t *testing.T) {
 		".":                   {"embed"},
 		"internal/trail":      {"os", "strings"},
 		"internal/harness":    {fyrModulePath, "os"},
-		"internal/search":     {fyrModulePath + "/internal/trail", "modernc.org/sqlite", "modernc.org/sqlite/lib"},
-		"internal/sqliteutil": {"database/sql", "modernc.org/sqlite"},
+		"internal/search":     {fyrModulePath + "/internal/trail", fyrModulePath + "/internal/sqliteutil"},
+		"internal/sqliteutil": {"database/sql", "modernc.org/sqlite", "modernc.org/sqlite/lib"},
 		"internal/auto":       {fyrModulePath + "/internal/dream", fyrModulePath + "/internal/brain"},
 		"cmd/fyr":             {fyrModulePath + "/internal/auto", fyrModulePath + "/internal/gate"},
 	}
@@ -261,6 +259,8 @@ func TestPackageLayeringBites(t *testing.T) {
 		"internal/trail":   {fyrModulePath + "/internal/redact"},
 		"internal/harness": {fyrModulePath, fyrModulePath + "/internal/trail"},
 		"internal/brain":   {"modernc.org/sqlite", fyrModulePath + "/internal/auto"},
+		"internal/search":  {"modernc.org/sqlite/lib"},
+		"internal/metrics": {"modernc.org/sqlite"},
 		"internal/check":   {fyrModulePath + "/internal/gate"},
 	}
 	got := layeringFindings(fyrModulePath, bad)
@@ -268,6 +268,8 @@ func TestPackageLayeringBites(t *testing.T) {
 		"leaf package internal/trail",
 		"internal/harness may only import root module",
 		"package internal/brain directly imports modernc.org/sqlite",
+		"package internal/search directly imports modernc.org/sqlite/lib",
+		"package internal/metrics directly imports modernc.org/sqlite",
 		"domain package internal/brain must not import orchestrator internal/auto",
 		"domain package internal/check must not import orchestrator internal/gate",
 	}

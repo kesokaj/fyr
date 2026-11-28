@@ -419,3 +419,48 @@ func TestHelpExitStatusesSayWhat(t *testing.T) {
 		}
 	}
 }
+
+// TestD4DeprecationNoticesInHelp pins ADR-537 D4 v10.0.0 deprecation notices
+// across install (sync alias), metrics (report subverb), auto sim record
+// (24 CLI flags vs canonical --json-in), and search (ast/vet/hook shims).
+func TestD4DeprecationNoticesInHelp(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want []string
+	}{
+		{
+			name: "install sync alias",
+			text: verbHelp("install"),
+			want: []string{"sync is an alias of install", "deprecated", "v10.0.0"},
+		},
+		{
+			name: "metrics report subverb",
+			text: verbHelp("metrics"),
+			want: []string{"report is deprecated", "fyr report", "v10.0.0"},
+		},
+		{
+			name: "auto sim record flags",
+			text: autoSIMHelp(),
+			want: []string{"--json-in is canonical", "24 individual CLI flags", "deprecated", "v10.0.0"},
+		},
+		{
+			name: "search ast/vet/hook shims",
+			text: verbHelp("search"),
+			want: []string{"Deprecated v9.x shims", "v10.0.0", "use fyr ast", "use fyr vet", "use fyr hook"},
+		},
+	}
+	for _, tc := range cases {
+		flat := strings.Join(strings.Fields(tc.text), " ")
+		for _, sub := range tc.want {
+			if !strings.Contains(flat, sub) {
+				t.Errorf("%s help missing %q:\n%s", tc.name, sub, tc.text)
+			}
+		}
+	}
+	for i, line := range strings.Split(autoSIMHelp(), "\n") {
+		if n := utf8.RuneCountInString(line); n > 79 {
+			t.Errorf("autoSIMHelp line %d: %d runes, over 79: %q", i+1, n, line)
+		}
+	}
+}

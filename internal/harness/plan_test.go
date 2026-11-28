@@ -34,14 +34,14 @@ func TestPlanAntigravityOnly(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"fyr-brain"`, `"SessionStart"`, `"PreInvocation"`, `"PreToolUse"`, `"PostToolUse"`, `"Stop"`,
-		`\"$HOME/bin/fyr\" search --hook session-start`,
-		`\"$HOME/.local/bin/fyr\" search --hook session-start`,
-		`\"$HOME/bin/fyr\" search --hook pre-invocation`,
-		`\"$HOME/.local/bin/fyr\" search --hook pre-invocation`,
-		`\"$HOME/bin/fyr\" search --hook pre-tool-use`,
-		`\"$HOME/bin/fyr\" search --hook post-tool-use`,
-		`\"$HOME/.local/bin/fyr\" search --hook post-tool-use`,
-		`\"$HOME/bin/fyr\" search --hook stop`,
+		`\"$HOME/bin/fyr\" hook session-start`,
+		`\"$HOME/.local/bin/fyr\" hook session-start`,
+		`\"$HOME/bin/fyr\" hook pre-invocation`,
+		`\"$HOME/.local/bin/fyr\" hook pre-invocation`,
+		`\"$HOME/bin/fyr\" hook pre-tool-use`,
+		`\"$HOME/bin/fyr\" hook post-tool-use`,
+		`\"$HOME/.local/bin/fyr\" hook post-tool-use`,
+		`\"$HOME/bin/fyr\" hook stop`,
 		"read_file|view_file|view_file_outline|edit_file|replace_file_content|multi_replace_file_content|write_file|write_to_file|run_command|manage_task|manage_subagents|invoke_subagent|swarm|run_workflow|ask_question|grep_search",
 	} {
 		if !strings.Contains(string(hooksData), want) {
@@ -265,7 +265,7 @@ func TestHooksJSONIncludesPostToolUse(t *testing.T) {
 		t.Fatalf("PostToolUse hooks = %d, want 1", len(entry.Hooks))
 	}
 	cmd := entry.Hooks[0].Command
-	for _, want := range []string{`"$HOME/bin/fyr" search --hook post-tool-use`, `"$HOME/.local/bin/fyr" search --hook post-tool-use`} {
+	for _, want := range []string{`"$HOME/bin/fyr" hook post-tool-use`, `"$HOME/.local/bin/fyr" hook post-tool-use`} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("PostToolUse command missing %q: %s", want, cmd)
 		}

@@ -192,32 +192,32 @@ usage: fyr auto sim list [--signal SIG] [--path PREFIX] [--status S]
 
 | Flag | Argument | Description |
 |---|---|---|
-| `fyr auto sim --commit` | `SHA` | Used by `auto sim record`: pass SHA value. |
-| `fyr auto sim --field-status` | `S` | Used by `auto sim record`: pass S value. |
-| `fyr auto sim --files` | `CSV` | Used by `auto sim record`: pass CSV value. |
-| `fyr auto sim --fixed-rows` | `CSV` | Used by `auto sim record`: pass CSV value. |
-| `fyr auto sim --harness` | `VER` | Used by `auto sim record`: pass VER value. |
+| `fyr auto sim --commit` | `SHA` | Used by `auto sim record`: pass SHA value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --field-status` | `S` | Used by `auto sim record`: pass S value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --files` | `CSV` | Used by `auto sim record`: pass CSV value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --fixed-rows` | `CSV` | Used by `auto sim record`: pass CSV value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --harness` | `VER` | Used by `auto sim record`: pass VER value (record flag deprecated; use --json-in; removed in v10.0.0). |
 | `fyr auto sim --json` | — | Used by `auto sim list`, `auto sim show`, `auto sim record`, `auto sim merge`: print output as JSON. |
 | `fyr auto sim --json-in` | — | Used by `auto sim record`: read SIM record JSON payload from stdin. |
 | `fyr auto sim --limit` | `N` | Used by `auto sim list`: pass N value. |
-| `fyr auto sim --mechanism` | `M` | Used by `auto sim record`: pass M value. |
-| `fyr auto sim --missed-rows` | `CSV` | Used by `auto sim record`: pass CSV value. |
-| `fyr auto sim --parent` | `SHA` | Used by `auto sim record`: pass SHA value. |
+| `fyr auto sim --mechanism` | `M` | Used by `auto sim record`: pass M value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --missed-rows` | `CSV` | Used by `auto sim record`: pass CSV value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --parent` | `SHA` | Used by `auto sim record`: pass SHA value (record flag deprecated; use --json-in; removed in v10.0.0). |
 | `fyr auto sim --path` | `PREFIX` | Used by `auto sim list`: pass PREFIX value. |
-| `fyr auto sim --policy-model` | `ID` | Used by `auto sim record`: pass ID value. |
-| `fyr auto sim --predicted-rows` | `CSV` | Used by `auto sim record`: pass CSV value. |
-| `fyr auto sim --predicted-signals` | `CSV` | Used by `auto sim record`: pass CSV value. |
-| `fyr auto sim --problem` | `ID` | Used by `auto sim record`: pass ID value. |
-| `fyr auto sim --proposal` | `ID` | Used by `auto sim record`: pass ID value. |
-| `fyr auto sim --proposer-model` | `ID` | Used by `auto sim record`: pass ID value. |
-| `fyr auto sim --provenance` | `P` | Used by `auto sim record`, `auto sim merge`: pass P value. |
-| `fyr auto sim --regressed-rows` | `CSV` | Used by `auto sim record`: pass CSV value. |
-| `fyr auto sim --root-cause` | `TEXT` | Used by `auto sim record`: pass TEXT value. |
-| `fyr auto sim --signal` | `SIG` | Used by `auto sim list`, `auto sim record`: pass SIG value. |
-| `fyr auto sim --source` | `K` | Used by `auto sim record`: pass K value. |
-| `fyr auto sim --status` | `S` | Used by `auto sim list`, `auto sim record`: pass S value. |
-| `fyr auto sim --verdict` | `V` | Used by `auto sim record`: pass V value. |
-| `fyr auto sim --what` | `TEXT` | Used by `auto sim record`: pass TEXT value. |
+| `fyr auto sim --policy-model` | `ID` | Used by `auto sim record`: pass ID value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --predicted-rows` | `CSV` | Used by `auto sim record`: pass CSV value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --predicted-signals` | `CSV` | Used by `auto sim record`: pass CSV value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --problem` | `ID` | Used by `auto sim record`: pass ID value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --proposal` | `ID` | Used by `auto sim record`: pass ID value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --proposer-model` | `ID` | Used by `auto sim record`: pass ID value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --provenance` | `P` | Used by `auto sim record`, `auto sim merge`: pass P value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --regressed-rows` | `CSV` | Used by `auto sim record`: pass CSV value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --root-cause` | `TEXT` | Used by `auto sim record`: pass TEXT value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --signal` | `SIG` | Used by `auto sim list`, `auto sim record`: pass SIG value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --source` | `K` | Used by `auto sim record`: pass K value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --status` | `S` | Used by `auto sim list`, `auto sim record`: pass S value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --verdict` | `V` | Used by `auto sim record`: pass V value (record flag deprecated; use --json-in; removed in v10.0.0). |
+| `fyr auto sim --what` | `TEXT` | Used by `auto sim record`: pass TEXT value (record flag deprecated; use --json-in; removed in v10.0.0). |
 
 </details>
 
@@ -838,7 +838,7 @@ usage: fyr status [--json]
 
 ### `fyr sync`
 
-Alias of `fyr install`.
+Alias of `fyr install` (deprecated; removed in v10.0.0).
 
 ```text
 usage: fyr sync [--dry-run] [--json]

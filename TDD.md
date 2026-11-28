@@ -51,7 +51,7 @@ Implements: M4 · Spec: `SPEC-fyr-delivery` (`fyr record get SPEC-fyr-delivery`)
 
 ## T5 — The CLI
 
-Exposes all `31` CLI commands (`30` action verbs plus `help`), global flags, and help text in `cmd/fyr`. Action verbs support `--json`, excluding write and transfer subcommands (`memory add`, `record add`/`edit`/`export`/`import`/`sync`, `metrics export`/`ingest`). See [docs/cli-reference.md](docs/cli-reference.md) for the generated reference.
+Exposes all `34` CLI commands (`33` action verbs plus `help`), global flags, and help text in `cmd/fyr`. Action verbs support `--json`, excluding write and transfer subcommands (`memory add`, `record add`/`edit`/`export`/`import`/`sync`, `metrics export`/`ingest`). See [docs/cli-reference.md](docs/cli-reference.md) for the generated reference.
 
 Implements: M5 · Spec: `SPEC-fyr-delivery` and per-domain `SPEC-fyr-*` records · Guide: [Delivery & Customization](features/delivery-and-customization.md)
 
@@ -86,10 +86,10 @@ Maintains derived SQLite FTS5 and pure-Go AST indexes (`search.db` schema `v12`)
 
 Implements: M8 · Spec: `SPEC-fyr-pre-hook-coordinator`, `SPEC-fyr-graph`, `SPEC-fyr-docs-harness` · Guide: [CLI Hooks, Prompt Vetting & AST Graph](features/hooks-and-ast-graph.md)
 
-- **Query & contracts:** `fyr search` ranks records above files and supports `--slice`, `--contracts`, `--skeleton`, `--path`, `--affected`, `--map`, `--refs`, `--open`, `--global`, and `--include-docs`. `--contracts` (`internal/search/contracts.go`) projects Go/TS signatures, `SPEC-*` tables, and `ADR-*` guardrails; `<= 600 B` digests feed `--slice` and `[FYR_WORKER_CAPSULE]`.
+- **Query & contracts:** `fyr search` ranks records above files with `--refs`, `--open`, `--global`, and `--kind`. `fyr ast` runs `--slice`, `--contracts`, `--skeleton`, `--path`, `--affected`, `--map`, and `--include-docs` (`fyr search` keeps `v9.x` shims). `--contracts` (`internal/search/contracts.go`) projects Go/TS signatures, `SPEC-*` tables, and `ADR-*` guardrails; `<= 600 B` digests feed `--slice` and `[FYR_WORKER_CAPSULE]`.
 - **AST & graph:** Extracts Go/TS symbols and references (`symbols`, `sym_refs`), canonical package paths, Tarjan SCCs (`import | call | type_ref`), Louvain communities, split hidden-coupling signals (`co_edit` vs `co_read`), and in-memory `IncludeVendored` snapshots.
-- **Prompt vetter (`--vet`):** Classifies 9 intent modes, scores `VetScore` (`0..100`), raises conflict-only `VET_FIRST`, prefetches up to 3 skills via BM25F, splits multi-package edits into `<= 6` subtasks, and emits a fenced `PreInvocationBanner`.
-- **CLI hooks (`--hook`):** Runs `session-start`, `pre-invocation`, `pre-tool-use`, `post-tool-use`, and `stop` under a `200 ms` fail-open deadline (`120 ms` slice cap) with `Lstat`-checked `no-hooks`.
+- **Prompt vetter (`fyr vet`):** Classifies 9 intent modes, scores `VetScore` (`0..100`), raises conflict-only `VET_FIRST`, and prefetches up to 3 skills via BM25F. Splits multi-package edits into `<= 6` subtasks and emits a fenced `PreInvocationBanner` (`fyr search --vet` is a `v9.x` shim).
+- **CLI hooks (`fyr hook`):** Runs `session-start`, `pre-invocation`, `pre-tool-use`, `post-tool-use`, and `stop` under a `200 ms` fail-open deadline (`120 ms` slice cap) with `Lstat`-checked `no-hooks`. `fyr search --hook` is a `v9.x` shim.
 - **PreToolUse & Stop guards:** Enforces dual-gate clamping (`>= 400` lines or `>= 16,384` bytes), read deduplication (including 18-pattern bash reads), `[COORDINATOR_GUARD]`, `[KICKOFF_GUARD]`, `[SEARCH_NUDGE]`, `[INTERACTIVE_STDIN]`, `[RELAY_GUARD]`, workflow allowlists, cross-family routing, and watchdog caps (`120` builder / `40` audit). `Stop` checks `.agents/scratch/verify.stamp` for dirty Go files.
 - **Data (`search.db` v12):** Caches FTS chunks, `symbols`, `sym_refs`, `projects`, `co_activity`, `read_ledger`, `read_ledger_stats`, `session_meta`, `vet_history`, and `watchdog_ring`, rebuilding if deleted. `internal/search/dream.go` discovers git, non-git, and global workspaces.
 

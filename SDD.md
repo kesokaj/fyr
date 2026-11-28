@@ -50,7 +50,7 @@ Executable fitness tests (`TestPackageLayeringAndSQLiteConfinement`) lock five s
 - **Installer isolation:** `internal/harness` imports only root package `.` and never links SQLite (R4).
 - **One-way orchestration:** Domain packages never import orchestrators (`internal/auto`, `internal/dream`, `internal/gate`).
 - **Permanent vs derived stores:** `brain.db` and `metrics.db` migrate forward permanently; `search.db` is a rebuildable cache (R4).
-- **Planned CLI decomposition (`ADR-537` D1, Wave 3a):** `fyr search` will split into `search`, `hook`, `ast`, and `vet` (`v9.x` shims).
+- **CLI decomposition (`ADR-537` D1):** `fyr search` splits into `search`, `hook`, `ast`, and `vet` (`v9.x` shims).
 
 ## Components
 
@@ -115,7 +115,7 @@ flowchart TB
 | M2 | `skills/`, `commands/` | 34 embedded Agent Skills (`SKILL.md` plus `references/`) and the empty `commands/` operator drop-in directory. | R2, R5 |
 | M3 | `agents/` | Seven native Antigravity subagents (`builder`, `reviewer`, `security`, `verifier`, `explorer`, `documentation`, `dreamer`). | R1, R5 |
 | M4 | `embed.go` | Embeds `context/`, `skills/`, `agents/`, `commands/`, `rules/`, and `workflows/` into the release binary. | R8, R9 |
-| M5 | `cmd/fyr` | Dispatches 31 CLI commands (30 action verbs plus `help`) with `--json` output across action verbs (excluding write/transfer subcommands: `memory add`, `record add`/`edit`/`export`/`import`/`sync`, `metrics export`/`ingest`), help text, real-home guard, and three update paths. | R4, R6, R8, R9, R10 |
+| M5 | `cmd/fyr` | Dispatches 34 CLI commands (33 action verbs plus `help`) with `--json` output across action verbs (excluding write/transfer subcommands: `memory add`, `record add`/`edit`/`export`/`import`/`sync`, `metrics export`/`ingest`), help text, real-home guard, and three update paths. | R4, R6, R8, R9, R10 |
 | M6 | `internal/harness` | Plans, lints, renders, and installs files, `hooks.json`, and `workflows/*.py`; manages manifests, drift, uninstall, adopt, and releases. | R1, R3, R4, R5, R6, R9, R10 |
 | M7 | `internal/brain` | Stores project trail records, validity-scored memory cards, global SIM ledger (`brain.db`), `.agents/trail.jsonl` export/sync, and `fyr resume`. | R0, R4, R7 |
 | M8 | `internal/search` | Maintains derived FTS5/AST symbol graph, read-dedup ledger, prompt vetter, contract slices, and `< 250 ms` fail-open CLI hooks. | R0, R3, R4 |

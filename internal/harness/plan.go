@@ -194,7 +194,7 @@ func SecretShaped(name string) bool {
 }
 
 func hookCommand(event string) map[string]any {
-	cmd := `sh -c 'if [ -x "$HOME/bin/fyr" ]; then exec "$HOME/bin/fyr" search --hook ` + event + `; elif [ -x "$HOME/.local/bin/fyr" ]; then exec "$HOME/.local/bin/fyr" search --hook ` + event + `; fi'`
+	cmd := `sh -c 'if [ -x "$HOME/bin/fyr" ]; then exec "$HOME/bin/fyr" hook ` + event + `; elif [ -x "$HOME/.local/bin/fyr" ]; then exec "$HOME/.local/bin/fyr" hook ` + event + `; fi'`
 	return map[string]any{"type": "command", "command": cmd}
 }
 

@@ -415,15 +415,19 @@ func formatSIMFlagDesc(name, arg string, actions []string) string {
 	if len(actions) > 0 {
 		scope = "Used by `auto sim " + strings.Join(actions, "`, `auto sim ") + "`"
 	}
+	suffix := ""
+	if name != "json" && name != "json-in" && slices.Contains(actions, "record") {
+		suffix = " (record flag deprecated; use --json-in; removed in v10.0.0)"
+	}
 	switch {
 	case name == "json":
 		return scope + ": print output as JSON."
 	case name == "json-in":
 		return scope + ": read SIM record JSON payload from stdin."
 	case arg == "":
-		return scope + "."
+		return scope + suffix + "."
 	default:
-		return fmt.Sprintf("%s: pass %s value.", scope, arg)
+		return fmt.Sprintf("%s: pass %s value%s.", scope, arg, suffix)
 	}
 }
 
@@ -464,7 +468,7 @@ func verbCautionText(verb string, synopsis []string) string {
 
 func formatVerbBLUF(verb, summary string) string {
 	if verb == "sync" {
-		return "Alias of `fyr install`."
+		return "Alias of `fyr install` (deprecated; removed in v10.0.0)."
 	}
 	if summary == "" {
 		return fmt.Sprintf("Run the `fyr %s` command.", verb)

@@ -232,8 +232,10 @@ func autoSIMHelp() string {
                            [--json-in] [--json]
        fyr auto sim merge <OLD-ID> <TARGET-ID> [--provenance P] [--json]
 
-Manage the global Self-Improvement Memory (SIM) ledger in ~/.config/fyr/brain.db.
-list and show are read-only; record and merge mutate brain.db.
+Manage the global Self-Improvement Memory (SIM) ledger in
+~/.config/fyr/brain.db. list and show are read-only; record and merge mutate
+brain.db. For auto sim record, --json-in is canonical; the 24 individual CLI
+flags are deprecated (removed in v10.0.0).
 
 ` + helpLast + "\n"
 }
