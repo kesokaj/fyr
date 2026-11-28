@@ -29,12 +29,6 @@ func StripSandboxPreamble(prompt string) string {
 	return vet.StripSandboxPreamble(prompt)
 }
 
-// hasAutonomousWaiver reports whether lowPrompt explicitly forbids interactive
-// questions in unattended / eval sessions.
-func hasAutonomousWaiver(lowPrompt string) bool {
-	return vet.HasAutonomousWaiver(lowPrompt)
-}
-
 func checkTurnOrMidTurnWithStore(ctx context.Context, st *store, in HookInput, rawPrompt string) (SessionState, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return SessionState{}, false, err

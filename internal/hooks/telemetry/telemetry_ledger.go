@@ -1,4 +1,4 @@
-package search
+package telemetry
 
 import (
 	"fmt"
@@ -28,13 +28,13 @@ func splitSkeletonLines(skel string) []string {
 	for _, line := range strings.Split(skel, "\n") {
 		line = strings.TrimRight(line, "\r")
 		if strings.TrimSpace(line) != "" {
-			out = append(out, printable(line))
+			out = append(out, Printable(line))
 		}
 	}
 	return out
 }
 
-func renderLedgerNotice(n LedgerNotice) string {
+func RenderLedgerNotice(n LedgerNotice) string {
 	var sb strings.Builder
 	sb.WriteByte('[')
 	sb.WriteString(n.Status)
@@ -67,10 +67,10 @@ func renderLedgerNotice(n LedgerNotice) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-func formatUnchangedLedgerNotice(relPath string, start, end int, sumHex string, hitCount int, skel string) string {
-	return renderLedgerNotice(LedgerNotice{
+func FormatUnchangedLedgerNotice(relPath string, start, end int, sumHex string, hitCount int, skel string) string {
+	return RenderLedgerNotice(LedgerNotice{
 		Status:    "UNCHANGED",
-		Path:      printable(relPath),
+		Path:      Printable(relPath),
 		StartLine: start,
 		EndLine:   end,
 		Sha256:    sumHex[:min(12, len(sumHex))],
@@ -80,10 +80,10 @@ func formatUnchangedLedgerNotice(relPath string, start, end int, sumHex string, 
 	})
 }
 
-func formatClampedLedgerNotice(relPath string, totalLines int, sumHex, skel string) string {
-	return renderLedgerNotice(LedgerNotice{
+func FormatClampedLedgerNotice(relPath string, totalLines int, sumHex, skel string) string {
+	return RenderLedgerNotice(LedgerNotice{
 		Status:     "CLAMPED",
-		Path:       printable(relPath),
+		Path:       Printable(relPath),
 		TotalLines: totalLines,
 		Sha256:     sumHex[:min(12, len(sumHex))],
 		Message:    "unranged read of large file clamped; inspect skeleton and re-call read_file with StartLine and EndLine",
@@ -91,10 +91,10 @@ func formatClampedLedgerNotice(relPath string, totalLines int, sumHex, skel stri
 	})
 }
 
-func formatModifiedLedgerNotice(relPath, prevSHA, curSHA, skel string) string {
-	return renderLedgerNotice(LedgerNotice{
+func FormatModifiedLedgerNotice(relPath, prevSHA, curSHA, skel string) string {
+	return RenderLedgerNotice(LedgerNotice{
 		Status:         "MODIFIED",
-		Path:           printable(relPath),
+		Path:           Printable(relPath),
 		PreviousSha256: prevSHA[:min(12, len(prevSHA))],
 		CurrentSha256:  curSHA[:min(12, len(curSHA))],
 		Message:        "changed on disk since last read; re-read before editing",

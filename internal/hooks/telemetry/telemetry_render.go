@@ -1,7 +1,8 @@
-package search
+package telemetry
 
 import (
 	"fmt"
+	"github.com/kesokaj/fyr/internal/vet"
 	"strings"
 )
 
@@ -63,7 +64,7 @@ func renderPreInvocationBanner(b PreInvocationBanner) string {
 	if hasEnrichmentDetails(b.Enrichment) {
 		appendPreInvocationEnrichment(&sb, b.Enrichment)
 	}
-	return safeBacktickTextFence(strings.TrimRight(sb.String(), "\n"))
+	return SafeBacktickTextFence(strings.TrimRight(sb.String(), "\n"))
 }
 
 func writeBannerHeader(sb *strings.Builder, b PreInvocationBanner) {
@@ -200,7 +201,7 @@ func appendEnrichmentSkills(sb *strings.Builder, digests []PreInvocationSkillDig
 	}
 }
 
-func appendEnrichmentSubtasks(sb *strings.Builder, subtasks []SubtaskSlice) {
+func appendEnrichmentSubtasks(sb *strings.Builder, subtasks []vet.SubtaskSlice) {
 	if len(subtasks) == 0 {
 		return
 	}
@@ -262,7 +263,7 @@ func indentListItem(sb *strings.Builder, item string) {
 	}
 }
 
-func renderSessionStartCapsule(cap *sessionStartCapsule) string {
+func RenderSessionStartCapsule(cap *SessionStartCapsule) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "fyr · %s · %s\n", cap.Surface, cap.Date)
 	writeKV(&sb, "Trust", cap.Trust)
@@ -279,17 +280,17 @@ func renderSessionStartCapsule(cap *sessionStartCapsule) string {
 			indentListItem(&sb, item)
 		}
 	}
-	return safeBacktickTextFence(strings.TrimRight(sb.String(), "\n"))
+	return SafeBacktickTextFence(strings.TrimRight(sb.String(), "\n"))
 }
 
-func formatSessionGitSummary(s sessionGitSummary) string {
+func formatSessionGitSummary(s SessionGitSummary) string {
 	if s.DirtyGoCount == 0 {
 		return s.Branch + " (0 dirty Go)"
 	}
 	return fmt.Sprintf("%s (%s)", s.Branch, formatDirtyGoClause(s))
 }
 
-func formatDirtyGoClause(s sessionGitSummary) string {
+func formatDirtyGoClause(s SessionGitSummary) string {
 	if len(s.DirtySample) > 0 {
 		return fmt.Sprintf("%d dirty Go: %s", s.DirtyGoCount, strings.Join(s.DirtySample, ", "))
 	}
@@ -326,7 +327,7 @@ func fenceAstSliceSpecContracts(astSlice string) string {
 			continue
 		}
 		changed = true
-		fenced := New(body).Data("spec_contracts", "trail", body)
+		fenced := vet.New(body).Data("spec_contracts", "trail", body)
 		out = append(out, "spec_contracts:")
 		for _, fl := range strings.Split(fenced, "\n") {
 			out = append(out, "  "+fl)
@@ -361,7 +362,7 @@ func unwrapCleanSpecContractsFence(lines []string) ([]string, bool) {
 		return nil, false
 	}
 	tok := strings.TrimSuffix(first, specContractsFenceOpenSuffix)
-	hexPart, ok := parseFenceHexToken(tok)
+	hexPart, ok := ParseFenceHexToken(tok)
 	if !ok || last != tok+specContractsFenceCloseSuffix {
 		return nil, false
 	}
@@ -381,7 +382,7 @@ func unwrapCleanSpecContractsFence(lines []string) ([]string, bool) {
 	return inner, true
 }
 
-func parseFenceHexToken(tok string) (string, bool) {
+func ParseFenceHexToken(tok string) (string, bool) {
 	if len(tok) != 28 || !strings.HasPrefix(tok, "=====") || !strings.HasSuffix(tok, "=====") {
 		return "", false
 	}
@@ -393,4 +394,22 @@ func parseFenceHexToken(tok string) (string, bool) {
 		}
 	}
 	return hexPart, true
+}
+
+// SessionStartCapsule is the structured payload rendered at session-start.
+type SessionStartCapsule struct {
+	Surface    string            `json:"surface"`
+	Date       string            `json:"date"`
+	Trust      string            `json:"trust,omitempty"`
+	Plan       string            `json:"plan,omitempty"`
+	Now        []string          `json:"now,omitempty"`
+	DailyAlert string            `json:"dailyAlert,omitempty"`
+	Status     SessionGitSummary `json:"status"`
+}
+
+// SessionGitSummary summarizes branch and dirty Go files for SessionStartCapsule.
+type SessionGitSummary struct {
+	Branch       string   `json:"branch,omitempty"`
+	DirtyGoCount int      `json:"dirtyGoCount"`
+	DirtySample  []string `json:"dirtySample,omitempty"`
 }

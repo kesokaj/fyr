@@ -1,7 +1,8 @@
-package search
+package telemetry
 
 import (
 	"fmt"
+	"github.com/kesokaj/fyr/internal/vet"
 	"sort"
 	"strings"
 )
@@ -62,7 +63,7 @@ type ProcessWorkWorker struct {
 }
 
 func normalizeProcessStage(stage string) string {
-	clean := strings.TrimSpace(printable(stage))
+	clean := strings.TrimSpace(Printable(stage))
 	if len(clean) >= 3 && clean[0] >= '0' && clean[0] <= '9' && clean[1] == '.' && clean[2] == ' ' {
 		clean = strings.TrimSpace(clean[3:])
 	}
@@ -73,13 +74,13 @@ func normalizeProcessStage(stage string) string {
 	return enum
 }
 
-type modelRoutingPick struct {
+type ModelRoutingPick struct {
 	Model          string `json:"model"`
 	FallbackReason string `json:"fallback_reason"`
 }
 
-func firstModelFallbackReason(picks map[string]modelRoutingPick) string {
-	if fb := strings.TrimSpace(printable(picks["judge:pro"].FallbackReason)); fb != "" {
+func firstModelFallbackReason(picks map[string]ModelRoutingPick) string {
+	if fb := strings.TrimSpace(Printable(picks["judge:pro"].FallbackReason)); fb != "" {
 		return fb
 	}
 	keys := make([]string, 0, len(picks))
@@ -88,25 +89,25 @@ func firstModelFallbackReason(picks map[string]modelRoutingPick) string {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		if fb := strings.TrimSpace(printable(picks[k].FallbackReason)); fb != "" {
+		if fb := strings.TrimSpace(Printable(picks[k].FallbackReason)); fb != "" {
 			return fb
 		}
 	}
 	return ""
 }
 
-func buildProcessModelRoutingFromCatalog(cat modelsCatalogFile, hasCat bool) ProcessModelRouting {
+func buildProcessModelRoutingFromCatalog(cat ModelsCatalogFile, hasCat bool) ProcessModelRouting {
 	const defaultPolicy = "Builder -> Gemini (pro, flash); Judge / Verifier / Reviewer -> Anthropic (Opus/pro, Sonnet/flash; fallback < 20% weekly or < 30% 5h -> Gemini)"
 	policy := ProcessModelRouting{Policy: defaultPolicy}
 	if !hasCat || len(cat.Picks) == 0 {
 		return policy
 	}
 	routing := ProcessModelRouting{
-		BuilderPro:     printable(cat.Picks["builder:pro"].Model),
-		BuilderFlash:   printable(cat.Picks["builder:flash"].Model),
-		JudgePro:       printable(cat.Picks["judge:pro"].Model),
-		JudgeFlash:     printable(cat.Picks["judge:flash"].Model),
-		UpdateTime:     printable(cat.UpdatedAt),
+		BuilderPro:     Printable(cat.Picks["builder:pro"].Model),
+		BuilderFlash:   Printable(cat.Picks["builder:flash"].Model),
+		JudgePro:       Printable(cat.Picks["judge:pro"].Model),
+		JudgeFlash:     Printable(cat.Picks["judge:flash"].Model),
+		UpdateTime:     Printable(cat.UpdatedAt),
 		FallbackReason: firstModelFallbackReason(cat.Picks),
 	}
 	if routing.BuilderPro == "" && routing.JudgePro == "" && routing.BuilderFlash == "" && routing.JudgeFlash == "" {
@@ -116,32 +117,32 @@ func buildProcessModelRoutingFromCatalog(cat modelsCatalogFile, hasCat bool) Pro
 }
 
 func buildProcessWorkWave(home string) *ProcessWorkWave {
-	snap, ok := loadLatestWorkStatus(home)
+	snap, ok := LoadLatestWorkStatus(home)
 	if !ok {
 		return nil
 	}
 	wave := &ProcessWorkWave{
-		Stamp:      printable(snap.Stamp),
-		UpdateTime: printable(snap.UpdatedAt),
+		Stamp:      Printable(snap.Stamp),
+		UpdateTime: Printable(snap.UpdatedAt),
 		Workers:    make([]ProcessWorkWorker, 0, len(snap.Workers)),
 	}
 	for _, w := range snap.Workers {
 		wave.Workers = append(wave.Workers, ProcessWorkWorker{
-			Name:         printable(w.Name),
+			Name:         Printable(w.Name),
 			State:        normalizeUpperSnakeEnum(w.State),
-			Model:        printable(w.Model),
+			Model:        Printable(w.Model),
 			BaseCheck:    normalizeUpperSnakeEnum(w.BaseCheck),
 			JudgeVerdict: normalizeUpperSnakeEnum(w.JudgeVerdict),
-			JudgeModel:   printable(w.JudgeModel),
+			JudgeModel:   Printable(w.JudgeModel),
 			StepCount:    w.StepCount,
 			Commits:      w.Commits,
-			LastStep:     printable(w.LastStep),
+			LastStep:     Printable(w.LastStep),
 		})
 	}
 	return wave
 }
 
-func buildProcessTurns(rows []VetHistoryRow) []ProcessTurnTelemetry {
+func buildProcessTurns(rows []vet.HistoryRow) []ProcessTurnTelemetry {
 	var turns []ProcessTurnTelemetry
 	for _, r := range rows {
 		turn := ProcessTurnTelemetry{
@@ -154,12 +155,12 @@ func buildProcessTurns(rows []VetHistoryRow) []ProcessTurnTelemetry {
 			InjectedBytes: r.InjectedBytes,
 		}
 		for _, s := range r.SuggestedSkills {
-			if name := strings.TrimSpace(printable(s)); name != "" {
+			if name := strings.TrimSpace(Printable(s)); name != "" {
 				turn.Skills = append(turn.Skills, name)
 			}
 		}
 		for _, p := range r.PivotFiles {
-			if pv := strings.TrimSpace(printable(p)); pv != "" {
+			if pv := strings.TrimSpace(Printable(p)); pv != "" {
 				turn.Pivots = append(turn.Pivots, pv)
 			}
 		}
@@ -168,7 +169,7 @@ func buildProcessTurns(rows []VetHistoryRow) []ProcessTurnTelemetry {
 	return turns
 }
 
-func appendProcessImprovedPrompts(sb *strings.Builder, rows []VetHistoryRow) {
+func appendProcessImprovedPrompts(sb *strings.Builder, rows []vet.HistoryRow) {
 	wrotePromptHeader := false
 	for _, r := range rows {
 		prompt := printableMultiline(r.ImprovedPrompt)
@@ -179,12 +180,12 @@ func appendProcessImprovedPrompts(sb *strings.Builder, rows []VetHistoryRow) {
 			sb.WriteString("\n## Synthesized Improved Prompts\n")
 			wrotePromptHeader = true
 		}
-		fmt.Fprintf(sb, "\n### Turn %d\n\n%s\n", r.TurnNum, safeBacktickTextFence(prompt))
+		fmt.Fprintf(sb, "\n### Turn %d\n\n%s\n", r.TurnNum, SafeBacktickTextFence(prompt))
 	}
 }
 
-func renderProcessTelemetryMarkdownWithCatalog(home string, cat modelsCatalogFile, hasCat bool, convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {
-	id := strings.TrimSpace(printable(convID))
+func RenderProcessTelemetryMarkdownWithCatalog(home string, cat ModelsCatalogFile, hasCat bool, convID, stage string, rows []vet.HistoryRow, records []vet.MatchedRecord) string {
+	id := strings.TrimSpace(Printable(convID))
 	if id == "" {
 		id = "default"
 	}
@@ -196,7 +197,7 @@ func renderProcessTelemetryMarkdownWithCatalog(home string, cat modelsCatalogFil
 		Turns:          buildProcessTurns(rows),
 	}
 	for _, r := range records {
-		if recID := strings.TrimSpace(printable(r.ID)); recID != "" {
+		if recID := strings.TrimSpace(Printable(r.ID)); recID != "" {
 			payload.ActiveRecords = append(payload.ActiveRecords, recID)
 		}
 	}
@@ -217,7 +218,7 @@ func renderProcessTelemetryMarkdownWithCatalog(home string, cat modelsCatalogFil
 func appendProcessModelRouting(sb *strings.Builder, mr ProcessModelRouting) {
 	sb.WriteString("\n## Model Routing\n\n")
 	if mr.Policy != "" {
-		fmt.Fprintf(sb, "- **Policy:** %s\n", collapseOneLine(printable(mr.Policy), 320))
+		fmt.Fprintf(sb, "- **Policy:** %s\n", vet.CollapseOneLine(Printable(mr.Policy), 320))
 		return
 	}
 	sb.WriteString("| Role | Model |\n|---|---|\n")
@@ -235,7 +236,7 @@ func appendProcessModelRouting(sb *strings.Builder, mr ProcessModelRouting) {
 		fmt.Fprintf(sb, "\n- **Updated:** %s\n", mdCodeSpan(mr.UpdateTime))
 	}
 	if mr.FallbackReason != "" {
-		fmt.Fprintf(sb, "- **Fallback:** %s\n", collapseOneLine(printable(mr.FallbackReason), 220))
+		fmt.Fprintf(sb, "- **Fallback:** %s\n", vet.CollapseOneLine(Printable(mr.FallbackReason), 220))
 	}
 }
 
@@ -281,7 +282,7 @@ func appendProcessTurnsSection(sb *strings.Builder, turns []ProcessTurnTelemetry
 }
 
 func mdCodeSpan(s string) string {
-	clean := collapseOneLine(printable(s), 220)
+	clean := vet.CollapseOneLine(Printable(s), 220)
 	if clean == "" {
 		return ""
 	}
@@ -335,7 +336,7 @@ func escapeTablePipes(s string) string {
 }
 
 func mdTableCell(s string) string {
-	clean := collapseOneLine(printable(s), 220)
+	clean := vet.CollapseOneLine(Printable(s), 220)
 	if clean == "" {
 		return "-"
 	}
@@ -343,7 +344,7 @@ func mdTableCell(s string) string {
 }
 
 func mdCodeCell(s string) string {
-	clean := collapseOneLine(printable(s), 220)
+	clean := vet.CollapseOneLine(Printable(s), 220)
 	if clean == "" {
 		return "-"
 	}

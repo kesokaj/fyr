@@ -10,11 +10,3 @@ type BashFileRead = readledger.BashFileRead
 func ParseBashFileReads(cmd string) []BashFileRead {
 	return readledger.ParseBashFileReads(cmd)
 }
-
-func isEnvAssignToken(tok string) bool {
-	return readledger.IsEnvAssignToken(tok)
-}
-
-func scanUnquotedShellChars(s string, onUnquoted func(i int, ch byte) bool) bool {
-	return readledger.ScanUnquotedShellChars(s, onUnquoted)
-}

@@ -1,4 +1,4 @@
-package search
+package guard
 
 import "strings"
 
@@ -30,27 +30,34 @@ func scanPythonStringSpan(src string, qStart, limit int, isF bool) (int, bool) {
 	return scanSingleQuotedPythonString(src, qStart, limit, isF)
 }
 
+func stepPythonStringSpecial(src string, i, limit int, isF bool) (int, bool, bool) {
+	if src[i] == '\\' {
+		if isF && i+1 < limit && (src[i+1] == '{' || src[i+1] == '}') {
+			return i + 1, true, false
+		}
+		return i + 2, true, false
+	}
+	if !isF || src[i] != '{' {
+		return i, false, false
+	}
+	if i+1 < limit && src[i+1] == '{' {
+		return i + 2, true, false
+	}
+	if closeBrace := findFStringExprEnd(src, i+1, limit); closeBrace >= 0 {
+		return closeBrace + 1, true, false
+	}
+	return limit, true, true
+}
+
 func scanTripleQuotedPythonString(src string, qStart, limit int, isF bool) (int, bool) {
 	delim := src[qStart : qStart+3]
 	for i := qStart + 3; i+2 < limit; {
-		if src[i] == '\\' {
-			if isF && i+1 < limit && (src[i+1] == '{' || src[i+1] == '}') {
-				i++
-				continue
+		if next, handled, fail := stepPythonStringSpecial(src, i, limit, isF); handled {
+			if fail {
+				return limit, false
 			}
-			i += 2
+			i = next
 			continue
-		}
-		if isF && src[i] == '{' {
-			if i+1 < limit && src[i+1] == '{' {
-				i += 2
-				continue
-			}
-			if closeBrace := findFStringExprEnd(src, i+1, limit); closeBrace >= 0 {
-				i = closeBrace + 1
-				continue
-			}
-			return limit, false
 		}
 		if src[i:i+3] == delim {
 			return i + 3, true
@@ -63,24 +70,12 @@ func scanTripleQuotedPythonString(src string, qStart, limit int, isF bool) (int,
 func scanSingleQuotedPythonString(src string, qStart, limit int, isF bool) (int, bool) {
 	q := src[qStart]
 	for i := qStart + 1; i < limit; {
-		if src[i] == '\\' {
-			if isF && i+1 < limit && (src[i+1] == '{' || src[i+1] == '}') {
-				i++
-				continue
+		if next, handled, fail := stepPythonStringSpecial(src, i, limit, isF); handled {
+			if fail {
+				return limit, false
 			}
-			i += 2
+			i = next
 			continue
-		}
-		if isF && src[i] == '{' {
-			if i+1 < limit && src[i+1] == '{' {
-				i += 2
-				continue
-			}
-			if closeBrace := findFStringExprEnd(src, i+1, limit); closeBrace >= 0 {
-				i = closeBrace + 1
-				continue
-			}
-			return limit, false
 		}
 		if src[i] == q {
 			return i + 1, true
@@ -159,7 +154,9 @@ func scanPythonIdentEnd(src string, i int) int {
 	}
 	return i
 }
-func skipPythonWSAndComments(src string, i int) int {
+
+// SkipPythonWSAndComments advances past Python whitespace, comments, and line-continuation escapes.
+func SkipPythonWSAndComments(src string, i int) int {
 	for i < len(src) {
 		switch src[i] {
 		case ' ', '\t', '\r', '\n':
@@ -186,7 +183,7 @@ func skipPythonWSAndComments(src string, i int) int {
 }
 
 func trimPythonArgBounds(src string, start, end int) (int, int) {
-	s := min(skipPythonWSAndComments(src, start), end)
+	s := min(SkipPythonWSAndComments(src, start), end)
 	last := s
 	for i := s; i < end; {
 		if next, ok := skipPythonTrivia(src, i); ok {

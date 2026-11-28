@@ -22,22 +22,6 @@ const (
 	reftableGitTimeout      = 80 * time.Millisecond
 )
 
-type sessionStartCapsule struct {
-	Surface    string            `json:"surface"`
-	Date       string            `json:"date"`
-	Trust      string            `json:"trust,omitempty"`
-	Plan       string            `json:"plan,omitempty"`
-	Now        []string          `json:"now,omitempty"`
-	DailyAlert string            `json:"dailyAlert,omitempty"`
-	Status     sessionGitSummary `json:"status"`
-}
-
-type sessionGitSummary struct {
-	Branch       string   `json:"branch,omitempty"`
-	DirtyGoCount int      `json:"dirtyGoCount"`
-	DirtySample  []string `json:"dirtySample,omitempty"`
-}
-
 func handleSessionStart(ctx context.Context, o Options, dir string, _ HookInput, out io.Writer) error {
 	if err := ctx.Err(); err != nil {
 		return err

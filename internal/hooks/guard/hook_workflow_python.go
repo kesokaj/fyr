@@ -1,4 +1,4 @@
-package search
+package guard
 
 import "strings"
 
@@ -10,40 +10,53 @@ func scanWorkflowAgentCalls(src string) ([]workflowCallSpan, string) {
 
 func scanPythonSourceRange(src string, start, end int, inFString bool, out *[]workflowCallSpan) string {
 	for i := start; i < end; {
-		if src[i] == '#' {
-			for i < end && src[i] != '\n' {
-				i++
-			}
-			continue
+		next, deny := stepPythonSourceAt(src, i, end, inFString, out)
+		if deny != "" {
+			return deny
 		}
-		if strEnd, isF, deny := tryScanPythonString(src, i, end); strEnd > i {
-			if deny != "" {
-				return deny
-			}
-			if isF {
-				if d := scanFStringInterpolations(src, i, strEnd, out); d != "" {
-					return d
-				}
-			}
-			i = strEnd
-			continue
-		}
-		if isIdentStart(src[i]) {
-			idEnd := min(scanPythonIdentEnd(src, i), end)
-			if src[i:idEnd] == "agent" {
-				next, deny := handleAgentIdent(src, i, idEnd, end, inFString, out)
-				if deny != "" {
-					return deny
-				}
-				i = next
-				continue
-			}
-			i = idEnd
-			continue
-		}
-		i++
+		i = next
 	}
 	return ""
+}
+
+func stepPythonSourceAt(src string, i, end int, inFString bool, out *[]workflowCallSpan) (int, string) {
+	if src[i] == '#' {
+		return skipPythonLineComment(src, i, end), ""
+	}
+	if strEnd, isF, deny := tryScanPythonString(src, i, end); strEnd > i {
+		return finishPythonStringStep(src, i, strEnd, isF, deny, out)
+	}
+	if isIdentStart(src[i]) {
+		return stepPythonIdentAt(src, i, end, inFString, out)
+	}
+	return i + 1, ""
+}
+
+func skipPythonLineComment(src string, i, end int) int {
+	for i < end && src[i] != '\n' {
+		i++
+	}
+	return i
+}
+
+func finishPythonStringStep(src string, start, strEnd int, isF bool, deny string, out *[]workflowCallSpan) (int, string) {
+	if deny != "" {
+		return strEnd, deny
+	}
+	if isF {
+		if d := scanFStringInterpolations(src, start, strEnd, out); d != "" {
+			return strEnd, d
+		}
+	}
+	return strEnd, ""
+}
+
+func stepPythonIdentAt(src string, i, end int, inFString bool, out *[]workflowCallSpan) (int, string) {
+	idEnd := min(scanPythonIdentEnd(src, i), end)
+	if src[i:idEnd] == "agent" {
+		return handleAgentIdent(src, i, idEnd, end, inFString, out)
+	}
+	return idEnd, ""
 }
 
 func tryScanPythonString(src string, i, end int) (int, bool, string) {
@@ -67,36 +80,43 @@ func scanFStringInterpolations(src string, strStart, strEnd int, out *[]workflow
 	}
 	bodyEnd := strEnd - delimLen
 	for i := qStart + delimLen; i < bodyEnd; {
-		if src[i] == '\\' && i+1 < bodyEnd {
-			if src[i+1] == '{' || src[i+1] == '}' {
-				i++
-				continue
-			}
-			i += 2
-			continue
+		next, deny := stepFStringChar(src, i, bodyEnd, out)
+		if deny != "" {
+			return deny
 		}
-		if src[i] == '{' {
-			if i+1 < bodyEnd && src[i+1] == '{' {
-				i += 2
-				continue
-			}
-			closeBrace := findFStringExprEnd(src, i+1, bodyEnd)
-			if closeBrace < 0 {
-				return "[MODEL_OVERRIDE] run_workflow refuses malformed f-string interpolation."
-			}
-			if deny := scanPythonSourceRange(src, i+1, closeBrace, true, out); deny != "" {
-				return deny
-			}
-			i = closeBrace + 1
-			continue
-		}
-		if src[i] == '}' && i+1 < bodyEnd && src[i+1] == '}' {
-			i += 2
-			continue
-		}
-		i++
+		i = next
 	}
 	return ""
+}
+
+func stepFStringChar(src string, i, bodyEnd int, out *[]workflowCallSpan) (int, string) {
+	if src[i] == '\\' && i+1 < bodyEnd {
+		if src[i+1] == '{' || src[i+1] == '}' {
+			return i + 1, ""
+		}
+		return i + 2, ""
+	}
+	if src[i] == '{' {
+		return stepFStringOpenBrace(src, i, bodyEnd, out)
+	}
+	if src[i] == '}' && i+1 < bodyEnd && src[i+1] == '}' {
+		return i + 2, ""
+	}
+	return i + 1, ""
+}
+
+func stepFStringOpenBrace(src string, i, bodyEnd int, out *[]workflowCallSpan) (int, string) {
+	if i+1 < bodyEnd && src[i+1] == '{' {
+		return i + 2, ""
+	}
+	closeBrace := findFStringExprEnd(src, i+1, bodyEnd)
+	if closeBrace < 0 {
+		return bodyEnd, "[MODEL_OVERRIDE] run_workflow refuses malformed f-string interpolation."
+	}
+	if deny := scanPythonSourceRange(src, i+1, closeBrace, true, out); deny != "" {
+		return closeBrace + 1, deny
+	}
+	return closeBrace + 1, ""
 }
 
 func findFStringExprEnd(src string, start, bodyEnd int) int {
@@ -133,7 +153,7 @@ func findFStringExprEnd(src string, start, bodyEnd int) int {
 }
 
 func handleAgentIdent(src string, idStart, idEnd, limit int, inFString bool, out *[]workflowCallSpan) (int, string) {
-	j := min(skipPythonWSAndComments(src, idEnd), limit)
+	j := min(SkipPythonWSAndComments(src, idEnd), limit)
 	if j < limit && src[j] == '(' {
 		closeIdx := findMatchingParenBounded(src, j, limit)
 		if closeIdx < 0 {
@@ -174,7 +194,7 @@ func countWrappingParens(src string, idStart, afterIdent, limit int) (int, int) 
 		}
 		count++
 		left = l
-		right = min(skipPythonWSAndComments(src, right+1), limit)
+		right = min(SkipPythonWSAndComments(src, right+1), limit)
 	}
 	return count, right
 }
@@ -247,28 +267,37 @@ func findTopLevelEq(src string, start, end int) int {
 			i = next
 			continue
 		}
-		switch src[i] {
-		case '(', '[', '{':
-			depth++
-		case ')', ']', '}':
-			if depth > 0 {
-				depth--
+		if src[i] == '=' && depth == 0 {
+			if isValidKwArgEq(src, start, i, end) {
+				return i
 			}
-		case '=':
-			if depth == 0 {
-				if i+1 < end && src[i+1] == '=' {
-					return -1
-				}
-				if start < i && isIdentStart(src[start]) {
-					kwEnd := scanPythonIdentEnd(src, start)
-					if skipPythonWSAndComments(src, kwEnd) >= i {
-						return i
-					}
-				}
-				return -1
-			}
+			return -1
 		}
+		depth = adjustPythonBracketDepth(src[i], depth)
 		i++
 	}
 	return -1
+}
+
+func isValidKwArgEq(src string, start, eqIdx, end int) bool {
+	if eqIdx+1 < end && src[eqIdx+1] == '=' {
+		return false
+	}
+	if start >= eqIdx || !isIdentStart(src[start]) {
+		return false
+	}
+	kwEnd := scanPythonIdentEnd(src, start)
+	return SkipPythonWSAndComments(src, kwEnd) >= eqIdx
+}
+
+func adjustPythonBracketDepth(ch byte, depth int) int {
+	switch ch {
+	case '(', '[', '{':
+		return depth + 1
+	case ')', ']', '}':
+		if depth > 0 {
+			return depth - 1
+		}
+	}
+	return depth
 }

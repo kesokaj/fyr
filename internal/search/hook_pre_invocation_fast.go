@@ -164,7 +164,7 @@ func handleParallelHookTurn(ctx context.Context, o Options, sc *scope, dir strin
 	if !skipHeavy && !brainTimedOut && hasBrainTurnContext(o) && hasNewSliceFiles(promptFiles, slice.Files) && hasRemainingBudget(ctx, 15*time.Millisecond) {
 		brainCtx = callBrainTurnContextBounded(ctx, o, dir, cleanPrompt, slice.Files, brainCtx)
 	}
-	if rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" && !meta.hasSignals() {
+	if rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" && !meta.HasSignals() {
 		return "", ""
 	}
 	vetRes := vetPromptCoreWithHistory(rawPrompt, ClassifyIntent(cleanPrompt, slice.SymbolHits), slice, brainCtx, catalog, prev, recSk, recPiv)

@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/hooks/guard"
 )
 
 // Options are the flags of `fyr search` and `fyr index`.
@@ -56,7 +58,7 @@ const (
 )
 
 var (
-	errNotCheckout = errors.New("search: not inside a git checkout; use grep")
+	errNotCheckout = guard.ErrNotCheckout
 	errNotIgnored  = errors.New(`search: .agents/scratch/search.db is not gitignored; add ".agents/scratch/*" to .gitignore (/fyr-init-project does)`)
 	idPattern      = regexp.MustCompile(`^(BUG|ADR)-\d{3}[a-z]?$`)
 )

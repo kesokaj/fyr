@@ -1,23 +1,24 @@
-package search
+package telemetry
 
 import (
 	"fmt"
+	"github.com/kesokaj/fyr/internal/vet"
 	"strconv"
 	"strings"
 	"unicode"
 )
 
-func safeBacktickTextFence(text string) string {
+func SafeBacktickTextFence(text string) string {
 	body := strings.TrimRight(text, "\n")
 	fence := safeBacktickFence(body)
 	return fence + "text\n" + body + "\n" + fence
 }
 
-func turnBannerMetaFromExtras(extraSections, extraBanners []string) TurnBannerMeta {
+func TurnBannerMetaFromExtras(extraSections, extraBanners []string) TurnBannerMeta {
 	meta := TurnBannerMeta{ExtraSections: extraSections}
 	var b PreInvocationBanner
 	for _, extra := range extraBanners {
-		applyExtraBanner(&b, extra)
+		ApplyExtraBanner(&b, extra)
 	}
 	meta.CompactedGeneration = b.CompactedGeneration
 	meta.DirtyFastPath = b.DirtyFastPath
@@ -29,25 +30,25 @@ func turnBannerMetaFromExtras(extraSections, extraBanners []string) TurnBannerMe
 	return meta
 }
 
-func cleanSubtaskSlices(items []SubtaskSlice) []SubtaskSlice {
+func cleanSubtaskSlices(items []vet.SubtaskSlice) []vet.SubtaskSlice {
 	if len(items) == 0 {
 		return nil
 	}
-	out := make([]SubtaskSlice, 0, len(items))
+	out := make([]vet.SubtaskSlice, 0, len(items))
 	for _, it := range items {
-		out = append(out, SubtaskSlice{
-			ID:     collapseOneLine(printable(it.ID), 40),
-			Role:   collapseOneLine(printable(it.Role), 40),
-			Goal:   collapseOneLine(printable(it.Goal), 200),
-			Files:  cleanPrintableSlice(it.Files, 200),
-			Skills: cleanPrintableSlice(it.Skills, 80),
-			Verify: collapseOneLine(printable(it.Verify), 160),
+		out = append(out, vet.SubtaskSlice{
+			ID:     vet.CollapseOneLine(Printable(it.ID), 40),
+			Role:   vet.CollapseOneLine(Printable(it.Role), 40),
+			Goal:   vet.CollapseOneLine(Printable(it.Goal), 200),
+			Files:  CleanPrintableSlice(it.Files, 200),
+			Skills: CleanPrintableSlice(it.Skills, 80),
+			Verify: vet.CollapseOneLine(Printable(it.Verify), 160),
 		})
 	}
 	return out
 }
 
-func truncateBytesUTF8(s string, maxB int) string {
+func TruncateBytesUTF8(s string, maxB int) string {
 	s = strings.TrimSpace(s)
 	if len(s) <= maxB {
 		return s
@@ -59,7 +60,7 @@ func truncateBytesUTF8(s string, maxB int) string {
 	return strings.TrimSpace(s[:i])
 }
 
-func compactRecordNote(r MatchedRecord, title string) string {
+func CompactRecordNote(r vet.MatchedRecord, title string) string {
 	lines := strings.Split(strings.ReplaceAll(r.Body, "\r\n", "\n"), "\n")
 	var kept []string
 	for _, raw := range lines {
@@ -72,17 +73,17 @@ func compactRecordNote(r MatchedRecord, title string) string {
 	if len(kept) == 0 {
 		return ""
 	}
-	note := collapseOneLine(printable(strings.Join(kept, " ")), 220)
+	note := vet.CollapseOneLine(Printable(strings.Join(kept, " ")), 220)
 	if note == "" || strings.EqualFold(note, title) {
 		return ""
 	}
 	return note
 }
 
-func cleanPrintableSlice(items []string, maxLen int) []string {
+func CleanPrintableSlice(items []string, maxLen int) []string {
 	var out []string
 	for _, item := range items {
-		clean := collapseOneLine(printable(item), maxLen)
+		clean := vet.CollapseOneLine(Printable(item), maxLen)
 		if clean != "" {
 			out = append(out, clean)
 		}
@@ -98,13 +99,13 @@ func printableMultiline(s string) string {
 	s = strings.ReplaceAll(s, "\t", "  ")
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
-		lines[i] = printable(strings.TrimRight(line, "\r"))
+		lines[i] = Printable(strings.TrimRight(line, "\r"))
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
-func applyExtraBanner(b *PreInvocationBanner, raw string) {
-	clean := strings.TrimSpace(printable(raw))
+func ApplyExtraBanner(b *PreInvocationBanner, raw string) {
+	clean := strings.TrimSpace(Printable(raw))
 	if clean == "" {
 		return
 	}
@@ -138,7 +139,7 @@ func applyExtraBanner(b *PreInvocationBanner, raw string) {
 }
 
 func normalizeUpperSnakeEnum(s string) string {
-	clean := strings.TrimSpace(printable(s))
+	clean := strings.TrimSpace(Printable(s))
 	if clean == "" {
 		return ""
 	}
@@ -155,4 +156,32 @@ func normalizeUpperSnakeEnum(s string) string {
 		}
 	}
 	return strings.TrimRight(b.String(), "_")
+}
+
+// Printable replaces control, format, line/paragraph separator, and default-ignorable runes with '?'.
+func Printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			return '?'
+		}
+		if unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) || unicode.Is(unicode.Cf, r) {
+			return '?'
+		}
+		if unicode.Is(unicode.Variation_Selector, r) || unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r) {
+			return '?'
+		}
+		return r
+	}, s)
+}
+
+// OneLineErr renders err as a single bounded whitespace-normalized line.
+func OneLineErr(err error) string {
+	if err == nil {
+		return "unknown error"
+	}
+	s := strings.Join(strings.Fields(err.Error()), " ")
+	if len(s) > 120 {
+		return s[:120] + "..."
+	}
+	return s
 }

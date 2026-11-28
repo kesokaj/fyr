@@ -1,13 +1,19 @@
-package search
+package guard
 
-import "strings"
+import (
+	"strings"
 
-func hasShellExpansionOutsideSingleQuotes(cmd string) bool {
+	"github.com/kesokaj/fyr/internal/readledger"
+)
+
+// HasShellExpansionOutsideSingleQuotes reports whether cmd contains command/process substitution outside single quotes.
+func HasShellExpansionOutsideSingleQuotes(cmd string) bool {
 	hasExp, _ := scanShellExpansions(cmd)
 	return hasExp
 }
 
-func extractSubshellCmds(cmd string) []string {
+// ExtractSubshellCmds returns all subshell and command-substitution bodies found in cmd.
+func ExtractSubshellCmds(cmd string) []string {
 	_, subs := scanShellExpansions(cmd)
 	return subs
 }
@@ -16,9 +22,8 @@ func scanShellExpansions(cmd string) (bool, []string) {
 	hasExp := false
 	var subs []string
 	for i, q := 0, byte(0); i < len(cmd); i++ {
-		ch := cmd[i]
 		if q == '\'' || q == '$' {
-			i, q = advanceShellQuote(cmd, i, q)
+			i, q = readledger.AdvanceShellQuote(cmd, i, q)
 			continue
 		}
 		if q == '"' {
@@ -26,32 +31,34 @@ func scanShellExpansions(cmd string) (bool, []string) {
 				hasExp, i = true, next-1
 				continue
 			}
-			i, q = advanceShellQuote(cmd, i, q)
+			i, q = readledger.AdvanceShellQuote(cmd, i, q)
 			continue
 		}
-		if ch == '\\' && i+1 < len(cmd) {
-			i++
-			continue
-		}
-		if ch == '$' && i+1 < len(cmd) && cmd[i+1] == '\'' {
-			q = '$'
-			i++
-			continue
-		}
-		if ch == '\'' || ch == '"' {
-			q = ch
-			continue
-		}
-		if ch == '#' && (i == 0 || strings.ContainsRune(" \t\n\r;|&(", rune(cmd[i-1]))) {
-			i = skipLineComment(cmd, i)
-			continue
-		}
-		if next, exp, ok := captureUnquotedSub(cmd, i, &subs); ok {
-			hasExp = hasExp || exp
-			i = next - 1
-		}
+		var exp bool
+		i, q, exp = stepUnquotedExpansion(cmd, i, &subs)
+		hasExp = hasExp || exp
 	}
 	return hasExp, subs
+}
+
+func stepUnquotedExpansion(cmd string, i int, subs *[]string) (int, byte, bool) {
+	ch := cmd[i]
+	if ch == '\\' && i+1 < len(cmd) {
+		return i + 1, 0, false
+	}
+	if ch == '$' && i+1 < len(cmd) && cmd[i+1] == '\'' {
+		return i + 1, '$', false
+	}
+	if ch == '\'' || ch == '"' {
+		return i, ch, false
+	}
+	if ch == '#' && (i == 0 || strings.ContainsRune(" \t\n\r;|&(", rune(cmd[i-1]))) {
+		return readledger.SkipLineComment(cmd, i), 0, false
+	}
+	if next, exp, ok := captureUnquotedSub(cmd, i, subs); ok {
+		return next - 1, 0, exp
+	}
+	return i, 0, false
 }
 
 func captureDoubleQuotedSub(cmd string, i int, subs *[]string) (int, bool) {

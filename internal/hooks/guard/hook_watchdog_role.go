@@ -1,4 +1,4 @@
-package search
+package guard
 
 import (
 	"context"
@@ -9,7 +9,14 @@ import (
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/vet"
 )
+
+// WatchdogRoleDeps supplies read-only SQLite access callbacks for conversation_summaries.db lookups.
+type WatchdogRoleDeps struct {
+	RODSN    func(path string) string
+	OpenCopy func(dir, name, tmp string) (*sql.DB, error)
+}
 
 var watchdogPromptRoles = [][2]string{
 	{"you are a senior code reviewer", "reviewer"}, {"you are the security reviewer", "security"},
@@ -19,8 +26,9 @@ var watchdogPromptRoles = [][2]string{
 	{"you maintain explanatory documentation", "documentation"}, {"you are the documentation", "documentation"}, {"you are a documentation", "documentation"},
 }
 
-func resolveWatchdogRoleCtx(ctx context.Context, home, convID, lastInput string) (string, string) {
-	role, name, found := lookupWatchdogSummaryRoleCtx(ctx, home, convID)
+// ResolveWatchdogRoleCtx resolves the agent role and display name from conversation summaries or prompt preamble.
+func ResolveWatchdogRoleCtx(ctx context.Context, home, convID, lastInput string, deps WatchdogRoleDeps) (string, string) {
+	role, name, found := LookupWatchdogSummaryRoleCtx(ctx, home, convID, deps)
 	if found {
 		if role != "main" && role != "self" {
 			return role, name
@@ -28,19 +36,20 @@ func resolveWatchdogRoleCtx(ctx context.Context, home, convID, lastInput string)
 		if role == "main" {
 			return "main", ""
 		}
-		if r := matchWatchdogPromptPreamble(lastInput); r != "" {
+		if r := MatchWatchdogPromptPreamble(lastInput); r != "" {
 			return r, r
 		}
 		return "self", "self"
 	}
-	if r := matchWatchdogPromptPreamble(lastInput); r != "" {
+	if r := MatchWatchdogPromptPreamble(lastInput); r != "" {
 		return r, r
 	}
 	return "main", ""
 }
 
-func matchWatchdogPromptPreamble(lastInput string) string {
-	stripped := strings.TrimSpace(StripSandboxPreamble(lastInput))
+// MatchWatchdogPromptPreamble matches a known subagent role preamble in the first two non-empty lines.
+func MatchWatchdogPromptPreamble(lastInput string) string {
+	stripped := strings.TrimSpace(vet.StripSandboxPreamble(lastInput))
 	if stripped == "" {
 		return ""
 	}
@@ -64,19 +73,20 @@ func matchWatchdogPromptPreamble(lastInput string) string {
 	return ""
 }
 
-func lookupWatchdogSummaryRoleCtx(ctx context.Context, home, convID string) (string, string, bool) {
+// LookupWatchdogSummaryRoleCtx queries conversation_summaries.db (RO or copied) for convID's role.
+func LookupWatchdogSummaryRoleCtx(ctx context.Context, home, convID string, deps WatchdogRoleDeps) (string, string, bool) {
 	h := strings.TrimSpace(home)
 	agyDir, summaryPath, ok := checkWatchdogSummaryFiles(h)
 	if !ok || ctx.Err() != nil {
 		return "main", "", false
 	}
-	if role, name, found, handled := queryWatchdogSummaryRO(ctx, summaryPath, convID); handled {
+	if role, name, found, handled := queryWatchdogSummaryRO(ctx, summaryPath, convID, deps.RODSN); handled {
 		return role, name, found
 	}
 	if ctx.Err() != nil {
 		return "main", "", false
 	}
-	return lookupWatchdogSummaryRoleCopy(ctx, h, agyDir, convID)
+	return lookupWatchdogSummaryRoleCopy(ctx, h, agyDir, convID, deps.OpenCopy)
 }
 
 func checkWatchdogSummaryFiles(home string) (string, string, bool) {
@@ -105,7 +115,10 @@ func checkWatchdogSummaryFiles(home string) (string, string, bool) {
 	return agyDir, summaryPath, true
 }
 
-func queryWatchdogSummaryRO(ctx context.Context, summaryPath, convID string) (string, string, bool, bool) {
+func queryWatchdogSummaryRO(ctx context.Context, summaryPath, convID string, roDSN func(string) string) (string, string, bool, bool) {
+	if roDSN == nil {
+		return "", "", false, false
+	}
 	db, err := sql.Open("sqlite", roDSN(summaryPath))
 	if err != nil {
 		return "", "", false, false
@@ -122,7 +135,10 @@ func queryWatchdogSummaryRO(ctx context.Context, summaryPath, convID string) (st
 	return "", "", false, false
 }
 
-func lookupWatchdogSummaryRoleCopy(ctx context.Context, home, agyDir, convID string) (string, string, bool) {
+func lookupWatchdogSummaryRoleCopy(ctx context.Context, home, agyDir, convID string, openCopy func(dir, name, tmp string) (*sql.DB, error)) (string, string, bool) {
+	if openCopy == nil {
+		return "main", "", false
+	}
 	conf := filepath.Join(home, harness.StateDir)
 	_, stErr := os.Stat(conf)
 	created := errors.Is(stErr, os.ErrNotExist)
@@ -142,10 +158,10 @@ func lookupWatchdogSummaryRoleCopy(ctx context.Context, home, agyDir, convID str
 			_ = os.Remove(conf)
 		}
 	}()
-	return queryWatchdogSummaryRoleCtx(ctx, agyDir, tmp, convID)
+	return queryWatchdogSummaryRoleCtx(ctx, agyDir, tmp, convID, openCopy)
 }
 
-func queryWatchdogSummaryRoleCtx(ctx context.Context, agyDir, tmp, convID string) (string, string, bool) {
+func queryWatchdogSummaryRoleCtx(ctx context.Context, agyDir, tmp, convID string, openCopy func(dir, name, tmp string) (*sql.DB, error)) (string, string, bool) {
 	db, err := openCopy(agyDir, "conversation_summaries.db", tmp)
 	if err != nil {
 		return "main", "", false

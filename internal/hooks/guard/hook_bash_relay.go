@@ -1,4 +1,4 @@
-package search
+package guard
 
 import (
 	"os"
@@ -11,17 +11,22 @@ const maxBashInspectDepth = 6
 
 var gitGlobalValFlags = []string{"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--exec-path", "--config-env"}
 
+// IsRelaySession reports whether the current process runs inside a FYR_RELAY=1 session.
+func IsRelaySession() bool {
+	return os.Getenv("FYR_RELAY") == "1"
+}
+
 func inspectBashCommandTreeDepth(cmd string, depth int) (string, bool) {
 	if depth > maxBashInspectDepth {
-		if isRelaySession() {
+		if IsRelaySession() {
 			return "[RELAY_GUARD] nested command inspection depth limit exceeded during fyr relay session (fail-closed)", false
 		}
 		return "", false
 	}
 	needPromptGuard := false
 	exportedPrompt := false
-	for _, seg := range splitShellSegments(cmd) {
-		toks := tokenizeShellSegment(seg)
+	for _, seg := range SplitShellSegments(cmd) {
+		toks := TokenizeShellSegment(seg)
 		if isExportEnvAssign(toks, "GIT_TERMINAL_PROMPT") {
 			exportedPrompt = true
 		}
@@ -31,7 +36,7 @@ func inspectBashCommandTreeDepth(cmd string, depth int) (string, bool) {
 		}
 		needPromptGuard = needPromptGuard || segPrompt
 	}
-	for _, sub := range extractSubshellCmds(cmd) {
+	for _, sub := range ExtractSubshellCmds(cmd) {
 		if reason, subGuard := inspectBashCommandTreeDepth(sub, depth+1); reason != "" {
 			return reason, false
 		} else if subGuard && !exportedPrompt {
@@ -45,7 +50,7 @@ func inspectShellTokens(toks []string, exportedPrompt bool, depth int) (string, 
 	if reason := checkRelayGitConfigEnv(toks); reason != "" {
 		return reason, false
 	}
-	cmdTok, rest := unwrapSegmentCommand(toks)
+	cmdTok, rest := UnwrapSegmentCommand(toks)
 	if cmdTok == "" {
 		return "", false
 	}
@@ -79,7 +84,7 @@ func checkRelayGitConfigEnv(toks []string) string {
 }
 
 func checkRelayGitConfigEnvDepth(toks []string, depth int) string {
-	if !isRelaySession() {
+	if !IsRelaySession() {
 		return ""
 	}
 	if depth > maxBashInspectDepth {
@@ -88,7 +93,7 @@ func checkRelayGitConfigEnvDepth(toks []string, depth int) string {
 	for i := 0; i < len(toks); i++ {
 		raw := toks[i]
 		if splitArg, ok := extractEnvSplitStringArg(toks, &i); ok {
-			if reason := checkRelayGitConfigEnvDepth(tokenizeShellSegment(splitArg), depth+1); reason != "" {
+			if reason := checkRelayGitConfigEnvDepth(TokenizeShellSegment(splitArg), depth+1); reason != "" {
 				return reason
 			}
 			continue
@@ -197,41 +202,47 @@ func unwrapSudoCommand(args []string) []string {
 
 func extractNestedShellCommand(cmd string, rest []string) (string, bool) {
 	if cmd == "eval" {
-		if len(rest) == 0 {
-			return "", false
-		}
-		if rest[0] == "--" {
-			rest = rest[1:]
-		}
-		return strings.Join(rest, " "), len(rest) > 0
+		return extractEvalNestedCommand(rest)
 	}
 	if !slices.Contains([]string{"sh", "bash", "zsh", "dash", "ksh"}, cmd) {
 		return "", false
 	}
+	return extractPosixShellDashC(rest)
+}
+
+func extractEvalNestedCommand(rest []string) (string, bool) {
+	if len(rest) == 0 {
+		return "", false
+	}
+	if rest[0] == "--" {
+		rest = rest[1:]
+	}
+	return strings.Join(rest, " "), len(rest) > 0
+}
+
+func extractPosixShellDashC(rest []string) (string, bool) {
 	seenC := false
 	for i := 0; i < len(rest); i++ {
 		a := rest[i]
-		if a == "--" || a == "-" {
+		switch {
+		case a == "--" || a == "-":
 			if seenC && i+1 < len(rest) {
 				return rest[i+1], rest[i+1] != ""
 			}
 			return "", false
-		}
-		if a == "" || a == "+" || (a[0] != '-' && a[0] != '+') {
-			if seenC {
-				return a, a != ""
-			}
-			return "", false
-		}
-		if a == "-o" || a == "+o" || a == "--rcfile" || a == "--init-file" {
+		case a == "" || a == "+" || (a[0] != '-' && a[0] != '+'):
+			return a, seenC && a != ""
+		case a == "-o" || a == "+o" || a == "--rcfile" || a == "--init-file":
 			i++
-			continue
-		}
-		if a[0] == '-' && !strings.HasPrefix(a, "--") && strings.ContainsRune(a[1:], 'c') {
+		case isPosixDashCFlag(a):
 			seenC = true
 		}
 	}
 	return "", false
+}
+
+func isPosixDashCFlag(a string) bool {
+	return a[0] == '-' && !strings.HasPrefix(a, "--") && strings.ContainsRune(a[1:], 'c')
 }
 
 func unwrapXargsCommand(rest []string) []string {
@@ -252,7 +263,7 @@ func unwrapXargsCommand(rest []string) []string {
 }
 
 func checkRelayBashGuard(cmd string, args []string) string {
-	if os.Getenv("FYR_RELAY") != "1" {
+	if !IsRelaySession() {
 		return ""
 	}
 	if cmd == "git-send-pack" {
@@ -264,7 +275,7 @@ func checkRelayBashGuard(cmd string, args []string) string {
 	if reason := checkRelayGitConfigAlias(args); reason != "" {
 		return reason
 	}
-	switch sub, subArgs := skipGitGlobalFlags(args); sub {
+	switch sub, subArgs := SkipGitGlobalFlags(args); sub {
 	case "push":
 		return "[RELAY_GUARD] git push is forbidden during fyr relay sessions (keep commits local)"
 	case "send-pack":
@@ -287,31 +298,45 @@ func checkRelayGitConfigAlias(args []string) string {
 		if a == "--" || !strings.HasPrefix(a, "-") || a == "-" {
 			return ""
 		}
-		if a == "-c" && i+1 < len(args) {
-			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(args[i+1])), "alias.") {
-				return "[RELAY_GUARD] git -c alias.* is forbidden during fyr relay sessions"
-			}
-			i++
-			continue
+		reason, skipNext := checkRelayGitAliasArg(args, i)
+		if reason != "" {
+			return reason
 		}
-		if strings.HasPrefix(a, "-c") && len(a) > 2 && strings.HasPrefix(strings.ToLower(strings.TrimSpace(a[2:])), "alias.") {
-			return "[RELAY_GUARD] git -c alias.* is forbidden during fyr relay sessions"
-		}
-		if a == "--config-env" && i+1 < len(args) {
-			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(args[i+1])), "alias.") {
-				return "[RELAY_GUARD] git --config-env alias.* is forbidden during fyr relay sessions"
-			}
-			i++
-			continue
-		}
-		if strings.HasPrefix(strings.ToLower(a), "--config-env=alias.") {
-			return "[RELAY_GUARD] git --config-env alias.* is forbidden during fyr relay sessions"
-		}
-		if slices.Contains(gitGlobalValFlags, a) && i+1 < len(args) {
+		if skipNext {
 			i++
 		}
 	}
 	return ""
+}
+
+func checkRelayGitAliasArg(args []string, i int) (string, bool) {
+	a := args[i]
+	hasNext := i+1 < len(args)
+	switch {
+	case a == "-c" && hasNext:
+		if hasGitAliasPrefix(args[i+1]) {
+			return "[RELAY_GUARD] git -c alias.* is forbidden during fyr relay sessions", false
+		}
+		return "", true
+	case strings.HasPrefix(a, "-c") && len(a) > 2:
+		if hasGitAliasPrefix(a[2:]) {
+			return "[RELAY_GUARD] git -c alias.* is forbidden during fyr relay sessions", false
+		}
+	case a == "--config-env" && hasNext:
+		if hasGitAliasPrefix(args[i+1]) {
+			return "[RELAY_GUARD] git --config-env alias.* is forbidden during fyr relay sessions", false
+		}
+		return "", true
+	case strings.HasPrefix(strings.ToLower(a), "--config-env=alias."):
+		return "[RELAY_GUARD] git --config-env alias.* is forbidden during fyr relay sessions", false
+	case slices.Contains(gitGlobalValFlags, a) && hasNext:
+		return "", true
+	}
+	return "", false
+}
+
+func hasGitAliasPrefix(raw string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(raw)), "alias.")
 }
 
 func targetsGitTagOrStdin(args []string) bool {

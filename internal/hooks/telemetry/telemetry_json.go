@@ -1,7 +1,8 @@
-package search
+package telemetry
 
 import (
 	"fmt"
+	"github.com/kesokaj/fyr/internal/vet"
 	"strings"
 )
 
@@ -34,7 +35,7 @@ type PreInvocationEnrichment struct {
 	Targets          []string
 	Verify           string
 	SkillDigests     []PreInvocationSkillDigest
-	Subtasks         []SubtaskSlice
+	Subtasks         []vet.SubtaskSlice
 	Records          []PreInvocationRecord
 	AstSlice         string
 	SessionContext   []string
@@ -83,31 +84,32 @@ type TurnBannerMeta struct {
 	SessionModelResolved bool
 }
 
-func (m TurnBannerMeta) hasSignals() bool {
+// HasSignals reports whether any banner signal field is populated.
+func (m TurnBannerMeta) HasSignals() bool {
 	return m.CompactedGeneration > 0 || m.DirtyFastPath || m.PivotCount > 0 ||
 		m.ContextKneeWarning != "" || m.ModelTip != "" || m.StoreError != "" || len(m.Notices) > 0
 }
 
-func formatPreInvocationEnvelopeWithMeta(res VetResult, slice SliceResult, brainCtx TurnBrainContext, meta TurnBannerMeta) string {
-	b := buildPreInvocationBannerBaseWithMeta(res, meta)
-	b.Enrichment = buildPreInvocationEnrichment(res, slice, brainCtx, meta.ExtraSections, b.CompactedGeneration)
+func FormatPreInvocationEnvelopeWithMeta(res vet.Result, slice vet.SliceResult, brainCtx vet.TurnBrainContext, meta TurnBannerMeta) string {
+	b := BuildPreInvocationBannerBaseWithMeta(res, meta)
+	b.Enrichment = BuildPreInvocationEnrichment(res, slice, brainCtx, meta.ExtraSections, b.CompactedGeneration)
 	return renderPreInvocationBanner(b)
 }
 
-func preInvocationDirective(res VetResult) string {
+func PreInvocationDirective(res vet.Result) string {
 	switch res.Gate {
-	case GatePassThrough:
+	case vet.GatePassThrough:
 		return "PASS_THROUGH"
-	case GateVetFirst:
+	case vet.GateVetFirst:
 		return "VET_FIRST"
 	}
 	if len(res.Subtasks) >= 2 {
 		return "COORDINATE_SUBTASKS"
 	}
 	switch res.Intent {
-	case IntentQuestion:
+	case vet.IntentQuestion:
 		return "ANSWER_ONLY"
-	case IntentCorrection:
+	case vet.IntentCorrection:
 		return "CORRECTION"
 	}
 	if strings.TrimSpace(res.ImprovedPrompt) != "" {
@@ -116,10 +118,10 @@ func preInvocationDirective(res VetResult) string {
 	return "ENRICH_AND_PROCEED"
 }
 
-func bannerModelAndThinking(res VetResult, modelResolved bool) (string, string, string) {
-	modelID := collapseOneLine(printable(res.SessionModel), 80)
-	modelDisplay := collapseOneLine(printable(res.SessionModelDisplay), 120)
-	thinking := collapseOneLine(printable(res.SessionThinking), 32)
+func bannerModelAndThinking(res vet.Result, modelResolved bool) (string, string, string) {
+	modelID := vet.CollapseOneLine(Printable(res.SessionModel), 80)
+	modelDisplay := vet.CollapseOneLine(Printable(res.SessionModelDisplay), 120)
+	thinking := vet.CollapseOneLine(Printable(res.SessionThinking), 32)
 	if !modelResolved && modelID != "" && thinking == "" {
 		id, disp, resolvedThink := ResolveModelDetails("", modelID)
 		if id != "" {
@@ -136,20 +138,20 @@ func bannerModelAndThinking(res VetResult, modelResolved bool) (string, string, 
 	return modelID, modelDisplay, thinking
 }
 
-func bannerRoute(res VetResult, directive string) string {
+func bannerRoute(res vet.Result, directive string) string {
 	if directive == "COORDINATE_SUBTASKS" {
 		return "/fyr-swarm (isolated subtasks; zero shared memory)"
 	}
-	if res.Route != "" && res.Gate != GatePassThrough && res.Intent != IntentCorrection {
-		return strings.TrimPrefix(strings.TrimSpace(printable(res.Route)), "route: ")
+	if res.Route != "" && res.Gate != vet.GatePassThrough && res.Intent != vet.IntentCorrection {
+		return strings.TrimPrefix(strings.TrimSpace(Printable(res.Route)), "route: ")
 	}
 	return ""
 }
 
-func buildPreInvocationBannerBaseWithMeta(res VetResult, meta TurnBannerMeta) PreInvocationBanner {
+func BuildPreInvocationBannerBaseWithMeta(res vet.Result, meta TurnBannerMeta) PreInvocationBanner {
 	score := res.Score
 	modelName, modelDisplay, thinking := bannerModelAndThinking(res, meta.SessionModelResolved)
-	directive := preInvocationDirective(res)
+	directive := PreInvocationDirective(res)
 	b := PreInvocationBanner{
 		Surface:                  "PRE_INVOCATION",
 		Contract:                 "[FYR_TURN_CONTRACT]",
@@ -166,40 +168,40 @@ func buildPreInvocationBannerBaseWithMeta(res VetResult, meta TurnBannerMeta) Pr
 		PivotCount:               meta.PivotCount,
 		CompactedGeneration:      meta.CompactedGeneration,
 		DirtyFastPath:            meta.DirtyFastPath,
-		Conflicts:                cleanPrintableSlice(res.Conflicts, 220),
-		ModelTip:                 collapseOneLine(printable(meta.ModelTip), 220),
-		StoreError:               collapseOneLine(printable(meta.StoreError), 220),
-		Notices:                  cleanPrintableSlice(meta.Notices, 220),
+		Conflicts:                CleanPrintableSlice(res.Conflicts, 220),
+		ModelTip:                 vet.CollapseOneLine(Printable(meta.ModelTip), 220),
+		StoreError:               vet.CollapseOneLine(Printable(meta.StoreError), 220),
+		Notices:                  CleanPrintableSlice(meta.Notices, 220),
 	}
 	setBannerKneeWarning(&b.TokenKneeWarning, meta.ContextKneeWarning)
 	populateBannerSkillsAndTip(&b, res, meta.ExtraSections)
 	return b
 }
 
-const contextKneeHandoffCue = "wrap up current step, run /fyr-handoff, and /clear or start a fresh conversation"
+const ContextKneeHandoffCue = "wrap up current step, run /fyr-handoff, and /clear or start a fresh conversation"
 
 func setBannerKneeWarning(dst *string, warn string) {
-	clean := collapseOneLine(printable(warn), 220)
+	clean := vet.CollapseOneLine(Printable(warn), 220)
 	if clean == "" {
 		*dst = ""
 		return
 	}
 	if !strings.Contains(strings.ToLower(clean), "/fyr-handoff") {
-		suffix := " — " + contextKneeHandoffCue
-		prefix := truncateBytesUTF8(clean, max(0, 220-len(suffix)))
+		suffix := " — " + ContextKneeHandoffCue
+		prefix := TruncateBytesUTF8(clean, max(0, 220-len(suffix)))
 		clean = strings.TrimRight(prefix, " ;—-") + suffix
 	}
 	*dst = clean
 }
 
-func populateBannerSkillsAndTip(b *PreInvocationBanner, res VetResult, extraSections []string) {
+func populateBannerSkillsAndTip(b *PreInvocationBanner, res vet.Result, extraSections []string) {
 	for _, s := range res.Skills {
-		if name := strings.TrimSpace(printable(s.Name)); name != "" {
+		if name := strings.TrimSpace(Printable(s.Name)); name != "" {
 			b.Skills = append(b.Skills, name)
 		}
 	}
-	if res.Gate == GateVetFirst {
-		b.MissingAnchors = cleanPrintableSlice(res.MissingAnchors, 80)
+	if res.Gate == vet.GateVetFirst {
+		b.MissingAnchors = CleanPrintableSlice(res.MissingAnchors, 80)
 		if len(b.MissingAnchors) > 0 {
 			b.Tip = fmt.Sprintf("missing anchors (%s) — clarify via ask_question before editing or dispatching; prefix `!` to bypass vetting", strings.Join(b.MissingAnchors, ", "))
 		} else {
@@ -216,28 +218,28 @@ func populateBannerSkillsAndTip(b *PreInvocationBanner, res VetResult, extraSect
 	}
 }
 
-func buildPreInvocationEnrichment(res VetResult, slice SliceResult, brainCtx TurnBrainContext, extraSections []string, compactedGen int) *PreInvocationEnrichment {
-	if !res.Bypassed && compactedGen == 0 && (res.Intent == IntentApproval || res.Intent == IntentTrivial) {
+func BuildPreInvocationEnrichment(res vet.Result, slice vet.SliceResult, brainCtx vet.TurnBrainContext, extraSections []string, compactedGen int) *PreInvocationEnrichment {
+	if !res.Bypassed && compactedGen == 0 && (res.Intent == vet.IntentApproval || res.Intent == vet.IntentTrivial) {
 		return nil
 	}
 	e := &PreInvocationEnrichment{
-		PriorTurnContext: strings.TrimSpace(printable(res.PriorTurnContext)),
+		PriorTurnContext: strings.TrimSpace(Printable(res.PriorTurnContext)),
 		Records:          buildPreInvocationRecords(brainCtx),
 		AstSlice:         printableMultiline(slice.Capsule),
 	}
 	if !res.Bypassed {
 		e.SkillDigests = buildPreInvocationSkillDigests(res.Skills)
 	}
-	if res.Gate == GateEnrichAndProceed && res.Intent != IntentQuestion && res.Intent != IntentCorrection {
+	if res.Gate == vet.GateEnrichAndProceed && res.Intent != vet.IntentQuestion && res.Intent != vet.IntentCorrection {
 		e.ImprovedPrompt = printableMultiline(res.ImprovedPrompt)
 	}
-	if !res.Bypassed && res.Gate != GatePassThrough && len(res.Subtasks) > 0 {
+	if !res.Bypassed && res.Gate != vet.GatePassThrough && len(res.Subtasks) > 0 {
 		e.Subtasks = cleanSubtaskSlices(res.Subtasks)
 	}
-	if res.Intent != IntentQuestion {
-		e.Targets = cleanPrintableSlice(res.TargetFiles, 140)
-		if res.Gate != GateVetFirst {
-			e.Verify = strings.TrimSpace(printable(res.SuggestedVerify))
+	if res.Intent != vet.IntentQuestion {
+		e.Targets = CleanPrintableSlice(res.TargetFiles, 140)
+		if res.Gate != vet.GateVetFirst {
+			e.Verify = strings.TrimSpace(Printable(res.SuggestedVerify))
 		}
 	}
 	appendSessionContext(e, extraSections)
@@ -269,54 +271,54 @@ func isEmptyPreInvocationEnrichment(e *PreInvocationEnrichment) bool {
 		len(e.SessionContext) == 0
 }
 
-func buildPreInvocationSkillDigests(skills []SkillMeta) []PreInvocationSkillDigest {
+func buildPreInvocationSkillDigests(skills []vet.SkillMeta) []PreInvocationSkillDigest {
 	if len(skills) == 0 {
 		return nil
 	}
 	out := make([]PreInvocationSkillDigest, 0, len(skills))
 	for _, s := range skills {
-		name := strings.TrimSpace(printable(s.Name))
-		digest := truncateBytesUTF8(printableMultiline(s.Digest), maxSkillDigestBytes)
+		name := strings.TrimSpace(Printable(s.Name))
+		digest := TruncateBytesUTF8(printableMultiline(s.Digest), vet.MaxSkillDigestBytes)
 		if digest == "" {
-			digest = truncateBytesUTF8(printableMultiline(s.Description), maxSkillDigestBytes)
+			digest = TruncateBytesUTF8(printableMultiline(s.Description), vet.MaxSkillDigestBytes)
 		}
 		if name == "" || digest == "" {
 			continue
 		}
 		out = append(out, PreInvocationSkillDigest{
 			Name:   name,
-			Path:   strings.TrimSpace(printable(s.Path)),
+			Path:   strings.TrimSpace(Printable(s.Path)),
 			Digest: digest,
 		})
 	}
 	return out
 }
 
-func buildPreInvocationRecords(brainCtx TurnBrainContext) []PreInvocationRecord {
-	recs := collectMatchedRecords(brainCtx)
+func buildPreInvocationRecords(brainCtx vet.TurnBrainContext) []PreInvocationRecord {
+	recs := vet.CollectMatchedRecords(brainCtx)
 	if len(recs) == 0 {
 		return nil
 	}
 	out := make([]PreInvocationRecord, 0, len(recs))
 	for _, r := range recs {
-		title := collapseOneLine(printable(r.Title), 140)
+		title := vet.CollapseOneLine(Printable(r.Title), 140)
 		out = append(out, PreInvocationRecord{
-			ID:         strings.TrimSpace(printable(r.ID)),
-			Kind:       strings.TrimSpace(printable(r.Kind)),
-			Provenance: strings.TrimSpace(printable(recordProvenance(r))),
+			ID:         strings.TrimSpace(Printable(r.ID)),
+			Kind:       strings.TrimSpace(Printable(r.Kind)),
+			Provenance: strings.TrimSpace(Printable(vet.RecordProvenance(r))),
 			Title:      title,
-			Note:       compactRecordNote(r, title),
-			Stale:      strings.TrimSpace(printable(r.StaleTag)),
+			Note:       CompactRecordNote(r, title),
+			Stale:      strings.TrimSpace(Printable(r.StaleTag)),
 		})
 	}
 	return out
 }
 
 func storeDegradedNotice(err error) string {
-	return fmt.Sprintf("store unavailable (%s) — capsule/memory skipped; run fyr index", oneLineErr(err))
+	return fmt.Sprintf("store unavailable (%s) — capsule/memory skipped; run fyr index", OneLineErr(err))
 }
 
-func formatStoreDegradedBanner(err error) string {
+func FormatStoreDegradedBanner(err error) string {
 	b := PreInvocationBanner{
 		Surface:    "PRE_INVOCATION",
 		Contract:   "[FYR_TURN_CONTRACT]",
@@ -324,4 +326,14 @@ func formatStoreDegradedBanner(err error) string {
 		StoreError: storeDegradedNotice(err),
 	}
 	return renderPreInvocationBanner(b)
+}
+
+// BuildTurnEnvelopeWithMeta builds the fenced PreInvocationBanner card and populates res fields.
+func BuildTurnEnvelopeWithMeta(res *vet.Result, slice vet.SliceResult, brainCtx vet.TurnBrainContext, meta TurnBannerMeta) (string, string) {
+	res.FenceBoundary = vet.New().String()
+	envCard := FormatPreInvocationEnvelopeWithMeta(*res, slice, brainCtx, meta)
+	res.TurnContract = envCard
+	res.SystemMessage = envCard
+	res.UserMarkdownBanner = envCard
+	return envCard, envCard
 }

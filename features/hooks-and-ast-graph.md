@@ -29,7 +29,7 @@ sequenceDiagram
     Hook-->>Agy: allow or [VERIFY_STAMP] nudge
 ```
 
-At `session-start`, `handleSessionStart` (`internal/search/hook_session_start.go`) walks the git index directly (`internal/search/hook_git_index.go`) without spawning `git`. It emits a `<= 1,500`-byte `SESSION_START` capsule with the date, active plan, `TODO.md` `Now` items, and dirty Go count.
+At `session-start`, `handleSessionStart` (`internal/search/hook_session_start.go`) walks the git index directly (`internal/hooks/guard/hook_git_index.go`) without spawning `git`. It emits a `<= 1,500`-byte `SESSION_START` capsule with the date, active plan, `TODO.md` `Now` items, and dirty Go count.
 
 ## Pure-Go AST and Markdown symbol graph
 
@@ -82,7 +82,7 @@ Six deterministic mechanics keep enriched turns concise and Coordinator-aligned:
 3. **`ImprovedPrompt:` and memory:** Populates `ImprovedPrompt:` on mid-score turns (`45`–`79`), conflicts, follow-ups, or multi-subtask prompts. It skips questions and corrections, and injects up to `4` memories (`validity >= 0.40`) within `6` records.
 4. **BM25F skill prefetcher (`MatchSkills`):** Scores installed skills (`minSkillBM25Score = 3.2`) and returns at most `3`. It drops skills shown in the last `3` turns unless a new surface appears, and re-primes after compaction via `generation_id` sentinels (`start_line = -4`).
 5. **Subtask decomposition (`DecomposeSubtasks`):** Splits multi-clause or multi-package prompts into up to `6` disjoint `SubtaskSlice` items, coalescing overflow via Louvain communities. It skips read-only diagnostics, `PASS_THROUGH`, `!`-bypass, questions, corrections, and worker briefs.
-6. **Card rendering and state:** Resolves exact `agy` `model`, display name, and `thinking` effort (`internal/search/telemetry_model.go`). `vet_history` and `session_meta` persist turn stats, `!`-bypasses, `[CONTEXT_KNEE_WARNING]` dedup, and `CHECKPOINT` offsets.
+6. **Card rendering and state:** Resolves exact `agy` `model`, display name, and `thinking` effort (`internal/hooks/telemetry/telemetry_model.go`). `vet_history` and `session_meta` persist turn stats, `!`-bypasses, `[CONTEXT_KNEE_WARNING]` dedup, and `CHECKPOINT` offsets.
 
 ## Read deduplication and file clamping
 
@@ -109,7 +109,7 @@ stateDiagram-v2
 
 ## Coordinator write guard and worker JIT capsules
 
-Isolated subagents and swarm workers share zero parent conversation memory (`PRD.md` R0). `PreToolUse` blocks direct Coordinator source edits on multi-subtask turns and injects `[FYR_WORKER_CAPSULE]` context into worker briefs (`internal/search/hook_coordinator.go`, `internal/search/hook_worker_capsule.go`).
+Isolated subagents and swarm workers share zero parent conversation memory (`PRD.md` R0). `PreToolUse` blocks direct Coordinator source edits on multi-subtask turns and injects `[FYR_WORKER_CAPSULE]` context into worker briefs (`internal/hooks/guard/hook_coordinator.go`, `internal/search/hook_worker_capsule.go`).
 
 ```mermaid
 flowchart LR
@@ -128,11 +128,11 @@ flowchart LR
 - **`[COORDINATOR_GUARD]`:** Denies direct source edits when a turn records `COORDINATE_SUBTASKS`, `SubtaskCount >= 2`, or a regular `coordinator-only` marker (`PRD.md` R6). Exemptions allow `.agents/scratch/**` (no symlinks), `TODO.md`, linked git worktrees, `!`-bypasses, and worker briefs.
 - **Deny-first model routing:** Denies weak model overrides on guarded roles (`reviewer`, `verifier`, `security`, `dreamer`) and `swarm` `judge` prefixes. Session resolution applies `30%` 5h and `20%` week headroom fallbacks (`internal/search/hook_subagent_models.go`).
 - **`[FYR_WORKER_CAPSULE]` (`<= 1,200 B`):** Triggers once when a target path exists and context is non-empty (or `coordinator-only` is active). It keeps `Files:` verbatim and packs fenced blocks in priority order: files, `<= 3` records (`140 B`), top skill (`<= 400 B`), `Hop-0` slice, and `<= 600 B` `spec_contracts`.
-- **`run_workflow` allowlist (`internal/search/hook_workflow.go`):** Limits scripts to workspace files or `~/.gemini/config/workflows/*.py` (`<= 1 MiB`), rejecting `..` and symlinks. It enforces `model="pro"` on guarded Python `agent(...)` calls while skipping string literals and comments.
+- **`run_workflow` allowlist (`internal/hooks/guard/hook_workflow.go`):** Limits scripts to workspace files or `~/.gemini/config/workflows/*.py` (`<= 1 MiB`), rejecting `..` and symlinks. It enforces `model="pro"` on guarded Python `agent(...)` calls while skipping string literals and comments.
 
 ## Watchdog breakers, bash stdin guard, and PostToolUse
 
-`PreToolUse` and `PostToolUse` share a two-layer Watchdog and interactive Bash guard inside the `200 ms` fail-open budget (`internal/search/hook_watchdog.go`, `internal/search/hook_bash_guard.go`). `watchdog_ring` and `session_meta` in `.agents/scratch/search.db` break loops and budget overruns before burning context.
+`PreToolUse` and `PostToolUse` share a two-layer Watchdog and interactive Bash guard inside the `200 ms` fail-open budget (`internal/search/hook_watchdog.go`, `internal/hooks/guard/hook_bash_guard.go`). `watchdog_ring` and `session_meta` in `.agents/scratch/search.db` break loops and budget overruns before burning context.
 
 ```mermaid
 flowchart LR
@@ -147,9 +147,9 @@ flowchart LR
 
 | Breaker / Hook | Implementation | Behavior |
 |---|---|---|
-| `[INTERACTIVE_STDIN]` | `internal/search/hook_bash_guard.go` | Blocks interactive stdin (`read -p`, `ssh` without `-o BatchMode=yes` + command) and prepends `export GIT_TERMINAL_PROMPT=0; ` on network `git` calls |
-| `[KICKOFF_GUARD]` | `internal/search/hook_pretool_ask.go` | Denies mid-build `ask_question` calls during Kickoff or worker turns unless citing a `PRD.md`/ADR conflict, Re-plan trigger, or quota exhaustion |
-| `[SEARCH_NUDGE]` | `internal/search/hook_pretool_nudge.go` | Emits one allow-with-notice nudge per turn steering indexed symbol greps toward `fyr search --refs` or `--slice` |
+| `[INTERACTIVE_STDIN]` | `internal/hooks/guard/hook_bash_guard.go` | Blocks interactive stdin (`read -p`, `ssh` without `-o BatchMode=yes` + command) and prepends `export GIT_TERMINAL_PROMPT=0; ` on network `git` calls |
+| `[KICKOFF_GUARD]` | `internal/hooks/guard/hook_pretool_ask.go` | Denies mid-build `ask_question` calls during Kickoff or worker turns unless citing a `PRD.md`/ADR conflict, Re-plan trigger, or quota exhaustion |
+| `[SEARCH_NUDGE]` | `internal/hooks/guard/hook_pretool_nudge.go` | Emits one allow-with-notice nudge per turn steering indexed symbol greps toward `fyr search --refs` or `--slice` |
 | `[POLL_LOOP]` | `internal/search/hook_watchdog.go` | Breaks repeated polling tool-call loops tracked in `watchdog_ring` |
 | `[ERROR_LOOP]` | `internal/search/hook_watchdog_ring.go` | Breaks `>= 3` identical failing calls or A-B-A-B repeating error loops in `watchdog_ring` |
 | `[SUBAGENT_BUDGET]` | `internal/search/hook_watchdog.go` | Tracks per-session `tool_calls` in `session_meta`, warning then denying at `(90, 120)` for builders and `(25, 40)` for audit roles |

@@ -1,4 +1,4 @@
-package search
+package guard
 
 import (
 	"bytes"
@@ -8,14 +8,17 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
 
-type gitIndexEntry struct {
+// GitIndexEntry represents one parsed entry from a git DIRC index file.
+type GitIndexEntry struct {
 	Path      string
 	MTimeSec  uint32
 	MTimeNsec uint32
@@ -33,7 +36,8 @@ type GoTreeState struct {
 	TreeSHA256  string
 }
 
-func resolveGitWorktreeDir(root string) string {
+// ResolveGitWorktreeDir returns the worktree gitdir path for root without spawning git.
+func ResolveGitWorktreeDir(root string) string {
 	dotGit := filepath.Join(root, ".git")
 	if isRegularDirNoSymlink(dotGit) {
 		return dotGit
@@ -45,7 +49,7 @@ func resolveGitWorktreeDir(root string) string {
 	return target
 }
 
-func readGitBranchFast(root, gitDir string) string {
+func readGitBranchFast(root, gitDir string, reftableBranchFn func(string) string) string {
 	if gitDir == "" {
 		return ""
 	}
@@ -56,7 +60,10 @@ func readGitBranchFast(root, gitDir string) string {
 	head := strings.TrimSpace(string(data))
 	if branch, ok := strings.CutPrefix(head, "ref: refs/heads/"); ok {
 		if branch == ".invalid" {
-			return readGitBranchReftable(root)
+			if reftableBranchFn != nil {
+				return reftableBranchFn(root)
+			}
+			return ""
 		}
 		return branch
 	}
@@ -69,24 +76,23 @@ func readGitBranchFast(root, gitDir string) string {
 	return head
 }
 
-// ComputeGoTreeState inspects .git/HEAD (falling back to bounded trail.Command
-// on Git reftable `.invalid` stubs), .git/index (DIRC v2/v3/v4), and Go files on disk,
+// ComputeGoTreeState inspects .git/HEAD, .git/index (DIRC v2/v3/v4), and Go files on disk,
 // returning the dirty Go paths and a deterministic Go tree hash.
-func ComputeGoTreeState(root string) (GoTreeState, error) {
-	gitDir := resolveGitWorktreeDir(root)
-	state := GoTreeState{Branch: readGitBranchFast(root, gitDir)}
+func ComputeGoTreeState(root string, reftableBranchFn func(string) string) (GoTreeState, error) {
+	gitDir := ResolveGitWorktreeDir(root)
+	state := GoTreeState{Branch: readGitBranchFast(root, gitDir, reftableBranchFn)}
 	var (
-		indexEntries []gitIndexEntry
+		indexEntries []GitIndexEntry
 		hasIndex     bool
 		err          error
 	)
 	if gitDir != "" {
-		indexEntries, hasIndex, err = readGitIndex(filepath.Join(gitDir, "index"))
+		indexEntries, hasIndex, err = ReadGitIndex(filepath.Join(gitDir, "index"))
 		if err != nil {
 			return state, err
 		}
 	}
-	tracked, dirtySet := checkTrackedGoEntries(root, indexEntries, hasIndex)
+	tracked, dirtySet := CheckTrackedGoEntries(root, indexEntries, hasIndex)
 	diskFiles, untrackedDirty, err := walkGoFilesForState(root, tracked, gitDir != "")
 	if err != nil {
 		return state, err
@@ -94,13 +100,14 @@ func ComputeGoTreeState(root string) (GoTreeState, error) {
 	for p := range untrackedDirty {
 		dirtySet[p] = true
 	}
-	state.DirtyGo = sortedMapKeys(dirtySet)
+	state.DirtyGo = slices.Sorted(maps.Keys(dirtySet))
 	state.GoFileCount = len(diskFiles)
 	state.TreeSHA256 = hashGoDiskFiles(root, diskFiles)
 	return state, nil
 }
 
-func checkTrackedGoEntries(root string, entries []gitIndexEntry, hasIndex bool) (map[string]bool, map[string]bool) {
+// CheckTrackedGoEntries compares tracked git index entries against disk to find dirty Go paths.
+func CheckTrackedGoEntries(root string, entries []GitIndexEntry, hasIndex bool) (map[string]bool, map[string]bool) {
 	tracked := make(map[string]bool, len(entries))
 	dirty := make(map[string]bool)
 	if !hasIndex {
@@ -114,14 +121,15 @@ func checkTrackedGoEntries(root string, entries []gitIndexEntry, hasIndex bool) 
 		if !isGoRelevantPath(e.Path) || (e.Mode&0o170000) != 0o100000 {
 			continue
 		}
-		if e.Stage != 0 || isTrackedEntryDirty(root, e) {
+		if e.Stage != 0 || IsTrackedEntryDirty(root, e) {
 			dirty[e.Path] = true
 		}
 	}
 	return tracked, dirty
 }
 
-func isTrackedEntryDirty(root string, e gitIndexEntry) bool {
+// IsTrackedEntryDirty reports whether a tracked index entry differs from the file on disk.
+func IsTrackedEntryDirty(root string, e GitIndexEntry) bool {
 	local := filepath.FromSlash(e.Path)
 	if !filepath.IsLocal(local) {
 		return false
@@ -147,35 +155,42 @@ func walkGoFilesForState(root string, tracked map[string]bool, isGit bool) ([]st
 	var files []string
 	untracked := make(map[string]bool)
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil
-		}
-		name := d.Name()
-		if d.IsDir() {
-			if p != root && (strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.Type()&os.ModeSymlink != 0 || !d.Type().IsRegular() {
-			return nil
-		}
-		rel, err := filepath.Rel(root, p)
-		if err != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-		if !isGoRelevantPath(rel) {
-			return nil
-		}
-		files = append(files, rel)
-		if isGit && !tracked[rel] {
-			untracked[rel] = true
-		}
-		return nil
+		return stepGoWalkEntry(root, p, d, walkErr, tracked, isGit, &files, untracked)
 	})
 	sort.Strings(files)
 	return files, untracked, err
+}
+
+func stepGoWalkEntry(root, p string, d fs.DirEntry, walkErr error, tracked map[string]bool, isGit bool, files *[]string, untracked map[string]bool) error {
+	if walkErr != nil {
+		return nil
+	}
+	if d.IsDir() {
+		if shouldSkipGoWalkDir(root, p, d.Name()) {
+			return filepath.SkipDir
+		}
+		return nil
+	}
+	if d.Type()&os.ModeSymlink != 0 || !d.Type().IsRegular() {
+		return nil
+	}
+	rel, err := filepath.Rel(root, p)
+	if err != nil {
+		return nil
+	}
+	rel = filepath.ToSlash(rel)
+	if !isGoRelevantPath(rel) {
+		return nil
+	}
+	*files = append(*files, rel)
+	if isGit && !tracked[rel] {
+		untracked[rel] = true
+	}
+	return nil
+}
+
+func shouldSkipGoWalkDir(root, p, name string) bool {
+	return p != root && (strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules")
 }
 
 func isGoRelevantPath(rel string) bool {
@@ -209,7 +224,8 @@ func gitBlobSHA1(data []byte) [20]byte {
 	return out
 }
 
-func readGitIndex(path string) ([]gitIndexEntry, bool, error) {
+// ReadGitIndex reads and parses a git DIRC index file at path.
+func ReadGitIndex(path string) ([]GitIndexEntry, bool, error) {
 	if path == "" {
 		return nil, false, nil
 	}
@@ -220,11 +236,12 @@ func readGitIndex(path string) ([]gitIndexEntry, bool, error) {
 		}
 		return nil, false, err
 	}
-	entries, err := parseGitIndex(data)
+	entries, err := ParseGitIndex(data)
 	return entries, err == nil, err
 }
 
-func parseGitIndex(data []byte) ([]gitIndexEntry, error) {
+// ParseGitIndex parses raw git DIRC v2/v3/v4 index bytes into entries.
+func ParseGitIndex(data []byte) ([]GitIndexEntry, error) {
 	if len(data) < 12 || string(data[:4]) != "DIRC" {
 		return nil, fmt.Errorf("invalid git index header")
 	}
@@ -238,7 +255,7 @@ func parseGitIndex(data []byte) ([]gitIndexEntry, error) {
 		return nil, fmt.Errorf("invalid git index entry count %d", rawCount)
 	}
 	count := int(rawCount)
-	entries := make([]gitIndexEntry, 0, count)
+	entries := make([]GitIndexEntry, 0, count)
 	pos, prev := 12, ""
 	for i := 0; i < count; i++ {
 		e, nextPos, err := parseGitIndexEntry(data, pos, version, prev)
@@ -251,9 +268,9 @@ func parseGitIndex(data []byte) ([]gitIndexEntry, error) {
 	return entries, nil
 }
 
-func parseGitIndexEntry(data []byte, pos int, version uint32, prevPath string) (gitIndexEntry, int, error) {
+func parseGitIndexEntry(data []byte, pos int, version uint32, prevPath string) (GitIndexEntry, int, error) {
 	if pos+62 > len(data) {
-		return gitIndexEntry{}, 0, fmt.Errorf("truncated git index entry")
+		return GitIndexEntry{}, 0, fmt.Errorf("truncated git index entry")
 	}
 	flags := binary.BigEndian.Uint16(data[pos+60 : pos+62])
 	nameStart := pos + 62
@@ -261,9 +278,9 @@ func parseGitIndexEntry(data []byte, pos int, version uint32, prevPath string) (
 		nameStart += 2
 	}
 	if nameStart >= len(data) {
-		return gitIndexEntry{}, 0, fmt.Errorf("truncated git index entry name")
+		return GitIndexEntry{}, 0, fmt.Errorf("truncated git index entry name")
 	}
-	e := gitIndexEntry{
+	e := GitIndexEntry{
 		MTimeSec:  binary.BigEndian.Uint32(data[pos+8 : pos+12]),
 		MTimeNsec: binary.BigEndian.Uint32(data[pos+12 : pos+16]),
 		Mode:      binary.BigEndian.Uint32(data[pos+24 : pos+28]),
@@ -271,15 +288,16 @@ func parseGitIndexEntry(data []byte, pos int, version uint32, prevPath string) (
 		Stage:     (flags >> 12) & 0x3,
 	}
 	copy(e.SHA1[:], data[pos+40:pos+60])
-	path, nextPos, err := decodeGitIndexPath(data, pos, nameStart, version, prevPath)
+	path, nextPos, err := DecodeGitIndexPath(data, pos, nameStart, version, prevPath)
 	if err != nil {
-		return gitIndexEntry{}, 0, err
+		return GitIndexEntry{}, 0, err
 	}
 	e.Path = path
 	return e, nextPos, nil
 }
 
-func decodeGitIndexPath(data []byte, entryStart, nameStart int, version uint32, prevPath string) (string, int, error) {
+// DecodeGitIndexPath decodes an entry path for DIRC v2/v3 or prefix-compressed v4.
+func DecodeGitIndexPath(data []byte, entryStart, nameStart int, version uint32, prevPath string) (string, int, error) {
 	if version >= 4 {
 		strip, idx, ok := readGitVarint(data, nameStart)
 		if !ok || strip < 0 || strip > len(prevPath) {

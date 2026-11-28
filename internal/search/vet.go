@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 
+	"github.com/kesokaj/fyr/internal/hooks/telemetry"
 	"github.com/kesokaj/fyr/internal/vet"
 )
 
@@ -127,12 +128,7 @@ func BuildTurnEnvelope(res *VetResult, slice SliceResult, brainCtx TurnBrainCont
 // BuildTurnEnvelopeWithMeta serializes turn metadata, contract, advisory route,
 // and delta-only enrichment using typed TurnBannerMeta without stringly round-tripping.
 func BuildTurnEnvelopeWithMeta(res *VetResult, slice SliceResult, brainCtx TurnBrainContext, meta TurnBannerMeta) (string, string) {
-	res.FenceBoundary = New().String()
-	envCard := formatPreInvocationEnvelopeWithMeta(*res, slice, brainCtx, meta)
-	res.TurnContract = envCard
-	res.SystemMessage = envCard
-	res.UserMarkdownBanner = envCard
-	return envCard, envCard
+	return telemetry.BuildTurnEnvelopeWithMeta(res, slice, brainCtx, meta)
 }
 
 func vetPromptCoreWithHistory(
@@ -158,17 +154,9 @@ func collectMatchedRecords(brainCtx TurnBrainContext) []MatchedRecord {
 
 func recordProvenance(r MatchedRecord) string { return vet.RecordProvenance(r) }
 
-func stripAnySandboxPreamble(prompt string) string { return vet.StripAnySandboxPreamble(prompt) }
-
 func isWorkerBriefPrompt(prompt string) bool { return vet.IsWorkerBriefPrompt(prompt) }
 
-func isKickoffHeaderMetaLine(line string) bool { return vet.IsKickoffHeaderMetaLine(line) }
-
 func hasWorkerCapsuleSection(lines []string) bool { return vet.HasWorkerCapsuleSection(lines) }
-
-func hasExplicitMultiPhaseOrParallelCues(low string) bool {
-	return vet.HasExplicitMultiPhaseOrParallelCues(low)
-}
 
 func extractPromptAndSliceFiles(prompt string, sliceFiles []string) []string {
 	return vet.ExtractPromptAndSliceFiles(prompt, sliceFiles)
@@ -178,11 +166,7 @@ func normalizeSlashPath(p string) string { return vet.NormalizeSlashPath(p) }
 
 func isDirPathToken(p string) bool { return vet.IsDirPathToken(p) }
 
-func packageDirKey(p string) string { return vet.PackageDirKey(p) }
-
 func collapseOneLine(s string, maxLen int) string { return vet.CollapseOneLine(s, maxLen) }
-
-func containsAnySubstr(s string, subs ...string) bool { return vet.ContainsAnySubstr(s, subs...) }
 
 func filterSuggestedSkills(skills []SkillMeta, curFiles []string, recentSkills map[string]bool, recentPivots []string) []SkillMeta {
 	return vet.FilterSuggestedSkills(skills, curFiles, recentSkills, recentPivots)

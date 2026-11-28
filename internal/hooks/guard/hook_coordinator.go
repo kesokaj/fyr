@@ -1,29 +1,46 @@
-package search
+package guard
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/readledger"
+	"github.com/kesokaj/fyr/internal/trail"
+	"github.com/kesokaj/fyr/internal/vet"
 )
 
-func isRegularFileFast(path string) bool {
+// CoordinatorInput carries workspace and prompt fields needed by coordinator guards.
+type CoordinatorInput struct {
+	Home           string
+	Dir            string
+	ConversationID string
+	WorkspacePaths []string
+	Cwd            string
+	LastUserInput  string
+}
+
+// IsRegularFileFast reports whether path exists as a non-symlink regular file.
+func IsRegularFileFast(path string) bool {
 	fi, err := os.Lstat(path)
 	return err == nil && fi.Mode().IsRegular()
 }
 
-func isCoordinatorOnlyMode(home, root string) bool {
-	if root != "" && checkScratchNoSymlinks(root) == nil {
-		if isRegularFileFast(filepath.Join(root, ".agents", "scratch", "coordinator-only")) {
+// IsCoordinatorOnlyMode reports whether repo-local or global coordinator-only marker files are present.
+func IsCoordinatorOnlyMode(home, root string) bool {
+	if root != "" && trail.CheckScratchNoSymlinks(root) == nil {
+		if IsRegularFileFast(filepath.Join(root, ".agents", "scratch", "coordinator-only")) {
 			return true
 		}
 	}
 	if h := strings.TrimSpace(home); h != "" {
 		stateDir := filepath.Join(h, harness.StateDir)
 		if fi, err := os.Lstat(stateDir); err == nil && fi.Mode()&os.ModeSymlink == 0 && fi.IsDir() {
-			if isRegularFileFast(filepath.Join(stateDir, "coordinator-only")) {
+			if IsRegularFileFast(filepath.Join(stateDir, "coordinator-only")) {
 				return true
 			}
 		}
@@ -31,9 +48,10 @@ func isCoordinatorOnlyMode(home, root string) bool {
 	return false
 }
 
-func resolveExplicitHookDirs(o Options, in HookInput) (string, string) {
+// ResolveExplicitHookDirs returns the resolved git root and first explicit workspace directory.
+func ResolveExplicitHookDirs(in CoordinatorInput) (string, string) {
 	firstDir := ""
-	cands := append(append([]string{}, in.WorkspacePaths...), in.Cwd, o.Dir)
+	cands := append(append([]string{}, in.WorkspacePaths...), in.Cwd, in.Dir)
 	for _, raw := range cands {
 		p := strings.TrimSpace(raw)
 		if p == "" {
@@ -42,47 +60,63 @@ func resolveExplicitHookDirs(o Options, in HookInput) (string, string) {
 		if firstDir == "" {
 			firstDir = p
 		}
-		if root, _, ok := findGitRootFast(p); ok {
+		if root, _, ok := FindGitRootFast(p); ok {
 			return root, root
 		}
 	}
 	return "", firstDir
 }
 
-func parseWorkerFilesHeader(prompt string) ([]string, bool) {
+// ParseWorkerFilesHeader extracts leased file paths from a worker brief's Files: header.
+func ParseWorkerFilesHeader(prompt string) ([]string, bool) {
 	var files []string
 	seen := map[string]bool{}
 	hasHeader, inBullets := false, false
-	addTok := func(tok string) {
-		clean := normalizeSlashPath(strings.Trim(tok, "`'\",;()[]"))
-		if low := strings.ToLower(clean); clean != "" && low != "none" && low != "<none>" && low != "(none)" && !seen[clean] {
-			seen[clean] = true
-			files = append(files, clean)
-		}
-	}
 	for _, raw := range strings.Split(strings.ReplaceAll(prompt, "\r\n", "\n"), "\n") {
 		line := strings.TrimSpace(raw)
 		if strings.HasPrefix(strings.ToLower(line), "files:") {
 			hasHeader = true
 			rest := strings.TrimSpace(line[len("files:"):])
 			inBullets = rest == ""
-			for _, part := range strings.FieldsFunc(rest, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' }) {
-				addTok(part)
-			}
+			appendWorkerFileTokens(rest, seen, &files)
 			continue
 		}
-		if inBullets && (strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ")) {
-			if fields := strings.Fields(line[2:]); len(fields) > 0 {
-				addTok(fields[0])
-			}
-		} else if line != "" {
-			inBullets = false
-		}
+		inBullets = stepWorkerFilesBullet(line, inBullets, seen, &files)
 	}
 	return files, hasHeader
 }
 
-func checkCoordinatorWriteGuard(o Options, dir, toolDir string, in HookInput, target string) string {
+func appendWorkerFileTokens(rest string, seen map[string]bool, files *[]string) {
+	for _, part := range strings.FieldsFunc(rest, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' }) {
+		addWorkerFileToken(part, seen, files)
+	}
+}
+
+func stepWorkerFilesBullet(line string, inBullets bool, seen map[string]bool, files *[]string) bool {
+	if inBullets && (strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ")) {
+		if fields := strings.Fields(line[2:]); len(fields) > 0 {
+			addWorkerFileToken(fields[0], seen, files)
+		}
+		return true
+	}
+	if line != "" {
+		return false
+	}
+	return inBullets
+}
+
+func addWorkerFileToken(tok string, seen map[string]bool, files *[]string) {
+	clean := vet.NormalizeSlashPath(strings.Trim(tok, "`'\",;()[]"))
+	low := strings.ToLower(clean)
+	if clean == "" || low == "none" || low == "<none>" || low == "(none)" || seen[clean] {
+		return
+	}
+	seen[clean] = true
+	*files = append(*files, clean)
+}
+
+// CheckCoordinatorWriteGuard returns a denial reason if direct edits are blocked for the Coordinator.
+func CheckCoordinatorWriteGuard(in CoordinatorInput, dir, toolDir, target string, openLedgerDB func(root string) (*sql.DB, func(), error)) string {
 	root, commonDir, isGit := resolveWriteGuardGitRoot(toolDir, dir, target)
 	if isCoordinatorWriteExemptPath(root, toolDir, target) {
 		return ""
@@ -93,7 +127,7 @@ func checkCoordinatorWriteGuard(o Options, dir, toolDir string, in HookInput, ta
 	if hasBangOrWorkerSignal(in.LastUserInput) {
 		return ""
 	}
-	lastVet := readLatestVetHistoryFast(root, in.ConversationID)
+	lastVet := readLatestVetHistoryFast(root, in.ConversationID, openLedgerDB)
 	if lastVet != nil && hasBangOrWorkerSignal(lastVet.RawPrompt) {
 		return ""
 	}
@@ -104,7 +138,7 @@ func checkCoordinatorWriteGuard(o Options, dir, toolDir string, in HookInput, ta
 		}
 		return fmt.Sprintf("[COORDINATOR_GUARD] %s blocks direct Coordinator source edits; dispatch an isolated worker (invoke_subagent / swarm with Files: and workspace=\"share\") or prefix prompt with `!` to bypass.", label)
 	}
-	if isCoordinatorOnlyMode(o.Home, root) {
+	if IsCoordinatorOnlyMode(in.Home, root) {
 		return "[COORDINATOR_GUARD] coordinator-only mode blocks direct Coordinator source edits; dispatch an isolated worker (invoke_subagent / swarm with Files: and workspace=\"share\") or prefix prompt with `!` to bypass."
 	}
 	return ""
@@ -113,8 +147,8 @@ func checkCoordinatorWriteGuard(o Options, dir, toolDir string, in HookInput, ta
 func resolveWriteGuardGitRoot(toolDir, dir, target string) (string, string, bool) {
 	var cands []string
 	if strings.TrimSpace(target) != "" {
-		if resolved := resolveTargetWithAncestors(toolDir, target); resolved != "" {
-			if anc := existingAncestorDir(filepath.FromSlash(resolved)); anc != "" {
+		if resolved := ResolveTargetWithAncestors(toolDir, target); resolved != "" {
+			if anc := ExistingAncestorDir(filepath.FromSlash(resolved)); anc != "" {
 				cands = append(cands, anc)
 			}
 		}
@@ -124,14 +158,15 @@ func resolveWriteGuardGitRoot(toolDir, dir, target string) (string, string, bool
 		if strings.TrimSpace(d) == "" {
 			continue
 		}
-		if root, commonDir, ok := findGitRootFast(d); ok {
+		if root, commonDir, ok := FindGitRootFast(d); ok {
 			return root, commonDir, true
 		}
 	}
 	return "", "", false
 }
 
-func existingAncestorDir(path string) string {
+// ExistingAncestorDir walks upward from path until an existing directory is found.
+func ExistingAncestorDir(path string) string {
 	for cur := filepath.Clean(path); ; {
 		if fi, err := os.Stat(cur); err == nil && fi.IsDir() {
 			return cur
@@ -156,8 +191,8 @@ func isCoordinatorWriteExemptPath(root, toolDir, target string) bool {
 	if relBase == "" {
 		relBase = base
 	}
-	resolved := resolveTargetWithAncestors(relBase, target)
-	canonBase := CanonicalizePath("", base)
+	resolved := ResolveTargetWithAncestors(relBase, target)
+	canonBase := readledger.CanonicalizePath("", base)
 	r, err := filepath.Rel(filepath.FromSlash(canonBase), filepath.FromSlash(resolved))
 	if err != nil {
 		return false
@@ -166,16 +201,17 @@ func isCoordinatorWriteExemptPath(root, toolDir, target string) bool {
 	if rel != "TODO.md" && rel != ".agents/scratch" && !strings.HasPrefix(rel, ".agents/scratch/") {
 		return false
 	}
-	if hasSymlinkSegmentUnder(base, relBase, target) || hasSymlinkSegmentUnder(canonBase, canonBase, filepath.FromSlash(resolved)) {
+	if HasSymlinkSegmentUnder(base, relBase, target) || HasSymlinkSegmentUnder(canonBase, canonBase, filepath.FromSlash(resolved)) {
 		return false
 	}
-	if checkScratchNoSymlinks(base) != nil {
+	if trail.CheckScratchNoSymlinks(base) != nil {
 		return rel == "TODO.md"
 	}
 	return true
 }
 
-func hasSymlinkSegmentUnder(root, relBase, target string) bool {
+// HasSymlinkSegmentUnder reports whether any path component of target under root is a symlink.
+func HasSymlinkSegmentUnder(root, relBase, target string) bool {
 	p := strings.TrimSpace(target)
 	if !filepath.IsAbs(p) && relBase != "" {
 		p = filepath.Join(relBase, p)
@@ -198,7 +234,8 @@ func hasSymlinkSegmentUnder(root, relBase, target string) bool {
 	return false
 }
 
-func resolveTargetWithAncestors(toolDir, target string) string {
+// ResolveTargetWithAncestors resolves target relative to toolDir, evaluating existing symlink ancestors.
+func ResolveTargetWithAncestors(toolDir, target string) string {
 	p := strings.TrimSpace(target)
 	if !filepath.IsAbs(p) && toolDir != "" {
 		p = filepath.Join(toolDir, p)
@@ -221,15 +258,15 @@ func resolveTargetWithAncestors(toolDir, target string) string {
 }
 
 func hasBangOrWorkerSignal(raw string) bool {
-	trimmed := stripAnySandboxPreamble(raw)
-	return trimmed != "" && (strings.HasPrefix(trimmed, "!") || isWorkerBriefPrompt(trimmed))
+	trimmed := vet.StripAnySandboxPreamble(raw)
+	return trimmed != "" && (strings.HasPrefix(trimmed, "!") || vet.IsWorkerBriefPrompt(trimmed))
 }
 
-func isSinglePackageNonParallelVet(row *VetHistoryRow) bool {
-	if row == nil || hasExplicitMultiPhaseOrParallelCues(strings.ToLower(row.RawPrompt)) {
+func isSinglePackageNonParallelVet(row *vet.HistoryRow) bool {
+	if row == nil || vet.HasExplicitMultiPhaseOrParallelCues(strings.ToLower(row.RawPrompt)) {
 		return false
 	}
-	files := extractPromptAndSliceFiles(row.RawPrompt, nil)
+	files := vet.ExtractPromptAndSliceFiles(row.RawPrompt, nil)
 	if len(files) == 0 {
 		files = row.PivotFiles
 	}
@@ -238,23 +275,25 @@ func isSinglePackageNonParallelVet(row *VetHistoryRow) bool {
 	}
 	dirs := map[string]bool{}
 	for _, f := range files {
-		if n := normalizeSlashPath(f); n != "" {
-			dirs[packageDirKey(n)] = true
+		if n := vet.NormalizeSlashPath(f); n != "" {
+			dirs[vet.PackageDirKey(n)] = true
 		}
 	}
 	return len(dirs) == 1
 }
 
-func readLatestVetHistoryFast(root, convID string) *VetHistoryRow {
-	if root == "" || checkScratchNoSymlinks(root) != nil || !isRegularFileFast(projectDB(root)) {
+func readLatestVetHistoryFast(root, convID string, openLedgerDB func(root string) (*sql.DB, func(), error)) *vet.HistoryRow {
+	if root == "" || openLedgerDB == nil || trail.CheckScratchNoSymlinks(root) != nil || !IsRegularFileFast(ProjectDB(root)) {
 		return nil
 	}
-	st, _, err := openLedgerStore(root)
-	if err != nil || st == nil {
+	db, cleanup, err := openLedgerDB(root)
+	if err != nil || db == nil {
 		return nil
 	}
-	defer st.close()
-	row, err := st.lastVetHistory(convID, 0)
+	if cleanup != nil {
+		defer cleanup()
+	}
+	row, err := vet.LastHistoryCtx(context.Background(), db, convID, 0)
 	if err != nil {
 		return nil
 	}

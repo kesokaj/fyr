@@ -1,11 +1,10 @@
-package search
+package telemetry
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,118 +13,122 @@ import (
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/models"
+	"github.com/kesokaj/fyr/internal/readledger"
+	"github.com/kesokaj/fyr/internal/vet"
 )
 
-func dedupContextKneeWarning(home string, sc *scope, convID, sessionModel string, state SessionState) (string, string) {
+// ArtifactDeps supplies store and environment callbacks for telemetry artifact writes.
+type ArtifactDeps struct {
+	HooksDisabled    func(home, dir string) bool
+	RecordVetHistory func(ctx context.Context, convID string, turnNum int, rawPrompt string, res vet.Result, pivotFiles []string, m vet.TurnMetrics) error
+	ListVetHistory   func(dir, convID string, limit int) ([]vet.HistoryRow, bool)
+}
+
+// DedupContextKneeWarning emits a once-per-bucket context-knee warning when state crosses the model knee.
+func DedupContextKneeWarning(home, convID, sessionModel string, state readledger.SessionState, markOnce func(convID string, genID, turnNum int, key string) bool) (string, string) {
 	knee := models.ContextKneeTokensForHome(home, sessionModel)
 	if knee <= 0 || int64(state.EstTokens) < knee {
 		return "", ""
 	}
 	step := max(knee/2, int64(100_000))
 	bucket := (int64(state.EstTokens) - knee) / step
-	var st *store
-	if sc != nil {
-		st = sc.st
-	}
-	if !markSessionSentinelOnce(st, convID, state.GenerationID, state.TurnCount, fmt.Sprintf("__knee_warn__:%d:%d", knee, bucket)) {
+	if markOnce != nil && !markOnce(convID, state.GenerationID, state.TurnCount, fmt.Sprintf("__knee_warn__:%d:%d", knee, bucket)) {
 		return "", ""
 	}
 	kneeLabel := fmt.Sprintf("%d tokens", knee)
 	if knee >= 1000 {
 		kneeLabel = fmt.Sprintf("%dK", (knee+500)/1000)
 	}
-	full := fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= %s 60%% model knee) — %s (or /compact).", state.EstTokens/1000, kneeLabel, contextKneeHandoffCue)
-	short := fmt.Sprintf("%dk tokens (>= %s 60%% model knee) — %s", state.EstTokens/1000, kneeLabel, contextKneeHandoffCue)
+	full := fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= %s 60%% model knee) — %s (or /compact).", state.EstTokens/1000, kneeLabel, ContextKneeHandoffCue)
+	short := fmt.Sprintf("%dk tokens (>= %s 60%% model knee) — %s", state.EstTokens/1000, kneeLabel, ContextKneeHandoffCue)
 	return full, short
 }
 
-func finalizeHookEnvelope(ctx context.Context, home string, cat modelsCatalogFile, hasCat bool, sc *scope, dir, convID string, turnNum int, rawPrompt, cleanPrompt string, in HookInput, state SessionState, vetRes VetResult, slice SliceResult, brainCtx TurnBrainContext, meta TurnBannerMeta, sections []string, start time.Time) (string, string) {
+// FinalizeHookEnvelope renders the banner, persists vet history, and writes the process artifact.
+func FinalizeHookEnvelope(ctx context.Context, home string, cat ModelsCatalogFile, hasCat bool, deps ArtifactDeps, dir, convID string, turnNum int, rawPrompt, cleanPrompt string, in ConvInput, state readledger.SessionState, vetRes vet.Result, slice vet.SliceResult, brainCtx vet.TurnBrainContext, meta TurnBannerMeta, sections []string, start time.Time) (string, string) {
 	if ctx != nil && ctx.Err() != nil {
 		return "", ""
 	}
 	sysMsg, banner := BuildTurnEnvelopeWithMeta(&vetRes, slice, brainCtx, meta)
-	if vetRes.Gate == GatePassThrough && !vetRes.Bypassed && !state.Compacted && len(sections) == 0 && len(vetRes.Conflicts) == 0 {
+	if vetRes.Gate == vet.GatePassThrough && !vetRes.Bypassed && !state.Compacted && len(sections) == 0 && len(vetRes.Conflicts) == 0 {
 		sysMsg, banner = "", ""
 	}
 	if ctx != nil && ctx.Err() != nil {
 		return "", ""
 	}
-	if sc != nil && sc.st != nil && rawPrompt != "" {
+	if deps.RecordVetHistory != nil && rawPrompt != "" {
 		durMS := 0
 		if !start.IsZero() {
 			durMS = int(time.Since(start).Milliseconds())
 		}
-		pivotFiles := extractPromptAndSliceFiles(cleanPrompt, slice.Files)
+		pivotFiles := vet.ExtractPromptAndSliceFiles(cleanPrompt, slice.Files)
 		wctx := ctx
 		if wctx == nil {
 			wctx = context.Background()
 		}
-		_ = sc.st.recordVetHistoryWithMetricsCtx(wctx, convID, turnNum, StripSandboxPreamble(strings.TrimSpace(rawPrompt)), vetRes, pivotFiles, vetTurnMetrics{
-			durationMS:    durMS,
-			injectedBytes: len(sysMsg),
+		_ = deps.RecordVetHistory(wctx, convID, turnNum, vet.StripSandboxPreamble(strings.TrimSpace(rawPrompt)), vetRes, pivotFiles, vet.TurnMetrics{
+			DurationMS:    durMS,
+			InjectedBytes: len(sysMsg),
 		})
 	}
 	if ctx != nil && ctx.Err() != nil {
 		return "", ""
 	}
-	writeHookProcessArtifactWithCatalog(home, cat, hasCat, sc, dir, in, inferProcessStage(turnNum, vetRes), vetRes.MatchedRecords)
+	WriteHookProcessArtifactWithCatalog(home, cat, hasCat, deps, dir, in, inferProcessStage(turnNum, vetRes), vetRes.MatchedRecords)
 	return sysMsg, banner
 }
 
-func inferProcessStage(turnNum int, res VetResult) string {
+func inferProcessStage(turnNum int, res vet.Result) string {
 	switch {
-	case res.Gate == GateVetFirst:
+	case res.Gate == vet.GateVetFirst:
 		return "VET"
-	case res.Intent == IntentRelease:
+	case res.Intent == vet.IntentRelease:
 		return "VERIFY"
-	case res.Intent == IntentFeature && res.Score < 65:
+	case res.Intent == vet.IntentFeature && res.Score < 65:
 		return "PLAN"
-	case turnNum <= 1 && res.Intent == IntentQuestion:
+	case turnNum <= 1 && res.Intent == vet.IntentQuestion:
 		return "RESUME"
 	default:
 		return "BUILD"
 	}
 }
 
-func writeHookProcessArtifact(home string, sc *scope, dir string, in HookInput, stage string, records []MatchedRecord) {
-	cat, hasCat := loadModelsCatalog(home)
-	writeHookProcessArtifactWithCatalog(home, cat, hasCat, sc, dir, in, stage, records)
+// WriteHookProcessArtifact loads the model catalog and refreshes fyr-process.md.
+func WriteHookProcessArtifact(home string, deps ArtifactDeps, dir string, in ConvInput, stage string, records []vet.MatchedRecord) {
+	cat, hasCat := LoadModelsCatalog(home)
+	WriteHookProcessArtifactWithCatalog(home, cat, hasCat, deps, dir, in, stage, records)
 }
 
-func writeHookProcessArtifactWithCatalog(home string, cat modelsCatalogFile, hasCat bool, sc *scope, dir string, in HookInput, stage string, records []MatchedRecord) {
-	if strings.TrimSpace(home) == "" || hooksDisabledForHome(home, dir) {
+// WriteHookProcessArtifactWithCatalog writes fyr-process.md using an already-loaded model catalog.
+func WriteHookProcessArtifactWithCatalog(home string, cat ModelsCatalogFile, hasCat bool, deps ArtifactDeps, dir string, in ConvInput, stage string, records []vet.MatchedRecord) {
+	if strings.TrimSpace(home) == "" || (deps.HooksDisabled != nil && deps.HooksDisabled(home, dir)) {
 		return
 	}
-	target := resolveProcessArtifactPathForHome(home, in)
+	target := ResolveProcessArtifactPathForHome(home, in)
 	if target == "" {
 		return
 	}
-	var rows []VetHistoryRow
-	if sc != nil && sc.st != nil {
-		rows, _ = sc.st.listConversationVetHistory(in.ConversationID, 20)
-	} else {
-		root, _, ok := findGitRootFast(dir)
+	var rows []vet.HistoryRow
+	if deps.ListVetHistory != nil {
+		var ok bool
+		rows, ok = deps.ListVetHistory(dir, in.ConversationID, 20)
 		if !ok {
 			return
 		}
-		st, err := openStore(projectDB(root), io.Discard)
-		if err != nil {
-			return
-		}
-		defer st.close()
-		rows, _ = st.listConversationVetHistory(in.ConversationID, 20)
 	}
-	content := renderProcessTelemetryMarkdownWithCatalog(home, cat, hasCat, in.ConversationID, stage, rows, records)
-	_ = writeProcessArtifactAtomic(target, []byte(content))
+	content := RenderProcessTelemetryMarkdownWithCatalog(home, cat, hasCat, in.ConversationID, stage, rows, records)
+	_ = WriteProcessArtifactAtomic(target, []byte(content))
 }
 
-type workStatusSnapshot struct {
+// WorkStatusSnapshot captures the latest wave status.json snapshot under ~/.config/fyr/work/.
+type WorkStatusSnapshot struct {
 	Stamp     string               `json:"stamp"`
 	UpdatedAt string               `json:"updated_at"`
-	Workers   []workWorkerSnapshot `json:"workers"`
+	Workers   []WorkWorkerSnapshot `json:"workers"`
 }
 
-type workWorkerSnapshot struct {
+// WorkWorkerSnapshot captures one worker entry in WorkStatusSnapshot.
+type WorkWorkerSnapshot struct {
 	Name         string `json:"name"`
 	State        string `json:"state"`
 	Model        string `json:"model"`
@@ -137,14 +140,15 @@ type workWorkerSnapshot struct {
 	LastStep     string `json:"last_step"`
 }
 
-func loadLatestWorkStatus(home string) (workStatusSnapshot, bool) {
+// LoadLatestWorkStatus reads the newest valid wave status.json from home.
+func LoadLatestWorkStatus(home string) (WorkStatusSnapshot, bool) {
 	if strings.TrimSpace(home) == "" {
-		return workStatusSnapshot{}, false
+		return WorkStatusSnapshot{}, false
 	}
 	workDir := filepath.Join(home, harness.StateDir, "work")
 	entries, err := os.ReadDir(workDir)
 	if err != nil {
-		return workStatusSnapshot{}, false
+		return WorkStatusSnapshot{}, false
 	}
 	var stamps []string
 	for _, e := range entries {
@@ -156,35 +160,36 @@ func loadLatestWorkStatus(home string) (workStatusSnapshot, bool) {
 		}
 	}
 	if len(stamps) == 0 {
-		return workStatusSnapshot{}, false
+		return WorkStatusSnapshot{}, false
 	}
 	sort.Strings(stamps)
 	newest := stamps[len(stamps)-1]
 	data, err := os.ReadFile(filepath.Join(workDir, newest, "status.json"))
 	if err != nil {
-		return workStatusSnapshot{}, false
+		return WorkStatusSnapshot{}, false
 	}
-	var snap workStatusSnapshot
+	var snap WorkStatusSnapshot
 	if err := json.Unmarshal(data, &snap); err != nil || len(snap.Workers) == 0 {
-		return workStatusSnapshot{}, false
+		return WorkStatusSnapshot{}, false
 	}
 	return snap, true
 }
 
-func resolveProcessArtifactPathForHome(home string, in HookInput) string {
+// ResolveProcessArtifactPathForHome returns the anchored fyr-process.md path under home's brain dir.
+func ResolveProcessArtifactPathForHome(home string, in ConvInput) string {
 	if strings.TrimSpace(home) == "" {
 		return ""
 	}
 	if p := strings.TrimSpace(in.ArtifactDirectoryPath); p != "" {
 		clean := filepath.Clean(p)
-		if isUnderBrainDirForHome(home, clean) {
+		if IsUnderBrainDirForHome(home, clean) {
 			return filepath.Join(clean, "fyr-process.md")
 		}
 	}
 	if tp := strings.TrimSpace(in.TranscriptPath); tp != "" {
 		cur := filepath.Dir(filepath.Clean(tp))
 		for i := 0; i < 6 && cur != "/" && cur != "."; i++ {
-			if isUnderBrainDirForHome(home, cur) {
+			if IsUnderBrainDirForHome(home, cur) {
 				return filepath.Join(cur, "fyr-process.md")
 			}
 			cur = filepath.Dir(cur)
@@ -193,7 +198,8 @@ func resolveProcessArtifactPathForHome(home string, in HookInput) string {
 	return ""
 }
 
-func isUnderBrainDirForHome(home, dir string) bool {
+// IsUnderBrainDirForHome verifies dir is a direct regular subdir of home/.gemini/antigravity-cli/brain.
+func IsUnderBrainDirForHome(home, dir string) bool {
 	if strings.TrimSpace(home) == "" || !filepath.IsAbs(dir) {
 		return false
 	}
@@ -209,7 +215,7 @@ func isUnderBrainDirForHome(home, dir string) bool {
 		return false
 	}
 	for _, p := range []string{brainDir, dir} {
-		if !isRegularDirOrAbsent(p) {
+		if !IsRegularDirOrAbsent(p) {
 			return false
 		}
 	}
@@ -233,10 +239,11 @@ func matchesAnchoredBrainRoot(home, brainDir string) bool {
 	}
 	agyDir := filepath.Dir(cleanBrain)
 	geminiDir := filepath.Dir(agyDir)
-	return isRegularDirOrAbsent(geminiDir) && isRegularDirOrAbsent(agyDir)
+	return IsRegularDirOrAbsent(geminiDir) && IsRegularDirOrAbsent(agyDir)
 }
 
-func isRegularDirOrAbsent(p string) bool {
+// IsRegularDirOrAbsent reports whether p is absent or a non-symlink directory.
+func IsRegularDirOrAbsent(p string) bool {
 	st, err := os.Lstat(p)
 	if err != nil {
 		return errors.Is(err, os.ErrNotExist)
@@ -244,10 +251,11 @@ func isRegularDirOrAbsent(p string) bool {
 	return st.Mode()&os.ModeSymlink == 0 && st.IsDir()
 }
 
-func writeProcessArtifactAtomic(target string, data []byte) error {
+// WriteProcessArtifactAtomic safely writes data to target via temp file + rename without following symlinks.
+func WriteProcessArtifactAtomic(target string, data []byte) error {
 	parent := filepath.Dir(target)
 	brainDir := filepath.Dir(parent)
-	if !isRegularDirOrAbsent(brainDir) {
+	if !IsRegularDirOrAbsent(brainDir) {
 		return fmt.Errorf("brain dir is not a regular directory")
 	}
 	if st, err := os.Lstat(parent); err != nil {

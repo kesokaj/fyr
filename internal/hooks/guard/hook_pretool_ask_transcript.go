@@ -1,4 +1,4 @@
-package search
+package guard
 
 import (
 	"bytes"
@@ -12,8 +12,8 @@ import (
 
 const (
 	askTranscriptScanBytes     = 32 << 10
-	askTranscriptTailBytes     = 512 << 10
-	askTranscriptMaxCandidates = 1024
+	AskTranscriptTailBytes     = 512 << 10
+	AskTranscriptMaxCandidates = 1024
 )
 
 func readTranscriptLatestUserPrompt(path string) string {
@@ -38,7 +38,7 @@ func readTranscriptLatestUserPrompt(path string) string {
 	if text != "" {
 		return text
 	}
-	if truncated || st.Size() <= askTranscriptTailBytes {
+	if truncated || st.Size() <= AskTranscriptTailBytes {
 		return ""
 	}
 	return readTranscriptHeadUserPrompt(f)
@@ -46,8 +46,8 @@ func readTranscriptLatestUserPrompt(path string) string {
 
 func readTranscriptTailUserPrompt(f *os.File, size int64) (string, bool) {
 	skipFirst := false
-	if size > askTranscriptTailBytes {
-		scanStart := size - askTranscriptTailBytes
+	if size > AskTranscriptTailBytes {
+		scanStart := size - AskTranscriptTailBytes
 		if _, err := f.Seek(scanStart-1, io.SeekStart); err != nil {
 			return "", false
 		}
@@ -57,7 +57,7 @@ func readTranscriptTailUserPrompt(f *os.File, size int64) (string, bool) {
 		}
 		skipFirst = prev[0] != '\n'
 	}
-	data, err := io.ReadAll(io.LimitReader(f, askTranscriptTailBytes))
+	data, err := io.ReadAll(io.LimitReader(f, AskTranscriptTailBytes))
 	if err != nil || len(data) == 0 {
 		return "", false
 	}
@@ -68,7 +68,7 @@ func readTranscriptTailUserPrompt(f *os.File, size int64) (string, bool) {
 		}
 		data = data[idx+1:]
 	}
-	return findLatestTranscriptUserPrompt(data, askTranscriptMaxCandidates)
+	return findLatestTranscriptUserPrompt(data, AskTranscriptMaxCandidates)
 }
 
 func readTranscriptHeadUserPrompt(f *os.File) string {
@@ -79,7 +79,7 @@ func readTranscriptHeadUserPrompt(f *os.File) string {
 	if err != nil || len(data) == 0 {
 		return ""
 	}
-	text, _ := findLatestTranscriptUserPrompt(data, askTranscriptMaxCandidates)
+	text, _ := findLatestTranscriptUserPrompt(data, AskTranscriptMaxCandidates)
 	return text
 }
 
@@ -131,14 +131,14 @@ func extractTranscriptUserText(line string) string {
 	if hasExplicitNonUserRole(row) {
 		return ""
 	}
-	if s := extractStringArg(row, "userInput", "user_input", "lastUserInput", "last_user_input", "prompt"); s != "" {
+	if s := ExtractStringArg(row, "userInput", "user_input", "lastUserInput", "last_user_input", "prompt"); s != "" {
 		return s
 	}
 	if isUserTranscriptRole(row) {
 		if s := extractContentText(row["content"]); s != "" {
 			return s
 		}
-		if s := extractStringArg(row, "text", "body"); s != "" {
+		if s := ExtractStringArg(row, "text", "body"); s != "" {
 			return s
 		}
 	}
@@ -194,7 +194,7 @@ func extractContentText(v any) string {
 		if !ok {
 			continue
 		}
-		if s := extractStringArg(m, "text", "content"); s != "" {
+		if s := ExtractStringArg(m, "text", "content"); s != "" {
 			if out.Len() > 0 {
 				out.WriteByte('\n')
 			}
@@ -202,4 +202,36 @@ func extractContentText(v any) string {
 		}
 	}
 	return strings.TrimSpace(out.String())
+}
+
+// ExtractStringArg returns the first non-empty trimmed string value for keys in args.
+func ExtractStringArg(args map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := args[k]; ok {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				return strings.TrimSpace(s)
+			}
+		}
+	}
+	return ""
+}
+
+// ExtractStringSliceArg returns the first non-empty []string slice extracted from JSON-decoded []any under keys.
+func ExtractStringSliceArg(m map[string]any, keys ...string) []string {
+	for _, k := range keys {
+		arr, ok := m[k].([]any)
+		if !ok {
+			continue
+		}
+		var out []string
+		for _, elem := range arr {
+			if s, ok := elem.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return nil
 }

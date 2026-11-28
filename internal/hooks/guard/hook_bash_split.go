@@ -1,4 +1,4 @@
-package search
+package guard
 
 import (
 	"strings"
@@ -6,7 +6,8 @@ import (
 	"github.com/kesokaj/fyr/internal/readledger"
 )
 
-func splitShellSegments(cmd string) []string {
+// SplitShellSegments splits a shell command into top-level pipeline/list segments.
+func SplitShellSegments(cmd string) []string {
 	var out, heredocs []string
 	var cur strings.Builder
 	var q byte
@@ -16,7 +17,7 @@ func splitShellSegments(cmd string) []string {
 			continue
 		}
 		var flush bool
-		i, q, heredocs, flush = stepUnquotedSplitChar(cmd, i, heredocs, &cur)
+		i, q, heredocs, flush = stepShellSplitCharWith(cmd, i, heredocs, &cur, matchShellSeparator)
 		if flush {
 			if s := strings.TrimSpace(cur.String()); s != "" {
 				out = append(out, s)
@@ -30,17 +31,14 @@ func splitShellSegments(cmd string) []string {
 	return out
 }
 
-func stepUnquotedSplitChar(cmd string, i int, heredocs []string, cur *strings.Builder) (int, byte, []string, bool) {
+func stepShellSplitCharWith(cmd string, i int, heredocs []string, cur *strings.Builder, matchSep func(string, int) (int, bool)) (int, byte, []string, bool) {
 	ch := cmd[i]
 	if ch == '\\' && i+1 < len(cmd) {
 		cur.WriteString(cmd[i : i+2])
 		return i + 1, 0, heredocs, false
 	}
-	if next, handled := writeOpaqueAtomOrComment(cmd, i, cur); handled {
-		if next == i {
-			return skipLineComment(cmd, i), 0, heredocs, false
-		}
-		return next - 1, 0, heredocs, false
+	if next, handled := stepOpaqueOrComment(cmd, i, cur); handled {
+		return next, 0, heredocs, false
 	}
 	if ch == '$' && i+1 < len(cmd) && cmd[i+1] == '\'' {
 		cur.WriteString("$'")
@@ -50,22 +48,40 @@ func stepUnquotedSplitChar(cmd string, i int, heredocs []string, cur *strings.Bu
 		cur.WriteByte(ch)
 		return i, ch, heredocs, false
 	}
-	if ch == '<' && i+1 < len(cmd) && cmd[i+1] == '<' && (i+2 >= len(cmd) || cmd[i+2] != '<') {
-		delim, next := parseHeredocDelim(cmd, i+2)
-		if delim != "" {
-			heredocs = append(heredocs, delim)
-		}
-		cur.WriteString(cmd[i:next])
-		return next - 1, 0, heredocs, false
+	if next, hd, ok := consumeHeredocOp(cmd, i, heredocs, cur); ok {
+		return next, 0, hd, false
 	}
-	if next, sep := matchShellSeparator(cmd, i); sep {
+	if next, sep := matchSep(cmd, i); sep {
 		if ch == '\n' && len(heredocs) > 0 {
-			next, heredocs = skipHeredocBodies(cmd, next, heredocs), nil
+			next, heredocs = readledger.SkipHeredocBodies(cmd, next, heredocs), nil
 		}
 		return next - 1, 0, heredocs, true
 	}
 	cur.WriteByte(ch)
 	return i, 0, heredocs, false
+}
+
+func stepOpaqueOrComment(cmd string, i int, cur *strings.Builder) (int, bool) {
+	next, handled := writeOpaqueAtomOrComment(cmd, i, cur)
+	if !handled {
+		return i, false
+	}
+	if next == i {
+		return readledger.SkipLineComment(cmd, i), true
+	}
+	return next - 1, true
+}
+
+func consumeHeredocOp(cmd string, i int, heredocs []string, cur *strings.Builder) (int, []string, bool) {
+	if cmd[i] != '<' || i+1 >= len(cmd) || cmd[i+1] != '<' || (i+2 < len(cmd) && cmd[i+2] == '<') {
+		return i, heredocs, false
+	}
+	delim, next := readledger.ParseHeredocDelim(cmd, i+2)
+	if delim != "" {
+		heredocs = append(heredocs, delim)
+	}
+	cur.WriteString(cmd[i:next])
+	return next - 1, heredocs, true
 }
 
 func stepQuotedAtom(cmd string, i int, q byte, cur *strings.Builder) (int, byte) {
@@ -108,10 +124,6 @@ func writeOpaqueAtomOrComment(cmd string, i int, cur *strings.Builder) (int, boo
 	return i, false
 }
 
-func skipLineComment(cmd string, i int) int {
-	return readledger.SkipLineComment(cmd, i)
-}
-
 func matchShellSeparator(cmd string, i int) (int, bool) {
 	c := cmd[i]
 	if c == '\n' || c == ';' {
@@ -135,34 +147,40 @@ func matchShellSeparator(cmd string, i int) (int, bool) {
 func scanBalancedParenAtom(cmd string, pos int) int {
 	depth, q := 1, byte(0)
 	for i := pos; i < len(cmd); i++ {
-		c := cmd[i]
 		if q != 0 {
-			i, q = advanceShellQuote(cmd, i, q)
+			i, q = readledger.AdvanceShellQuote(cmd, i, q)
 			continue
 		}
-		if c == '\\' && i+1 < len(cmd) {
-			i++
-			continue
-		}
-		if c == '$' && i+1 < len(cmd) && cmd[i+1] == '\'' {
-			q = '$'
-			i++
-			continue
-		}
-		if c == '\'' || c == '"' {
-			q = c
-		} else if c == '#' && (i == 0 || strings.ContainsRune(" \t\n\r;|&(", rune(cmd[i-1]))) {
-			i = skipLineComment(cmd, i)
-		} else if c == '(' {
-			depth++
-		} else if c == ')' {
-			depth--
-			if depth == 0 {
-				return i + 1
-			}
+		var done bool
+		i, depth, q, done = stepBalancedParenChar(cmd, i, depth)
+		if done {
+			return i
 		}
 	}
 	return len(cmd)
+}
+
+func stepBalancedParenChar(cmd string, i, depth int) (int, int, byte, bool) {
+	c := cmd[i]
+	switch {
+	case c == '\\' && i+1 < len(cmd):
+		return i + 1, depth, 0, false
+	case c == '$' && i+1 < len(cmd) && cmd[i+1] == '\'':
+		return i + 1, depth, '$', false
+	case c == '\'' || c == '"':
+		return i, depth, c, false
+	case c == '#' && (i == 0 || strings.ContainsRune(" \t\n\r;|&(", rune(cmd[i-1]))):
+		return readledger.SkipLineComment(cmd, i), depth, 0, false
+	case c == '(':
+		return i, depth + 1, 0, false
+	case c == ')':
+		if depth-1 == 0 {
+			return i + 1, 0, 0, true
+		}
+		return i, depth - 1, 0, false
+	default:
+		return i, depth, 0, false
+	}
 }
 
 func scanBacktickAtom(cmd string, pos int) int {
@@ -178,18 +196,7 @@ func scanBacktickAtom(cmd string, pos int) int {
 	return len(cmd)
 }
 
-func advanceShellQuote(cmd string, i int, q byte) (int, byte) {
-	return readledger.AdvanceShellQuote(cmd, i, q)
-}
-
-func parseHeredocDelim(cmd string, i int) (string, int) {
-	return readledger.ParseHeredocDelim(cmd, i)
-}
-
-func skipHeredocBodies(cmd string, pos int, delims []string) int {
-	return readledger.SkipHeredocBodies(cmd, pos, delims)
-}
-
-func tokenizeShellSegment(seg string) []string {
+// TokenizeShellSegment splits a shell segment into shell words.
+func TokenizeShellSegment(seg string) []string {
 	return readledger.TokenizeShellSegment(seg)
 }

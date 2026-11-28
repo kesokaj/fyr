@@ -837,7 +837,7 @@ func TestV910NoSecretScannerFalsePositivesInVetSources(t *testing.T) {
 	t.Parallel()
 	paths := []string{
 		"vet.go",
-		"hook_coordinator.go",
+		filepath.Join("..", "hooks", "guard", "hook_coordinator.go"),
 	}
 	vetFiles, err := filepath.Glob(filepath.Join("..", "vet", "*.go"))
 	if err != nil || len(vetFiles) == 0 {

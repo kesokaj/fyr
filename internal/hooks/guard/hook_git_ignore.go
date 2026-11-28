@@ -1,4 +1,4 @@
-package search
+package guard
 
 import (
 	"errors"
@@ -8,7 +8,31 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
+
+// ReadSmallRegularFile reads a regular non-symlink file capped at maxBytes.
+func ReadSmallRegularFile(path string, maxBytes int64) ([]byte, bool) {
+	fi, err := os.Lstat(path)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() > maxBytes {
+		return nil, false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+func readRootFile(fsRoot *os.Root, rel string) ([]byte, error) {
+	f, err := fsRoot.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(f)
+}
 
 func scanNestedGitDirs(base, rel string, depth int) []string {
 	entries, err := os.ReadDir(filepath.Join(base, filepath.FromSlash(rel)))
@@ -38,26 +62,28 @@ func scanNestedGitDirs(base, rel string, depth int) []string {
 	return out
 }
 
-func ensureHookScratchIgnored(root string, nested []string) error {
-	_, commonDir, ok := findGitRootFast(root)
+// EnsureHookScratchIgnored ensures .agents/scratch/* and nested git directories are excluded in git info/exclude.
+func EnsureHookScratchIgnored(root string, nested []string) error {
+	_, commonDir, ok := FindGitRootFast(root)
 	if !ok {
-		return errNotCheckout
+		return ErrNotCheckout
 	}
-	if len(nested) == 0 && scratchIgnoredFast(root, commonDir) {
+	if len(nested) == 0 && ScratchIgnoredFast(root, commonDir) {
 		return nil
 	}
 	patterns := append([]string{".agents/scratch/*"}, nested...)
-	return writePatternsToValidatedExclude(root, commonDir, patterns)
+	return WritePatternsToValidatedExclude(root, commonDir, patterns)
 }
 
-func writePatternsToValidatedExclude(root, commonDir string, patterns []string) error {
+// WritePatternsToValidatedExclude appends ignore patterns to a validated git common dir's info/exclude.
+func WritePatternsToValidatedExclude(root, commonDir string, patterns []string) error {
 	if commonDir == "" || !filepath.IsAbs(commonDir) {
 		return fmt.Errorf("search: invalid git common dir %q", commonDir)
 	}
 	if fi, err := os.Lstat(commonDir); err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
 		return fmt.Errorf("search: git common dir %s is not a regular directory", commonDir)
 	}
-	if !validateCommonDirForRoot(root, commonDir) {
+	if !ValidateCommonDirForRoot(root, commonDir) {
 		return fmt.Errorf("search: git common dir %s does not belong to checkout %s", commonDir, root)
 	}
 	infoDir := filepath.Join(commonDir, "info")
@@ -71,11 +97,12 @@ func writePatternsToValidatedExclude(root, commonDir string, patterns []string) 
 	return writePatternsToCommonExclude(commonDir, patterns)
 }
 
-func validateCommonDirForRoot(root, commonDir string) bool {
+// ValidateCommonDirForRoot verifies commonDir belongs to the checkout at root.
+func ValidateCommonDirForRoot(root, commonDir string) bool {
 	if root == "" || commonDir == "" {
 		return false
 	}
-	if sameAutoInitPath(commonDir, filepath.Join(root, ".git")) {
+	if SameAutoInitPath(commonDir, filepath.Join(root, ".git")) {
 		return true
 	}
 	gitDir, ok := readDotGitFileTarget(filepath.Join(root, ".git"), root)
@@ -83,10 +110,10 @@ func validateCommonDirForRoot(root, commonDir string) bool {
 		return false
 	}
 	worktreesDir := filepath.Join(commonDir, "worktrees")
-	if !isRegularDirNoSymlink(gitDir) || !isRegularDirNoSymlink(worktreesDir) || !sameAutoInitPath(filepath.Dir(gitDir), worktreesDir) {
+	if !isRegularDirNoSymlink(gitDir) || !isRegularDirNoSymlink(worktreesDir) || !SameAutoInitPath(filepath.Dir(gitDir), worktreesDir) {
 		return false
 	}
-	namedRawBytes, ok := readSmallRegularFile(filepath.Join(gitDir, "gitdir"), 4096)
+	namedRawBytes, ok := ReadSmallRegularFile(filepath.Join(gitDir, "gitdir"), 4096)
 	if !ok {
 		return false
 	}
@@ -95,7 +122,7 @@ func validateCommonDirForRoot(root, commonDir string) bool {
 		return false
 	}
 	named := resolveCleanPath(gitDir, namedRaw)
-	if !sameAutoInitPath(filepath.Dir(named), root) {
+	if !SameAutoInitPath(filepath.Dir(named), root) {
 		return false
 	}
 	headInfo, err := os.Lstat(filepath.Join(commonDir, "HEAD"))
@@ -112,10 +139,10 @@ func writePatternsToCommonExclude(commonDir string, patterns []string) error {
 		return err
 	}
 	relExclude := filepath.Join("info", "exclude")
-	if fi, err := commonRoot.Lstat(relExclude); err == nil && (!fi.Mode().IsRegular() || fi.Size() > maxFileBytes) {
+	if fi, err := commonRoot.Lstat(relExclude); err == nil && (!fi.Mode().IsRegular() || fi.Size() > MaxFileBytes) {
 		return fmt.Errorf("search: %s is not a readable regular file", relExclude)
 	}
-	existing, err := readAll(commonRoot, relExclude)
+	existing, err := readRootFile(commonRoot, relExclude)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -151,15 +178,16 @@ func filterNewExcludePatterns(existing []byte, patterns []string) []string {
 	return add
 }
 
-func scratchIgnoredFast(root, commonDir string) bool {
+// ScratchIgnoredFast reports whether .agents/scratch/search.db is ignored by git exclude or .gitignore files.
+func ScratchIgnoredFast(root, commonDir string) bool {
 	ignored := false
 	apply := func(path string, fn func(string) bool) {
-		if st := ignoreFileScratchState(path, fn); st != 0 {
+		if st := IgnoreFileScratchState(path, fn); st != 0 {
 			ignored = st > 0
 		}
 	}
-	apply(filepath.Join(commonDir, "info", "exclude"), patternCoversRootScratch)
-	apply(filepath.Join(root, ".gitignore"), patternCoversRootScratch)
+	apply(filepath.Join(commonDir, "info", "exclude"), PatternCoversRootScratch)
+	apply(filepath.Join(root, ".gitignore"), PatternCoversRootScratch)
 	if isRegularDirNoSymlink(filepath.Join(root, ".agents")) {
 		apply(filepath.Join(root, ".agents", ".gitignore"), patternCoversAgentsScratch)
 		if isRegularDirNoSymlink(filepath.Join(root, ".agents", "scratch")) {
@@ -169,9 +197,10 @@ func scratchIgnoredFast(root, commonDir string) bool {
 	return ignored
 }
 
-func ignoreFileScratchState(path string, coverFn func(string) bool) int {
+// IgnoreFileScratchState scans one ignore file and returns +1 (ignored), -1 (negated), or 0 (unmentioned).
+func IgnoreFileScratchState(path string, coverFn func(string) bool) int {
 	fi, err := os.Lstat(path)
-	if err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() || fi.Size() > maxFileBytes {
+	if err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() || fi.Size() > MaxFileBytes {
 		return 0
 	}
 	data, err := os.ReadFile(path)
@@ -197,7 +226,8 @@ func ignoreFileScratchState(path string, coverFn func(string) bool) int {
 	return state
 }
 
-func patternCoversRootScratch(pat string) bool {
+// PatternCoversRootScratch reports whether a root .gitignore pattern ignores .agents/scratch/search.db.
+func PatternCoversRootScratch(pat string) bool {
 	p := strings.TrimPrefix(strings.TrimSpace(pat), "/")
 	switch p {
 	case ".agents", ".agents/", ".agents/*", ".agents/**", ".agents/**/*",
@@ -232,17 +262,18 @@ func patternCoversLocalScratch(pat string) bool {
 	return false
 }
 
-func ensureExistingCheckoutIgnored(dir string) bool {
+// EnsureExistingCheckoutIgnored ensures .agents/scratch/* is ignored for an already-existing git checkout.
+func EnsureExistingCheckoutIgnored(dir string) bool {
 	absDir, err := filepath.Abs(strings.TrimSpace(dir))
-	if err != nil || isRefusedAutoInitDir(absDir) {
+	if err != nil || IsRefusedAutoInitDir(absDir) {
 		return false
 	}
-	root, _, ok := findGitRootFast(absDir)
-	if !ok || isRefusedAutoInitDir(root) {
+	root, _, ok := FindGitRootFast(absDir)
+	if !ok || IsRefusedAutoInitDir(root) {
 		return false
 	}
-	if checkScratchNoSymlinks(root) != nil {
+	if trail.CheckScratchNoSymlinks(root) != nil {
 		return false
 	}
-	return ensureHookScratchIgnored(root, nil) == nil
+	return EnsureHookScratchIgnored(root, nil) == nil
 }

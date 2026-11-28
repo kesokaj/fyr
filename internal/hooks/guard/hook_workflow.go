@@ -1,4 +1,4 @@
-package search
+package guard
 
 import (
 	"errors"
@@ -8,7 +8,27 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/vet"
 )
+
+// WorkflowInput carries home, dir, and tool call args for run_workflow guarding.
+type WorkflowInput struct {
+	Home     string
+	Dir      string
+	ToolArgs map[string]any
+}
+
+// WorkflowDeps supplies model-policy and decision-writer callbacks for run_workflow guarding.
+type WorkflowDeps struct {
+	EffectiveSessionModel  func() string
+	NeedsGuardedProUpgrade func(home, modelName string) bool
+	IsModelGuardedSubagent func(name string) bool
+	FormatModelTag         func(home, raw string) string
+	SanitizePrintable      func(s string) string
+	WriteDecision          func(out io.Writer, decision, reason string) error
+	WriteDecisionOverwrite func(out io.Writer, decision, reason string, overwrite map[string]any)
+}
 
 type workflowArg struct {
 	kwName   string
@@ -29,31 +49,49 @@ type workflowCallSpan struct {
 	inFString bool
 }
 
-func handlePreToolWorkflow(home, dir string, in HookInput, out io.Writer) error {
-	script, inlineKey, isInline, loadDeny := loadWorkflowScriptSource(home, dir, in.ToolCall.Args)
+// HandlePreToolWorkflow validates and optionally rewrites guarded agent() calls in run_workflow scripts.
+func HandlePreToolWorkflow(in WorkflowInput, deps WorkflowDeps, out io.Writer) error {
+	script, inlineKey, isInline, loadDeny := loadWorkflowScriptSource(in.Home, in.Dir, in.ToolArgs)
 	if loadDeny != "" {
-		return writeDecision(out, "deny", loadDeny)
+		return deps.WriteDecision(out, "deny", loadDeny)
 	}
 	if strings.TrimSpace(script) == "" {
-		return writeDecision(out, "allow", "")
+		return deps.WriteDecision(out, "allow", "")
 	}
-	sessionModel := effectiveHookSessionModel(home, in)
-	denyReason, patches := inspectWorkflowScript(home, script, sessionModel, isInline)
+	sessionModel := ""
+	if deps.EffectiveSessionModel != nil {
+		sessionModel = deps.EffectiveSessionModel()
+	}
+	denyReason, patches := inspectWorkflowScript(in.Home, script, sessionModel, isInline, deps)
 	if denyReason != "" {
-		return writeDecision(out, "deny", denyReason)
+		return deps.WriteDecision(out, "deny", denyReason)
 	}
 	if len(patches) > 0 && isInline {
 		rewritten := applyWorkflowPatches(script, patches)
-		cloned := maps.Clone(in.ToolCall.Args)
+		cloned := maps.Clone(in.ToolArgs)
 		if cloned == nil {
 			cloned = map[string]any{}
 		}
 		cloned[inlineKey] = rewritten
-		reason := fmt.Sprintf("[AUTO_MODEL_UPGRADE] upgraded guarded run_workflow subagent(s) from %s to model=\"pro\"", formatModelTag(home, sessionModel))
-		writeDecisionWithOverwrite(out, "allow", reason, cloned)
+		reason := fmt.Sprintf("[AUTO_MODEL_UPGRADE] upgraded guarded run_workflow subagent(s) from %s to model=\"pro\"", formatWorkflowModelTag(deps, in.Home, sessionModel))
+		deps.WriteDecisionOverwrite(out, "allow", reason, cloned)
 		return nil
 	}
-	return writeDecision(out, "allow", "")
+	return deps.WriteDecision(out, "allow", "")
+}
+
+func formatWorkflowModelTag(deps WorkflowDeps, home, model string) string {
+	if deps.FormatModelTag != nil {
+		return deps.FormatModelTag(home, model)
+	}
+	return strings.TrimSpace(model)
+}
+
+func sanitizeWorkflowText(deps WorkflowDeps, s string) string {
+	if deps.SanitizePrintable != nil {
+		return deps.SanitizePrintable(s)
+	}
+	return s
 }
 
 func loadWorkflowScriptSource(home, dir string, args map[string]any) (string, string, bool, string) {
@@ -62,7 +100,7 @@ func loadWorkflowScriptSource(home, dir string, args map[string]any) (string, st
 			return s, key, true, ""
 		}
 	}
-	path := extractStringArg(args, "ScriptPath", "scriptPath", "script_path")
+	path := ExtractStringArg(args, "ScriptPath", "scriptPath", "script_path")
 	if path == "" {
 		return "", "", false, ""
 	}
@@ -205,8 +243,8 @@ func readContainedWorkflowScript(cleanDir, rel string, requireRegular bool) (str
 	return string(data), "", false, ""
 }
 
-func inspectWorkflowScript(home, src, modelName string, isInline bool) (string, []workflowPatch) {
-	fast := needsGuardedProUpgradeForHome(home, modelName)
+func inspectWorkflowScript(home, src, modelName string, isInline bool, deps WorkflowDeps) (string, []workflowPatch) {
+	fast := deps.NeedsGuardedProUpgrade != nil && deps.NeedsGuardedProUpgrade(home, modelName)
 	spans, scanDeny := scanWorkflowAgentCalls(src)
 	if scanDeny != "" {
 		return scanDeny, nil
@@ -216,12 +254,12 @@ func inspectWorkflowScript(home, src, modelName string, isInline bool) (string, 
 		patches []workflowPatch
 	)
 	for _, sp := range spans {
-		denyOverride, denyPro, patch := inspectSingleAgentCall(home, src, [2]int{sp.start, sp.end}, modelName, fast, isInline)
+		denyOverride, denyPro, patch := inspectSingleAgentCall(home, src, [2]int{sp.start, sp.end}, modelName, fast, isInline, deps)
 		if denyOverride != "" {
 			return denyOverride, nil
 		}
 		if patch != nil && sp.inFString {
-			return fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) requires explicit model=\"pro\" (not \"inherit\") inside f-string run_workflow call.", formatModelTag(home, modelName)), nil
+			return fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) requires explicit model=\"pro\" (not \"inherit\") inside f-string run_workflow call.", formatWorkflowModelTag(deps, home, modelName)), nil
 		}
 		if denyPro != "" && proDeny == "" {
 			proDeny = denyPro
@@ -236,7 +274,7 @@ func inspectWorkflowScript(home, src, modelName string, isInline bool) (string, 
 	return "", patches
 }
 
-func inspectSingleAgentCall(home, src string, sp [2]int, modelName string, fast, isInline bool) (string, string, *workflowPatch) {
+func inspectSingleAgentCall(home, src string, sp [2]int, modelName string, fast, isInline bool, deps WorkflowDeps) (string, string, *workflowPatch) {
 	args := splitPythonCallArgs(src, sp[0], sp[1])
 	if hasPythonKwargsSplat(args) {
 		return "[MODEL_OVERRIDE] run_workflow subagent forbids *args/**kwargs splat that could override type_name or model.", "", nil
@@ -249,68 +287,68 @@ func inspectSingleAgentCall(home, src string, sp [2]int, modelName string, fast,
 	typeName, typeIsLit := unquotePythonLiteral(typeArg.raw)
 	typeName = strings.TrimSpace(typeName)
 	if !typeIsLit {
-		return inspectNonLiteralTypeAgent(home, typeArg, mArg, args, modelName, fast, isInline)
+		return inspectNonLiteralTypeAgent(home, typeArg, mArg, args, modelName, fast, isInline, deps)
 	}
-	if !isModelGuardedSubagent(typeName) {
+	if deps.IsModelGuardedSubagent == nil || !deps.IsModelGuardedSubagent(typeName) {
 		return "", "", nil
 	}
-	return inspectGuardedModelArg(home, typeName, mArg, modelName, fast, isInline)
+	return inspectGuardedModelArg(home, typeName, mArg, modelName, fast, isInline, deps)
 }
 
-func inspectGuardedModelArg(home, typeName string, mArg *workflowArg, modelName string, fast, isInline bool) (string, string, *workflowPatch) {
+func inspectGuardedModelArg(home, typeName string, mArg *workflowArg, modelName string, fast, isInline bool, deps WorkflowDeps) (string, string, *workflowPatch) {
 	if mArg == nil || isPythonNone(mArg.raw) {
 		if fast {
-			return "", fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) forbids omitted model on guarded run_workflow subagent %q; pass model=\"pro\".", formatModelTag(home, modelName), typeName), nil
+			return "", fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) forbids omitted model on guarded run_workflow subagent %q; pass model=\"pro\".", formatWorkflowModelTag(deps, home, modelName), typeName), nil
 		}
 		return "", "", nil
 	}
 	mVal, isLit := unquotePythonLiteral(mArg.raw)
 	if !isLit {
-		safeExpr := collapseOneLine(printable(mArg.raw), 64)
+		safeExpr := vet.CollapseOneLine(sanitizeWorkflowText(deps, mArg.raw), 64)
 		return fmt.Sprintf("[MODEL_OVERRIDE] run_workflow subagent %q forbids non-literal model=%s; omit model or pass \"inherit\" (or \"pro\" on fast turns).", typeName, safeExpr), "", nil
 	}
 	if isBlockedWorkflowModel(mVal) {
-		safeVal := collapseOneLine(printable(mVal), 64)
+		safeVal := vet.CollapseOneLine(sanitizeWorkflowText(deps, mVal), 64)
 		return fmt.Sprintf("[MODEL_OVERRIDE] run_workflow subagent %q forbids model=%q; omit model or pass \"inherit\" (or \"pro\" on fast turns).", typeName, safeVal), "", nil
 	}
 	if strings.EqualFold(strings.TrimSpace(mVal), "inherit") && fast {
 		if !isInline {
-			return "", fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) requires explicit model=\"pro\" (not \"inherit\") inside ScriptPath for guarded subagent %q.", formatModelTag(home, modelName), typeName), nil
+			return "", fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) requires explicit model=\"pro\" (not \"inherit\") inside ScriptPath for guarded subagent %q.", formatWorkflowModelTag(deps, home, modelName), typeName), nil
 		}
 		return "", "", &workflowPatch{start: mArg.valStart, end: mArg.valEnd, repl: `"pro"`}
 	}
 	return "", "", nil
 }
 
-func inspectNonLiteralTypeAgent(home string, typeArg, mArg *workflowArg, args []workflowArg, modelName string, fast, isInline bool) (string, string, *workflowPatch) {
+func inspectNonLiteralTypeAgent(home string, typeArg, mArg *workflowArg, args []workflowArg, modelName string, fast, isInline bool, deps WorkflowDeps) (string, string, *workflowPatch) {
 	if hasPythonKwargsSplat(args) {
-		safeType := collapseOneLine(printable(typeArg.raw), 64)
+		safeType := vet.CollapseOneLine(sanitizeWorkflowText(deps, typeArg.raw), 64)
 		return fmt.Sprintf("[MODEL_OVERRIDE] run_workflow subagent type_name=%s forbids **kwargs splat.", safeType), "", nil
 	}
 	if mArg == nil || isPythonNone(mArg.raw) {
 		if fast {
-			safeType := collapseOneLine(printable(typeArg.raw), 64)
+			safeType := vet.CollapseOneLine(sanitizeWorkflowText(deps, typeArg.raw), 64)
 			if !isInline {
-				return "", fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) requires explicit model=\"pro\" inside ScriptPath for dynamic subagent %s.", formatModelTag(home, modelName), safeType), nil
+				return "", fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) requires explicit model=\"pro\" inside ScriptPath for dynamic subagent %s.", formatWorkflowModelTag(deps, home, modelName), safeType), nil
 			}
-			return fmt.Sprintf("[MODEL_OVERRIDE] fast session (%s) requires explicit model=\"pro\" on inline run_workflow dynamic subagent %s.", formatModelTag(home, modelName), safeType), "", nil
+			return fmt.Sprintf("[MODEL_OVERRIDE] fast session (%s) requires explicit model=\"pro\" on inline run_workflow dynamic subagent %s.", formatWorkflowModelTag(deps, home, modelName), safeType), "", nil
 		}
 		return "", "", nil
 	}
 	mVal, isLit := unquotePythonLiteral(mArg.raw)
 	if !isLit {
-		safeType := collapseOneLine(printable(typeArg.raw), 64)
-		safeExpr := collapseOneLine(printable(mArg.raw), 64)
+		safeType := vet.CollapseOneLine(sanitizeWorkflowText(deps, typeArg.raw), 64)
+		safeExpr := vet.CollapseOneLine(sanitizeWorkflowText(deps, mArg.raw), 64)
 		return fmt.Sprintf("[MODEL_OVERRIDE] run_workflow subagent type_name=%s forbids non-literal model=%s; pass literal \"pro\" or \"inherit\".", safeType, safeExpr), "", nil
 	}
 	if isBlockedWorkflowModel(mVal) {
-		safeType := collapseOneLine(printable(typeArg.raw), 64)
-		safeVal := collapseOneLine(printable(mVal), 64)
+		safeType := vet.CollapseOneLine(sanitizeWorkflowText(deps, typeArg.raw), 64)
+		safeVal := vet.CollapseOneLine(sanitizeWorkflowText(deps, mVal), 64)
 		return fmt.Sprintf("[MODEL_OVERRIDE] run_workflow subagent type_name=%s forbids model=%q; pass \"pro\" or \"inherit\".", safeType, safeVal), "", nil
 	}
 	if strings.EqualFold(strings.TrimSpace(mVal), "inherit") && fast {
 		if !isInline {
-			return "", fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) requires explicit model=\"pro\" (not \"inherit\") inside ScriptPath for dynamic subagent %s.", formatModelTag(home, modelName), collapseOneLine(printable(typeArg.raw), 64)), nil
+			return "", fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) requires explicit model=\"pro\" (not \"inherit\") inside ScriptPath for dynamic subagent %s.", formatWorkflowModelTag(deps, home, modelName), vet.CollapseOneLine(sanitizeWorkflowText(deps, typeArg.raw), 64)), nil
 		}
 		return "", "", &workflowPatch{start: mArg.valStart, end: mArg.valEnd, repl: `"pro"`}
 	}
