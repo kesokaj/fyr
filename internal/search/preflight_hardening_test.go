@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/vet"
 )
 
 func TestRelayGuardIgnoresRepoNoHooksAndFailsClosedOnBadPayload(t *testing.T) {
@@ -194,19 +196,19 @@ func TestReadLedgerBashStrictSedAndPipeFilterAllowlists(t *testing.T) {
 }
 
 func TestInferSliceVerifyRejectsUnsafePathsAndSetsSubtaskTrust(t *testing.T) {
-	if got := inferSliceVerify("builder", []string{"scripts/a;rm -rf /.sh"}); got != "" {
+	if got := vet.InferSliceVerify("builder", []string{"scripts/a;rm -rf /.sh"}); got != "" {
 		t.Errorf("unsafe .sh verify = %q, want empty", got)
 	}
-	if got := inferSliceVerify("builder", []string{"-evil.sh"}); got != "" {
+	if got := vet.InferSliceVerify("builder", []string{"-evil.sh"}); got != "" {
 		t.Errorf("leading-dash .sh verify = %q, want empty", got)
 	}
-	if got := inferSliceVerify("builder", []string{"/tmp/abs.sh"}); got != "" {
+	if got := vet.InferSliceVerify("builder", []string{"/tmp/abs.sh"}); got != "" {
 		t.Errorf("absolute .sh verify = %q, want empty", got)
 	}
-	if got := inferSliceVerify("builder", []string{"internal/a;id/x.go"}); got != "" {
+	if got := vet.InferSliceVerify("builder", []string{"internal/a;id/x.go"}); got != "" {
 		t.Errorf("unsafe .go verify = %q, want empty", got)
 	}
-	if got := inferSliceVerify("builder", []string{"scripts/check.sh"}); got != "bash -n scripts/check.sh" {
+	if got := vet.InferSliceVerify("builder", []string{"scripts/check.sh"}); got != "bash -n scripts/check.sh" {
 		t.Errorf("safe .sh verify = %q", got)
 	}
 	e := buildPreInvocationEnrichment(VetResult{

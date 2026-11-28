@@ -824,14 +824,16 @@ func TestV910VetCoordinatorAndDynamicSkillPrefetch(t *testing.T) {
 }
 
 func TestV910NoSecretScannerFalsePositivesInVetSources(t *testing.T) {
-	for _, rel := range []string{
-		"vet_intent.go",
-		"vet_skills_catalog.go",
-		"vet_route.go",
-		"vet_decompose.go",
-		"vet_decompose_pkg.go",
+	paths := []string{
+		"vet.go",
 		"hook_coordinator.go",
-	} {
+	}
+	vetFiles, err := filepath.Glob(filepath.Join("..", "vet", "*.go"))
+	if err != nil || len(vetFiles) == 0 {
+		t.Fatalf("glob ../vet/*.go: files=%v err=%v", vetFiles, err)
+	}
+	paths = append(paths, vetFiles...)
+	for _, rel := range paths {
 		data, err := os.ReadFile(rel)
 		if err != nil {
 			t.Fatalf("read %s: %v", rel, err)
@@ -841,5 +843,22 @@ func TestV910NoSecretScannerFalsePositivesInVetSources(t *testing.T) {
 				t.Errorf("%s:%d triggered redact secret scanner: %s", rel, i+1, strings.TrimSpace(line))
 			}
 		}
+	}
+}
+
+func TestFTSTurnCacheScopedPerStore(t *testing.T) {
+	s1 := &store{}
+	s2 := &store{}
+	want := []ftsChunkHit{{path: "internal/vet/vet.go", line: 10, heading: "vet"}}
+	s1.storeFTSTurnCache("k1", want)
+	if got, ok := s1.lookupFTSTurnCache("k1"); !ok || len(got) != 1 || got[0].path != want[0].path {
+		t.Fatalf("s1 lookup = (%+v, %v), want cached hit", got, ok)
+	}
+	if got, ok := s2.lookupFTSTurnCache("k1"); ok || len(got) != 0 {
+		t.Fatalf("s2 leaked s1 cache: (%+v, %v)", got, ok)
+	}
+	s1.clearFTSTurnCache()
+	if _, ok := s1.lookupFTSTurnCache("k1"); ok {
+		t.Fatalf("s1 cache was not cleared")
 	}
 }

@@ -1,4 +1,4 @@
-package search
+package vet
 
 import (
 	"context"
@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/readledger"
+	"github.com/kesokaj/fyr/internal/sqliteutil"
 )
 
-// VetHistoryIngestRow is one row read from a search.db vet_history table for
+// HistoryIngestRow is one row read from a search.db vet_history table for
 // downstream metrics ingest, carrying raw CSV fields and optional-column
 // presence across pre-v10, v10, and v11/v12 search.db schemas.
-type VetHistoryIngestRow struct {
+type HistoryIngestRow struct {
 	ConversationID     string
 	TurnNum            int
 	Intent             string
@@ -32,10 +35,10 @@ type VetHistoryIngestRow struct {
 	HasSkillsLoadedCol bool
 }
 
-// ReadVetHistoryForIngest reads all vet_history rows from db in deterministic
+// ReadHistoryForIngest reads all vet_history rows from db in deterministic
 // turn_num, created_at, rowid order, defaulting columns absent in older schemas.
 // A nil db or missing vet_history table returns nil, nil.
-func ReadVetHistoryForIngest(db *sql.DB) ([]VetHistoryIngestRow, error) {
+func ReadHistoryForIngest(db *sql.DB) ([]HistoryIngestRow, error) {
 	if db == nil {
 		return nil, nil
 	}
@@ -53,7 +56,7 @@ func ReadVetHistoryForIngest(db *sql.DB) ([]VetHistoryIngestRow, error) {
 	defer rows.Close()
 	hasPivots := cols["pivots_used_count"]
 	hasSkills := cols["skills_loaded_count"]
-	var out []VetHistoryIngestRow
+	var out []HistoryIngestRow
 	for rows.Next() {
 		r, err := scanVetHistoryIngestRow(rows, hasPivots, hasSkills)
 		if err != nil {
@@ -121,8 +124,8 @@ func buildVetHistoryIngestQuery(cols map[string]bool) string {
 	)
 }
 
-func scanVetHistoryIngestRow(rows *sql.Rows, hasPivotsUsed, hasSkillsLoaded bool) (VetHistoryIngestRow, error) {
-	var r VetHistoryIngestRow
+func scanVetHistoryIngestRow(rows *sql.Rows, hasPivotsUsed, hasSkillsLoaded bool) (HistoryIngestRow, error) {
+	var r HistoryIngestRow
 	var timedOut int
 	if err := rows.Scan(
 		&r.ConversationID, &r.TurnNum, &r.Intent, &r.Gate, &r.Score,
@@ -130,7 +133,7 @@ func scanVetHistoryIngestRow(rows *sql.Rows, hasPivotsUsed, hasSkillsLoaded bool
 		&r.Directive, &r.SubtaskCount, &r.DurationMS, &timedOut,
 		&r.InjectedBytes, &r.PivotsUsedCount, &r.SkillsLoadedCount,
 	); err != nil {
-		return VetHistoryIngestRow{}, err
+		return HistoryIngestRow{}, err
 	}
 	r.TimedOut = timedOut != 0
 	r.HasPivotsUsedCol = hasPivotsUsed
@@ -138,33 +141,26 @@ func scanVetHistoryIngestRow(rows *sql.Rows, hasPivotsUsed, hasSkillsLoaded bool
 	return r, nil
 }
 
-type vetTurnMetrics struct {
-	durationMS    int
-	timedOut      bool
-	injectedBytes int
+// TurnMetrics records timing and payload stats for one pre-invocation turn.
+type TurnMetrics struct {
+	DurationMS    int
+	TimedOut      bool
+	InjectedBytes int
 }
 
 const vetHistoryCols = `conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, duration_ms, timed_out, injected_bytes, created_at`
 
-func (st *store) recordVetHistory(convID string, turnNum int, rawPrompt string, res VetResult, pivotFiles []string) error {
-	return st.recordVetHistoryWithMetrics(convID, turnNum, rawPrompt, res, pivotFiles, vetTurnMetrics{})
-}
-
-func (st *store) recordVetHistoryWithMetrics(convID string, turnNum int, rawPrompt string, res VetResult, pivotFiles []string, m vetTurnMetrics) error {
-	return st.recordVetHistoryWithMetricsCtx(context.Background(), convID, turnNum, rawPrompt, res, pivotFiles, m)
-}
-
-func (st *store) recordVetHistoryWithMetricsCtx(ctx context.Context, convID string, turnNum int, rawPrompt string, res VetResult, pivotFiles []string, m vetTurnMetrics) error {
-	if st == nil || st.db == nil || ctx.Err() != nil {
+// RecordHistoryCtx persists one turn's vet result and metrics into vet_history.
+func RecordHistoryCtx(ctx context.Context, db *sql.DB, nowUnix int64, convID string, turnNum int, rawPrompt string, res Result, pivotFiles []string, m TurnMetrics) error {
+	if db == nil || ctx.Err() != nil {
 		return ctx.Err()
 	}
-	convID = normalizeLedgerConvID(convID)
+	convID = readledger.NormalizeConvID(convID)
 	if turnNum <= 0 {
 		turnNum = 1
 	}
 	trimmed := strings.TrimSpace(rawPrompt)
-	now := nowFunc().Unix()
-	if st.collapseDuplicateApprovalCtx(ctx, convID, turnNum, trimmed, res, m, now) {
+	if collapseDuplicateApprovalCtx(ctx, db, convID, turnNum, trimmed, res, m, nowUnix) {
 		return nil
 	}
 	var skillNames []string
@@ -173,30 +169,30 @@ func (st *store) recordVetHistoryWithMetricsCtx(ctx context.Context, convID stri
 			skillNames = append(skillNames, s.Name)
 		}
 	}
-	_, err := st.db.ExecContext(ctx,
+	_, err := db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO vet_history(`+vetHistoryCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		convID, turnNum, string(res.Intent), string(res.Gate), res.Score, trimmed,
 		res.ImprovedPrompt, strings.Join(res.PresentAnchors, ","), strings.Join(res.MissingAnchors, ","),
 		strings.Join(skillNames, ","), strings.Join(pivotFiles, ","), len(res.Subtasks),
-		preInvocationDirective(res), max(0, m.durationMS), boolInt(m.timedOut), max(0, m.injectedBytes), now,
+		Directive(res), max(0, m.DurationMS), sqliteutil.BoolInt(m.TimedOut), max(0, m.InjectedBytes), nowUnix,
 	)
 	return err
 }
 
-func (st *store) collapseDuplicateApprovalCtx(ctx context.Context, convID string, turnNum int, trimmed string, res VetResult, m vetTurnMetrics, now int64) bool {
-	if ctx.Err() != nil || res.Intent != IntentApproval || res.Bypassed || m.timedOut || !isShortApprovalDirective(trimmed) {
+func collapseDuplicateApprovalCtx(ctx context.Context, db *sql.DB, convID string, turnNum int, trimmed string, res Result, m TurnMetrics, now int64) bool {
+	if ctx.Err() != nil || res.Intent != IntentApproval || res.Bypassed || m.TimedOut || !isShortApprovalDirective(trimmed) {
 		return false
 	}
-	prev, err := st.lastVetHistoryCtx(ctx, convID, turnNum)
+	prev, err := LastHistoryCtx(ctx, db, convID, turnNum)
 	if err != nil || prev == nil || prev.Intent != IntentApproval || prev.TimedOut {
 		return false
 	}
-	if !strings.EqualFold(collapseOneLine(prev.RawPrompt, 0), collapseOneLine(trimmed, 0)) {
+	if !strings.EqualFold(CollapseOneLine(prev.RawPrompt, 0), CollapseOneLine(trimmed, 0)) {
 		return false
 	}
-	_, _ = st.db.ExecContext(ctx,
+	_, _ = db.ExecContext(ctx,
 		`UPDATE vet_history SET duration_ms = ?, injected_bytes = ?, created_at = ? WHERE conversation_id = ? AND turn_num = ?`,
-		max(0, m.durationMS), max(0, m.injectedBytes), now, convID, prev.TurnNum,
+		max(0, m.DurationMS), max(0, m.InjectedBytes), now, convID, prev.TurnNum,
 	)
 	return true
 }
@@ -205,22 +201,19 @@ func isShortApprovalDirective(prompt string) bool {
 	return prompt != "" && len(prompt) <= 80 && len(strings.Fields(prompt)) <= 8
 }
 
-func (st *store) lastVetHistory(convID string, beforeTurn int) (*VetHistoryRow, error) {
-	return st.lastVetHistoryCtx(context.Background(), convID, beforeTurn)
-}
-
-func (st *store) lastVetHistoryCtx(ctx context.Context, convID string, beforeTurn int) (*VetHistoryRow, error) {
-	if st == nil || st.db == nil {
+// LastHistoryCtx returns the latest vet_history row for convID (optionally strictly before beforeTurn).
+func LastHistoryCtx(ctx context.Context, db *sql.DB, convID string, beforeTurn int) (*HistoryRow, error) {
+	if db == nil {
 		return nil, nil
 	}
-	convID = normalizeLedgerConvID(convID)
+	convID = readledger.NormalizeConvID(convID)
 	query := `SELECT ` + vetHistoryCols + ` FROM vet_history WHERE conversation_id = ? ORDER BY turn_num DESC LIMIT 1`
 	args := []any{convID}
 	if beforeTurn > 0 {
 		query = `SELECT ` + vetHistoryCols + ` FROM vet_history WHERE conversation_id = ? AND turn_num < ? ORDER BY turn_num DESC LIMIT 1`
 		args = []any{convID, beforeTurn}
 	}
-	row, err := scanVetHistoryRow(st.db.QueryRowContext(ctx, query, args...))
+	row, err := scanVetHistoryRow(db.QueryRowContext(ctx, query, args...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -229,22 +222,27 @@ func (st *store) lastVetHistoryCtx(ctx context.Context, convID string, beforeTur
 
 const recentSuggestedSkillsWindow = 3
 
-func (st *store) recentSuggestedSkills(convID string, beforeTurn int) (map[string]bool, []string, error) {
-	if st == nil || st.db == nil {
+// RecentSuggestedSkills collects skills and pivot files suggested in the last 3 turns of convID.
+func RecentSuggestedSkills(db *sql.DB, convID string, beforeTurn int) (map[string]bool, []string, error) {
+	if db == nil {
 		return nil, nil, nil
 	}
-	convID = normalizeLedgerConvID(convID)
+	convID = readledger.NormalizeConvID(convID)
 	query := `SELECT suggested_skills, pivot_files FROM vet_history WHERE conversation_id = ? ORDER BY turn_num DESC LIMIT ?`
 	args := []any{convID, recentSuggestedSkillsWindow}
 	if beforeTurn > 0 {
 		query = `SELECT suggested_skills, pivot_files FROM vet_history WHERE conversation_id = ? AND turn_num < ? ORDER BY turn_num DESC LIMIT ?`
 		args = []any{convID, beforeTurn, recentSuggestedSkillsWindow}
 	}
-	rows, err := st.db.Query(query, args...)
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer rows.Close()
+	return collectRecentSkillsAndPivots(rows)
+}
+
+func collectRecentSkillsAndPivots(rows *sql.Rows) (map[string]bool, []string, error) {
 	skills := map[string]bool{}
 	pivotsSeen := map[string]bool{}
 	var pivots []string
@@ -253,10 +251,10 @@ func (st *store) recentSuggestedSkills(convID string, beforeTurn int) (map[strin
 		if err := rows.Scan(&sCSV, &pCSV); err != nil {
 			continue
 		}
-		for _, s := range splitCSV(sCSV) {
+		for _, s := range splitVetCSV(sCSV) {
 			skills[s] = true
 		}
-		for _, p := range splitCSV(pCSV) {
+		for _, p := range splitVetCSV(pCSV) {
 			if !pivotsSeen[p] {
 				pivotsSeen[p] = true
 				pivots = append(pivots, p)
@@ -266,15 +264,16 @@ func (st *store) recentSuggestedSkills(convID string, beforeTurn int) (map[strin
 	return skills, pivots, rows.Err()
 }
 
-func (st *store) listConversationVetHistory(convID string, limit int) ([]VetHistoryRow, error) {
-	if st == nil || st.db == nil {
+// ListConversationHistory returns up to limit vet_history rows for convID ordered by turn_num ASC.
+func ListConversationHistory(db *sql.DB, convID string, limit int) ([]HistoryRow, error) {
+	if db == nil {
 		return nil, nil
 	}
-	convID = normalizeLedgerConvID(convID)
+	convID = readledger.NormalizeConvID(convID)
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := st.db.Query(
+	rows, err := db.Query(
 		`SELECT `+vetHistoryCols+` FROM vet_history WHERE conversation_id = ? ORDER BY turn_num ASC LIMIT ?`,
 		convID, limit,
 	)
@@ -282,7 +281,7 @@ func (st *store) listConversationVetHistory(convID string, limit int) ([]VetHist
 		return nil, err
 	}
 	defer rows.Close()
-	var out []VetHistoryRow
+	var out []HistoryRow
 	for rows.Next() {
 		r, err := scanVetHistoryRow(rows)
 		if err != nil {
@@ -293,12 +292,12 @@ func (st *store) listConversationVetHistory(convID string, limit int) ([]VetHist
 	return out, rows.Err()
 }
 
-type rowScanner interface {
+type vetRowScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanVetHistoryRow(sc rowScanner) (*VetHistoryRow, error) {
-	var r VetHistoryRow
+func scanVetHistoryRow(sc vetRowScanner) (*HistoryRow, error) {
+	var r HistoryRow
 	var intent, gate, presentCSV, missingCSV, skillsCSV, pivotsCSV string
 	var timedOut int
 	if err := sc.Scan(
@@ -312,14 +311,14 @@ func scanVetHistoryRow(sc rowScanner) (*VetHistoryRow, error) {
 	r.Intent = IntentMode(intent)
 	r.Gate = VetGate(gate)
 	r.TimedOut = timedOut != 0
-	r.PresentAnchors = splitCSV(presentCSV)
-	r.MissingAnchors = splitCSV(missingCSV)
-	r.SuggestedSkills = splitCSV(skillsCSV)
-	r.PivotFiles = splitCSV(pivotsCSV)
+	r.PresentAnchors = splitVetCSV(presentCSV)
+	r.MissingAnchors = splitVetCSV(missingCSV)
+	r.SuggestedSkills = splitVetCSV(skillsCSV)
+	r.PivotFiles = splitVetCSV(pivotsCSV)
 	return &r, nil
 }
 
-func splitCSV(s string) []string {
+func splitVetCSV(s string) []string {
 	if strings.TrimSpace(s) == "" {
 		return nil
 	}

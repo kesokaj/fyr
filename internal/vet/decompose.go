@@ -1,4 +1,4 @@
-package search
+package vet
 
 import (
 	"fmt"
@@ -42,9 +42,9 @@ func DecomposeSubtasks(cleanPrompt string, intent IntentMode, slice SliceResult,
 	if intent == "" {
 		intent = ClassifyIntent(trimmed, slice.SymbolHits)
 	}
-	knownFiles := dedupKnownFiles(extractPromptAndSliceFiles(trimmed, append(append([]string{}, slice.Files...), files...)))
+	knownFiles := dedupKnownFiles(ExtractPromptAndSliceFiles(trimmed, append(append([]string{}, slice.Files...), files...)))
 	if clauses := splitDecomposeClauses(trimmed); len(clauses) >= 2 {
-		if !hasExplicitMultiPhaseOrParallelCues(strings.ToLower(trimmed)) &&
+		if !HasExplicitMultiPhaseOrParallelCues(strings.ToLower(trimmed)) &&
 			countDistinctExplicitPackages(trimmed, clauses, slice.Files) < 2 {
 			return nil
 		}
@@ -57,17 +57,19 @@ func dedupKnownFiles(raw []string) []string {
 	var normed, out []string
 	seen, hasFull := map[string]bool{}, map[string]bool{}
 	for _, r := range raw {
-		if n := normalizeSlashPath(r); n != "" && !seen[n] {
-			seen[n] = true
-			normed = append(normed, n)
-			if strings.Contains(n, "/") && !isDirPathToken(n) {
-				hasFull[filepath.Base(n)] = true
-			}
+		n := NormalizeSlashPath(r)
+		if n == "" || seen[n] {
+			continue
+		}
+		seen[n] = true
+		normed = append(normed, n)
+		if strings.Contains(n, "/") && !IsDirPathToken(n) {
+			hasFull[filepath.Base(n)] = true
 		}
 	}
 	for _, n := range normed {
-		if (!strings.Contains(n, "/") && !isDirPathToken(n) && hasFull[n]) ||
-			(isDirPathToken(n) && len(filesUnderDir(n, normed)) > 0) {
+		if (!strings.Contains(n, "/") && !IsDirPathToken(n) && hasFull[n]) ||
+			(IsDirPathToken(n) && len(filesUnderDir(n, normed)) > 0) {
 			continue
 		}
 		out = append(out, n)
@@ -82,8 +84,8 @@ func isBlanketReadOnlyPrompt(low string) bool {
 func shouldSkipDecompose(trimmed string, intent IntentMode, symbolHits int) bool {
 	low := strings.ToLower(trimmed)
 	if trimmed == "" || strings.HasPrefix(trimmed, "!") || strings.HasPrefix(trimmed, "/") ||
-		strings.HasPrefix(low, "run /") || isWorkerBriefPrompt(trimmed) || isBlanketReadOnlyPrompt(low) ||
-		isDiagnosticReadOnlyPrompt(trimmed) {
+		strings.HasPrefix(low, "run /") || IsWorkerBriefPrompt(trimmed) || isBlanketReadOnlyPrompt(low) ||
+		IsDiagnosticReadOnlyPrompt(trimmed) {
 		return true
 	}
 	if intent == "" {
@@ -192,20 +194,28 @@ func buildClauseSubtasks(clauses []string, slice SliceResult, knownFiles []strin
 		out = append(out, SubtaskSlice{
 			ID:     fmt.Sprintf("subtask-%d", i+1),
 			Role:   role,
-			Goal:   collapseOneLine(clause, 180),
+			Goal:   CollapseOneLine(clause, 180),
 			Files:  assigned,
 			Skills: selectTopSkillNames(clause, cIntent, assigned, catalog),
-			Verify: inferSliceVerify(role, assigned),
+			Verify: InferSliceVerify(role, assigned),
 		})
 	}
 	return out
 }
 
 func matchClauseFiles(clause string, knownFiles []string, symFiles map[string][]string) []string {
+	cands := matchClauseExplicitFiles(clause, knownFiles)
+	if len(cands) == 0 && len(symFiles) > 0 {
+		return matchClauseSymbolFiles(clause, symFiles)
+	}
+	return cands
+}
+
+func matchClauseExplicitFiles(clause string, knownFiles []string) []string {
 	var cands []string
-	for _, tok := range extractPromptAndSliceFiles(clause, nil) {
-		norm := normalizeSlashPath(tok)
-		if isDirPathToken(norm) {
+	for _, tok := range ExtractPromptAndSliceFiles(clause, nil) {
+		norm := NormalizeSlashPath(tok)
+		if IsDirPathToken(norm) {
 			if under := filesUnderDir(norm, knownFiles); len(under) > 0 {
 				cands = append(cands, under...)
 				continue
@@ -213,16 +223,26 @@ func matchClauseFiles(clause string, knownFiles []string, symFiles map[string][]
 		}
 		cands = append(cands, resolveUniqueFileMatch(norm, knownFiles))
 	}
-	if len(cands) == 0 && len(symFiles) > 0 {
-		for sym, paths := range symFiles {
-			_, short, hasDot := strings.Cut(sym, ".")
-			if (len(sym) >= 4 && strings.Contains(clause, sym)) || (hasDot && len(short) >= 4 && strings.Contains(clause, short)) {
-				cands = append(cands, paths...)
-			}
-		}
-		sort.Strings(cands)
-	}
 	return cands
+}
+
+func matchClauseSymbolFiles(clause string, symFiles map[string][]string) []string {
+	var cands []string
+	for sym, paths := range symFiles {
+		if matchesCapsuleSymbol(clause, sym) {
+			cands = append(cands, paths...)
+		}
+	}
+	sort.Strings(cands)
+	return cands
+}
+
+func matchesCapsuleSymbol(clause, sym string) bool {
+	if len(sym) >= 4 && strings.Contains(clause, sym) {
+		return true
+	}
+	_, short, hasDot := strings.Cut(sym, ".")
+	return hasDot && len(short) >= 4 && strings.Contains(clause, short)
 }
 
 func resolveUniqueFileMatch(tok string, knownFiles []string) string {
@@ -231,7 +251,7 @@ func resolveUniqueFileMatch(tok string, knownFiles []string) string {
 	}
 	var match string
 	for _, kf := range knownFiles {
-		if n := normalizeSlashPath(kf); filepath.Base(n) == tok {
+		if n := NormalizeSlashPath(kf); filepath.Base(n) == tok {
 			if match != "" && match != n {
 				return tok
 			}
@@ -248,7 +268,7 @@ func filesUnderDir(dir string, knownFiles []string) []string {
 	prefix := strings.TrimSuffix(dir, "/") + "/"
 	var out []string
 	for _, kf := range knownFiles {
-		if n := normalizeSlashPath(kf); strings.HasPrefix(n, prefix) && !isDirPathToken(n) {
+		if n := NormalizeSlashPath(kf); strings.HasPrefix(n, prefix) && !IsDirPathToken(n) {
 			out = append(out, n)
 		}
 	}
@@ -256,6 +276,6 @@ func filesUnderDir(dir string, knownFiles []string) []string {
 }
 
 func hasDecomposeEditVerb(trimmed string) bool {
-	stripped := strings.ToLower(fileTokenRe.ReplaceAllString(" "+trimmed+" ", " "))
-	return containsAnyWord(stripped, "implement", "fix", "add", "update", "refactor", "replace", "remove", "delete", "rename", "migrate", "write", "build", "create", "change", "modify")
+	stripped := strings.ToLower(FilePathRe.ReplaceAllString(" "+trimmed+" ", " "))
+	return ContainsAnyWord(stripped, "implement", "fix", "add", "update", "refactor", "replace", "remove", "delete", "rename", "migrate", "write", "build", "create", "change", "modify")
 }

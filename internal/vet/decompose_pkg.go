@@ -1,4 +1,4 @@
-package search
+package vet
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 )
 
 func buildPackageSubtasks(trimmed string, intent IntentMode, slice SliceResult, knownFiles []string, catalog []SkillMeta) []SubtaskSlice {
-	if isDiagnosticReadOnlyPrompt(trimmed) {
+	if IsDiagnosticReadOnlyPrompt(trimmed) {
 		return nil
 	}
 	explicitFiles := extractExplicitPromptTargets(trimmed, knownFiles)
@@ -22,7 +22,13 @@ func buildPackageSubtasks(trimmed string, intent IntentMode, slice SliceResult, 
 	if len(order) < 2 {
 		return nil
 	}
-	used, out, baseGoal := map[string]bool{}, make([]SubtaskSlice, 0, min(maxSubtaskSlices, len(order))), collapseOneLine(trimmed, 120)
+	return buildPartitionSubtasks(trimmed, intent, slice, order, groups, catalog)
+}
+
+func buildPartitionSubtasks(trimmed string, intent IntentMode, slice SliceResult, order []string, groups map[string][]string, catalog []SkillMeta) []SubtaskSlice {
+	used := map[string]bool{}
+	out := make([]SubtaskSlice, 0, min(maxSubtaskSlices, len(order)))
+	baseGoal := CollapseOneLine(trimmed, 120)
 	for _, sp := range partitionPackageGroups(order, groups, slice.PkgCommunities) {
 		assigned := claimDisjointFiles(sp.files, used)
 		if len(assigned) == 0 {
@@ -35,7 +41,7 @@ func buildPackageSubtasks(trimmed string, intent IntentMode, slice SliceResult, 
 			Goal:   fmt.Sprintf("%s (%s)", baseGoal, sp.label),
 			Files:  assigned,
 			Skills: selectTopSkillNames(trimmed, intent, assigned, catalog),
-			Verify: inferSliceVerify(role, assigned),
+			Verify: InferSliceVerify(role, assigned),
 		})
 	}
 	if len(out) < 2 {
@@ -49,12 +55,12 @@ func buildPackageSubtasks(trimmed string, intent IntentMode, slice SliceResult, 
 // knownFiles, never pulling in unrelated 1-hop AST neighbor packages).
 func extractExplicitPromptTargets(trimmed string, knownFiles []string) []string {
 	var resolved []string
-	for _, tok := range extractPromptAndSliceFiles(trimmed, nil) {
-		norm := normalizeSlashPath(tok)
+	for _, tok := range ExtractPromptAndSliceFiles(trimmed, nil) {
+		norm := NormalizeSlashPath(tok)
 		if norm == "" {
 			continue
 		}
-		if isDirPathToken(norm) {
+		if IsDirPathToken(norm) {
 			if under := filesUnderDir(norm, knownFiles); len(under) > 0 {
 				resolved = append(resolved, under...)
 				continue
@@ -72,36 +78,13 @@ func extractExplicitPromptTargets(trimmed string, knownFiles []string) []string 
 // ignoring dropped constraint clauses, unrelated 1-hop AST neighbors, and
 // unresolved bare filenames paired with an explicit target directory.
 func countDistinctExplicitPackages(prompt string, clauses, knownFiles []string) int {
-	knownSet := make(map[string]bool, len(knownFiles))
-	for _, kf := range knownFiles {
-		if n := normalizeSlashPath(kf); n != "" {
-			knownSet[n] = true
-		}
-	}
+	knownSet := buildNormalizedFileSet(knownFiles)
 	dirs := map[string]bool{}
 	hasUnresolvedBare := false
-	addFromText := func(text string) {
-		for _, target := range extractExplicitPromptTargets(text, knownFiles) {
-			dir := packageDirKey(target)
-			if dir == "" {
-				continue
-			}
-			if dir == "." && !strings.Contains(target, "/") && !isDirPathToken(target) && !knownSet[target] {
-				hasUnresolvedBare = true
-				continue
-			}
-			dirs[dir] = true
+	for _, text := range explicitPackageTexts(prompt, clauses) {
+		if collectExplicitPackageDirs(text, knownFiles, knownSet, dirs) {
+			hasUnresolvedBare = true
 		}
-	}
-	if len(clauses) >= 2 {
-		if loc := numberedMarkerRe.FindStringIndex(prompt); loc != nil && loc[0] > 0 {
-			addFromText(prompt[:loc[0]])
-		}
-		for _, c := range clauses {
-			addFromText(c)
-		}
-	} else {
-		addFromText(prompt)
 	}
 	if hasUnresolvedBare && len(dirs) == 0 {
 		return 1
@@ -109,12 +92,54 @@ func countDistinctExplicitPackages(prompt string, clauses, knownFiles []string) 
 	return len(dirs)
 }
 
-func hasDiagnosticReadOnlyVerb(s string) bool {
-	stripped := strings.ToLower(fileTokenRe.ReplaceAllString(" "+s+" ", " "))
-	return containsAnyWord(stripped, "check", "checks", "inspect", "inspects", "profile", "profiles", "profiling", "measure", "measures", "measuring", "verify", "verifies", "audit", "audits")
+func buildNormalizedFileSet(files []string) map[string]bool {
+	out := make(map[string]bool, len(files))
+	for _, f := range files {
+		if n := NormalizeSlashPath(f); n != "" {
+			out[n] = true
+		}
+	}
+	return out
 }
 
-func isDiagnosticReadOnlyPrompt(trimmed string) bool {
+func explicitPackageTexts(prompt string, clauses []string) []string {
+	if len(clauses) < 2 {
+		return []string{prompt}
+	}
+	texts := make([]string, 0, len(clauses)+1)
+	if loc := numberedMarkerRe.FindStringIndex(prompt); loc != nil && loc[0] > 0 {
+		texts = append(texts, prompt[:loc[0]])
+	}
+	return append(texts, clauses...)
+}
+
+func collectExplicitPackageDirs(text string, knownFiles []string, knownSet, dirs map[string]bool) bool {
+	hasUnresolvedBare := false
+	for _, target := range extractExplicitPromptTargets(text, knownFiles) {
+		dir := PackageDirKey(target)
+		if dir == "" {
+			continue
+		}
+		if isUnresolvedBareTarget(dir, target, knownSet) {
+			hasUnresolvedBare = true
+			continue
+		}
+		dirs[dir] = true
+	}
+	return hasUnresolvedBare
+}
+
+func isUnresolvedBareTarget(dir, target string, knownSet map[string]bool) bool {
+	return dir == "." && !strings.Contains(target, "/") && !IsDirPathToken(target) && !knownSet[target]
+}
+
+func hasDiagnosticReadOnlyVerb(s string) bool {
+	stripped := strings.ToLower(FilePathRe.ReplaceAllString(" "+s+" ", " "))
+	return ContainsAnyWord(stripped, "check", "checks", "inspect", "inspects", "profile", "profiles", "profiling", "measure", "measures", "measuring", "verify", "verifies", "audit", "audits")
+}
+
+// IsDiagnosticReadOnlyPrompt reports whether trimmed requests read-only inspection or lookup.
+func IsDiagnosticReadOnlyPrompt(trimmed string) bool {
 	if hasDecomposeEditVerb(trimmed) {
 		return false
 	}
@@ -126,11 +151,16 @@ type pkgPartition struct {
 	files []string
 }
 
+type commBucket struct {
+	dirs  []string
+	files []string
+}
+
 func groupFilesByPkg(knownFiles []string, capsule string) (map[string][]string, []string) {
 	groups := map[string][]string{}
 	for _, raw := range knownFiles {
-		if n := normalizeSlashPath(raw); n != "" {
-			dir := packageDirKey(n)
+		if n := NormalizeSlashPath(raw); n != "" {
+			dir := PackageDirKey(n)
 			groups[dir] = append(groups[dir], n)
 		}
 	}
@@ -181,10 +211,25 @@ func partitionOverflowTail(order []string, groups map[string][]string) []pkgPart
 }
 
 func coalesceOverflowByCommunity(order []string, groups map[string][]string, pkgComms map[string]int) []pkgPartition {
-	type commBucket struct {
-		dirs  []string
-		files []string
+	buckets := buildCommunityBuckets(order, groups, pkgComms)
+	if len(buckets) < 2 {
+		return nil
 	}
+	limit := min(len(buckets), maxSubtaskSlices)
+	if len(buckets) > maxSubtaskSlices {
+		limit = maxSubtaskSlices - 1
+	}
+	out := make([]pkgPartition, 0, min(maxSubtaskSlices, len(buckets)))
+	for i := 0; i < limit; i++ {
+		out = append(out, pkgPartition{label: strings.Join(buckets[i].dirs, ", "), files: buckets[i].files})
+	}
+	if len(buckets) > maxSubtaskSlices {
+		out = append(out, mergeOverflowBuckets(buckets[maxSubtaskSlices-1:]))
+	}
+	return out
+}
+
+func buildCommunityBuckets(order []string, groups map[string][]string, pkgComms map[string]int) []commBucket {
 	idxByComm := map[int]int{}
 	var buckets []commBucket
 	nextUnknown := -1
@@ -202,32 +247,22 @@ func coalesceOverflowByCommunity(order []string, groups map[string][]string, pkg
 			buckets = append(buckets, commBucket{dirs: []string{dir}, files: append([]string(nil), groups[dir]...)})
 		}
 	}
-	if len(buckets) < 2 {
-		return nil
+	return buckets
+}
+
+func mergeOverflowBuckets(rest []commBucket) pkgPartition {
+	var dirs, files []string
+	for _, b := range rest {
+		dirs = append(dirs, b.dirs...)
+		files = append(files, b.files...)
 	}
-	out := make([]pkgPartition, 0, min(maxSubtaskSlices, len(buckets)))
-	limit := min(len(buckets), maxSubtaskSlices)
-	if len(buckets) > maxSubtaskSlices {
-		limit = maxSubtaskSlices - 1
-	}
-	for i := 0; i < limit; i++ {
-		out = append(out, pkgPartition{label: strings.Join(buckets[i].dirs, ", "), files: buckets[i].files})
-	}
-	if len(buckets) > maxSubtaskSlices {
-		var dirs, files []string
-		for _, b := range buckets[maxSubtaskSlices-1:] {
-			dirs = append(dirs, b.dirs...)
-			files = append(files, b.files...)
-		}
-		out = append(out, pkgPartition{label: strings.Join(dirs, ", "), files: files})
-	}
-	return out
+	return pkgPartition{label: strings.Join(dirs, ", "), files: files}
 }
 
 func claimDisjointFiles(cands []string, used map[string]bool) []string {
 	var out []string
 	for _, f := range cands {
-		if n := normalizeSlashPath(f); n != "" && !used[n] {
+		if n := NormalizeSlashPath(f); n != "" && !used[n] {
 			used[n] = true
 			out = append(out, n)
 		}
@@ -238,17 +273,20 @@ func claimDisjointFiles(cands []string, used map[string]bool) []string {
 	return out
 }
 
-func normalizeSlashPath(p string) string {
+// NormalizeSlashPath converts p to clean slash-separated repo-relative form.
+func NormalizeSlashPath(p string) string {
 	return strings.TrimSuffix(strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(p)), "./"), "/")
 }
 
-func isDirPathToken(p string) bool {
+// IsDirPathToken reports whether p looks like a directory token rather than a file path.
+func IsDirPathToken(p string) bool {
 	base := filepath.Base(p)
 	return filepath.Ext(p) == "" && base != "Dockerfile" && base != "Makefile"
 }
 
-func packageDirKey(p string) string {
-	if isDirPathToken(p) {
+// PackageDirKey returns the package directory key for file or directory path p.
+func PackageDirKey(p string) string {
+	if IsDirPathToken(p) {
 		return p
 	}
 	if d := filepath.ToSlash(filepath.Dir(p)); d != "" {
@@ -267,17 +305,17 @@ func hasCodeOrDirTarget(files []string) bool {
 }
 
 func inferClauseRole(clause string, clauseFiles []string) string {
-	stripped := strings.ToLower(fileTokenRe.ReplaceAllString(" "+clause+" ", " "))
+	stripped := strings.ToLower(FilePathRe.ReplaceAllString(" "+clause+" ", " "))
 	switch {
-	case containsAnyWord(stripped, "review", "reviews", "audit", "audits"):
+	case ContainsAnyWord(stripped, "review", "reviews", "audit", "audits"):
 		return "reviewer"
-	case containsAnyWord(stripped, "security", "auth", "authn", "authz", "oauth", "oauth2", "oidc", "jwt", "secret", "secrets", "crypto", "cryptography", "hmac", "redact"):
+	case ContainsAnyWord(stripped, "security", "auth", "authn", "authz", "oauth", "oauth2", "oidc", "jwt", "secret", "secrets", "crypto", "cryptography", "hmac", "redact"):
 		return "security"
-	case containsAnyWord(stripped, "doc", "docs", "documentation", "readme", "spec", "specs", "sdd", "tdd"):
+	case ContainsAnyWord(stripped, "doc", "docs", "documentation", "readme", "spec", "specs", "sdd", "tdd"):
 		return "documentation"
-	case !hasDecomposeEditVerb(clause) && containsAnyWord(stripped, "find", "search", "trace", "explain", "check", "checks", "inspect", "inspects", "profile", "profiles", "profiling", "measure", "measures", "measuring", "verify", "verifies"):
+	case !hasDecomposeEditVerb(clause) && ContainsAnyWord(stripped, "find", "search", "trace", "explain", "check", "checks", "inspect", "inspects", "profile", "profiles", "profiling", "measure", "measures", "measuring", "verify", "verifies"):
 		return "explorer"
-	case len(clauseFiles) > 0 && allMarkdownFiles(clauseFiles) && !containsAnyWord(stripped, "implement", "fix", "add", "build", "create", "refactor", "test"):
+	case len(clauseFiles) > 0 && allMarkdownFiles(clauseFiles) && !ContainsAnyWord(stripped, "implement", "fix", "add", "build", "create", "refactor", "test"):
 		return "documentation"
 	default:
 		return "builder"
@@ -307,7 +345,8 @@ func selectTopSkillNames(clause string, intent IntentMode, clauseFiles []string,
 	return out
 }
 
-func inferSliceVerify(role string, clauseFiles []string) string {
+// InferSliceVerify selects a safe verification command for role and clauseFiles.
+func InferSliceVerify(role string, clauseFiles []string) string {
 	if role == "explorer" && len(clauseFiles) == 0 {
 		return ""
 	}
@@ -333,18 +372,11 @@ func inferGoDirsVerify(clauseFiles []string) string {
 	seen := map[string]bool{}
 	var targets []string
 	for _, f := range clauseFiles {
-		if strings.ToLower(filepath.Ext(f)) != ".go" && (!isDirPathToken(f) || (!strings.HasPrefix(f, "internal/") && !strings.HasPrefix(f, "cmd/") && !strings.HasPrefix(f, "pkg/"))) {
+		if !isGoVerifyCandidate(f) {
 			continue
 		}
-		dir, target := packageDirKey(f), "./..."
-		if dir != "." && dir != "" {
-			cleanDir := strings.TrimPrefix(dir, "./")
-			if !isSafeVerifyPath(cleanDir) {
-				continue
-			}
-			target = "./" + cleanDir + "/..."
-		}
-		if !seen[target] {
+		target := formatGoVerifyTarget(f)
+		if target != "" && !seen[target] {
 			seen[target] = true
 			targets = append(targets, target)
 		}
@@ -353,6 +385,25 @@ func inferGoDirsVerify(clauseFiles []string) string {
 		return ""
 	}
 	return "go test -race " + strings.Join(targets, " ")
+}
+
+func isGoVerifyCandidate(f string) bool {
+	if strings.ToLower(filepath.Ext(f)) == ".go" {
+		return true
+	}
+	return IsDirPathToken(f) && (strings.HasPrefix(f, "internal/") || strings.HasPrefix(f, "cmd/") || strings.HasPrefix(f, "pkg/"))
+}
+
+func formatGoVerifyTarget(f string) string {
+	dir := PackageDirKey(f)
+	if dir == "." || dir == "" {
+		return "./..."
+	}
+	cleanDir := strings.TrimPrefix(dir, "./")
+	if !isSafeVerifyPath(cleanDir) {
+		return ""
+	}
+	return "./" + cleanDir + "/..."
 }
 
 func isSafeVerifyPath(p string) bool {

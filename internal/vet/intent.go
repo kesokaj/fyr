@@ -1,4 +1,4 @@
-package search
+package vet
 
 import "strings"
 
@@ -9,7 +9,7 @@ func ClassifyIntent(prompt string, symbolHits int) IntentMode {
 	if p == "" || isApprovalPrompt(low) {
 		return IntentApproval
 	}
-	if isKickoffPrompt(p) {
+	if IsKickoffPrompt(p) {
 		return IntentTask
 	}
 	if mode, ok := classifySlashPrefix(low); ok {
@@ -47,13 +47,14 @@ func isApprovalPrompt(low string) bool {
 	return false
 }
 
-func isKickoffPrompt(p string) bool {
-	s := stripAnySandboxPreamble(p)
+// IsKickoffPrompt reports whether p starts with an autonomous Kickoff or worker header.
+func IsKickoffPrompt(p string) bool {
+	s := StripAnySandboxPreamble(p)
 	if s == "" {
 		return false
 	}
 	low := strings.ToLower(strings.ReplaceAll(s, "\r\n", "\n"))
-	return hasWorkerTopHeader(strings.Split(low, "\n"))
+	return HasWorkerTopHeader(strings.Split(low, "\n"))
 }
 
 func classifySlashPrefix(low string) (IntentMode, bool) {
@@ -96,6 +97,10 @@ func isCorrectionPrompt(low string) bool {
 	if hasEditOrFeatureVerb(low) {
 		return false
 	}
+	return hasInlineCorrectionCue(low, turnPrefixes)
+}
+
+func hasInlineCorrectionCue(low string, turnPrefixes []string) bool {
 	for _, p := range turnPrefixes {
 		if hasSentenceStart(low, p) {
 			return true
@@ -120,12 +125,12 @@ func hasSentenceStart(low, phrase string) bool {
 
 func hasEditOrFeatureVerb(low string) bool {
 	return isBugPrompt(low) || isFeatureKeyword(low) ||
-		containsAnyWord(low, "add", "create", "extend", "fix", "refactor", "implement", "update") ||
+		ContainsAnyWord(low, "add", "create", "extend", "fix", "refactor", "implement", "update") ||
 		hasImperativeVerb(low, "build", buildNounPrevs, buildNounNexts)
 }
 
 func isReleasePrompt(low string) bool {
-	if containsAnySubstr(low, "write me a prompt", "give me the prompt", "when this is done", "once this is done", "after phase", "when phase") {
+	if ContainsAnySubstr(low, "write me a prompt", "give me the prompt", "when this is done", "once this is done", "after phase", "when phase") {
 		return false
 	}
 	for _, p := range []string{"ship it", "release this", "cut v", "deploy v", "tag v", "new version", "cut a release"} {
@@ -157,7 +162,7 @@ func isTrivialPrompt(low string, symbolHits int) bool {
 	words := strings.Fields(low)
 	if strings.Contains(low, "rename ") && len(words) <= 10 &&
 		!isBugPrompt(low) && !isFeatureKeyword(low) &&
-		!containsAnyWord(low, "refactor", "redesign", "architect", "migrate", "add", "create", "extend", "support", "build", "implement", "split", "extract", "replace") {
+		!ContainsAnyWord(low, "refactor", "redesign", "architect", "migrate", "add", "create", "extend", "support", "build", "implement", "split", "extract", "replace") {
 		return true
 	}
 	return len(words) <= 3 && symbolHits == 0 && !strings.HasSuffix(low, "?") &&
@@ -165,7 +170,7 @@ func isTrivialPrompt(low string, symbolHits int) bool {
 }
 
 func isQuestionPrompt(orig, low string) bool {
-	hasEditVerb := containsAnyWord(low, "fix", "implement", "add", "create", "refactor", "update", "write", "change", "remove", "delete") ||
+	hasEditVerb := ContainsAnyWord(low, "fix", "implement", "add", "create", "refactor", "update", "write", "change", "remove", "delete") ||
 		hasImperativeVerb(low, "build", buildNounPrevs, buildNounNexts)
 	if strings.HasSuffix(strings.TrimSpace(orig), "?") && (!hasEditVerb || isDeliberativeQuestion(low)) {
 		return true
@@ -179,22 +184,22 @@ func isQuestionPrompt(orig, low string) bool {
 }
 
 func isDeliberativeQuestion(low string) bool {
-	return !containsAnySubstr(low, "can you ", "could you ", "would you ") &&
-		containsAnySubstr(low, "do we ", "should we ", "did we ", "did you ", "have we ", "have you ", "are we ")
+	return !ContainsAnySubstr(low, "can you ", "could you ", "would you ") &&
+		ContainsAnySubstr(low, "do we ", "should we ", "did we ", "did you ", "have we ", "have you ", "are we ")
 }
 
 func isBugPrompt(low string) bool {
-	if containsAnySubstr(low, "bug", "broken", "failing", "fails", "failure", "crash", "crashes", "panic", "regression", "debug", "investigate", "doesn't work", "does not work", "nil pointer", "race condition", "deadlock", "error in", "wrong output") {
+	if ContainsAnySubstr(low, "bug", "broken", "failing", "fails", "failure", "crash", "crashes", "panic", "regression", "debug", "investigate", "doesn't work", "does not work", "nil pointer", "race condition", "deadlock", "error in", "wrong output") {
 		return true
 	}
-	return containsAnyWord(low, "fix") && !strings.Contains(low, "fix typo") && !strings.Contains(low, "fix comment") && !strings.Contains(low, "fix plan")
+	return ContainsAnyWord(low, "fix") && !strings.Contains(low, "fix typo") && !strings.Contains(low, "fix comment") && !strings.Contains(low, "fix plan")
 }
 
 func isFeaturePrompt(low string, symbolHits int) bool {
 	if isFeatureKeyword(low) {
 		return true
 	}
-	return containsAnyWord(low, "add", "create", "extend", "support") && (symbolHits == 0 || strings.Contains(low, "new "))
+	return ContainsAnyWord(low, "add", "create", "extend", "support") && (symbolHits == 0 || strings.Contains(low, "new "))
 }
 
 func wordSet(words ...string) map[string]bool {
@@ -236,14 +241,7 @@ func hasImperativeVerb(low, verb string, nounPrevs, nounNexts map[string]bool) b
 		if tok != verb {
 			continue
 		}
-		prev := ""
-		if i > 0 {
-			prev = tokens[i-1]
-		}
-		next := ""
-		if i+1 < len(tokens) {
-			next = tokens[i+1]
-		}
+		prev, next := adjacentTokens(tokens, i)
 		if !nounPrevs[prev] && !nounNexts[next] {
 			return true
 		}
@@ -251,13 +249,24 @@ func hasImperativeVerb(low, verb string, nounPrevs, nounNexts map[string]bool) b
 	return false
 }
 
+func adjacentTokens(tokens []string, i int) (string, string) {
+	prev, next := "", ""
+	if i > 0 {
+		prev = tokens[i-1]
+	}
+	if i+1 < len(tokens) {
+		next = tokens[i+1]
+	}
+	return prev, next
+}
+
 func isFeatureKeyword(low string) bool {
 	if hasImperativeVerb(low, "build", buildNounPrevs, buildNounNexts) ||
 		hasImperativeVerb(low, "design", designNounPrevs, designNounNexts) {
 		return true
 	}
-	if containsAnyWord(low, "implement", "architect", "integrate", "scaffold", "introduce") {
+	if ContainsAnyWord(low, "implement", "architect", "integrate", "scaffold", "introduce") {
 		return true
 	}
-	return containsAnySubstr(low, "new feature", "support for", "add support")
+	return ContainsAnySubstr(low, "new feature", "support for", "add support")
 }

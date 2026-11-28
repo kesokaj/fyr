@@ -1,9 +1,10 @@
-package search
+package vet
 
 import (
 	"math"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -46,10 +47,13 @@ func MatchSkills(prompt string, intent IntentMode, files []string, catalog []Ski
 	if intent == IntentCorrection {
 		return selectInstalledNamedSkills(installed, "operator correction", "fyr-project-memory"), secReq
 	}
+	return rankMatchingSkills(installed, low, prompt, intent, files), secReq
+}
+
+func rankMatchingSkills(installed []SkillMeta, low, prompt string, intent IntentMode, files []string) []SkillMeta {
 	docs, idf, avgLen := buildSkillCorpus(installed)
 	queryTerms := extractPromptQueryTerms(low)
 	fileWeights := extractFileConceptWeights(low, files)
-
 	type scoredSkill struct {
 		meta  SkillMeta
 		score float64
@@ -58,7 +62,7 @@ func MatchSkills(prompt string, intent IntentMode, files []string, catalog []Ski
 	for _, doc := range docs {
 		if sc, reason := scoreSkillDoc(doc, low, prompt, intent, queryTerms, fileWeights, idf, avgLen); sc > 0 {
 			cand := doc.meta
-			cand.Digest = truncateBytesUTF8(cand.Digest, maxSkillDigestBytes)
+			cand.Digest = truncateSkillDigestUTF8(cand.Digest, MaxSkillDigestBytes)
 			cand.Reason = reason
 			scored = append(scored, scoredSkill{meta: cand, score: sc})
 		}
@@ -74,7 +78,7 @@ func MatchSkills(prompt string, intent IntentMode, files []string, catalog []Ski
 	for i := 0; i < limit; i++ {
 		out = append(out, scored[i].meta)
 	}
-	return out, secReq
+	return out
 }
 
 func selectInstalledNamedSkills(installed []SkillMeta, reason string, names ...string) []SkillMeta {
@@ -85,7 +89,7 @@ func selectInstalledNamedSkills(installed []SkillMeta, reason string, names ...s
 	var out []SkillMeta
 	for _, name := range names {
 		if s, ok := byName[name]; ok {
-			s.Digest = truncateBytesUTF8(s.Digest, maxSkillDigestBytes)
+			s.Digest = truncateSkillDigestUTF8(s.Digest, MaxSkillDigestBytes)
 			s.Reason = reason
 			out = append(out, s)
 		}
@@ -134,7 +138,7 @@ func newSkillDoc(s SkillMeta, installedNames map[string]bool) skillDoc {
 		digestTF:    extractSkillTerms(digestSource),
 		negTerms:    map[string]bool{},
 		loadOnly:    map[string]bool{},
-		isSwarmLike: containsAnyWord(strings.ToLower(posDesc), "multi-agent", "swarm"),
+		isSwarmLike: ContainsAnyWord(strings.ToLower(posDesc), "multi-agent", "swarm"),
 	}
 	doc.nameTF[strings.ToLower(s.Name)]++
 	for t := range extractSkillTerms(negDesc) {
@@ -188,28 +192,17 @@ func scoreSkillDoc(
 	avgLen float64,
 ) (float64, string) {
 	name := doc.meta.Name
-	if isDiagnosticOrNegatedSkillMention(name, lowPrompt) {
-		return 0, ""
-	}
-	directName := containsAnyWord(lowPrompt, strings.ToLower(name)) || strings.Contains(lowPrompt, "/"+strings.ToLower(name))
-	if len(doc.loadOnly) > 0 && !directName && !matchesLoadOnlyCue(doc, queryTerms) {
-		return 0, ""
-	}
-	if doc.isSwarmLike && isWorkerBriefPrompt(origPrompt) && !directName {
+	directName := isDirectSkillMention(name, lowPrompt)
+	if !skillDocEligible(doc, lowPrompt, origPrompt, directName, queryTerms) {
 		return 0, ""
 	}
 	bm25, nameDescHits, digestHits := computeSkillBM25(doc, queryTerms, idf, avgLen)
 	fileScore := computeFileConceptScore(doc, fileWeights)
-	total := bm25 + fileScore
-	reason := ""
-	if directName {
-		total += 12.0
-		reason = "named in prompt"
-	}
+	total, reason := baseSkillScore(bm25, fileScore, directName)
 	isPrimary := intentPrimarySkill[intent] == name
-	if negHits := countNegativeScopeHits(doc, queryTerms, fileWeights); negHits > 0 && !directName && !isPrimary {
-		total -= 8.0 * float64(negHits)
-		if nameDescHits < 2 && fileScore < 7.0 {
+	if !directName && !isPrimary {
+		var ok bool
+		if total, ok = applyNegativeSkillPenalty(doc, total, nameDescHits, fileScore, queryTerms, fileWeights); !ok {
 			return 0, ""
 		}
 	}
@@ -219,14 +212,51 @@ func scoreSkillDoc(
 	if !passesSkillScoreThreshold(intent, directName, fileScore, total, nameDescHits, digestHits) {
 		return 0, ""
 	}
-	if reason == "" {
-		if fileScore > bm25 {
-			reason = "file surface match"
-		} else {
-			reason = "catalog BM25 match"
-		}
+	return total, pickSkillMatchReason(reason, fileScore, bm25)
+}
+
+func isDirectSkillMention(name, lowPrompt string) bool {
+	lowName := strings.ToLower(name)
+	return ContainsAnyWord(lowPrompt, lowName) || strings.Contains(lowPrompt, "/"+lowName)
+}
+
+func skillDocEligible(doc skillDoc, lowPrompt, origPrompt string, directName bool, queryTerms map[string]int) bool {
+	if isDiagnosticOrNegatedSkillMention(doc.meta.Name, lowPrompt) {
+		return false
 	}
-	return total, reason
+	if len(doc.loadOnly) > 0 && !directName && !matchesLoadOnlyCue(doc, queryTerms) {
+		return false
+	}
+	return !doc.isSwarmLike || !IsWorkerBriefPrompt(origPrompt) || directName
+}
+
+func baseSkillScore(bm25, fileScore float64, directName bool) (float64, string) {
+	total := bm25 + fileScore
+	if directName {
+		return total + 12.0, "named in prompt"
+	}
+	return total, ""
+}
+
+func applyNegativeSkillPenalty(doc skillDoc, total float64, nameDescHits int, fileScore float64, queryTerms map[string]int, fileWeights map[string]float64) (float64, bool) {
+	negHits := countNegativeScopeHits(doc, queryTerms, fileWeights)
+	if negHits == 0 {
+		return total, true
+	}
+	if nameDescHits < 2 && fileScore < 7.0 {
+		return 0, false
+	}
+	return total - 8.0*float64(negHits), true
+}
+
+func pickSkillMatchReason(reason string, fileScore, bm25 float64) string {
+	if reason != "" {
+		return reason
+	}
+	if fileScore > bm25 {
+		return "file surface match"
+	}
+	return "catalog BM25 match"
 }
 
 func passesSkillScoreThreshold(intent IntentMode, directName bool, fileScore, total float64, nameDescHits, digestHits int) bool {
@@ -295,7 +325,7 @@ func countNegativeScopeHits(doc skillDoc, queryTerms map[string]int, fileWeights
 }
 
 func isDiagnosticOrNegatedSkillMention(name, lowPrompt string) bool {
-	if !containsAnyWord(lowPrompt, name) {
+	if !ContainsAnyWord(lowPrompt, name) {
 		return false
 	}
 	for _, phrase := range []string{
@@ -308,17 +338,14 @@ func isDiagnosticOrNegatedSkillMention(name, lowPrompt string) bool {
 			return true
 		}
 	}
-	if strings.Contains(lowPrompt, "why ") && strings.Contains(lowPrompt, name+" skill") {
-		return true
-	}
-	return false
+	return strings.Contains(lowPrompt, "why ") && strings.Contains(lowPrompt, name+" skill")
 }
 
 func touchesSecuritySurface(lowPrompt string, files []string) bool {
-	if containsAnySubstr(
+	if ContainsAnySubstr(
 		lowPrompt,
 		"auth", "authn", "authz", "oauth", "oidc", "jwt", "iap",
-		"auth token", "api token", "id token", "bearer token", "oauth token",
+		"auth token", "api token", "id token", "bearer"+" token", "oauth token",
 		"password", "crypto", "cipher", "hmac", "sha256", "tls", "secret",
 		"redact", "credential", "iam", "permission", "frontmatter", "allowlist",
 		"allow-list", "skillkeys", "agentkeys", "knowntools", "inject", "injection", "sanitize",
@@ -326,9 +353,32 @@ func touchesSecuritySurface(lowPrompt string, files []string) bool {
 		return true
 	}
 	for _, f := range files {
-		if containsAnySubstr(strings.ToLower(f), "redact", "security", "auth", "guard", "inventory.go", "go.mod") {
+		if ContainsAnySubstr(strings.ToLower(f), "redact", "security", "auth", "guard", "inventory.go", "go.mod") {
 			return true
 		}
 	}
 	return false
+}
+
+func truncateSkillDigestUTF8(s string, maxB int) string {
+	if maxB <= 0 || len(s) <= maxB {
+		return s
+	}
+	cut := 0
+	for i := range s {
+		if i > maxB {
+			break
+		}
+		cut = i
+	}
+	if cut == 0 && maxB > 0 {
+		for cut < len(s) && cut < maxB {
+			_, sz := utf8.DecodeRuneInString(s[cut:])
+			if cut+sz > maxB {
+				break
+			}
+			cut += sz
+		}
+	}
+	return strings.TrimRight(s[:cut], " \t\n\r")
 }

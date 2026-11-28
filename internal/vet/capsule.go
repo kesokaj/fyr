@@ -1,17 +1,6 @@
-package search
+package vet
 
 import "strings"
-
-func stripAnySandboxPreamble(prompt string) string {
-	s := strings.TrimSpace(StripSandboxPreamble(strings.TrimSpace(prompt)))
-	low := strings.ToLower(s)
-	if strings.HasPrefix(low, strings.ToLower(sandboxPreamblePrefix)) {
-		if idx := strings.Index(low, strings.ToLower(sandboxPreambleEnd)); idx >= 0 {
-			return strings.TrimSpace(s[idx+len(sandboxPreambleEnd):])
-		}
-	}
-	return s
-}
 
 func isProjectThisCloneLine(line string) bool {
 	const prefix = "project: this clone"
@@ -29,7 +18,8 @@ func isProjectThisCloneLine(line string) bool {
 	}
 }
 
-func isKickoffHeaderMetaLine(line string) bool {
+// IsKickoffHeaderMetaLine reports whether line starts with a Kickoff metadata header key.
+func IsKickoffHeaderMetaLine(line string) bool {
 	for _, p := range []string{"project:", "session:", "plan:", "model:", "class:", "level:", "never:", "done when:"} {
 		if strings.HasPrefix(line, p) {
 			return true
@@ -38,7 +28,8 @@ func isKickoffHeaderMetaLine(line string) bool {
 	return false
 }
 
-func hasWorkerTopHeader(lines []string) bool {
+// HasWorkerTopHeader reports whether lines begin with a worker brief or Kickoff header.
+func HasWorkerTopHeader(lines []string) bool {
 	limit := min(len(lines), 8)
 	for i := 0; i < limit; i++ {
 		line := strings.TrimSpace(lines[i])
@@ -55,7 +46,7 @@ func hasWorkerTopHeader(lines []string) bool {
 			return true
 		case i == 0 && line == "this is a kickoff written by fyr auto.":
 			return true
-		case isKickoffHeaderMetaLine(line):
+		case IsKickoffHeaderMetaLine(line):
 			continue
 		default:
 			return false
@@ -64,7 +55,8 @@ func hasWorkerTopHeader(lines []string) bool {
 	return false
 }
 
-func hasWorkerCapsuleSection(lines []string) bool {
+// HasWorkerCapsuleSection reports whether lines contain an unfenced valid worker capsule block.
+func HasWorkerCapsuleSection(lines []string) bool {
 	mdClose := ""
 	for i := 0; i < len(lines); i++ {
 		trimmed := strings.TrimSpace(lines[i])
@@ -75,67 +67,93 @@ func hasWorkerCapsuleSection(lines []string) bool {
 		if mdClose != "" {
 			continue
 		}
-		if trimmed == "[fyr_worker_capsule]" && i+1 < len(lines) &&
-			strings.HasPrefix(strings.TrimSpace(lines[i+1]), "trust: ") &&
-			validWorkerCapsuleBlock(lines[i+2:]) {
+		if isWorkerCapsuleHeader(lines, i, trimmed) {
 			return true
 		}
 	}
 	return false
 }
 
+func isWorkerCapsuleHeader(lines []string, i int, trimmed string) bool {
+	return trimmed == "[fyr_worker_capsule]" &&
+		i+1 < len(lines) &&
+		strings.HasPrefix(strings.TrimSpace(lines[i+1]), "trust: ") &&
+		validWorkerCapsuleBlock(lines[i+2:])
+}
+
 func stepMarkdownFence(trimmed, curClose string) (string, bool) {
 	if curClose != "" {
-		if strings.HasPrefix(trimmed, curClose) && strings.TrimLeft(trimmed, string(curClose[0])) == "" {
+		if isMarkdownFenceClose(trimmed, curClose) {
 			return "", true
 		}
 		return curClose, false
 	}
-	for _, ch := range []byte{'`', '~'} {
-		if len(trimmed) >= 3 && trimmed[0] == ch && trimmed[1] == ch && trimmed[2] == ch {
-			n := 0
-			for n < len(trimmed) && trimmed[n] == ch {
-				n++
-			}
-			if ch == '`' && strings.ContainsRune(trimmed[n:], '`') {
-				return "", false
-			}
-			return strings.Repeat(string(ch), n), true
-		}
+	return parseMarkdownFenceOpen(trimmed)
+}
+
+func isMarkdownFenceClose(trimmed, curClose string) bool {
+	return strings.HasPrefix(trimmed, curClose) && strings.TrimLeft(trimmed, string(curClose[0])) == ""
+}
+
+func parseMarkdownFenceOpen(trimmed string) (string, bool) {
+	if len(trimmed) < 3 {
+		return "", false
 	}
-	return "", false
+	ch := trimmed[0]
+	if ch != '`' && ch != '~' {
+		return "", false
+	}
+	n := countLeadingByte(trimmed, ch)
+	if n < 3 {
+		return "", false
+	}
+	if ch == '`' && strings.ContainsRune(trimmed[n:], '`') {
+		return "", false
+	}
+	return strings.Repeat(string(ch), n), true
+}
+
+func countLeadingByte(s string, ch byte) int {
+	n := 0
+	for n < len(s) && s[n] == ch {
+		n++
+	}
+	return n
 }
 
 func validWorkerCapsuleBlock(tail []string) bool {
 	closedTag := false
 	dataFenceTag := ""
 	for _, line := range tail {
-		trimmed := strings.TrimSpace(line)
-		if dataFenceTag != "" {
-			if isCapsuleDataFenceEnd(trimmed, dataFenceTag) {
-				dataFenceTag = ""
-			}
-			continue
+		if !stepWorkerCapsuleLine(strings.TrimSpace(line), &closedTag, &dataFenceTag) {
+			return false
 		}
-		if trimmed == "" {
-			continue
-		}
-		if tag, ok := parseCapsuleDataFenceOpen(trimmed); ok {
-			dataFenceTag = tag
-			continue
-		}
-		if !closedTag {
-			if trimmed == "[/fyr_worker_capsule]" {
-				closedTag = true
-				continue
-			}
-			if strings.HasPrefix(trimmed, "inferred_files: ") {
-				continue
-			}
-		}
-		return false
 	}
 	return dataFenceTag == ""
+}
+
+func stepWorkerCapsuleLine(trimmed string, closedTag *bool, dataFenceTag *string) bool {
+	if *dataFenceTag != "" {
+		if isCapsuleDataFenceEnd(trimmed, *dataFenceTag) {
+			*dataFenceTag = ""
+		}
+		return true
+	}
+	if trimmed == "" {
+		return true
+	}
+	if tag, ok := parseCapsuleDataFenceOpen(trimmed); ok {
+		*dataFenceTag = tag
+		return true
+	}
+	if *closedTag {
+		return false
+	}
+	if trimmed == "[/fyr_worker_capsule]" {
+		*closedTag = true
+		return true
+	}
+	return strings.HasPrefix(trimmed, "inferred_files: ")
 }
 
 func parseCapsuleDataFenceOpen(trimmed string) (string, bool) {
@@ -153,17 +171,17 @@ func isCapsuleDataFenceEnd(trimmed, tag string) bool {
 	return strings.HasPrefix(trimmed, tag+" end data ") && strings.HasSuffix(trimmed, " =====")
 }
 
-// isWorkerBriefPrompt reports whether prompt (original or lowercased) is an
+// IsWorkerBriefPrompt reports whether prompt (original or lowercased) is an
 // isolated worker brief or autonomous Kickoff so hooks never route workers into
 // COORDINATE_SUBTASKS, fyr-swarm, or [COORDINATOR_GUARD] (D25, SPEC-fyr-pre-hook-coordinator).
-func isWorkerBriefPrompt(prompt string) bool {
-	s := stripAnySandboxPreamble(prompt)
+func IsWorkerBriefPrompt(prompt string) bool {
+	s := StripAnySandboxPreamble(prompt)
 	if s == "" {
 		return false
 	}
 	low := strings.ToLower(strings.ReplaceAll(s, "\r\n", "\n"))
 	lines := strings.Split(low, "\n")
-	return hasWorkerTopHeader(lines) || hasWorkerCapsuleSection(lines)
+	return HasWorkerTopHeader(lines) || HasWorkerCapsuleSection(lines)
 }
 
 func extractCapsuleSymbolFiles(capsule string) map[string][]string {
@@ -190,7 +208,7 @@ func parseCapsuleLinePathSym(line string) (string, string) {
 	if colon <= 0 || !okSym {
 		return "", ""
 	}
-	return normalizeSlashPath(spec[:colon]), strings.TrimSpace(sym)
+	return NormalizeSlashPath(spec[:colon]), strings.TrimSpace(sym)
 }
 
 func hop0DirRanks(capsule string) map[string]int {
@@ -200,7 +218,7 @@ func hop0DirRanks(capsule string) map[string]int {
 			continue
 		}
 		if path, _ := parseCapsuleLinePathSym(line); path != "" {
-			dir := packageDirKey(path)
+			dir := PackageDirKey(path)
 			if _, exists := ranks[dir]; !exists {
 				ranks[dir] = idx
 				idx++

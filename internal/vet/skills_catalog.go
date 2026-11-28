@@ -1,12 +1,14 @@
-package search
+package vet
 
 import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 )
 
-func containsAnySubstr(s string, subs ...string) bool {
+// ContainsAnySubstr reports whether s contains at least one of subs.
+func ContainsAnySubstr(s string, subs ...string) bool {
 	for _, sub := range subs {
 		if strings.Contains(s, sub) {
 			return true
@@ -15,7 +17,8 @@ func containsAnySubstr(s string, subs ...string) bool {
 	return false
 }
 
-func extractPromptAndSliceFiles(prompt string, sliceFiles []string) []string {
+// ExtractPromptAndSliceFiles merges sliceFiles with file/directory tokens extracted from prompt.
+func ExtractPromptAndSliceFiles(prompt string, sliceFiles []string) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, f := range sliceFiles {
@@ -24,7 +27,7 @@ func extractPromptAndSliceFiles(prompt string, sliceFiles []string) []string {
 			out = append(out, f)
 		}
 	}
-	for _, m := range fileTokenRe.FindAllString(prompt, -1) {
+	for _, m := range FilePathRe.FindAllString(prompt, -1) {
 		if m = strings.TrimSpace(strings.Trim(m, "`'\".,;:()")); m != "" && !seen[m] {
 			seen[m] = true
 			out = append(out, m)
@@ -33,7 +36,8 @@ func extractPromptAndSliceFiles(prompt string, sliceFiles []string) []string {
 	return out
 }
 
-func containsAnyWord(low string, words ...string) bool {
+// ContainsAnyWord reports whether low contains any whole word in words.
+func ContainsAnyWord(low string, words ...string) bool {
 	tokens := strings.FieldsFunc(low, func(r rune) bool {
 		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' && r != '-'
 	})
@@ -60,7 +64,7 @@ func countExt(files []string, exts ...string) int {
 }
 
 func promptHasExt(lowPrompt string, exts ...string) bool {
-	for _, m := range fileTokenRe.FindAllString(lowPrompt, -1) {
+	for _, m := range FilePathRe.FindAllString(lowPrompt, -1) {
 		m = strings.Trim(m, "`'\".,;:()")
 		if slices.Contains(exts, strings.ToLower(filepath.Ext(m))) {
 			return true
@@ -226,6 +230,15 @@ var skillTermAliases = buildAliasMap([][2]string{
 	{"provideslateuitheme", "slateui"},
 })
 
+func isAllSkillDigits(s string) bool {
+	for _, r := range s {
+		if !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return s != ""
+}
+
 func stemSkillTerm(tok string) string {
 	if len(tok) < 4 || strings.Contains(tok, "-") {
 		return tok
@@ -245,7 +258,7 @@ func stemSkillTerm(tok string) string {
 
 func addNormalizedSkillTerm(tf map[string]int, raw string) {
 	t := strings.Trim(strings.ToLower(raw), "-_")
-	if len(t) < 2 || isAllDigits(t) {
+	if len(t) < 2 || isAllSkillDigits(t) {
 		return
 	}
 	if mapped, ok := skillTermAliases[t]; ok {
@@ -270,27 +283,31 @@ func extractSkillTerms(text string) map[string]int {
 	return extractSkillTermsOpts(text, true)
 }
 
+func isNotSkillTermRune(r rune) bool {
+	return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' && r != '_'
+}
+
 func extractSkillTermsOpts(text string, splitHyphens bool) map[string]int {
 	tf := map[string]int{}
-	low := strings.ToLower(text)
-	rawToks := strings.FieldsFunc(low, func(r rune) bool {
-		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' && r != '_'
-	})
-	for _, raw := range rawToks {
+	for _, raw := range strings.FieldsFunc(strings.ToLower(text), isNotSkillTermRune) {
 		addNormalizedSkillTerm(tf, raw)
 		if splitHyphens && strings.Contains(raw, "-") {
-			parts := strings.Split(raw, "-")
-			for _, p := range parts {
-				addNormalizedSkillTerm(tf, p)
-			}
-			for i := 0; i+1 < len(parts); i++ {
-				if len(parts[i]) >= 2 && len(parts[i+1]) >= 2 {
-					addNormalizedSkillTerm(tf, parts[i]+parts[i+1])
-				}
-			}
+			addHyphenatedSkillTerms(tf, raw)
 		}
 	}
 	return tf
+}
+
+func addHyphenatedSkillTerms(tf map[string]int, raw string) {
+	parts := strings.Split(raw, "-")
+	for _, p := range parts {
+		addNormalizedSkillTerm(tf, p)
+	}
+	for i := 0; i+1 < len(parts); i++ {
+		if len(parts[i]) >= 2 && len(parts[i+1]) >= 2 {
+			addNormalizedSkillTerm(tf, parts[i]+parts[i+1])
+		}
+	}
 }
 
 func stripOtherSkillSlashRefs(text, selfName string, installedNames map[string]bool) string {
@@ -357,7 +374,7 @@ func addCodeFileConceptWeights(lowPrompt string, files []string, bump func(strin
 	if goCount := countExt(files, ".go"); goCount > 0 {
 		bump("golang", 5.5+min(1.5, float64(goCount)*0.3))
 	}
-	if hasBaseOrExt(files, ".component.ts", ".component.html") || containsAnySubstr(lowPrompt, ".component.ts", ".component.html", "@angular/") {
+	if hasBaseOrExt(files, ".component.ts", ".component.html") || ContainsAnySubstr(lowPrompt, ".component.ts", ".component.html", "@angular/") {
 		bump("angular", 8.0)
 		bump("slateui", 8.0)
 		bump("ng-primitives", 7.0)
@@ -400,7 +417,7 @@ func addInfraAndDocConceptWeights(lowPrompt string, files []string, bump func(st
 		bump("prd", 6.5)
 		bump("requirement", 6.5)
 	}
-	if hasBaseOrExt(files, "readme.md", "sdd.md", "tdd.md") && !containsAnyWord(lowPrompt, "typo", "rename") {
+	if hasBaseOrExt(files, "readme.md", "sdd.md", "tdd.md") && !ContainsAnyWord(lowPrompt, "typo", "rename") {
 		bump("docs", 5.0)
 		bump("bluf", 4.5)
 	}

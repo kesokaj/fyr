@@ -60,7 +60,7 @@ Query the graph and linked contracts from the terminal or inside subagent reconn
 
 ## Stateful prompt vetting, directives, and decomposition
 
-On `pre-invocation`, `VetPrompt` (`internal/search/vet.go`) classifies every turn in `< 25 ms` and scores six completeness anchors. It detects `PRD.md` or `ADR-*` conflicts, splits multi-part prompts into disjoint subtasks, and wraps untrusted data in cryptographic fences (`=====<18-hex>=====`, `internal/search/fence.go`). The hook emits one fenced `text` `PreInvocationBanner` card (`Metadata == nil`).
+On `pre-invocation`, `VetPrompt` (`internal/vet/vet.go`) classifies every turn in `< 25 ms` and scores six completeness anchors. It detects `PRD.md` or `ADR-*` conflicts, splits multi-part prompts into disjoint subtasks, and wraps untrusted data in cryptographic fences (`=====<18-hex>=====`, `internal/vet/fence.go`). The hook emits one fenced `text` `PreInvocationBanner` card (`Metadata == nil`).
 
 ```mermaid
 flowchart TD

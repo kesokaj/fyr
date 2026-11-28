@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/sqliteutil"
@@ -72,8 +73,10 @@ CREATE INDEX watchdog_ring_conv_seq ON watchdog_ring(conversation_id, seq);
 
 // store is one open index database.
 type store struct {
-	db   *sql.DB
-	path string
+	db             *sql.DB
+	path           string
+	ftsTurnCacheMu sync.Mutex
+	ftsTurnCache   map[string][]ftsChunkHit
 }
 
 func dsn(path string) string { return sqliteutil.DSNWithBusyTimeout(path, busyTimeoutMS) }
@@ -292,10 +295,14 @@ func (s *store) withImmediateTx(fn func() error) error {
 		_, _ = s.db.Exec(`ROLLBACK`)
 		return err
 	}
+	s.clearFTSTurnCache()
 	return nil
 }
 
-func (s *store) close() error { return s.db.Close() }
+func (s *store) close() error {
+	s.clearFTSTurnCache()
+	return s.db.Close()
+}
 
 // size is the database plus its WAL, in bytes.
 func (s *store) size() int64 {

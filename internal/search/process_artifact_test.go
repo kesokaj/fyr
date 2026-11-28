@@ -3,6 +3,7 @@ package search
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -12,6 +13,28 @@ import (
 func testRenderProcessArtifactForHome(home, convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {
 	cat, hasCat := loadModelsCatalog(home)
 	return renderProcessTelemetryMarkdownWithCatalog(home, cat, hasCat, convID, stage, rows, records)
+}
+
+func TestRenderProcessArtifactEmojiFreeStructuredMarkdown(t *testing.T) {
+	emojiRe := regexp.MustCompile("[\U0001F300-\U0001FAFF\u2600-\u27BF]")
+	procMD := testRenderProcessArtifactForHome("", "conv-json", "Build", []VetHistoryRow{{
+		TurnNum: 1, Intent: IntentBug, Gate: GateEnrichAndProceed, Score: 88, SuggestedSkills: nil, PivotFiles: []string{"a.go"},
+	}}, nil)
+	if emojiRe.MatchString(procMD) {
+		t.Errorf("fyr-process.md contains emoji:\n%s", procMD)
+	}
+	for _, wantSub := range []string{
+		"# fyr Turn Telemetry",
+		"- **Conversation:** `conv-json`",
+		"- **Stage:** `BUILD`",
+		"## Model Routing",
+		"## Turns",
+		"| 1 | BUG | ENRICH_AND_PROCEED | 88/100 |",
+	} {
+		if !strings.Contains(procMD, wantSub) {
+			t.Errorf("process telemetry missing %q:\n%s", wantSub, procMD)
+		}
+	}
 }
 
 func TestSafeBacktickTextFenceAndParseFenceHexToken(t *testing.T) {

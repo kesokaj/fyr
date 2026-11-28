@@ -14,11 +14,10 @@ import (
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/trail"
+	"github.com/kesokaj/fyr/internal/vet"
 )
 
 const (
-	sandboxPreamblePrefix  = "The project root is the current directory,"
-	sandboxPreambleEnd     = "This is a print-mode run (`agy -p`): the turn's end is the run's end."
 	preInvocationSentinel  = "__pre_invocation__"
 	maxCheckpointScanBytes = 512 << 10
 )
@@ -27,33 +26,13 @@ const (
 // when present at the start of prompt so anchor checks and prefix gates see
 // the operator's actual prompt.
 func StripSandboxPreamble(prompt string) string {
-	s := strings.TrimSpace(prompt)
-	if !strings.HasPrefix(s, sandboxPreamblePrefix) {
-		return prompt
-	}
-	if idx := strings.Index(s, sandboxPreambleEnd); idx >= 0 {
-		return strings.TrimSpace(s[idx+len(sandboxPreambleEnd):])
-	}
-	return prompt
+	return vet.StripSandboxPreamble(prompt)
 }
 
 // hasAutonomousWaiver reports whether lowPrompt explicitly forbids interactive
 // questions in unattended / eval sessions.
 func hasAutonomousWaiver(lowPrompt string) bool {
-	for _, w := range []string{
-		"do not ask me anything",
-		"don't ask me anything",
-		"i will not answer",
-		"the scope is confirmed",
-		"no go needed",
-		"without asking",
-		"without re-asking",
-	} {
-		if strings.Contains(lowPrompt, w) {
-			return true
-		}
-	}
-	return false
+	return vet.HasAutonomousWaiver(lowPrompt)
 }
 
 func checkTurnOrMidTurnWithStore(ctx context.Context, st *store, in HookInput, rawPrompt string) (SessionState, bool, error) {

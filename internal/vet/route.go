@@ -1,4 +1,4 @@
-package search
+package vet
 
 import (
 	"regexp"
@@ -15,7 +15,7 @@ var (
 func RouteFeature(prompt string, intent IntentMode, skills []SkillMeta) string {
 	clean := strings.TrimSpace(StripSandboxPreamble(strings.TrimSpace(prompt)))
 	clean = strings.TrimSpace(strings.TrimPrefix(clean, "!"))
-	if clean == "" || isWorkerBriefPrompt(clean) {
+	if clean == "" || IsWorkerBriefPrompt(clean) {
 		return ""
 	}
 	if intent == "" {
@@ -46,7 +46,7 @@ func routeTaskIntent(clean, low string, skills []SkillMeta) string {
 	if hasLookupCues(low) {
 		return "fyr search --slice"
 	}
-	if !isWorkerBriefPrompt(clean) && !isDiagnosticReadOnlyPrompt(clean) && hasBatchOrMultiPhaseCues(clean, low) {
+	if !IsWorkerBriefPrompt(clean) && !IsDiagnosticReadOnlyPrompt(clean) && hasBatchOrMultiPhaseCues(clean, low) {
 		return "/fyr-swarm (isolated subtasks; zero shared memory)"
 	}
 	switch {
@@ -56,9 +56,9 @@ func routeTaskIntent(clean, low string, skills []SkillMeta) string {
 		return "/fyr-handoff (commits, pushes, fyr metrics ingest once)"
 	case hasSkillName(skills, "docs-ste100-80"):
 		return "docs-ste100-80 + fyr check"
-	case containsAnySubstr(low, "pick a model", "choose a model", "which model", "fyr models"):
+	case ContainsAnySubstr(low, "pick a model", "choose a model", "which model", "fyr models"):
 		return "fyr models --pick <role> [--tier pro|flash]"
-	case containsAnySubstr(low, "fyr eval", "behavioural run", "behavioral run"):
+	case ContainsAnySubstr(low, "fyr eval", "behavioural run", "behavioral run"):
 		return "fyr eval <row>"
 	default:
 		return ""
@@ -66,17 +66,18 @@ func routeTaskIntent(clean, low string, skills []SkillMeta) string {
 }
 
 func hasBatchOrMultiPhaseCues(clean, low string) bool {
-	if hasExplicitMultiPhaseOrParallelCues(low) {
+	if HasExplicitMultiPhaseOrParallelCues(low) {
 		return true
 	}
 	return hasIndependentTasks(clean, low)
 }
 
-func hasExplicitMultiPhaseOrParallelCues(low string) bool {
-	if multiPhaseRe.MatchString(low) || containsAnyWord(low, "wave", "waves", "fyr-swarm") || strings.Contains(low, "/fyr-swarm") {
+// HasExplicitMultiPhaseOrParallelCues reports whether low names multi-phase, wave, swarm, or parallel execution.
+func HasExplicitMultiPhaseOrParallelCues(low string) bool {
+	if multiPhaseRe.MatchString(low) || ContainsAnyWord(low, "wave", "waves", "fyr-swarm") || strings.Contains(low, "/fyr-swarm") {
 		return true
 	}
-	return containsAnyWord(low, "parallel") && !strings.Contains(low, "not parallel") && !strings.Contains(low, "no parallel")
+	return ContainsAnyWord(low, "parallel") && !strings.Contains(low, "not parallel") && !strings.Contains(low, "no parallel")
 }
 
 func hasIndependentTasks(clean, low string) bool {
@@ -105,8 +106,8 @@ func isConstraintClause(lowClause string) bool {
 }
 
 func hasLookupCues(low string) bool {
-	return containsAnySubstr(low, "where is", "where are") ||
-		containsAnyWord(low, "find", "trace", "caller", "callers", "reference", "references")
+	return ContainsAnySubstr(low, "where is", "where are") ||
+		ContainsAnyWord(low, "find", "trace", "caller", "callers", "reference", "references")
 }
 
 func hasSkillName(skills []SkillMeta, names ...string) bool {
@@ -120,7 +121,8 @@ func hasSkillName(skills []SkillMeta, names ...string) bool {
 	return false
 }
 
-func attachAdvisoryRoute(cleanPrompt string, res *VetResult, _ SliceResult, _ TurnBrainContext) {
+// AttachAdvisoryRoute sets res.Route and appends the advisory route line to res.ImprovedPrompt when applicable.
+func AttachAdvisoryRoute(cleanPrompt string, res *Result, _ SliceResult, _ TurnBrainContext) {
 	if res == nil {
 		return
 	}

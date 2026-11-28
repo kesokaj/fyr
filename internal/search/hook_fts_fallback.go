@@ -5,7 +5,6 @@ import (
 	"path"
 	"sort"
 	"strings"
-	"sync"
 	"unicode"
 )
 
@@ -14,51 +13,44 @@ const (
 	ftsFallbackMinWord = 4
 )
 
-var (
-	ftsTurnCacheMu sync.Mutex
-	ftsTurnCache   = map[*sql.DB]map[string][]ftsChunkHit{}
-)
+// registerFTSTurnCache and clearFTSTurnCache are compatibility shims kept for
+// callers outside this slice's write lease; FTS turn caching is scoped per *store.
+func registerFTSTurnCache(_ *sql.DB) {}
 
-func registerFTSTurnCache(db *sql.DB) {
-	if db == nil {
+func clearFTSTurnCache(_ *sql.DB) {}
+
+func (s *store) clearFTSTurnCache() {
+	if s == nil {
 		return
 	}
-	ftsTurnCacheMu.Lock()
-	ftsTurnCache[db] = map[string][]ftsChunkHit{}
-	ftsTurnCacheMu.Unlock()
+	s.ftsTurnCacheMu.Lock()
+	s.ftsTurnCache = nil
+	s.ftsTurnCacheMu.Unlock()
 }
 
-func clearFTSTurnCache(db *sql.DB) {
-	if db == nil {
-		return
-	}
-	ftsTurnCacheMu.Lock()
-	delete(ftsTurnCache, db)
-	ftsTurnCacheMu.Unlock()
-}
-
-func lookupFTSTurnCache(db *sql.DB, key string) ([]ftsChunkHit, bool) {
-	if db == nil {
+func (s *store) lookupFTSTurnCache(key string) ([]ftsChunkHit, bool) {
+	if s == nil {
 		return nil, false
 	}
-	ftsTurnCacheMu.Lock()
-	defer ftsTurnCacheMu.Unlock()
-	if m, ok := ftsTurnCache[db]; ok {
-		hits, found := m[key]
-		return hits, found
+	s.ftsTurnCacheMu.Lock()
+	defer s.ftsTurnCacheMu.Unlock()
+	if s.ftsTurnCache == nil {
+		return nil, false
 	}
-	return nil, false
+	hits, found := s.ftsTurnCache[key]
+	return hits, found
 }
 
-func storeFTSTurnCache(db *sql.DB, key string, hits []ftsChunkHit) {
-	if db == nil {
+func (s *store) storeFTSTurnCache(key string, hits []ftsChunkHit) {
+	if s == nil {
 		return
 	}
-	ftsTurnCacheMu.Lock()
-	if m, ok := ftsTurnCache[db]; ok {
-		m[key] = hits
+	s.ftsTurnCacheMu.Lock()
+	if s.ftsTurnCache == nil {
+		s.ftsTurnCache = map[string][]ftsChunkHit{}
 	}
-	ftsTurnCacheMu.Unlock()
+	s.ftsTurnCache[key] = hits
+	s.ftsTurnCacheMu.Unlock()
 }
 
 var ftsFallbackStopwords = map[string]bool{
@@ -130,11 +122,11 @@ func (sc *scope) ftsFallbackRanked(g *symGraph, prompt string, active map[string
 
 func (sc *scope) queryFTSFallbackChunks(words []string, promptLower string) []ftsChunkHit {
 	cacheKey := strings.Join(words, "\x00") + "\x01" + promptLower
-	var db *sql.DB
-	if sc != nil && sc.st != nil {
-		db = sc.st.db
+	var st *store
+	if sc != nil {
+		st = sc.st
 	}
-	if cached, ok := lookupFTSTurnCache(db, cacheKey); ok {
+	if cached, ok := st.lookupFTSTurnCache(cacheKey); ok {
 		return cached
 	}
 	minMatched := 2
@@ -148,7 +140,7 @@ func (sc *scope) queryFTSFallbackChunks(words []string, promptLower string) []ft
 	if len(hits) == 0 {
 		hits = sc.runFTSFallbackSQL(ftsQuery(words, " OR "), words, promptLower, minMatched)
 	}
-	storeFTSTurnCache(db, cacheKey, hits)
+	st.storeFTSTurnCache(cacheKey, hits)
 	return hits
 }
 

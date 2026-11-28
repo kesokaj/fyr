@@ -1,4 +1,7 @@
-package search
+// Package vet implements deterministic pre-invocation prompt vetting, intent
+// classification, cryptographic untrusted-data fencing, BM25F skill matching,
+// subtask decomposition, and vet_history persistence.
+package vet
 
 import (
 	"crypto/rand"
@@ -6,6 +9,59 @@ import (
 	"fmt"
 	"strings"
 )
+
+const (
+	// SandboxPreamblePrefix marks the start of the fyr eval / fyr work print-mode preamble.
+	SandboxPreamblePrefix = "The project root is the current directory,"
+	// SandboxPreambleEnd marks the end of the fyr eval / fyr work print-mode preamble.
+	SandboxPreambleEnd = "This is a print-mode run (`agy -p`): the turn's end is the run's end."
+)
+
+// StripSandboxPreamble removes the fyr eval / fyr work print-mode preamble
+// when present at the start of prompt so anchor checks and prefix gates see
+// the operator's actual prompt.
+func StripSandboxPreamble(prompt string) string {
+	s := strings.TrimSpace(prompt)
+	if !strings.HasPrefix(s, SandboxPreamblePrefix) {
+		return prompt
+	}
+	if idx := strings.Index(s, SandboxPreambleEnd); idx >= 0 {
+		return strings.TrimSpace(s[idx+len(SandboxPreambleEnd):])
+	}
+	return prompt
+}
+
+// StripAnySandboxPreamble strips the print-mode sandbox preamble case-insensitively
+// and trims surrounding whitespace.
+func StripAnySandboxPreamble(prompt string) string {
+	s := strings.TrimSpace(StripSandboxPreamble(strings.TrimSpace(prompt)))
+	low := strings.ToLower(s)
+	if strings.HasPrefix(low, strings.ToLower(SandboxPreamblePrefix)) {
+		if idx := strings.Index(low, strings.ToLower(SandboxPreambleEnd)); idx >= 0 {
+			return strings.TrimSpace(s[idx+len(SandboxPreambleEnd):])
+		}
+	}
+	return s
+}
+
+// HasAutonomousWaiver reports whether lowPrompt explicitly forbids interactive
+// questions in unattended or eval sessions.
+func HasAutonomousWaiver(lowPrompt string) bool {
+	for _, w := range []string{
+		"do not ask me anything",
+		"don't ask me anything",
+		"i will not answer",
+		"the scope is confirmed",
+		"no go needed",
+		"without asking",
+		"without re-asking",
+	} {
+		if strings.Contains(lowPrompt, w) {
+			return true
+		}
+	}
+	return false
+}
 
 // Fence is a per-turn cryptographic boundary (=====<18-hex>=====) that wraps
 // retrieved records, memories, skills, and AST slices as untrusted reference
@@ -25,7 +81,7 @@ func New(texts ...string) Fence {
 			return Fence{tag: tag, hex: h}
 		}
 	}
-	panic("search: failed to generate collision-free cryptographic fence boundary")
+	panic("vet: failed to generate collision-free cryptographic fence boundary")
 }
 
 // String returns the fence boundary token (=====<18-hex>=====).
@@ -57,7 +113,7 @@ func (f Fence) Data(name, who, text string) string {
 func randomHex18() string {
 	var b [9]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		panic(fmt.Errorf("search: crypto/rand.Read failed: %w", err))
+		panic(fmt.Errorf("vet: crypto/rand.Read failed: %w", err))
 	}
 	return hex.EncodeToString(b[:])
 }
@@ -91,24 +147,8 @@ func sanitizeFenceBody(text, tag, hexPart string) string {
 	return trimmed
 }
 
-// BuildTurnEnvelope formats turn metadata, contract, advisory route, and
-// delta-only enrichment into a fenced text key-value card via renderPreInvocationBanner.
-func BuildTurnEnvelope(res *VetResult, slice SliceResult, brainCtx TurnBrainContext, extraSections []string, extraBanners []string) (string, string) {
-	return BuildTurnEnvelopeWithMeta(res, slice, brainCtx, turnBannerMetaFromExtras(extraSections, extraBanners))
-}
-
-// BuildTurnEnvelopeWithMeta serializes turn metadata, contract, advisory route,
-// and delta-only enrichment using typed TurnBannerMeta without stringly round-tripping.
-func BuildTurnEnvelopeWithMeta(res *VetResult, slice SliceResult, brainCtx TurnBrainContext, meta TurnBannerMeta) (string, string) {
-	res.FenceBoundary = New().String()
-	envCard := formatPreInvocationEnvelopeWithMeta(*res, slice, brainCtx, meta)
-	res.TurnContract = envCard
-	res.SystemMessage = envCard
-	res.UserMarkdownBanner = envCard
-	return envCard, envCard
-}
-
-func collectMatchedRecords(brainCtx TurnBrainContext) []MatchedRecord {
+// CollectMatchedRecords flattens memories, bugs, ADRs, and active plan from brainCtx.
+func CollectMatchedRecords(brainCtx TurnBrainContext) []MatchedRecord {
 	var out []MatchedRecord
 	out = append(out, brainCtx.Memories...)
 	out = append(out, brainCtx.Bugs...)
@@ -119,7 +159,8 @@ func collectMatchedRecords(brainCtx TurnBrainContext) []MatchedRecord {
 	return out
 }
 
-func recordProvenance(r MatchedRecord) string {
+// RecordProvenance returns the display author provenance for a matched record.
+func RecordProvenance(r MatchedRecord) string {
 	if strings.TrimSpace(r.Provenance) != "" {
 		return r.Provenance
 	}
@@ -129,8 +170,8 @@ func recordProvenance(r MatchedRecord) string {
 	return "trail"
 }
 
-// FormatVetResult renders a structured VetResult for `fyr search --vet`.
-func FormatVetResult(res VetResult) string {
+// FormatResult renders a structured Result for `fyr search --vet`.
+func FormatResult(res Result) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Intent: %s\n", res.Intent)
 	fmt.Fprintf(&b, "Gate: %s\n", res.Gate)
@@ -138,22 +179,8 @@ func FormatVetResult(res VetResult) string {
 	fmt.Fprintf(&b, "PresentAnchors: %s\n", joinOrNone(res.PresentAnchors))
 	fmt.Fprintf(&b, "MissingAnchors: %s\n", joinOrNone(res.MissingAnchors))
 	fmt.Fprintf(&b, "SecurityRequired: %v\n", res.SecurityRequired)
-	if len(res.Skills) == 0 {
-		b.WriteString("Skills: none\n")
-	} else {
-		b.WriteString("Skills:\n")
-		for _, s := range res.Skills {
-			fmt.Fprintf(&b, "  - %s (%s): %s\n", s.Name, s.Path, s.Digest)
-		}
-	}
-	if len(res.MatchedRecords) == 0 {
-		b.WriteString("MatchedRecords: none\n")
-	} else {
-		b.WriteString("MatchedRecords:\n")
-		for _, r := range res.MatchedRecords {
-			fmt.Fprintf(&b, "  - %s [%s] %s\n", r.ID, r.Kind, r.Title)
-		}
-	}
+	writeFormattedSkills(&b, res.Skills)
+	writeFormattedRecords(&b, res.MatchedRecords)
 	if len(res.Conflicts) > 0 {
 		fmt.Fprintf(&b, "Conflicts: %s\n", strings.Join(res.Conflicts, "; "))
 	}
@@ -166,6 +193,28 @@ func FormatVetResult(res VetResult) string {
 	b.WriteString("TurnContract:\n")
 	b.WriteString(res.TurnContract + "\n")
 	return b.String()
+}
+
+func writeFormattedSkills(b *strings.Builder, skills []SkillMeta) {
+	if len(skills) == 0 {
+		b.WriteString("Skills: none\n")
+		return
+	}
+	b.WriteString("Skills:\n")
+	for _, s := range skills {
+		fmt.Fprintf(b, "  - %s (%s): %s\n", s.Name, s.Path, s.Digest)
+	}
+}
+
+func writeFormattedRecords(b *strings.Builder, recs []MatchedRecord) {
+	if len(recs) == 0 {
+		b.WriteString("MatchedRecords: none\n")
+		return
+	}
+	b.WriteString("MatchedRecords:\n")
+	for _, r := range recs {
+		fmt.Fprintf(b, "  - %s [%s] %s\n", r.ID, r.Kind, r.Title)
+	}
 }
 
 func joinOrNone(items []string) string {
