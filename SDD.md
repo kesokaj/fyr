@@ -1,7 +1,7 @@
 # SDD — fyr
 
 How the harness parts fit together: session content, the `fyr` binary, local stores, and isolation boundaries.
-Status: current · Last updated: 2026-11-27 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
+Status: current · Last updated: 2026-11-28 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
 
 <!-- Present-tense rational architecture readable in ten minutes. Detailed surface contracts live in SPEC-* records (`fyr record get <ID>`), and rationale lives in ADR-* records (`fyr record list --kind adr`). Components are M1–M26; each maps to PRD requirements and to TDD sections. -->
 
@@ -45,7 +45,7 @@ flowchart LR
 
 Executable fitness tests (`TestPackageLayeringAndSQLiteConfinement`) lock five structural boundaries across every Go package.
 
-- **Single external dependency:** `modernc.org/sqlite` is the only direct third-party dependency in `go.mod` (R4).
+- **Single external dependency:** `modernc.org/sqlite` is the only direct third-party dependency in `go.mod`, confined to `internal/sqliteutil` (R4).
 - **Zero-outbound leaves:** `.`, `internal/trail`, `internal/redact`, `internal/graph`, and `internal/webpreview` import zero internal packages.
 - **Installer isolation:** `internal/harness` imports only root package `.` and never links SQLite (R4).
 - **One-way orchestration:** Domain packages never import orchestrators (`internal/auto`, `internal/dream`, `internal/gate`).
@@ -54,7 +54,7 @@ Executable fitness tests (`TestPackageLayeringAndSQLiteConfinement`) lock five s
 
 ## Components
 
-Content directories (`M1`–`M4`) hold files that sessions read, while the binary (`M5`–`M26`) deploys them and runs local tools. Retired component IDs (`M9` merged into `M7`, `M16`–`M18`, and `M27` relay) stay unallocated so trace history stays stable.
+Content directories (`M1`–`M4`) hold files that sessions read, while the binary (`M5`–`M26`) deploys them and runs local tools. Shared SQLite helpers live in `internal/sqliteutil`. Retired component IDs (`M9` merged into `M7`, `M16`–`M18`, and `M27` relay) stay unallocated so trace history stays stable.
 
 ### Component view (C4 Level 3)
 
@@ -117,9 +117,9 @@ flowchart TB
 | M4 | `embed.go` | Embeds `context/`, `skills/`, `agents/`, `commands/`, `rules/`, and `workflows/` into the release binary. | R8, R9 |
 | M5 | `cmd/fyr` | Dispatches 34 CLI commands (33 action verbs plus `help`) with `--json` output across action verbs (excluding write/transfer subcommands: `memory add`, `record add`/`edit`/`export`/`import`/`sync`, `metrics export`/`ingest`), help text, real-home guard, and three update paths. | R4, R6, R8, R9, R10 |
 | M6 | `internal/harness` | Plans, lints, renders, and installs files, `hooks.json`, and `workflows/*.py`; manages manifests, drift, uninstall, adopt, and releases. | R1, R3, R4, R5, R6, R9, R10 |
-| M7 | `internal/brain` | Stores project trail records, validity-scored memory cards, global SIM ledger (`brain.db`), `.agents/trail.jsonl` export/sync, and `fyr resume`. | R0, R4, R7 |
-| M8 | `internal/search` | Maintains derived FTS5/AST symbol graph, read-dedup ledger, prompt vetter, contract slices, and `< 250 ms` fail-open CLI hooks. | R0, R3, R4 |
-| M10 | `internal/metrics` | Ingests session shapes, ratings, judge verdicts, and orchestration runs (`metrics.db`); builds diagnostics, daily digests, and `fyr report`. | R0, R4 |
+| M7 | `internal/brain`, `internal/sim` | Stores project trails, validity-scored memory, global SIM ledger (`internal/sim`, `brain.db`), `.agents/trail.jsonl` sync, and `fyr resume`. | R0, R4, R7 |
+| M8 | `internal/search`, `internal/readledger`, `internal/vet`, `internal/symgraph`, `internal/hooks`, `internal/hooks/guard`, `internal/hooks/telemetry` | Maintains FTS5/AST symbol graph, read-dedup ledger, prompt vetter, contract slices, and `< 250 ms` fail-open CLI hooks. | R0, R3, R4 |
+| M10 | `internal/metrics`, `internal/metrics/ingest`, `internal/metrics/show`, `internal/metrics/report` | Ingests session shapes, ratings, verdicts, and orchestration runs (`metrics.db`); builds diagnostics, digests, and `fyr report`. | R0, R4 |
 | M11 | `internal/dream` | Sweeps idle Antigravity workspaces, redacts inputs, and runs headless tool-free plan-mode rating and consolidation passes. | R0, R3, R8 |
 | M12 | `internal/redact` | Scrubs vendor tokens, credentials, and private keys before any dream or dreaming-worker input leaves the machine. | R3, R8 |
 | M13 | `internal/eval` | Executes behavioural benchmark rows (`GUIDE-eval.md`) inside M22 OS-isolated sandboxes with parallel scoring and stage timings. | R6, R8 |
@@ -128,7 +128,7 @@ flowchart TB
 | M19 | `internal/auto` | Runs the single hourly `fyr auto` timer: gates quota/AC, drains proposals, spawns isolated dreaming workers, and lands eval-gated `skills/` commits. | R0, R3, R4, R8, R9, R10 |
 | M20 | `internal/gate` | Runs `verify`, `gate`, `land`, and `close`: mechanical checks, write-lease validation, optional cross-family judging, and squash landing. | R0, R3, R4, R7 |
 | M21 | `internal/models` | Caches live `agy` catalog and quota pools; ranks role models via Empirical-Bayes/UCB scoring, cross-family failover, and context knees. | R4, R8, R10 |
-| M22 | `internal/isolate` | Confines `eval`, `auto`, and `--judge` workers via Linux Landlock/namespaces and macOS Seatbelt, failing closed when unavailable. | R4, R6, R8, R10 |
+| M22 | `internal/isolate`, `internal/isolate/acp`, `internal/isolate/creds`, `internal/isolate/worker` | Confines `eval`, `auto`, and `--judge` workers via Linux Landlock/namespaces and macOS Seatbelt, failing closed when unavailable. | R4, R6, R8, R10 |
 | M23 | `internal/watch` | Inspects active sessions, transcripts, and process tables read-only (`< 25 ms`) for interactive-stdin waits, hangs, and budget limits. | R0, R3, R10 |
 | M24 | `internal/webpreview` | Serves foreground-only, in-memory HTTP previews on loopback behind a 128-bit URL token with strict offline CSP. | R0, R3, R4, R10 |
 | M25 | `internal/graph` | Renders offline AST and co-activity repository constellations (HTML `<canvas>`, JSON, DOT, Markdown) with zero SQLite imports. | R0, R4, R7, R10 |

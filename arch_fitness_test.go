@@ -25,25 +25,19 @@ var (
 )
 
 // initCeilingTable pins current production func init() counts per repo-relative
-// file (ceiling ratchet: new/unlisted init() or growth fails; shrinking/removal
-// passes so later cleanup waves stay merge-order independent).
-const initCeilingTable = `
-	internal/isolate/creds.go=1 internal/metrics/verb.go=1 internal/redact/redact.go=1
-	internal/search/parse.go=1 internal/search/symbols_code.go=1 internal/search/symbols_md.go=1
-`
+// file. Locked empty (0 production func init() repo-wide).
+const initCeilingTable = ""
 
 // dupHelperCeilingTable pins current cross-package duplicate unexported top-level
 // production helper names (distinct package count). Ceiling ratchet: new
 // duplicates or growth fail; shrinking or removal passes.
 const dupHelperCeilingTable = `
-	allowed=2 boolInt=2 brainDBExists=2 checkScratchNoSymlinks=2 checkoutUnchanged=2
-	classify=2 collectSIMTargetPaths=2 collectSIMTerms=2 exists=2 firstOf=2
-	firstString=2 gitConfigValue=2 head=2 isAllDigits=2 isPathWordByte=2
-	label=2 lock=2 oneLine=3 open=2 openStore=2
-	parseLine=2 printable=2 projectKey=2 readBounded=2 recordTime=3
-	removeWorktree=2 runGroup=2 saveState=2 shaPrefixMatch=2
-	short=3 sortFindings=3 sortedKeys=3 splitShellSegments=2 statePath=2
-	tickRun=2 tryOpen=2 within=3
+	allowed=2 boolInt=2 brainDBExists=2 checkScratchNoSymlinks=2 classify=2
+	exists=2 firstOf=2 firstString=2 isPathWordByte=2 lock=2
+	oneLine=3 open=2 openStore=2 parseLine=2 printable=2
+	projectKey=2 recordTime=3 runGroup=2 saveState=2 short=2
+	sortFindings=3 sortedKeys=2 statePath=2 tickRun=2 tryOpen=2
+	within=3
 `
 
 // TestPackageLayeringAndSQLiteConfinement enforces package architecture

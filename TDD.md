@@ -1,7 +1,7 @@
 # TDD — fyr
 
 Maps each component in [SDD.md](SDD.md) to its technical contract, data stores, and verification tests.
-Status: current · Last updated: 2026-11-27 · Requirements: [PRD.md](PRD.md) · Design: [SDD.md](SDD.md) · CLI: [docs/cli-reference.md](docs/cli-reference.md) · Terms: [docs/glossary.md](docs/glossary.md)
+Status: current · Last updated: 2026-11-28 · Requirements: [PRD.md](PRD.md) · Design: [SDD.md](SDD.md) · CLI: [docs/cli-reference.md](docs/cli-reference.md) · Terms: [docs/glossary.md](docs/glossary.md)
 
 ```mermaid
 flowchart LR
@@ -78,7 +78,7 @@ Implements: M7 · Spec: `SPEC-fyr-record`, `SPEC-fyr-graph`, `SPEC-fyr-sim` · G
 - **Trail & resume:** `fyr record` handles `add`, `get`, `edit`, `list`, `export`, `sync`, and `import` with single-call stdin headers, `--body-file`, or `--json-in` (`internal/brain/stdin_doc.go`). `brain.Resume` prints the read-only seven-step snapshot with `.agents/trail.jsonl` fallback and a fail-open daily health brief (`internal/brain/resume_daily.go`).
 - **Read-only loaders:** `ListTurnRecordsCtx`, `SearchTurnRecordsCtx`, `LoadTurnDataCtx`, and `ListCurrentSpecsCtx` (`internal/brain/turn_records.go`, `turn_specs.go`) query active records per scope without creating `brain.db`.
 - **Memory & operator guard:** `fyr memory` stores `semantic`, `procedural`, and `episodic` cards across project and `--global` scopes. `ComputeMemoryValidity` (`internal/brain/validity.go`) scores cards in `0.00–1.00` using provenance, content-hash staleness (`-0.45`), contradictions (`-0.25`, max `3`), and age decay (`0.35` floor). `operator` provenance cards (`1.00` base) reject automated overwrite, retirement, superseding, or downgrade.
-- **SIM ledger (`brain.db` v5):** Tables `sim_problems`, `sim_aliases`, `sim_attempts`, and `sim_fts` stay isolated from `fyr resume`, `fyr memory show`, hooks, and `.agents/trail.jsonl`. Records carry normalized `repo_id`; unparseable trail lines abort import with line numbers.
+- **SIM ledger (`internal/sim`, `brain.db` v5):** Keeps `sim_*` tables isolated from `fyr resume`, `fyr memory show`, hooks, and `.agents/trail.jsonl`. Shared SQLite helpers live in `internal/sqliteutil`; invalid trail lines abort import.
 
 ## T8 — Search
 
@@ -86,11 +86,11 @@ Maintains derived SQLite FTS5 and pure-Go AST indexes (`search.db` schema `v12`)
 
 Implements: M8 · Spec: `SPEC-fyr-pre-hook-coordinator`, `SPEC-fyr-graph`, `SPEC-fyr-docs-harness` · Guide: [CLI Hooks, Prompt Vetting & AST Graph](features/hooks-and-ast-graph.md)
 
-- **Query & contracts:** `fyr search` ranks records above files with `--refs`, `--open`, `--global`, and `--kind`. `fyr ast` runs `--slice`, `--contracts`, `--skeleton`, `--path`, `--affected`, `--map`, and `--include-docs` (`fyr search` keeps `v9.x` shims). `--contracts` (`internal/search/contracts.go`) projects Go/TS signatures, `SPEC-*` tables, and `ADR-*` guardrails; `<= 600 B` digests feed `--slice` and `[FYR_WORKER_CAPSULE]`.
-- **AST & graph:** Extracts Go/TS symbols and references (`symbols`, `sym_refs`), canonical package paths, Tarjan SCCs (`import | call | type_ref`), Louvain communities, split hidden-coupling signals (`co_edit` vs `co_read`), and in-memory `IncludeVendored` snapshots.
-- **Prompt vetter (`fyr vet`):** Classifies 9 intent modes, scores `VetScore` (`0..100`), raises conflict-only `VET_FIRST`, and prefetches up to 3 skills via BM25F. Splits multi-package edits into `<= 6` subtasks and emits a fenced `PreInvocationBanner` (`fyr search --vet` is a `v9.x` shim).
-- **CLI hooks (`fyr hook`):** Runs `session-start`, `pre-invocation`, `pre-tool-use`, `post-tool-use`, and `stop` under a `200 ms` fail-open deadline (`120 ms` slice cap) with `Lstat`-checked `no-hooks`. `fyr search --hook` is a `v9.x` shim.
-- **PreToolUse & Stop guards:** Enforces dual-gate clamping (`>= 400` lines or `>= 16,384` bytes), read deduplication (including 18-pattern bash reads), `[COORDINATOR_GUARD]`, `[KICKOFF_GUARD]`, `[SEARCH_NUDGE]`, `[INTERACTIVE_STDIN]`, `[RELAY_GUARD]`, workflow allowlists, cross-family routing, and watchdog caps (`120` builder / `40` audit). `Stop` checks `.agents/scratch/verify.stamp` for dirty Go files.
+- **Query & contracts (`internal/search`):** `fyr search` ranks records above files with `--refs`, `--open`, `--global`, and `--kind`. `fyr ast` runs `--slice`, `--contracts`, `--skeleton`, `--path`, `--affected`, `--map`, and `--include-docs` (`fyr search` keeps `v9.x` shims). `--contracts` (`internal/search/contracts.go`) projects Go/TS signatures, `SPEC-*` tables, and `ADR-*` guardrails.
+- **AST & graph (`internal/symgraph`):** Extracts Go/TS symbols and references (`symbols`, `sym_refs`), canonical package paths, Tarjan SCCs, and Louvain communities. Tracks split hidden-coupling signals (`co_edit` vs `co_read`) and `IncludeVendored` snapshots.
+- **Prompt vetter (`internal/vet`, `fyr vet`):** Classifies 9 intent modes, scores `VetScore` (`0..100`), raises conflict-only `VET_FIRST`, and prefetches 3 skills via BM25F. Splits multi-package edits into `<= 6` subtasks and emits `PreInvocationBanner` (`fyr search --vet` shim).
+- **CLI hooks (`internal/hooks`, `fyr hook`):** Runs `session-start`, `pre-invocation`, `pre-tool-use`, `post-tool-use`, and `stop` under a `200 ms` fail-open deadline. Subpackages `internal/hooks/guard` and `internal/hooks/telemetry` split enforcement from metrics (`fyr search --hook` shim).
+- **Read ledger & guards (`internal/readledger`):** Enforces dual-gate clamping (`>= 400` lines or `>= 16,384` bytes) and bash read deduplication. Guards enforce `[COORDINATOR_GUARD]`, `[KICKOFF_GUARD]`, `[SEARCH_NUDGE]`, `[INTERACTIVE_STDIN]`, `[RELAY_GUARD]`, watchdogs, and `Stop` verify stamps.
 - **Data (`search.db` v12):** Caches FTS chunks, `symbols`, `sym_refs`, `projects`, `co_activity`, `read_ledger`, `read_ledger_stats`, `session_meta`, `vet_history`, and `watchdog_ring`, rebuilding if deleted. `internal/search/dream.go` discovers git, non-git, and global workspaces.
 
 ## T9 — Retired (merged into T7 internal/brain)
@@ -103,9 +103,9 @@ Stores shape-only session, trial, vet, work-wave, rating, digest, and orchestrat
 
 Implements: M10 · Spec: `SPEC-fyr-metrics`, `SPEC-fyr-graph`, `SPEC-fyr-sim` · Guide: [Metrics & Reports](features/metrics-and-reports.md)
 
-- **Ingest & privacy:** `ingestAgy` records session shapes, salted read hashes (`r:` vs `f:`), compaction checkpoints, `KNEE_EXCEEDED` events, and anchored skill reads. It never stores prompts, arguments, or tool output.
-- **Reports & digests:** `fyr report` auto-ingests unless `--no-ingest` is set, rendering HTML, `--md`, `--json`, `--web` (via M24), `--daily-digest`, `--since-tag` cohorts, and write-once daily HTML reports (`0600`, `O_EXCL`). `BuildDailyDigest` writes `latest-daily-digest.json` and tracks action recovery plus `model_shift_audit`.
-- **Trajectories, diagnostics & evidence:** `Store.Trajectories` compares token growth against `models.ContextKneeTokens`. `DiagnosticReport` emits rate-normalized signals with 2-day hysteresis. `Store.ModelEvidence` aggregates `14`-day decayed role evidence across `trials`, `dev/fyr-eval`, `judge_verdicts`, and `session_ratings`.
+- **Ingest & privacy (`internal/metrics/ingest`):** Records session shapes, salted read hashes (`r:` vs `f:`), compaction checkpoints, `KNEE_EXCEEDED`, and skill reads. Never stores prompts, arguments, or tool output.
+- **Reports & digests (`internal/metrics/report`):** `fyr report` renders HTML, `--md`, `--json`, `--web` (M24), `--daily-digest`, and `--since-tag` cohorts. `BuildDailyDigest` writes `latest-daily-digest.json` and tracks recovery plus `model_shift_audit`.
+- **Summaries & evidence (`internal/metrics/show`):** Compares token trajectories against `models.ContextKneeTokens` and emits rate-normalized diagnostics with 2-day hysteresis. `ModelEvidence` aggregates `14`-day decayed role evidence across trials, evals, verdicts, and ratings.
 - **Data (`metrics.db` v14):** Holds `sessions`, `steps`, `trials`, `turn_vets`, `work_waves`, `session_ratings`, `judge_verdicts`, `background_runs` (with `halt_reason`), `daily_digests`, and `orchestration_runs`, keyed by `repo_id`. `ExportSanitizedState` / `ImportSanitizedState` back M26.
 
 ## T11 — The dreamer
@@ -192,7 +192,7 @@ Confines evals, cross-family judges, and autonomous workers using Linux Landlock
 Implements: M22 · Spec: `SPEC-fyr-eval` · Guides: [Eval & Isolation](features/eval-and-isolation.md), [Dream & Auto](features/dream-and-auto.md)
 
 - **Confinement:** Linux uses Landlock ABI v3–v5 with `CLONE_NEWUSER|CLONE_NEWNS|CLONE_NEWPID` (plus `CLONE_NEWNET` when `Network: false`) and private `/proc` + `/dev/pts`. macOS uses Seatbelt `sandbox-exec` with `pseudo-tty` and blocked host Mach services. Fails closed when unavailable.
-- **Runners & guards:** Supports `Box`, `ACPClient`, `Command` (`Network: false`), `RunWorker` (including `DraftsOnly`), and `RunJudgePrint` (`Network: true`, read-only repo, `ErrNoAuthToken`, `0400` `StageModelsCatalog`). Enforces `OutsideCheckout`, pre-sandbox OAuth extraction (`0600`), transcript idle/error-loop aborts, and post-run credential/process checks.
+- **Runners & subpackages:** Splits `ACPClient` (`internal/isolate/acp`), credential scans (`internal/isolate/creds`), and `RunWorker` (`internal/isolate/worker`) from core confinement. Also provides `Box`, `Command`, and `RunJudgePrint` with `OutsideCheckout`, OAuth (`0600`), and post-run checks.
 - **Dependencies:** `internal/harness`, `internal/models`, and `internal/trail` (`TestIsolatePackageDeps`; stdlib and raw Linux syscalls only; no SQLite).
 
 ## T23 — Out-of-band hang inspector (`internal/watch`)
