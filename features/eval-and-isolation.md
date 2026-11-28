@@ -32,7 +32,7 @@ With `--acp` (or an `acp-` row ID), `fyr eval` drives multi-turn sessions over a
 
 `internal/isolate` confines child process trees through Go's stdlib `syscall` package with no containers, Docker daemon, or host fallback. It fails closed whenever kernel confinement is unavailable.
 
-Confined judges and workers stage credentials, read-only `0400` `models.json`, and read-only `agy` bundles via `isolate.StageModelsCatalog` (`internal/isolate/models_stage.go`). They fail fast with `isolate.ErrNoAuthToken` (`internal/isolate/worker_judge.go`) when no regular-file OAuth token exists.
+Confined judges and workers stage credentials, read-only `0400` `models.json`, and read-only `agy` bundles via `isolate.StageModelsCatalog` (`internal/isolate/models_stage.go`). They fail fast with `isolate.ErrNoAuthToken` (`internal/isolate/worker/judge.go`) when no regular-file OAuth token exists.
 
 ```mermaid
 flowchart TD

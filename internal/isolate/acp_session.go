@@ -24,12 +24,6 @@ type (
 	PromptResponse = acp.PromptResponse
 )
 
-type acpUpdateDetail = acp.UpdateDetail
-
-func buildToolEvent(sid string, idx int, u acpUpdateDetail) ACPEvent {
-	return acp.BuildToolEvent(sid, idx, u)
-}
-
 // ACPCommand returns the argv flags used to start agy in Agent Client Protocol
 // stdio mode with process isolation per session.
 func ACPCommand() []string {
@@ -39,15 +33,6 @@ func ACPCommand() []string {
 // NewACPClient starts the background reader loop over r and sends requests on w.
 func NewACPClient(r io.Reader, w io.Writer, grants []string, onDenied func(tool string)) *ACPClient {
 	return acp.NewClient(r, w, grants, onDenied)
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 type acpProcess struct {

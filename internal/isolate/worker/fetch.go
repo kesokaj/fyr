@@ -1,4 +1,4 @@
-package isolate
+package worker
 
 import (
 	"bytes"
@@ -54,10 +54,7 @@ func (w *worker) collect(ctx context.Context) {
 // leadGit is git in the lead's checkout for the steps after the session,
 // which may have written the checkout's .git: no replace refs, no grafts
 // and no commit-graph, any of which can rewire a commit's parents, so the
-// scope check reads the history a push sends, and no hooks (the security
-// review of Phase 2, finding 4 and round 2; PLAN.md item 42). The rest of the
-// lead's .git/config is not checked: a session that rewrites it runs as the
-// operator's uid, the threat model eval accepts (GUIDE-testing § 4).
+// scope check reads the history a push sends, and no hooks.
 func leadGit(root string, args ...string) *exec.Cmd {
 	cmd := trail.Command(root, append([]string{"--no-replace-objects", "-c", "core.hooksPath=/dev/null", "-c", "core.commitGraph=false"}, args...)...)
 	cmd.Env = append(cmd.Env, "GIT_GRAFT_FILE="+os.DevNull)
@@ -65,12 +62,8 @@ func leadGit(root string, args ...string) *exec.Cmd {
 }
 
 // leadUnchanged is D35: the lead's HEAD is still the base, the reflogs of
-// HEAD and its branch have no entry the run added (a commit and a reset
-// back leave HEAD at the base, BUG-198), and its tracked and unignored tree
-// is still clean, so the fetch and the drafts land in the checkout the
-// worker was cut from. It does not see .git or ignored paths, and
-// trail.Dirty's own git calls run without leadGit's options: leadGit and
-// the drafts' os.Root narrow what a session can do through those.
+// HEAD and its branch have no entry the run added (BUG-198), and its tracked
+// and unignored tree is still clean.
 func (w *worker) leadUnchanged() bool {
 	if h, err := leadGit(w.o.Root, "rev-parse", "--verify", "-q", "HEAD^{commit}").Output(); err != nil || strings.TrimSpace(string(h)) != w.p.base {
 		w.b.Note("the lead checkout's HEAD moved from %s; nothing is fetched or copied (D35)", short(w.p.base))
@@ -87,9 +80,7 @@ func (w *worker) leadUnchanged() bool {
 	return true
 }
 
-// fetchLimit bounds step 6. It holds the collect lock every other worker
-// waits on, and no session's work takes this long to copy (PLAN.md item 45,
-// finding S3).
+// fetchLimit bounds step 6.
 const fetchLimit = 10 * time.Minute
 
 // maxFetchOutput bounds what a fetch's output keeps; the rest is discarded.
@@ -104,12 +95,9 @@ func runBounded(cmd *exec.Cmd, limit time.Duration) ([]byte, error) {
 }
 
 // runGroup runs cmd in its own process group, which is killed whole at the
-// deadline: upload-pack is cmd's child, and a kill of cmd alone leaves it
-// holding the output pipe. The kill after Wait takes what outlived cmd: a live
-// member pins the group's id, and with none the kill finds nothing, as
-// models.go's does.
+// deadline.
 func runGroup(cmd *exec.Cmd, limit time.Duration) error {
-	setCmdSetsid(cmd)
+	setWorkerCmdSetsid(cmd)
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Start(); err != nil {
 		return err
@@ -130,11 +118,7 @@ func runGroup(cmd *exec.Cmd, limit time.Duration) error {
 }
 
 // fetch is step 6: the clone's branch into the lead's checkout, by path,
-// with no tags, and every object checked, since the clone is the agent's.
-// Naming .git, and --strict, close upload-pack's fallback lookups: a .git
-// that is no valid repository makes it look at the clone's top level, or at
-// .git/.git (P12b's security review, finding S1). A .git changed after
-// GitIntact is still honoured.
+// with no tags, and every object checked.
 func (w *worker) fetch() bool {
 	ref := "refs/heads/" + w.p.k.Branch()
 	out, err := runBounded(fetchCmd(w.o.Root, filepath.Join(w.b.App(), ".git"), ref), fetchLimit)
@@ -148,11 +132,8 @@ func (w *worker) fetch() bool {
 }
 
 // scope is step 7 (D18, D36): the branch descends from the base, every path
-// any of its commits changed is in Files: (a path added and removed again
-// still counts: a non-squash merge carries both commits, security review
-// finding 2), and every record that existed at the base and changed or
-// vanished by the branch's tip is named there; then the records it added,
-// handoff and change records only (D138).
+// any of its commits changed is in Files:, and every record that existed at
+// the base and changed or vanished by the branch's tip is named there.
 func (w *worker) scope(ctx context.Context) {
 	root, ref := w.o.Root, "refs/heads/"+w.p.k.Branch()
 	if n, err := branchOutput(leadGit(root, "rev-list", "--count", w.p.base+".."+ref)); err == nil {
@@ -200,16 +181,12 @@ func (w *worker) scope(ctx context.Context) {
 }
 
 // links is every path the branch's tip holds as a symlink or a gitlink
-// that the base did not hold as the same: the lead squash-merges the tip,
-// and a link reaches outside the checkout through a path its Files: may
-// cover (the v5.0.0 gate's security review). --ignore-submodules=none: a
-// .gitmodules entry with ignore = all would hide a gitlink (round 2).
+// that the base did not hold as the same.
 func links(root, base, ref string) ([]string, error) {
 	raw, err := branchOutput(leadGit(root, "diff-tree", "-r", "-z", "--no-renames", "--no-ext-diff", "--ignore-submodules=none", base, ref))
 	if err != nil {
 		return nil, err
 	}
-	// -z raw: ":<old mode> <new mode> <old> <new> <status>" NUL "<path>" NUL.
 	f := strings.Split(string(bytes.TrimRight(raw, "\x00")), "\x00")
 	var out []string
 	for i := 0; i+1 < len(f); i += 2 {
@@ -245,17 +222,14 @@ func workerChangedPaths(root, rng string) ([]string, error) {
 	return out, nil
 }
 
-// records compares the trail at the base and on the branch: it returns the
-// changed or vanished records Files: does not name and the added records
-// of a kind added refuses, and fills the handoff and change records the
-// branch added.
+// records compares the trail at the base and on the branch.
 func (w *worker) records(ctx context.Context, root, ref string) (outside []string) {
 	before, err := trailAt(root, w.p.base)
 	if err == nil && len(before) == 0 && len(w.baseRecords) > 0 {
 		before = w.baseRecords
 	}
 	if err == nil {
-		var after map[string]WorkerRecord
+		var after map[string]Record
 		if after, err = w.afterRecords(ctx, root, ref); err == nil {
 			for id, r := range before {
 				a, ok := after[id]
@@ -271,7 +245,7 @@ func (w *worker) records(ctx context.Context, root, ref string) (outside []strin
 	return []string{trailRel}
 }
 
-func (w *worker) afterRecords(ctx context.Context, root, ref string) (map[string]WorkerRecord, error) {
+func (w *worker) afterRecords(ctx context.Context, root, ref string) (map[string]Record, error) {
 	diff, err := branchOutput(leadGit(root, "diff-tree", "-r", "--name-only", w.p.base, ref, "--", trailRel))
 	if err == nil && len(bytes.TrimSpace(diff)) == 0 {
 		if _, err := os.Stat(filepath.Join(w.b.Home(), harness.StateDir, "brain.db")); err == nil {
@@ -284,14 +258,8 @@ func (w *worker) afterRecords(ctx context.Context, root, ref string) (map[string
 }
 
 // added fills the result's handoff and change records: the IDs on the
-// branch and not at the base. It returns the added records of every other
-// kind, named with it: those reach the trail only through the lead, a
-// worker drafts them, and the squash would carry them past the lead's
-// reading (D138; a review or testing record needs its own D-row). It also
-// returns a handoff or change record dated outside the worker's window,
-// or whose updated is not the UTC form fyr record writes: either would
-// rank as newer than the lead's own (D139, D140).
-func (w *worker) added(before, after map[string]WorkerRecord) (refused []string) {
+// branch and not at the base.
+func (w *worker) added(before, after map[string]Record) (refused []string) {
 	win := window{w.start, time.Now(), w.p.zone.loc}
 	var ids []string
 	for id := range after {
@@ -300,7 +268,7 @@ func (w *worker) added(before, after map[string]WorkerRecord) (refused []string)
 		}
 	}
 	sort.Strings(ids)
-	var handoffs []WorkerRecord
+	var handoffs []Record
 	for _, id := range ids {
 		switch r := after[id]; r.Kind {
 		case "handoff":
@@ -308,7 +276,6 @@ func (w *worker) added(before, after map[string]WorkerRecord) (refused []string)
 		case "change":
 			w.res.Changes = append(w.res.Changes, r)
 		default:
-			// Both are the worker's text: quoted, and cut to 128 characters.
 			refused = append(refused, fmt.Sprintf("%.128q (added, kind %.128q)", id, r.Kind))
 			continue
 		}

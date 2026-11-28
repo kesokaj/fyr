@@ -1,4 +1,4 @@
-package isolate
+package worker
 
 import (
 	"errors"
@@ -68,34 +68,48 @@ func (w *worker) copyDrafts(dir *os.Root, entries []os.DirEntry) bool {
 	var dest *os.Root
 	var skipped []string
 	for _, e := range entries {
-		isAutoDraft := (w.o.Auto || w.o.DraftsOnly) && e.Name() == autoDraftsName
-		if !draftName.MatchString(e.Name()) && !isAutoDraft {
-			skipped = append(skipped, e.Name())
-			continue
-		}
-		data, ok := readDraft(dir, e)
-		if !ok || w.res.Drafts == maxDrafts {
+		data, ok := w.acceptedDraft(dir, e)
+		if !ok {
 			skipped = append(skipped, e.Name())
 			continue
 		}
 		var err error
-		if dest == nil {
-			dest, err = w.leadDir()
-		}
-		if err == nil {
-			err = writeDraft(dest, e.Name(), data)
-		}
+		dest, err = w.writeOneDraft(dest, e.Name(), data)
 		if err != nil {
 			w.b.Note("the drafts were not copied: %v", err)
 			return false
 		}
-		w.res.Drafts++
-		w.res.DraftsDir = w.draftsResultDir()
 	}
 	if len(skipped) > 0 {
 		w.b.Note("drafts not copied (a name not matching %s, not a regular file of one link, over 1 MiB, or past %d): %s", draftName, maxDrafts, named(skipped))
 	}
 	return true
+}
+
+func (w *worker) acceptedDraft(dir *os.Root, e os.DirEntry) ([]byte, bool) {
+	isAutoDraft := (w.o.Auto || w.o.DraftsOnly) && e.Name() == autoDraftsName
+	if !draftName.MatchString(e.Name()) && !isAutoDraft {
+		return nil, false
+	}
+	if w.res.Drafts == maxDrafts {
+		return nil, false
+	}
+	return readDraft(dir, e)
+}
+
+func (w *worker) writeOneDraft(dest *os.Root, name string, data []byte) (*os.Root, error) {
+	if dest == nil {
+		var err error
+		if dest, err = w.leadDir(); err != nil {
+			return nil, err
+		}
+	}
+	if err := writeDraft(dest, name, data); err != nil {
+		return dest, err
+	}
+	w.res.Drafts++
+	w.res.DraftsDir = w.draftsResultDir()
+	return dest, nil
 }
 
 func readDir(dir *os.Root) ([]os.DirEntry, error) {
@@ -180,7 +194,7 @@ func writeDraft(dest *os.Root, name string, data []byte) error {
 
 func (w *worker) draftsResultDir() string {
 	if w.o.DraftsOnly {
-		return filepath.Join(Root(w.o.Home, "sandbox"), "drafts", w.stamp, w.p.k.Name)
+		return filepath.Join(w.deps.Root(w.o.Home, "sandbox"), "drafts", w.stamp, w.p.k.Name)
 	}
 	return filepath.ToSlash(filepath.Join(".agents", "scratch", "work", w.stamp, w.p.k.Name)) + "/"
 }

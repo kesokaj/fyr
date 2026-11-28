@@ -8,7 +8,26 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/isolate/worker"
+	"github.com/kesokaj/fyr/internal/models"
 )
+
+var (
+	modelRe                = models.ModelIDRe
+	transcriptPollInterval = 500 * time.Millisecond
+)
+
+func (b *Box) watchTranscript(ctx context.Context, cancel context.CancelFunc) (stop func()) {
+	return worker.WatchTranscript(ctx, cancel, worker.TranscriptWatchConfig{
+		SandboxHome:  b.sb,
+		AppDir:       b.app,
+		IdleTimeout:  b.c.IdleTimeout,
+		PollInterval: transcriptPollInterval,
+		OnEvent:      b.c.OnEvent,
+		Note:         b.Note,
+	})
+}
 
 // Session is steps 9-10 for one prompt: the token linked by the first
 // session, then agy, its output to outName and its errors to err.txt in the

@@ -1,4 +1,4 @@
-package isolate
+package worker
 
 import (
 	"errors"
@@ -14,9 +14,6 @@ const reflogWindow = 50
 // refEntry is one guarded ref and its newest reflog entry at the start.
 type refEntry struct{ ref, entry string }
 
-// reflog is a ref's newest reflog entries in the lead, newest first, each
-// "<sha> <ref>@{<date>} <subject>": the date is the entry's own, so a line
-// names the same entry before and after the run.
 func reflog(root, ref string, n int) ([]string, error) {
 	out, err := leadGit(root, "reflog", "show", "-n", fmt.Sprint(n), "--date=iso-strict", "--format=%H %gd %gs", ref, "--").Output()
 	if err != nil {
@@ -29,9 +26,6 @@ func reflog(root, ref string, n int) ([]string, error) {
 	return strings.Split(s, "\n"), nil
 }
 
-// guardedRefs is HEAD and the branch it points to: another worktree of the
-// checkout moves that branch, and back, through its own reflog alone (the
-// P4 security review, finding 3). A detached HEAD is HEAD alone.
 func guardedRefs(root string) ([]string, error) {
 	out, err := leadGit(root, "symbolic-ref", "-q", "HEAD").Output()
 	var ee *exec.ExitError
@@ -44,9 +38,6 @@ func guardedRefs(root string) ([]string, error) {
 	return nil, fmt.Errorf("git symbolic-ref HEAD in %s: %v", root, err)
 }
 
-// reflogStart is refusal 23 (BUG-198): the newest reflog entry of each
-// guarded ref, which step 6's guard compares. A checkout that keeps no
-// reflog would let a commit and a reset during the run pass unseen.
 func reflogStart(root string) ([]refEntry, error) {
 	refs, err := guardedRefs(root)
 	if err != nil {
@@ -66,12 +57,6 @@ func reflogStart(root string) ([]refEntry, error) {
 	return start, nil
 }
 
-// reflogMoved is "" when each guarded ref's newest reflog entry is still
-// the one recorded at the start, else the note for the first that moved:
-// how many entries the run added and the first of them, the lead's first
-// move. Expiry drops only entries older than gc.reflogExpire, so it reads
-// as a move only when it drops the recorded entry itself, which fails
-// closed.
 func reflogMoved(root string, start []refEntry) string {
 	for _, s := range start {
 		if why := refMoved(root, s); why != "" {
@@ -101,8 +86,6 @@ func refMoved(root string, s refEntry) string {
 	return fmt.Sprintf("the lead checkout's %s reflog moved during the run: over %d new entries, the newest %s", s.ref, len(es)-1, entry(es[0]))
 }
 
-// entry is one reflog line for a note: the short sha, the selector and the
-// subject, quoted and cut, since the lead's agent wrote it.
 func entry(e string) string {
 	sha, rest, _ := strings.Cut(e, " ")
 	sel, subj, _ := strings.Cut(rest, " ")

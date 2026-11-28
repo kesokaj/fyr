@@ -1,4 +1,4 @@
-package isolate
+package worker
 
 import (
 	"bytes"
@@ -11,14 +11,26 @@ import (
 	"strings"
 	"sync"
 	"time"
-)
 
-var transcriptPollInterval = 500 * time.Millisecond
+	"github.com/kesokaj/fyr/internal/isolate/acp"
+)
 
 const (
-	maxTranscriptRead = 8 << 20
-	errorLoopCap      = 3
+	defaultTranscriptPollInterval = 500 * time.Millisecond
+	maxTranscriptRead             = 8 << 20
+	errorLoopCap                  = 3
 )
+
+// TranscriptWatchConfig configures polling of transcript.jsonl and agent
+// scratch artifacts during non-ACP sessions.
+type TranscriptWatchConfig struct {
+	SandboxHome  string
+	AppDir       string
+	IdleTimeout  time.Duration
+	PollInterval time.Duration
+	OnEvent      func(acp.Event)
+	Note         func(format string, a ...any)
+}
 
 type transcriptStep struct {
 	StepIndex int                  `json:"step_index"`
@@ -40,7 +52,7 @@ type failRun struct {
 type transcriptTailer struct {
 	sbDir     string
 	appDir    string
-	onEvent   func(ACPEvent)
+	onEvent   func(acp.Event)
 	offsets   map[string]int64
 	sizes     map[string]int64
 	artMtimes map[string]time.Time
@@ -48,7 +60,7 @@ type transcriptTailer struct {
 	stepIdx   int
 }
 
-func newTranscriptTailer(sbDir, appDir string, onEvent func(ACPEvent)) *transcriptTailer {
+func newTranscriptTailer(sbDir, appDir string, onEvent func(acp.Event)) *transcriptTailer {
 	return &transcriptTailer{
 		sbDir:     sbDir,
 		appDir:    appDir,
@@ -60,19 +72,19 @@ func newTranscriptTailer(sbDir, appDir string, onEvent func(ACPEvent)) *transcri
 	}
 }
 
-// watchTranscript polls transcript.jsonl and .agents/scratch/agents/*.md during
-// non-ACP sessions to stream ACPEvent notifications and cancel early on idle
+// WatchTranscript polls transcript.jsonl and .agents/scratch/agents/*.md during
+// non-ACP sessions to stream acp.Event notifications and cancel early on idle
 // stalls or >= 3 consecutive identical failing tool calls.
-func (b *Box) watchTranscript(ctx context.Context, cancel context.CancelFunc) (stop func()) {
-	if b.c.OnEvent == nil && b.c.IdleTimeout <= 0 {
+func WatchTranscript(ctx context.Context, cancel context.CancelFunc, cfg TranscriptWatchConfig) (stop func()) {
+	if cfg.OnEvent == nil && cfg.IdleTimeout <= 0 {
 		return func() {}
 	}
-	tailer := newTranscriptTailer(b.sb, b.app, b.c.OnEvent)
+	tailer := newTranscriptTailer(cfg.SandboxHome, cfg.AppDir, cfg.OnEvent)
 	_ = tailer.pollArtifacts()
 	done := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go b.runWatchLoop(ctx, cancel, tailer, done, &wg)
+	go runWatchLoop(ctx, cancel, cfg, tailer, done, &wg)
 	var once sync.Once
 	return func() {
 		once.Do(func() {
@@ -83,12 +95,12 @@ func (b *Box) watchTranscript(ctx context.Context, cancel context.CancelFunc) (s
 	}
 }
 
-func (b *Box) runWatchLoop(
-	ctx context.Context, cancel context.CancelFunc,
+func runWatchLoop(
+	ctx context.Context, cancel context.CancelFunc, cfg TranscriptWatchConfig,
 	tailer *transcriptTailer, done <-chan struct{}, wg *sync.WaitGroup,
 ) {
 	defer wg.Done()
-	ticker := time.NewTicker(watchTickInterval(b.c.IdleTimeout))
+	ticker := time.NewTicker(watchTickInterval(cfg.PollInterval, cfg.IdleTimeout))
 	defer ticker.Stop()
 	lastProgress := time.Now()
 	for {
@@ -98,8 +110,10 @@ func (b *Box) runWatchLoop(
 		case <-done:
 			return
 		case <-ticker.C:
-			if reason, progressed := b.watchStep(tailer, lastProgress); reason != "" {
-				b.Note("%s", reason)
+			if reason, progressed := watchStep(cfg.IdleTimeout, tailer, lastProgress); reason != "" {
+				if cfg.Note != nil {
+					cfg.Note("%s", reason)
+				}
 				if cancel != nil {
 					cancel()
 				}
@@ -111,7 +125,7 @@ func (b *Box) runWatchLoop(
 	}
 }
 
-func (b *Box) watchStep(tailer *transcriptTailer, lastProgress time.Time) (string, bool) {
+func watchStep(idleTimeout time.Duration, tailer *transcriptTailer, lastProgress time.Time) (string, bool) {
 	progressed, loopMsg := tailer.pollOnce()
 	if loopMsg != "" {
 		return loopMsg, progressed
@@ -119,14 +133,17 @@ func (b *Box) watchStep(tailer *transcriptTailer, lastProgress time.Time) (strin
 	if progressed {
 		return "", true
 	}
-	if b.c.IdleTimeout > 0 && time.Since(lastProgress) >= b.c.IdleTimeout {
-		return fmt.Sprintf("agy idle for %s with no transcript or artifact progress; aborting", b.c.IdleTimeout), false
+	if idleTimeout > 0 && time.Since(lastProgress) >= idleTimeout {
+		return fmt.Sprintf("agy idle for %s with no transcript or artifact progress; aborting", idleTimeout), false
 	}
 	return "", false
 }
 
-func watchTickInterval(idle time.Duration) time.Duration {
-	d := transcriptPollInterval
+func watchTickInterval(pollInterval, idle time.Duration) time.Duration {
+	d := pollInterval
+	if d <= 0 {
+		d = defaultTranscriptPollInterval
+	}
 	if idle > 0 && idle/2 < d {
 		d = max(10*time.Millisecond, idle/2)
 	}
@@ -284,7 +301,7 @@ func (t *transcriptTailer) emitLine(convID string, raw []byte) string {
 		}
 		t.stepIdx++
 		if t.onEvent != nil {
-			t.onEvent(buildToolEvent(convID, t.stepIdx, acpUpdateDetail{
+			t.onEvent(acp.BuildToolEvent(convID, t.stepIdx, acp.UpdateDetail{
 				SessionUpdate: "tool_call",
 				Name:          tc.Name,
 				Status:        status,

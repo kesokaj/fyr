@@ -1,4 +1,4 @@
-package isolate
+package worker
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
-func initWorkerOptions(o *WorkerOptions, files []string) error {
+func initWorkerOptions(o *Options, files []string) error {
 	if o.Timeout == 0 {
 		o.Timeout = DefaultTimeout
 	}
@@ -43,11 +43,11 @@ func initWorkerOptions(o *WorkerOptions, files []string) error {
 	return nil
 }
 
-func preflightWorker(ctx context.Context, o *WorkerOptions, files []string) ([]prepared, error) {
-	if err := checkWorkerRoots(*o); err != nil {
+func preflightWorker(ctx context.Context, deps Deps, o *Options, files []string) ([]prepared, error) {
+	if err := checkWorkerRoots(deps, *o); err != nil {
 		return nil, err
 	}
-	ks, err := parseAllKickoffs(files, o.Auto || o.DraftsOnly, o.Capsule)
+	ks, err := parseAllKickoffs(deps, files, o.Auto || o.DraftsOnly, o.Capsule)
 	if err != nil {
 		return nil, err
 	}
@@ -62,21 +62,21 @@ func preflightWorker(ctx context.Context, o *WorkerOptions, files []string) ([]p
 	if err := disjoint(ks); err != nil {
 		return nil, err
 	}
-	base, z, rf, err := preflightSessionState(o)
+	base, z, rf, err := preflightSessionState(deps, o)
 	if err != nil {
 		return nil, err
 	}
-	return buildPrepared(ctx, o, ks, base, z, rf)
+	return buildPrepared(ctx, deps, o, ks, base, z, rf)
 }
 
-func preflightSessionState(o *WorkerOptions) (string, zone, []refEntry, error) {
+func preflightSessionState(deps Deps, o *Options) (string, zone, []refEntry, error) {
 	if o.Model != "" && !modelRe.MatchString(o.Model) {
 		return "", zone{}, nil, fmt.Errorf("--model %s: not a model ID", o.Model)
 	}
 	if o.Timeout < minTimeout || o.Timeout%timeoutUnit != 0 {
 		return "", zone{}, nil, fmt.Errorf("--timeout %s: give whole minutes, at least %s", o.Timeout, minTimeout)
 	}
-	runner, why, err := ChooseRunner(o.Runner, isolateAvailFor(*o))
+	runner, why, err := deps.ChooseRunner(o.Runner, isolateAvailFor(deps, *o))
 	if err != nil {
 		return "", zone{}, nil, err
 	}
@@ -99,25 +99,28 @@ func preflightSessionState(o *WorkerOptions) (string, zone, []refEntry, error) {
 	return base, z, rf, nil
 }
 
-func isolateAvailFor(o WorkerOptions) func() error {
+func isolateAvailFor(deps Deps, o Options) func() error {
 	if o.TestUnconfined {
 		return func() error { return nil }
 	}
-	return CheckAvailable
+	return deps.CheckAvailable
 }
 
-func buildPrepared(ctx context.Context, o *WorkerOptions, ks []Kickoff, base string, z zone, rf []refEntry) ([]prepared, error) {
+func buildPrepared(ctx context.Context, deps Deps, o *Options, ks []Kickoff, base string, z zone, rf []refEntry) ([]prepared, error) {
 	var shared prepared
 	shared.base, shared.reflog, shared.zone = base, rf, z
 	var err error
-	goos := effectiveHostOS(o.HostOS)
-	if _, err = CheckWorkLogin(o.Home, o.RealHome, goos); err != nil {
+	goos := o.HostOS
+	if deps.Judge.EffectiveHostOS != nil {
+		goos = deps.Judge.EffectiveHostOS(o.HostOS)
+	}
+	if _, err = deps.CheckWorkLogin(o.Home, o.RealHome, goos); err != nil {
 		return nil, err
 	}
 	if shared.agy, err = exec.LookPath("agy"); err != nil {
 		return nil, errors.New("agy not found on PATH")
 	}
-	if shared.tok, err = SyncWorkToken(o.Home, o.RealHome, goos); err != nil {
+	if shared.tok, err = deps.Judge.SyncAuth(o.Home, o.RealHome, goos); err != nil {
 		return nil, err
 	}
 	if err := checkModels(ctx, o, ks); err != nil {
@@ -132,20 +135,28 @@ func buildPrepared(ctx context.Context, o *WorkerOptions, ks []Kickoff, base str
 	return out, nil
 }
 
-func checkWorkerRoots(o WorkerOptions) error {
+func checkWorkerRoots(deps Deps, o Options) error {
 	if o.DraftsOnly {
-		if o.Root != "" && o.Root != globalWorkspace {
-			if st, err := os.Stat(o.Root); err != nil || !st.IsDir() {
-				return fmt.Errorf("%s is not a directory", o.Root)
-			}
+		if err := checkDraftsOnlyRoot(o.Root); err != nil {
+			return err
 		}
-	} else if err := leadClean(o.Root); err != nil {
+	} else if err := leadClean(deps, o.Root); err != nil {
 		return err
 	}
-	if err := CheckRoot(o.RealHome, o.Repo, SandboxRoot(o.Home, o.Root)); err != nil {
+	if err := deps.CheckRoot(o.RealHome, o.Repo, deps.SandboxRoot(o.Home, o.Root)); err != nil {
 		return err
 	}
-	return CheckWorkDir(o.Home)
+	return deps.CheckWorkDir(o.Home)
+}
+
+func checkDraftsOnlyRoot(root string) error {
+	if root == "" || root == globalWorkspace {
+		return nil
+	}
+	if st, err := os.Stat(root); err != nil || !st.IsDir() {
+		return fmt.Errorf("%s is not a directory", root)
+	}
+	return nil
 }
 
 func kickoffNamesUnique(ks []Kickoff) error {
@@ -159,8 +170,8 @@ func kickoffNamesUnique(ks []Kickoff) error {
 	return nil
 }
 
-func leadClean(root string) error {
-	if err := OutsideCheckout(root); err == nil {
+func leadClean(deps Deps, root string) error {
+	if err := deps.OutsideCheckout(root); err == nil {
 		return fmt.Errorf("%s is not a git checkout", root)
 	}
 	dirty, err := trail.Dirty(root)
@@ -173,10 +184,10 @@ func leadClean(root string) error {
 	return nil
 }
 
-func parseAllKickoffs(files []string, auto bool, deps CapsuleDeps) ([]Kickoff, error) {
+func parseAllKickoffs(deps Deps, files []string, auto bool, cdeps CapsuleDeps) ([]Kickoff, error) {
 	ks := make([]Kickoff, 0, len(files))
 	for _, f := range files {
-		k, err := parseKickoff(f, auto, deps)
+		k, err := parseKickoff(deps, f, auto, cdeps)
 		if err != nil {
 			return nil, err
 		}

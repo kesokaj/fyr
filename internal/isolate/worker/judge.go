@@ -1,4 +1,4 @@
-package isolate
+package worker
 
 import (
 	"context"
@@ -57,12 +57,9 @@ type JudgeExecOutput struct {
 // Antigravity OAuth token can be staged for the isolated judge.
 var ErrNoAuthToken error = errors.New("judge exec: no Antigravity OAuth token found")
 
-// JudgeExecFunc runs the cross-family judge; overridden in unit tests.
-var JudgeExecFunc = RunJudgePrint
-
 // RunJudgePrint executes `agy -p` inside a temporary confined scratch home
 // under `<home>/<harness.StateDir>/judge-*` with Network: true and empty tool grants.
-func RunJudgePrint(ctx context.Context, opts JudgeExecOptions) (JudgeExecOutput, error) {
+func RunJudgePrint(ctx context.Context, deps JudgeDeps, opts JudgeExecOptions) (JudgeExecOutput, error) {
 	if len(opts.Prompt) >= maxJudgePromptBytes {
 		return JudgeExecOutput{ExitCode: -1}, fmt.Errorf("judge prompt too large: %d bytes (limit < %d)", len(opts.Prompt), maxJudgePromptBytes)
 	}
@@ -70,12 +67,12 @@ func RunJudgePrint(ctx context.Context, opts JudgeExecOptions) (JudgeExecOutput,
 	if err != nil {
 		return JudgeExecOutput{ExitCode: -1}, err
 	}
-	scratchHome, tmpDir, tok, cleanScratch, err := prepareJudgeScratch(absHome, absReal, opts.HostOS, opts.Unconfined)
+	scratchHome, tmpDir, tok, cleanScratch, err := prepareJudgeScratch(deps, absHome, absReal, opts.HostOS, opts.Unconfined)
 	if err != nil {
 		return JudgeExecOutput{ExitCode: -1}, err
 	}
 	defer cleanScratch()
-	cmd, cleanCmd, err := buildJudgeCmd(opts, absRepo, scratchHome, tmpDir, tok)
+	cmd, cleanCmd, err := buildJudgeCmd(deps, opts, absRepo, scratchHome, tmpDir, tok)
 	if err != nil {
 		return JudgeExecOutput{ExitCode: -1}, err
 	}
@@ -87,7 +84,7 @@ func RunJudgePrint(ctx context.Context, opts JudgeExecOptions) (JudgeExecOutput,
 }
 
 func resolveJudgeDirs(opts JudgeExecOptions) (absHome, absReal, absRepo string, err error) {
-	home, realHome := firstNonEmpty(strings.TrimSpace(opts.Home), strings.TrimSpace(opts.RealHome)), strings.TrimSpace(opts.RealHome)
+	home, realHome := coalesceStr(strings.TrimSpace(opts.Home), strings.TrimSpace(opts.RealHome)), strings.TrimSpace(opts.RealHome)
 	if home == "" {
 		return "", "", "", errors.New("judge exec: home directory required")
 	}
@@ -105,7 +102,7 @@ func resolveJudgeDirs(opts JudgeExecOptions) (absHome, absReal, absRepo string, 
 	return absHome, absReal, absRepo, err
 }
 
-func prepareJudgeScratch(absHome, absReal, goos string, unconfined bool) (scratchHome, tmpDir, tok string, cleanup func(), err error) {
+func prepareJudgeScratch(deps JudgeDeps, absHome, absReal, goos string, unconfined bool) (scratchHome, tmpDir, tok string, cleanup func(), err error) {
 	stateDir := filepath.Join(absHome, harness.StateDir)
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return "", "", "", nil, err
@@ -131,9 +128,9 @@ func prepareJudgeScratch(absHome, absReal, goos string, unconfined bool) (scratc
 			return "", "", "", nil, err
 		}
 	}
-	if tok, err = linkJudgeToken(scratchHome, absHome, absReal, goos, unconfined); err == nil {
-		if stageSrc := firstNonEmpty(absReal, absHome); stageSrc != "" {
-			err = StageModelsCatalog(stageSrc, scratchHome)
+	if tok, err = linkJudgeToken(deps, scratchHome, absHome, absReal, goos, unconfined); err == nil {
+		if stageSrc := coalesceStr(absReal, absHome); stageSrc != "" && deps.StageModelsCatalog != nil {
+			err = deps.StageModelsCatalog(stageSrc, scratchHome)
 		}
 	}
 	if err == nil {
@@ -147,29 +144,33 @@ func prepareJudgeScratch(absHome, absReal, goos string, unconfined bool) (scratc
 	return scratchHome, tmpDir, tok, cleanup, nil
 }
 
-func linkJudgeToken(scratchHome, absHome, absReal, goos string, unconfined bool) (string, error) {
+func linkJudgeToken(deps JudgeDeps, scratchHome, absHome, absReal, goos string, unconfined bool) (string, error) {
 	if absReal == "" && unconfined {
-		_, e1 := os.Lstat(filepath.Join(absHome, filepath.FromSlash(TokenRel)))
-		_, e2 := os.Lstat(filepath.Join(absHome, filepath.FromSlash(WorkTokenRel)))
+		_, e1 := os.Lstat(filepath.Join(absHome, filepath.FromSlash(deps.OAuthRel)))
+		_, e2 := os.Lstat(filepath.Join(absHome, filepath.FromSlash(deps.WorkAuthRel)))
 		if errors.Is(e1, fs.ErrNotExist) && errors.Is(e2, fs.ErrNotExist) {
 			return "", nil
 		}
 	}
-	realDir := firstNonEmpty(absReal, absHome)
-	tok, err := SyncWorkToken(absHome, realDir, effectiveHostOS(goos))
+	realDir := coalesceStr(absReal, absHome)
+	hostOS := goos
+	if deps.EffectiveHostOS != nil {
+		hostOS = deps.EffectiveHostOS(goos)
+	}
+	tok, err := deps.SyncAuth(absHome, realDir, hostOS)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrNoAuthToken, err)
 	}
 	if st, statErr := os.Lstat(tok); statErr != nil || !st.Mode().IsRegular() {
 		return "", fmt.Errorf("%w: %s is not a regular file", ErrNoAuthToken, tok)
 	}
-	if err := os.Symlink(tok, filepath.Join(scratchHome, filepath.FromSlash(TokenRel))); err != nil {
+	if err := os.Symlink(tok, filepath.Join(scratchHome, filepath.FromSlash(deps.OAuthRel))); err != nil {
 		return "", err
 	}
 	return tok, nil
 }
 
-func buildJudgeCmd(opts JudgeExecOptions, absRepo, scratchHome, tmpDir, tok string) (*exec.Cmd, func(), error) {
+func buildJudgeCmd(deps JudgeDeps, opts JudgeExecOptions, absRepo, scratchHome, tmpDir, tok string) (*exec.Cmd, func(), error) {
 	if len(opts.Prompt) >= maxJudgePromptBytes {
 		return nil, nil, fmt.Errorf("judge prompt too large: %d bytes (limit < %d)", len(opts.Prompt), maxJudgePromptBytes)
 	}
@@ -189,26 +190,13 @@ func buildJudgeCmd(opts JudgeExecOptions, absRepo, scratchHome, tmpDir, tok stri
 	if opts.Unconfined {
 		cmd := exec.Command(bin, args...)
 		cmd.Dir, cmd.Env = dir, env
-		setCmdSetsid(cmd)
+		setWorkerCmdSetsid(cmd)
 		return cmd, func() {}, nil
 	}
-	resolvedBin, err := resolveCommandBin(bin, "", os.Getenv("PATH"))
-	if err != nil {
-		return nil, nil, err
-	}
-	pol := judgePolicy(opts, resolvedBin, args, dir, absRepo, scratchHome, tmpDir, tok, env)
-	cmd, cleanup, err := prepareIsolatedCmd(pol)
-	if err != nil {
-		return nil, nil, err
-	}
-	setCmdSetsid(cmd)
-	return cmd, cleanup, nil
-}
-
-func judgePolicy(opts JudgeExecOptions, bin string, args []string, dir, absRepo, scratchHome, tmpDir, tok string, env []string) Policy {
-	extraRO := addPathPair(addPathPair(addPathPair(nil, tok), absRepo), dir)
-	rw, ro := policyPaths(opts.RealHome, bin, addPathPair(addPathPair(nil, scratchHome), tmpDir), nil, nil, extraRO)
-	return Policy{Argv: append([]string{bin}, args...), Dir: dir, Env: env, RWPaths: rw, ROPaths: ro, Network: true}
+	return deps.BuildConfinedCmd(JudgeConfinedRequest{
+		RealHome: opts.RealHome, Bin: bin, Args: args, Dir: dir,
+		AbsRepo: absRepo, ScratchHome: scratchHome, TmpDir: tmpDir, Tok: tok, Env: env,
+	})
 }
 
 func judgeEnv(scratchHome, tmpDir, dir string) []string {
@@ -249,14 +237,14 @@ func execJudgeCmd(ctx context.Context, cmd *exec.Cmd, cleanup func(), timeout ti
 		err = ctx.Err()
 	}
 	_ = syscall.Kill(-pgid, syscall.SIGKILL)
-	return JudgeExecOutput{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: agyExit(err)}, err
+	return JudgeExecOutput{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: cmdExitCode(err)}, err
 }
 
 func runWorkerJudge(ctx context.Context, w *worker) {
 	if !w.b.Intact() || !w.b.GitIntact() {
 		return
 	}
-	diff, err := workerDiffForJudge(ctx, w.b.App(), w.p.base)
+	diff, err := workerDiffForJudge(ctx, w.deps.Judge, w.b.App(), w.p.base)
 	if err != nil {
 		w.b.Note("judge diff: %v", err)
 		w.b.Fail(ReasonJudgeFailed)
@@ -276,34 +264,48 @@ func runWorkerJudge(ctx context.Context, w *worker) {
 		w.b.Fail(ReasonJudgeFailed)
 		return
 	}
-	execFn := w.o.Judge.ExecFunc
-	if execFn == nil {
-		execFn = JudgeExecFunc
-	}
+	execFn := w.judgeExecFn()
 	out, jerr := execFn(ctx, JudgeExecOptions{
 		Home: w.o.Home, RealHome: w.o.RealHome, RepoDir: w.b.App(), AgyPath: agyPath,
-		HostOS: firstNonEmpty(w.o.Judge.HostOS, w.o.HostOS),
+		HostOS: coalesceStr(w.o.Judge.HostOS, w.o.HostOS),
 		Model:  model, Prompt: buildWorkerJudgePrompt(w.p.k.Judge, diff), Unconfined: w.o.TestUnconfined,
 	})
 	verdict, reason, perr := ParseJudgeVerdict(out.Stdout)
 	if jerr != nil || out.ExitCode != 0 || perr != nil || verdict != "PASS" {
-		if reason == "" {
-			var pmsg string
-			if jerr == nil && out.ExitCode == 0 && perr != nil {
-				pmsg = perr.Error()
-			}
-			reason = firstNonEmpty(pmsg, strings.TrimSpace(out.Stderr), fmt.Sprintf("exit=%d err=%v parse=%v", out.ExitCode, jerr, perr))
-		}
-		w.b.Note("judge (%s) verdict=%s: %s", Printable(model), Printable(verdict), Printable(reason))
+		reason = formatJudgeFailureReason(reason, jerr, perr, out)
+		w.b.Note("judge (%s) verdict=%s: %s", w.deps.printable(model), w.deps.printable(verdict), w.deps.printable(reason))
 		w.b.Fail(ReasonJudgeFailed)
 	}
 }
 
-func workerDiffForJudge(ctx context.Context, appDir, base string) (string, error) {
+func (w *worker) judgeExecFn() func(context.Context, JudgeExecOptions) (JudgeExecOutput, error) {
+	if w.o.Judge.ExecFunc != nil {
+		return w.o.Judge.ExecFunc
+	}
+	if w.deps.JudgeExec != nil {
+		return w.deps.JudgeExec
+	}
+	return func(ctx context.Context, opts JudgeExecOptions) (JudgeExecOutput, error) {
+		return RunJudgePrint(ctx, w.deps.Judge, opts)
+	}
+}
+
+func formatJudgeFailureReason(reason string, jerr, perr error, out JudgeExecOutput) string {
+	if reason != "" {
+		return reason
+	}
+	var pmsg string
+	if jerr == nil && out.ExitCode == 0 && perr != nil {
+		pmsg = perr.Error()
+	}
+	return coalesceStr(pmsg, strings.TrimSpace(out.Stderr), fmt.Sprintf("exit=%d err=%v parse=%v", out.ExitCode, jerr, perr))
+}
+
+func workerDiffForJudge(ctx context.Context, deps JudgeDeps, appDir, base string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", "--no-replace-objects", "-c", "core.hooksPath=/dev/null",
 		"-c", "core.commitGraph=false", "-c", "core.fsmonitor=false", "diff", "--no-color", "--no-ext-diff", base+"..HEAD")
 	cmd.Dir = appDir
-	cmd.Env = append(WithoutGit(os.Environ()), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "GIT_GRAFT_FILE="+os.DevNull)
+	cmd.Env = append(deps.withoutGit(os.Environ()), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "GIT_GRAFT_FILE="+os.DevNull)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

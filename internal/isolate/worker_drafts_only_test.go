@@ -102,7 +102,7 @@ func TestRunWorkerDraftsOnlyAllowsDirtyNonGitAndGlobal(t *testing.T) {
 	}{
 		{"dirty-git", dirtyGit},
 		{"non-git", nonGit},
-		{"global-workspace", globalWorkspace},
+		{"global-workspace", "__global__"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
@@ -141,11 +141,11 @@ func TestRunWorkerDraftsOnlyAllowsDirtyNonGitAndGlobal(t *testing.T) {
 			if len(res) != 1 || res[0].Verdict != "PASS" || res[0].Drafts != 1 {
 				t.Fatalf("DraftsOnly result = %+v, want Verdict=PASS Drafts=1", res)
 			}
-			collected, err := os.ReadFile(filepath.Join(res[0].DraftsDir, autoDraftsName))
+			collected, err := os.ReadFile(filepath.Join(res[0].DraftsDir, "auto-drafts.jsonl"))
 			if err != nil || !strings.Contains(string(collected), "drafts-only note") {
 				t.Fatalf("collected drafts = %q, err = %v", string(collected), err)
 			}
-			if tc.root != globalWorkspace {
+			if tc.root != "__global__" {
 				if _, err := os.Stat(filepath.Join(tc.root, ".agents")); !os.IsNotExist(err) {
 					t.Errorf("DraftsOnly run polluted root %s with .agents", tc.root)
 				}

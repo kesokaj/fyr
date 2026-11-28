@@ -1,4 +1,4 @@
-package isolate
+package worker
 
 import (
 	"fmt"

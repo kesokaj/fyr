@@ -1,4 +1,4 @@
-package isolate
+package worker
 
 import (
 	"errors"
@@ -35,21 +35,14 @@ const (
 var (
 	nameRe   = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 	recordID = regexp.MustCompile(`^[A-Z]+-[0-9A-Za-z-]+$`)
-	// modelRe is what a model ID looks like, for the Model: line and
-	// --model: it refuses a flag, a space and a control character offline,
-	// and agy models is the authority (refusal 21). An agy that lists an ID
-	// outside it widens it here, with its test (D126).
-	modelRe = models.ModelIDRe
+	modelRe  = models.ModelIDRe
 )
 
 // parseKickoff reads path as a Kickoff, or refuses it (refusal 3, and
-// refusal 4's name rule): a missing, unreadable or oversized file, no single
-// Files: line, an entry that is neither a repo-relative path nor a record
-// ID, more than one Model: line or one that is not a model ID, or a name
-// outside the branch alphabet (D40).
-func parseKickoff(path string, auto bool, deps CapsuleDeps) (Kickoff, error) {
+// refusal 4's name rule).
+func parseKickoff(deps Deps, path string, auto bool, cdeps CapsuleDeps) (Kickoff, error) {
 	k := Kickoff{Path: path, Name: strings.TrimSuffix(filepath.Base(path), ".md")}
-	f, err := OpenRegular(path, os.O_RDONLY)
+	f, err := deps.openRegular(path, os.O_RDONLY)
 	if err != nil {
 		return k, fmt.Errorf("the Kickoff %s: %v", path, err)
 	}
@@ -62,13 +55,13 @@ func parseKickoff(path string, auto bool, deps CapsuleDeps) (Kickoff, error) {
 		return k, fmt.Errorf("the Kickoff %s is over %d KiB", path, maxKickoff>>10)
 	}
 	k.Text = string(b)
-	if k.Files, err = filesLine(k.Text, auto); err != nil {
+	if k.Files, err = filesLine(deps, k.Text, auto); err != nil {
 		return k, fmt.Errorf("the Kickoff %s: %v", path, err)
 	}
 	if k.Model, err = modelLine(k.Text); err != nil {
 		return k, fmt.Errorf("the Kickoff %s: %v", path, err)
 	}
-	if k.Judge, err = optionalLine(k.Text, "Judge:"); err != nil {
+	if k.Judge, err = optionalLine(deps, k.Text, "Judge:"); err != nil {
 		return k, fmt.Errorf("the Kickoff %s: %v", path, err)
 	}
 	if k.JudgeModel, err = namedModelLine(k.Text, "Judge-Model:"); err != nil {
@@ -77,7 +70,7 @@ func parseKickoff(path string, auto bool, deps CapsuleDeps) (Kickoff, error) {
 	if !nameRe.MatchString(k.Name) {
 		return k, fmt.Errorf("the Kickoff %s: the name %q is not lower-case letters, digits and '-', at most 63, starting with a letter or digit", path, k.Name)
 	}
-	k.Text = FormatKickoffCapsule(k, kickoffProjectRoot(k.Text, path), deps.SliceFn, deps.PreseedFn)
+	k.Text = FormatKickoffCapsule(k, kickoffProjectRoot(k.Text, path), cdeps.SliceFn, cdeps.PreseedFn)
 	return k, nil
 }
 
@@ -93,8 +86,6 @@ func prefixed(text, prefix string) []string {
 	return out
 }
 
-// modelLine is the ID on the one line that starts "Model:", "" when there
-// is none (PLAN-2026-10-29-workers § Interfaces § A model per worker).
 func modelLine(text string) (string, error) {
 	return namedModelLine(text, "Model:")
 }
@@ -113,7 +104,7 @@ func namedModelLine(text, prefix string) (string, error) {
 	return "", fmt.Errorf("the %s line %q is not a model ID", prefix, strings.TrimSpace(lines[0]))
 }
 
-func optionalLine(text, prefix string) (string, error) {
+func optionalLine(deps Deps, text, prefix string) (string, error) {
 	lines := prefixed(text, prefix)
 	switch {
 	case len(lines) == 0:
@@ -125,16 +116,14 @@ func optionalLine(text, prefix string) (string, error) {
 	if v == "" {
 		return "", fmt.Errorf("an empty %s line", prefix)
 	}
-	if Printable(v) != v {
+	if deps.printable(v) != v {
 		return "", fmt.Errorf("the %s line %q holds a control character", prefix, v)
 	}
 	return v, nil
 }
 
-// filesLine is the entries of the one line that starts "Files:" (D16). When
-// auto is true, a bare "Files:" line with no entry is a drafts-only scope
-// (PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of D37).
-func filesLine(text string, auto bool) ([]string, error) {
+// filesLine is the entries of the one line that starts "Files:" (D16).
+func filesLine(deps Deps, text string, auto bool) ([]string, error) {
 	lines := prefixed(text, "Files:")
 	n := len(lines)
 	switch {
@@ -149,7 +138,7 @@ func filesLine(text string, auto bool) ([]string, error) {
 	var out []string
 	for _, e := range strings.Split(lines[0], ",") {
 		e = strings.TrimSpace(e)
-		if err := checkEntry(e); err != nil {
+		if err := checkEntry(deps, e); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -158,16 +147,15 @@ func filesLine(text string, auto bool) ([]string, error) {
 }
 
 // checkEntry accepts a record ID or a clean repo-relative path, a directory
-// ending in '/'. Globs are refused (D17), and so is the trail itself: its
-// records are named by ID.
-func checkEntry(e string) error {
+// ending in '/'. Globs are refused (D17), and so is the trail itself.
+func checkEntry(deps Deps, e string) error {
 	if recordID.MatchString(e) {
 		return nil
 	}
 	switch {
 	case e == "":
 		return errors.New("an empty Files: entry")
-	case Printable(e) != e:
+	case deps.printable(e) != e:
 		return fmt.Errorf("the Files: entry %q holds a control character", e)
 	case strings.HasPrefix(e, "/"):
 		return fmt.Errorf("the Files: entry %s is absolute; give a repo-relative path", e)
@@ -187,8 +175,6 @@ func checkEntry(e string) error {
 	return nil
 }
 
-// covers reports whether the scope holds the repo-relative path p: an equal
-// file entry, or a directory entry it lies under.
 func (k Kickoff) covers(p string) bool {
 	for _, e := range k.Files {
 		if e == p || (strings.HasSuffix(e, "/") && strings.HasPrefix(p, e)) {
@@ -198,7 +184,6 @@ func (k Kickoff) covers(p string) bool {
 	return false
 }
 
-// names reports whether the scope names the record id.
 func (k Kickoff) names(id string) bool {
 	for _, e := range k.Files {
 		if e == id {

@@ -302,6 +302,7 @@ func TestCommandLandlockDeniesRealHomeWrite(t *testing.T) {
 }
 
 func TestCommandLandlockIsolatesNetwork(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "linux" {
 		t.Skip("Landlock network namespace isolation test runs on Linux")
 	}
