@@ -30,35 +30,20 @@ type runtimeCtx struct {
 	writesStateFn func(*runtimeCtx) bool
 	// global flags, accepted by every verb
 	repoFlag, homeFlag, dirFlag string
-	// per-verb flags for unmigrated verbs (Part 2)
-	dryRun, check, force, openRecords, global, rebuild, dreamAll                              bool
+	// per-verb flags for unmigrated verbs (Part 3)
+	dryRun, check, force, openRecords, global, rebuild                                        bool
 	jsonOut, jsonIn                                                                           bool
-	fromZip, kind, refs, memType, memName, memDesc, memBodyFile, dreamProject                 string
+	fromZip, kind, refs, memType, memName, memDesc, memBodyFile                               string
 	memIncludeLow                                                                             bool
-	evalFixture                                                                               string
-	evalRunner                                                                                string
-	evalModel                                                                                 string
-	evalList, evalACP                                                                         bool
-	evalRuns, evalParallel                                                                    int
-	autoConvIdle, autoLevel, autoProjectIdle, autoUserIdle                                    string
-	autoLines                                                                                 int
-	autoAll                                                                                   bool
-	modelsPick, modelsTier, modelsExplain                                                     string
-	modelsRefresh                                                                             bool
 	limit, sliceHops, sliceBudget                                                             int
 	sliceQuery, sliceSession, contractsTarget, skeletonPath, pathFrom, pathTo, affectedTarget string
 	vetPrompt, hookEvent                                                                      string
 	repoMap, register, searchIncludeDocs                                                      bool
-	graphOut, graphListen                                                                     string
-	graphDot, graphMD, graphJSON, graphWeb, graphIncludeTests, graphIncludeDocs               bool
-	graphIncludeVendored                                                                      bool
-	watchConv                                                                                 string
-	watchIdleSec                                                                              int
 	// src is the harness, resolved before run for the verbs that mark source
 	src harness.Source
 }
 
-// ctx is a temporary alias for unmigrated verbs (removed in Part 2).
+// ctx is a temporary alias for unmigrated verbs (removed in Part 3).
 type ctx = runtimeCtx
 
 // repo is the tree on disk, "" for the files embedded in a release binary;
@@ -128,13 +113,13 @@ func buildVerbs() map[string]verb {
 		"git-check": {flags: (*runtimeCtx).jsonFlag, run: runGitCheck},
 		"check":     checkVerb(),
 		"memory":    memoryVerb(),
-		"dream":     {flags: registerDreamFlags, run: runDream},
+		"dream":     dreamVerb(),
 		"auto":      autoVerb(),
 		"metrics":   metricsVerb(),
 		"report":    reportVerb(),
 		"record":    recordVerb(),
 		"search":    {flags: registerSearchFlags, positional: true, run: runSearch},
-		"graph":     {flags: registerGraphFlags, run: runGraph},
+		"graph":     graphVerb(),
 		"index":     {flags: registerIndexFlags, run: runSearch},
 		"eval":      evalVerb(),
 		"models":    modelsVerb(),
@@ -151,12 +136,6 @@ func buildVerbs() map[string]verb {
 	}
 	registerGateVerbs(m)
 	return m
-}
-
-func registerDreamFlags(c *runtimeCtx) {
-	c.fs.BoolVar(&c.dreamAll, "all", false, "every workspace discovered from conversations, brain.db and search.db")
-	c.fs.StringVar(&c.dreamProject, "project", "", "one workspace, `DIR`, or __global__")
-	c.dryRunAndJSONFlags()
 }
 
 func registerSearchFlags(c *runtimeCtx) {
@@ -179,19 +158,6 @@ func registerSearchFlags(c *runtimeCtx) {
 	c.fs.BoolVar(&c.searchIncludeDocs, "include-docs", false, "include Markdown docs and headings in AST maps and slices")
 	c.fs.StringVar(&c.vetPrompt, "vet", "", "9-mode intent, 6-anchor vetter and skill/record match for `PROMPT`")
 	c.fs.StringVar(&c.hookEvent, "hook", "", "Antigravity lifecycle hook `EVENT`: session-start, pre-invocation, pre-tool-use, post-tool-use or stop")
-}
-
-func registerGraphFlags(c *runtimeCtx) {
-	c.fs.BoolVar(&c.graphDot, "dot", false, "write Graphviz DOT instead of HTML (stdout unless --out)")
-	c.fs.BoolVar(&c.force, "force", false, "overwrite an existing output file")
-	c.fs.BoolVar(&c.graphIncludeDocs, "include-docs", false, "include Markdown files and doc headings in the graph")
-	c.fs.BoolVar(&c.graphIncludeTests, "include-tests", false, "include test files, test packages and test edges")
-	c.fs.BoolVar(&c.graphIncludeVendored, "include-vendored", false, "include vendored skill references and assets in the graph")
-	c.fs.BoolVar(&c.graphJSON, "json", false, "write the graph payload as JSON (stdout unless --out)")
-	c.fs.StringVar(&c.graphListen, "listen", "", "with --web, bind `ADDR` instead of 127.0.0.1:0")
-	c.fs.BoolVar(&c.graphMD, "md", false, "write the Markdown architecture summary (stdout unless --out)")
-	c.fs.StringVar(&c.graphOut, "out", "", "write output to `FILE` (default .agents/scratch/graph.html for HTML)")
-	c.fs.BoolVar(&c.graphWeb, "web", false, "serve the rendered graph in memory on 127.0.0.1:0 in the foreground")
 }
 
 func registerIndexFlags(c *runtimeCtx) {

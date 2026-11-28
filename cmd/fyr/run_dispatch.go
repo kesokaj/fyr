@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/harness"
-	"github.com/kesokaj/fyr/internal/models"
 )
 
 func run(args []string, out io.Writer) error {
@@ -229,44 +228,12 @@ func (c *runtimeCtx) writesState() bool {
 		return c.writesStateFn(c)
 	}
 	switch c.cmd {
-	case "install", "sync", "uninstall", "adopt", "index", "search", "dream":
+	case "install", "sync", "uninstall", "adopt", "index", "search":
 		return !c.dryRun
 	case "update":
 		return !c.dryRun && !c.check
 	case "memory":
 		return c.fs.Arg(0) == "add"
-	case "eval":
-		// Sandboxes, the metrics store and the testing record; --list reads,
-		// and a refused --home is refused before anything moves (D37).
-		return !c.evalList && evalHomeRefused(c.homeFlag, c.home) == ""
-	case "auto":
-		return c.autoWritesState()
-	case "models":
-		return c.modelsWritesState()
-	}
-	return false
-}
-
-func (c *runtimeCtx) autoWritesState() bool {
-	if len(c.args) >= 1 && c.args[0] == "sim" {
-		return len(c.args) >= 2 && (c.args[1] == "record" || c.args[1] == "merge")
-	}
-	// status and any --dry-run read; on, off and real run write auto.json or auto/.
-	sub := c.fs.Arg(0)
-	return !c.dryRun && (sub == "on" || sub == "off" || sub == "run")
-}
-
-func (c *runtimeCtx) modelsWritesState() bool {
-	if (c.modelsTier != "" && c.modelsPick == "") || (c.modelsExplain != "" && c.modelsPick != "") {
-		return false
-	}
-	if c.modelsRefresh || !models.CatalogExists(c.home) {
-		return true
-	}
-	if c.modelsPick != "" {
-		if normRole, _, err := models.NormalizeRoleTier(c.modelsPick, c.modelsTier); err == nil {
-			return isCrossFamilyRole(normRole)
-		}
 	}
 	return false
 }

@@ -213,12 +213,13 @@ type dreamJSON struct {
 	Output  string `json:"output"`
 }
 
-func writeDreamJSON(c *ctx, project, out string) error {
+func writeDreamJSON(c *runtimeCtx, project, out string) error {
+	o := dreamOptsOf(c)
 	return writeVerbJSON(c.out, dreamJSON{
 		OK:      true,
-		All:     c.dreamAll,
+		All:     o.all,
 		Project: project,
-		DryRun:  c.dryRun,
+		DryRun:  o.dryRun,
 		Output:  out,
 	})
 }
@@ -252,11 +253,11 @@ func writeVerbExitErrorJSON(w io.Writer, verb, errMsg, output string) error {
 	})
 }
 
-func writeAutoJSON(c *ctx, sub, out string) error {
+func writeAutoJSON(c *runtimeCtx, sub, out string) error {
 	return writeVerbJSON(c.out, autoJSON{
 		OK:         true,
 		Subcommand: sub,
-		DryRun:     c.dryRun,
+		DryRun:     autoOptsOf(c).dryRun,
 		Output:     out,
 	})
 }
@@ -275,7 +276,7 @@ type evalListJSON struct {
 	Rows  []evalListRowJSON `json:"rows"`
 }
 
-func evalSuiteLabel(c *ctx, root string) string {
+func evalSuiteLabel(c *runtimeCtx, root string) string {
 	if path, set := evalSuiteFile(c); set {
 		return path
 	}
@@ -285,7 +286,7 @@ func evalSuiteLabel(c *ctx, root string) string {
 	return suiteID
 }
 
-func writeEvalListJSON(c *ctx, root string, suite []eval.Row) error {
+func writeEvalListJSON(c *runtimeCtx, root string, suite []eval.Row) error {
 	rows := make([]evalListRowJSON, 0, len(suite))
 	for _, r := range suite {
 		grants := "named"

@@ -572,21 +572,84 @@ func TestEvalBodyLabelsAnUnreadableSource(t *testing.T) {
 }
 
 func TestEvalVerbDefaultRunner(t *testing.T) {
-	c := &ctx{cmd: "eval", fs: flag.NewFlagSet("eval", flag.ContinueOnError), out: &bytes.Buffer{}}
+	c := &runtimeCtx{cmd: "eval", fs: flag.NewFlagSet("eval", flag.ContinueOnError), out: &bytes.Buffer{}}
 	allVerbs()["eval"].flags(c)
 	if err := c.fs.Parse([]string{"ok"}); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if c.evalRunner != fyrisolate.DefaultRunner {
-		t.Errorf("default --runner = %q, want %q", c.evalRunner, fyrisolate.DefaultRunner)
+	if evalOptsOf(c).runner != fyrisolate.DefaultRunner {
+		t.Errorf("default --runner = %q, want %q", evalOptsOf(c).runner, fyrisolate.DefaultRunner)
 	}
 	if err := evalUsage(c, c.fs.Args()); err != nil {
 		t.Errorf("evalUsage default: %v", err)
 	}
-	c2 := &ctx{cmd: "eval", fs: flag.NewFlagSet("eval", flag.ContinueOnError), out: &bytes.Buffer{}}
+	c2 := &runtimeCtx{cmd: "eval", fs: flag.NewFlagSet("eval", flag.ContinueOnError), out: &bytes.Buffer{}}
 	allVerbs()["eval"].flags(c2)
 	_ = c2.fs.Parse([]string{"--runner", "auto", "ok"})
 	if err := evalUsage(c2, c2.fs.Args()); err == nil {
 		t.Error("expected evalUsage to reject --runner auto")
+	}
+	if evalOptsOf(c).runner != fyrisolate.DefaultRunner {
+		t.Errorf("second invocation mutated first evalOpts: runner = %q, want %q", evalOptsOf(c).runner, fyrisolate.DefaultRunner)
+	}
+}
+
+func TestEvalAndDreamAutoWatchGraphOptsIsolation(t *testing.T) {
+	home := t.TempDir()
+	// eval writesState: normal row with scratch home writes; --list does not.
+	cEval := newCtx("eval", allVerbs()["eval"], &bytes.Buffer{})
+	cEval.home, cEval.homeFlag = home, home
+	if err := cEval.fs.Parse([]string{"ok"}); err != nil {
+		t.Fatalf("eval parse: %v", err)
+	}
+	if !cEval.writesState() {
+		t.Error("eval ok writesState() = false, want true")
+	}
+	cEvalList := newCtx("eval", allVerbs()["eval"], &bytes.Buffer{})
+	cEvalList.home, cEvalList.homeFlag = home, home
+	if err := cEvalList.fs.Parse([]string{"--list"}); err != nil {
+		t.Fatalf("eval --list parse: %v", err)
+	}
+	if cEvalList.writesState() {
+		t.Error("eval --list writesState() = true, want false")
+	}
+	if evalOptsOf(cEval).list {
+		t.Error("second eval invocation mutated first evalOpts.list")
+	}
+	// dream writesState: real run writes; --dry-run does not.
+	cDream := newCtx("dream", allVerbs()["dream"], &bytes.Buffer{})
+	if err := cDream.fs.Parse([]string{"--all"}); err != nil {
+		t.Fatalf("dream parse: %v", err)
+	}
+	if !cDream.writesState() {
+		t.Error("dream --all writesState() = false, want true")
+	}
+	cDreamDry := newCtx("dream", allVerbs()["dream"], &bytes.Buffer{})
+	if err := cDreamDry.fs.Parse([]string{"--all", "--dry-run"}); err != nil {
+		t.Fatalf("dream --dry-run parse: %v", err)
+	}
+	if cDreamDry.writesState() {
+		t.Error("dream --all --dry-run writesState() = true, want false")
+	}
+	// auto writesState: on/run writes; status and --dry-run do not.
+	cAutoOn := newCtx("auto", allVerbs()["auto"], &bytes.Buffer{})
+	if err := cAutoOn.fs.Parse([]string{"on"}); err != nil {
+		t.Fatalf("auto on parse: %v", err)
+	}
+	if !cAutoOn.writesState() {
+		t.Error("auto on writesState() = false, want true")
+	}
+	cAutoDry := newCtx("auto", allVerbs()["auto"], &bytes.Buffer{})
+	if err := cAutoDry.fs.Parse([]string{"--dry-run", "run"}); err != nil {
+		t.Fatalf("auto --dry-run run parse: %v", err)
+	}
+	if cAutoDry.writesState() {
+		t.Error("auto --dry-run run writesState() = true, want false")
+	}
+	// *OptsOf initializes and stores on nil c.opts.
+	blank := &runtimeCtx{}
+	evalOptsOf(blank).list = true
+	if !evalOptsOf(blank).list {
+		t.Error("evalOptsOf(blank) did not persist allocated struct on c.opts")
 	}
 }

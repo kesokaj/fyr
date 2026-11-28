@@ -21,20 +21,55 @@ import (
 
 const bareExplainSentinel = "\x00all"
 
-func modelsVerb() verb {
-	return verb{flags: registerModelsFlags, run: runModels}
+// modelsOpts holds parsed flags for `fyr models`.
+type modelsOpts struct {
+	pick, tier, explain string
+	refresh, jsonOut    bool
 }
 
-func registerModelsFlags(c *ctx) {
+func modelsOptsOf(c *runtimeCtx) *modelsOpts {
+	if o, ok := c.opts.(*modelsOpts); ok {
+		return o
+	}
+	o := &modelsOpts{}
+	if c.opts == nil {
+		c.opts = o
+	}
+	return o
+}
+
+func modelsVerb() verb {
+	return verb{flags: registerModelsFlags, writesState: modelsWritesState, run: runModels}
+}
+
+func modelsWritesState(c *runtimeCtx) bool {
+	o := modelsOptsOf(c)
+	if (o.tier != "" && o.pick == "") || (o.explain != "" && o.pick != "") {
+		return false
+	}
+	if o.refresh || !models.CatalogExists(c.home) {
+		return true
+	}
+	if o.pick != "" {
+		if normRole, _, err := models.NormalizeRoleTier(o.pick, o.tier); err == nil {
+			return isCrossFamilyRole(normRole)
+		}
+	}
+	return false
+}
+
+func registerModelsFlags(c *runtimeCtx) {
+	o := &modelsOpts{}
+	c.opts = o
 	c.fs.Bool("bench", false, "probe up to --max 0-run active models and record kind=bench trials")
 	c.fs.String("caller-family", "", "with --pick: caller `FAMILY` (gemini, anthropic or other)")
-	c.fs.StringVar(&c.modelsExplain, "explain", "", "print profile, score breakdown, and empirical stats for model `ID` (or all if omitted)")
-	c.fs.BoolVar(&c.jsonOut, "json", false, "print the catalog, --pick, --explain or --bench result as JSON")
+	c.fs.StringVar(&o.explain, "explain", "", "print profile, score breakdown, and empirical stats for model `ID` (or all if omitted)")
+	c.fs.BoolVar(&o.jsonOut, "json", false, "print the catalog, --pick, --explain or --bench result as JSON")
 	c.fs.Int("max", models.DefaultBenchMax, "with --bench: probe at most `N` 0-run active models (default 3)")
 	c.fs.String("model", "", "with --bench: probe only the active non-interactive model `ID`")
-	c.fs.StringVar(&c.modelsPick, "pick", "", "pick one model for `ROLE` (builder, planner, judge, security, ...)")
-	c.fs.BoolVar(&c.modelsRefresh, "refresh", false, "re-query agy models and update .config/fyr/models.json")
-	c.fs.StringVar(&c.modelsTier, "tier", "", "with --pick: the tier `T`, pro, flash or light")
+	c.fs.StringVar(&o.pick, "pick", "", "pick one model for `ROLE` (builder, planner, judge, security, ...)")
+	c.fs.BoolVar(&o.refresh, "refresh", false, "re-query agy models and update .config/fyr/models.json")
+	c.fs.StringVar(&o.tier, "tier", "", "with --pick: the tier `T`, pro, flash or light")
 }
 
 type modelsBenchFlags struct {
@@ -43,7 +78,7 @@ type modelsBenchFlags struct {
 	max                                int
 }
 
-func parseAndValidateModels(c *ctx) (modelsBenchFlags, error) {
+func parseAndValidateModels(c *runtimeCtx) (modelsBenchFlags, error) {
 	bf := modelsBenchFlags{max: models.DefaultBenchMax}
 	c.fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
@@ -64,25 +99,26 @@ func parseAndValidateModels(c *ctx) (modelsBenchFlags, error) {
 	return bf, nil
 }
 
-func validateModelsFlags(c *ctx, bf modelsBenchFlags) error {
+func validateModelsFlags(c *runtimeCtx, bf modelsBenchFlags) error {
+	o := modelsOptsOf(c)
 	switch {
-	case c.modelsTier != "" && c.modelsPick == "":
+	case o.tier != "" && o.pick == "":
 		return usageErr(c.out, "models", "fyr models: --tier requires --pick")
-	case bf.callerSet && c.modelsPick == "":
+	case bf.callerSet && o.pick == "":
 		return usageErr(c.out, "models", "fyr models: --caller-family requires --pick")
-	case c.modelsExplain != "" && c.modelsPick != "":
+	case o.explain != "" && o.pick != "":
 		return usageErr(c.out, "models", "fyr models: --explain and --pick cannot be combined")
 	case bf.modelSet && !bf.bench:
 		return usageErr(c.out, "models", "fyr models: --model requires --bench")
 	case bf.maxSet && !bf.bench:
 		return usageErr(c.out, "models", "fyr models: --max requires --bench")
-	case bf.bench && (c.modelsPick != "" || c.modelsExplain != ""):
+	case bf.bench && (o.pick != "" || o.explain != ""):
 		return usageErr(c.out, "models", "fyr models: --bench cannot be combined with --pick or --explain")
 	case bf.bench && bf.max < 1:
 		return usageErr(c.out, "models", "fyr models: --max must be at least 1")
 	}
-	if c.modelsPick != "" {
-		if _, _, err := models.NormalizeRoleTier(c.modelsPick, c.modelsTier); err != nil {
+	if o.pick != "" {
+		if _, _, err := models.NormalizeRoleTier(o.pick, o.tier); err != nil {
 			return usageErr(c.out, "models", "fyr models: "+err.Error())
 		}
 		if _, err := models.NormalizeCallerFamily(bf.callerFamily); err != nil {
@@ -92,7 +128,8 @@ func validateModelsFlags(c *ctx, bf modelsBenchFlags) error {
 	return nil
 }
 
-func runModels(c *ctx) error {
+func runModels(c *runtimeCtx) error {
+	o := modelsOptsOf(c)
 	bf, err := parseAndValidateModels(c)
 	if err != nil {
 		return err
@@ -109,29 +146,30 @@ func runModels(c *ctx) error {
 	if bf.bench {
 		return runModelsBench(sig, c, cat, agyPath, bf)
 	}
-	if c.modelsExplain != "" {
-		return runModelsExplain(c, cat, c.modelsExplain)
+	if o.explain != "" {
+		return runModelsExplain(c, cat, o.explain)
 	}
-	if c.modelsPick != "" {
+	if o.pick != "" {
 		return runModelsPick(sig, c, cat, agyPath, poolsProbed, bf.callerFamily)
 	}
-	if c.jsonOut {
+	if o.jsonOut {
 		return writeIndentedJSON(c, cat)
 	}
 	printCatalogText(c, cat)
 	return nil
 }
 
-func loadOrRefreshCatalog(ctx context.Context, c *ctx, agyPath string) (models.Catalog, bool, error) {
-	if c.modelsRefresh || !models.CatalogExists(c.home) {
+func loadOrRefreshCatalog(ctx context.Context, c *runtimeCtx, agyPath string) (models.Catalog, bool, error) {
+	o := modelsOptsOf(c)
+	if o.refresh || !models.CatalogExists(c.home) {
 		cat, err := models.RefreshCatalog(ctx, c.home, agyPath, loadMetricsModelEvidence(c.home))
 		if err != nil {
 			return cat, false, err
 		}
-		if c.modelsRefresh {
+		if o.refresh {
 			cat = models.EnrichCatalogChangelog(ctx, c.home, agyPath, cat)
 		}
-		if isCrossFamilyPick(c.modelsPick, c.modelsTier) {
+		if isCrossFamilyPick(o.pick, o.tier) {
 			return cat, false, nil
 		}
 		cat, probed := models.EnrichCatalogPoolsWithStatus(ctx, c.home, agyPath, cat)
@@ -144,7 +182,7 @@ func loadOrRefreshCatalog(ctx context.Context, c *ctx, agyPath string) (models.C
 	if !ok {
 		return models.Catalog{}, false, fmt.Errorf("catalog missing at %s", models.CatalogPath(c.home))
 	}
-	if c.modelsPick != "" {
+	if o.pick != "" {
 		return cat, false, nil
 	}
 	return models.RebuildCatalogWithEvidence(time.Now().UTC(), cat, models.AggregateWorkEvidence(c.home, loadMetricsModelEvidence(c.home))), false, nil
@@ -158,7 +196,8 @@ func isCrossFamilyPick(role, tier string) bool {
 	return err == nil && isCrossFamilyRole(normRole)
 }
 
-func runModelsBench(ctx context.Context, c *ctx, cat models.Catalog, agyPath string, bf modelsBenchFlags) error {
+func runModelsBench(ctx context.Context, c *runtimeCtx, cat models.Catalog, agyPath string, bf modelsBenchFlags) error {
+	jsonOut := modelsOptsOf(c).jsonOut
 	targets, err := models.SelectBenchTargets(cat, bf.model, bf.max)
 	if err != nil {
 		fmt.Fprintf(stderr, "models: %v\n", err)
@@ -185,22 +224,23 @@ func runModelsBench(ctx context.Context, c *ctx, cat models.Catalog, agyPath str
 		fmt.Fprintf(stderr, "models: %v\n", err)
 		return exitCode(1)
 	}
-	models.FinalizeBenchReport(c.out, &rep, updated, !c.jsonOut)
-	if c.jsonOut {
+	models.FinalizeBenchReport(c.out, &rep, updated, !jsonOut)
+	if jsonOut {
 		return writeIndentedJSON(c, rep)
 	}
 	return nil
 }
 
-func runModelsPick(ctx context.Context, c *ctx, cat models.Catalog, agyPath string, poolsProbed bool, callerFamily string) error {
-	normRole, normTier, _ := models.NormalizeRoleTier(c.modelsPick, c.modelsTier)
+func runModelsPick(ctx context.Context, c *runtimeCtx, cat models.Catalog, agyPath string, poolsProbed bool, callerFamily string) error {
+	o := modelsOptsOf(c)
+	normRole, normTier, _ := models.NormalizeRoleTier(o.pick, o.tier)
 	pickOpts := models.PickRoleOptions{
 		Home:         c.home,
 		AgyPath:      agyPath,
-		ForceRefresh: c.modelsRefresh && !poolsProbed,
+		ForceRefresh: o.refresh && !poolsProbed,
 		CallerFamily: callerFamily,
 	}
-	pick, pools, err := models.PickRoleFromCatalogForHome(ctx, cat, pickOpts, c.modelsPick, c.modelsTier)
+	pick, pools, err := models.PickRoleFromCatalogForHome(ctx, cat, pickOpts, o.pick, o.tier)
 	if err != nil {
 		fmt.Fprintf(stderr, "models: %v\n", err)
 		return exitCode(1)
@@ -219,7 +259,7 @@ func runModelsPick(ctx context.Context, c *ctx, cat models.Catalog, agyPath stri
 	if len(pools) > 0 && c.home != "" && models.CheckHomeDir(c.home) == nil {
 		models.PersistCatalogPoolsBestEffort(c.home, pools)
 	}
-	if c.jsonOut {
+	if o.jsonOut {
 		return writeIndentedJSON(c, pick)
 	}
 	if pick.FallbackReason != "" {
@@ -261,33 +301,21 @@ func fallbackPickWithoutAgy(cat models.Catalog, normRole, normTier string) (mode
 	return fb, nil
 }
 
-func writeIndentedJSON(c *ctx, v any) error {
+func writeIndentedJSON(c *runtimeCtx, v any) error {
 	enc := json.NewEncoder(c.out)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
 }
 
-func runModelsExplain(c *ctx, cat models.Catalog, target string) error {
+func runModelsExplain(c *runtimeCtx, cat models.Catalog, target string) error {
+	jsonOut := modelsOptsOf(c).jsonOut
 	if target == bareExplainSentinel {
-		if c.jsonOut {
-			entries := cat.Entries
-			if entries == nil {
-				entries = []models.CatalogEntry{}
-			}
-			return writeIndentedJSON(c, entries)
-		}
-		for i, e := range cat.Entries {
-			if i > 0 {
-				fmt.Fprintln(c.out)
-			}
-			printCatalogEntryDetail(c, e)
-		}
-		return nil
+		return runModelsExplainAll(c, cat, jsonOut)
 	}
 	lowTarget := strings.ToLower(strings.TrimSpace(target))
 	for _, e := range cat.Entries {
 		if strings.EqualFold(e.ID, lowTarget) || strings.ToLower(e.Subfamily) == lowTarget {
-			if c.jsonOut {
+			if jsonOut {
 				return writeIndentedJSON(c, e)
 			}
 			printCatalogEntryDetail(c, e)
@@ -298,7 +326,24 @@ func runModelsExplain(c *ctx, cat models.Catalog, target string) error {
 	return exitCode(1)
 }
 
-func printCatalogEntryDetail(c *ctx, e models.CatalogEntry) {
+func runModelsExplainAll(c *runtimeCtx, cat models.Catalog, jsonOut bool) error {
+	if jsonOut {
+		entries := cat.Entries
+		if entries == nil {
+			entries = []models.CatalogEntry{}
+		}
+		return writeIndentedJSON(c, entries)
+	}
+	for i, e := range cat.Entries {
+		if i > 0 {
+			fmt.Fprintln(c.out)
+		}
+		printCatalogEntryDetail(c, e)
+	}
+	return nil
+}
+
+func printCatalogEntryDetail(c *runtimeCtx, e models.CatalogEntry) {
 	fmt.Fprintf(c.out, "ID: %s (%s)\n", e.ID, e.Status)
 	fmt.Fprintf(c.out, "Family/Subfamily: %s / %s · Tier: %s · Effort: %s · Speed: %s · Mode: %s\n",
 		e.Family, e.Subfamily, e.Tier, e.Effort, e.Speed, e.Mode)
@@ -330,7 +375,7 @@ func printCatalogEntryDetail(c *ctx, e models.CatalogEntry) {
 	}
 }
 
-func printCatalogText(c *ctx, cat models.Catalog) {
+func printCatalogText(c *runtimeCtx, cat models.Catalog) {
 	fmt.Fprintf(c.out, "%-30s  %-6s  %-9s  %-5s  %-10s  %-7s  %-22s  %s\n",
 		"MODEL", "STATUS", "FAMILY", "TIER", "EFFORT", "DECAYED", "SCORE (POST/UCB/PEN)", "BEST FOR")
 	for _, e := range cat.Entries {
@@ -358,12 +403,16 @@ func printCatalogText(c *ctx, cat models.Catalog) {
 		fmt.Fprintf(c.out, "%-30s  %-6s  %-9s  %-5s  %-10s  %-7s  %-22s  %s\n",
 			e.ID, e.Status, e.Family, e.Tier, eff, runs, spd, best)
 	}
-	if len(cat.Picks) == 0 {
+	printCatalogRolePicks(c, cat.Picks)
+}
+
+func printCatalogRolePicks(c *runtimeCtx, picks map[string]models.RolePick) {
+	if len(picks) == 0 {
 		return
 	}
 	fmt.Fprintln(c.out, "\nRole picks:")
 	for _, rt := range models.StandardRoleTiers {
-		p, ok := cat.Picks[rt[0]+":"+rt[1]]
+		p, ok := picks[rt[0]+":"+rt[1]]
 		if !ok {
 			continue
 		}

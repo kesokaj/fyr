@@ -17,20 +17,50 @@ import (
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
-func autoVerb() verb {
-	return verb{flags: registerAutoFlags, positional: true, readsRepo: true, run: runAuto}
+// autoOpts holds parsed flags for `fyr auto`.
+type autoOpts struct {
+	convIdle, level, projectIdle, userIdle string
+	lines, limit                           int
+	all, dryRun, force, jsonOut            bool
 }
 
-func registerAutoFlags(c *ctx) {
-	c.fs.StringVar(&c.autoConvIdle, "conversation-idle", "", "on: how long a conversation sits untouched before rating, `D`, 5m to 7d (default 1h)")
-	c.fs.StringVar(&c.autoLevel, "level", "", "on: deprecated no-op `L` (fyr auto is now binary on/off)")
-	c.fs.StringVar(&c.autoProjectIdle, "project-idle", "", "on: deprecated no-op `D` (use --conversation-idle)")
-	c.fs.StringVar(&c.autoUserIdle, "user-idle", "", "on: deprecated no-op `D` (use --conversation-idle)")
-	c.fs.IntVar(&c.limit, "limit", 0, "log: alias for --lines, print the last `N` lines of auto.log")
-	c.fs.IntVar(&c.autoLines, "lines", 0, "log: print the last `N` lines of auto.log (default 50)")
-	c.fs.BoolVar(&c.autoAll, "all", false, "log: print every line of auto.log")
-	c.fs.BoolVar(&c.force, "force", false, "run: bypass the 4h model-run cooldown")
-	c.dryRunAndJSONFlags()
+func autoOptsOf(c *runtimeCtx) *autoOpts {
+	if o, ok := c.opts.(*autoOpts); ok {
+		return o
+	}
+	o := &autoOpts{}
+	if c.opts == nil {
+		c.opts = o
+	}
+	return o
+}
+
+func autoVerb() verb {
+	return verb{flags: registerAutoFlags, writesState: autoWritesState, positional: true, readsRepo: true, run: runAuto}
+}
+
+func autoWritesState(c *runtimeCtx) bool {
+	if len(c.args) >= 1 && c.args[0] == "sim" {
+		return len(c.args) >= 2 && (c.args[1] == "record" || c.args[1] == "merge")
+	}
+	// status and any --dry-run read; on, off and real run write auto.json or auto/.
+	sub := c.fs.Arg(0)
+	return !autoOptsOf(c).dryRun && (sub == "on" || sub == "off" || sub == "run")
+}
+
+func registerAutoFlags(c *runtimeCtx) {
+	o := &autoOpts{}
+	c.opts = o
+	c.fs.StringVar(&o.convIdle, "conversation-idle", "", "on: how long a conversation sits untouched before rating, `D`, 5m to 7d (default 1h)")
+	c.fs.StringVar(&o.level, "level", "", "on: deprecated no-op `L` (fyr auto is now binary on/off)")
+	c.fs.StringVar(&o.projectIdle, "project-idle", "", "on: deprecated no-op `D` (use --conversation-idle)")
+	c.fs.StringVar(&o.userIdle, "user-idle", "", "on: deprecated no-op `D` (use --conversation-idle)")
+	c.fs.IntVar(&o.limit, "limit", 0, "log: alias for --lines, print the last `N` lines of auto.log")
+	c.fs.IntVar(&o.lines, "lines", 0, "log: print the last `N` lines of auto.log (default 50)")
+	c.fs.BoolVar(&o.all, "all", false, "log: print every line of auto.log")
+	c.fs.BoolVar(&o.force, "force", false, "run: bypass the 4h model-run cooldown")
+	c.fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change, change nothing")
+	c.fs.BoolVar(&o.jsonOut, "json", false, "print the result as JSON")
 }
 
 // autoEnv is the machine a run reads; a test replaces it, and nil is the real
@@ -59,21 +89,36 @@ var autoFlags = map[string]map[string]bool{
 
 // runAuto needs no harness tree: `off` and `on` work on any place, and
 // harness skill edits apply only when a clean checkout is present.
-func runAuto(c *ctx) error {
+func runAuto(c *runtimeCtx) error {
 	if len(c.args) > 0 && c.args[0] == "sim" {
 		return runAutoSIM(c, c.args[1:])
 	}
+	ao := autoOptsOf(c)
+	sub, err := parseAutoSub(c, ao)
+	if err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	out := c.out
+	if ao.jsonOut {
+		out = &buf
+	}
+	err = c.dispatchAutoSub(sub, auto.Options{Home: c.home, Out: out, DryRun: ao.dryRun, Force: ao.force})
+	return finishAutoRun(c, ao, sub, &buf, err)
+}
+
+func parseAutoSub(c *runtimeCtx, ao *autoOpts) (string, error) {
 	args := c.fs.Args()
-	if len(args) == 0 && c.dryRun {
+	if len(args) == 0 && ao.dryRun {
 		args = []string{"run"}
 	}
 	if len(args) != 1 {
-		return usageErr(c.out, "auto", "")
+		return "", usageErr(c.out, "auto", "")
 	}
 	sub := args[0]
 	own, ok := autoFlags[sub]
 	if !ok {
-		return usageErr(c.out, "auto", fmt.Sprintf("fyr auto: unknown subcommand %q", sub))
+		return "", usageErr(c.out, "auto", fmt.Sprintf("fyr auto: unknown subcommand %q", sub))
 	}
 	var stray string
 	c.fs.Visit(func(f *flag.Flag) {
@@ -82,17 +127,15 @@ func runAuto(c *ctx) error {
 		}
 	})
 	if stray != "" {
-		return usageErr(c.out, "auto", fmt.Sprintf("fyr auto %s takes no --%s", sub, stray))
+		return "", usageErr(c.out, "auto", fmt.Sprintf("fyr auto %s takes no --%s", sub, stray))
 	}
-	var buf bytes.Buffer
-	out := c.out
-	if c.jsonOut {
-		out = &buf
-	}
-	err := c.dispatchAutoSub(sub, auto.Options{Home: c.home, Out: out, DryRun: c.dryRun, Force: c.force})
+	return sub, nil
+}
+
+func finishAutoRun(c *runtimeCtx, ao *autoOpts, sub string, buf *bytes.Buffer, err error) error {
 	var ee *auto.ExitError
 	if errors.As(err, &ee) {
-		if c.jsonOut {
+		if ao.jsonOut {
 			if jerr := writeVerbExitErrorJSON(c.out, "auto", ee.Msg, buf.String()); jerr != nil {
 				return jerr
 			}
@@ -103,41 +146,43 @@ func runAuto(c *ctx) error {
 		}
 		return exitCode(ee.Code)
 	}
-	if err == nil && c.jsonOut {
+	if err == nil && ao.jsonOut {
 		return writeAutoJSON(c, sub, buf.String())
 	}
 	return err
 }
 
-func (c *ctx) dispatchAutoSub(sub string, o auto.Options) error {
+func (c *runtimeCtx) dispatchAutoSub(sub string, o auto.Options) error {
+	ao := autoOptsOf(c)
 	switch sub {
 	case "on":
 		if reason := c.autoRequestError(); reason != "" {
 			return usageErr(c.out, "auto", reason)
 		}
 		c.warnDeprecatedAutoFlags(o.Out)
-		return auto.On(o, auto.Request{ConversationIdle: c.autoConvIdle})
+		return auto.On(o, auto.Request{ConversationIdle: ao.convIdle})
 	case "off":
 		return auto.Off(o)
 	case "status":
 		o.Repo = c.resolveAutoRepo()
 		return auto.Status(o)
 	case "run":
-		return auto.Run(c.autoRunOptions(o), c.dryRun)
+		return auto.Run(c.autoRunOptions(o), ao.dryRun)
 	case "log":
 		if reason := c.autoLogError(); reason != "" {
 			return usageErr(c.out, "auto", reason)
 		}
-		lines := c.autoLines
-		if c.limit > 0 {
-			lines = c.limit
+		lines := ao.lines
+		if ao.limit > 0 {
+			lines = ao.limit
 		}
-		return auto.Log(o, lines, c.autoAll)
+		return auto.Log(o, lines, ao.all)
 	}
 	return nil
 }
 
-func (c *ctx) autoLogError() string {
+func (c *runtimeCtx) autoLogError() string {
+	ao := autoOptsOf(c)
 	var linesGiven, limitGiven bool
 	c.fs.Visit(func(f *flag.Flag) {
 		linesGiven = linesGiven || f.Name == "lines"
@@ -146,16 +191,16 @@ func (c *ctx) autoLogError() string {
 	if linesGiven && limitGiven {
 		return "fyr auto log: --lines and --limit exclude each other"
 	}
-	if c.autoLines < 0 || (linesGiven && c.autoLines <= 0) {
+	if ao.lines < 0 || (linesGiven && ao.lines <= 0) {
 		return "fyr auto log: --lines must be above 0"
 	}
-	if c.limit < 0 || (limitGiven && c.limit <= 0) {
+	if ao.limit < 0 || (limitGiven && ao.limit <= 0) {
 		return "fyr auto log: --limit must be above 0"
 	}
-	if linesGiven && c.autoAll {
+	if linesGiven && ao.all {
 		return "fyr auto log: --lines and --all exclude each other"
 	}
-	if limitGiven && c.autoAll {
+	if limitGiven && ao.all {
 		return "fyr auto log: --limit and --all exclude each other"
 	}
 	return ""
@@ -172,7 +217,7 @@ func autoIngest(home string) (string, error) {
 	return r.Line(), err
 }
 
-func (c *ctx) autoRunOptions(o auto.Options) auto.Options {
+func (c *runtimeCtx) autoRunOptions(o auto.Options) auto.Options {
 	home := c.home
 	o.Env, o.Vocabulary = autoEnv, vocabulary()
 	o.Repo = c.resolveAutoRepo()
@@ -276,18 +321,18 @@ func refreshDailyDigest(s *metrics.Store, home, harnessRepo string, now time.Tim
 
 // autoRequestError refuses a flag of `on` given empty or out of range before
 // anything is read or written.
-func (c *ctx) autoRequestError() string {
+func (c *runtimeCtx) autoRequestError() string {
 	given := map[string]bool{}
 	c.fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
 	if given["conversation-idle"] {
-		if err := auto.ValidConversationIdle(c.autoConvIdle); err != nil {
+		if err := auto.ValidConversationIdle(autoOptsOf(c).convIdle); err != nil {
 			return "fyr auto on: --conversation-idle: " + err.Error()
 		}
 	}
 	return ""
 }
 
-func (c *ctx) warnDeprecatedAutoFlags(out io.Writer) {
+func (c *runtimeCtx) warnDeprecatedAutoFlags(out io.Writer) {
 	c.fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "level", "project-idle", "user-idle":
@@ -296,7 +341,7 @@ func (c *ctx) warnDeprecatedAutoFlags(out io.Writer) {
 	})
 }
 
-func (c *ctx) resolveAutoRepo() string {
+func (c *runtimeCtx) resolveAutoRepo() string {
 	explicit := c.repoFlag
 	if explicit == "" && os.Getenv("FYR_REPO") == "" && !harness.IsReleaseVersion(buildVersion()) {
 		st, found, err := harness.LoadState(c.home)

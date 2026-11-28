@@ -40,12 +40,13 @@ var evalTestHook func(*eval.Options)
 // the rows, then the login and agy (inside eval.Run). The install source is
 // resolved here rather than by the verb table's source flag, so its error is
 // a refusal like the others (exit 2) and --list needs none.
-func runEval(c *ctx) error {
+func runEval(c *runtimeCtx) error {
+	eo := evalOptsOf(c)
 	names := c.fs.Args()
 	if err := evalUsage(c, names); err != nil {
 		return err
 	}
-	if why := evalHomeRefused(c.homeFlag, c.home); why != "" && !c.evalList {
+	if why := evalHomeRefused(c.homeFlag, c.home); why != "" && !eo.list {
 		return c.evalRefuse("%s", why)
 	}
 	wd, err := c.projectDir()
@@ -56,13 +57,14 @@ func runEval(c *ctx) error {
 	if err != nil {
 		return c.evalRefuse("%s is not a git checkout", wd)
 	}
-	if c.evalList {
+	if eo.list {
 		return listEval(c, root)
 	}
 	return execEvalTrials(c, root, names)
 }
 
-func execEvalTrials(c *ctx, root string, names []string) error {
+func execEvalTrials(c *runtimeCtx, root string, names []string) error {
+	eo := evalOptsOf(c)
 	o, src, rows, err := evalSetup(c, root, names)
 	if err != nil {
 		return err
@@ -72,7 +74,7 @@ func execEvalTrials(c *ctx, root string, names []string) error {
 	harnessRef := harnessKey(src)
 	var buf bytes.Buffer
 	origOut := c.out
-	if c.jsonOut {
+	if eo.jsonOut {
 		o.Out = &buf
 		c.out = &buf
 		defer func() { c.out = origOut }()
@@ -91,7 +93,7 @@ func execEvalTrials(c *ctx, root string, names []string) error {
 	if len(results) == 0 {
 		// Interrupted before the first row: nothing ran, so nothing is
 		// recorded, and the export stays as the operator left it.
-		if c.jsonOut {
+		if eo.jsonOut {
 			if jerr := writeEvalRunJSON(origOut, harnessRef, nil, buf.String(), false, true); jerr != nil {
 				return jerr
 			}
@@ -102,7 +104,7 @@ func execEvalTrials(c *ctx, root string, names []string) error {
 	}
 	labelHoldout(c, rows, results)
 	err = recordEval(c, root, o, src, harnessRef, rows, results)
-	if c.jsonOut {
+	if eo.jsonOut {
 		if jerr := writeEvalRunJSON(origOut, harnessRef, results, buf.String(), err == nil, false); jerr != nil {
 			return jerr
 		}
@@ -112,12 +114,12 @@ func execEvalTrials(c *ctx, root string, names []string) error {
 
 // listEval serves `fyr eval --list`: the working export's rows, each with
 // its version and kind (ADR-085).
-func listEval(c *ctx, root string) error {
+func listEval(c *runtimeCtx, root string) error {
 	suite, err := loadEvalSuite(c, root, false)
 	if err != nil {
 		return c.evalRefuse("%v", err)
 	}
-	if c.jsonOut {
+	if evalOptsOf(c).jsonOut {
 		return writeEvalListJSON(c, root, suite)
 	}
 	for _, r := range suite {
@@ -136,7 +138,8 @@ func listEval(c *ctx, root string) error {
 // evalSetup makes every refusal that comes before a row runs, in the plan's
 // step-0 order, and returns the run's options, its install source and its
 // rows.
-func evalSetup(c *ctx, root string, names []string) (eval.Options, harness.Source, []eval.Row, error) {
+func evalSetup(c *runtimeCtx, root string, names []string) (eval.Options, harness.Source, []eval.Row, error) {
+	eo := evalOptsOf(c)
 	fail := func(err error) (eval.Options, harness.Source, []eval.Row, error) {
 		return eval.Options{}, harness.Source{}, nil, err
 	}
@@ -152,7 +155,7 @@ func evalSetup(c *ctx, root string, names []string) (eval.Options, harness.Sourc
 	if err != nil {
 		return fail(c.evalRefuse("the running fyr: %v", err))
 	}
-	fixture := c.evalFixture
+	fixture := eo.fixture
 	if fixture != "" {
 		if fixture, err = filepath.Abs(fixture); err != nil {
 			return fail(c.evalRefuse("--fixture: %v", err))
@@ -163,8 +166,8 @@ func evalSetup(c *ctx, root string, names []string) (eval.Options, harness.Sourc
 	}
 	o := eval.Options{
 		Root: root, Home: c.home, RealHome: realHome, Fixture: fixture, Self: self, Repo: src.Dir,
-		Model: c.evalModel, Runs: c.evalRuns, Parallel: c.evalParallel, ACP: c.evalACP,
-		Runner: c.evalRunner,
+		Model: eo.model, Runs: eo.runs, Parallel: eo.parallel, ACP: eo.acp,
+		Runner: eo.runner,
 		Out:    c.out, BrainWatch: brain.SnapshotScopes,
 	}
 	if evalTestHook != nil {
