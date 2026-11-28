@@ -32,6 +32,7 @@ func reportFixture(t *testing.T) *Summary {
 // The report is self-contained (no script, no host) and its numbers are
 // show's: the summary rows and the per-day tables add up to the summary.
 func TestReportSelfContainedAndConsistent(t *testing.T) {
+	t.Parallel()
 	sum := reportFixture(t)
 	var buf bytes.Buffer
 	if err := RenderReport(&buf, sum, nil, time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)); err != nil {
@@ -79,6 +80,7 @@ func TestReportSelfContainedAndConsistent(t *testing.T) {
 // over the track, a label with only error trials has an empty bar and no
 // whisker, errors and flip are written in the value text.
 func TestPassKChartDrawing(t *testing.T) {
+	t.Parallel()
 	c := passKChart(map[string]PassK{
 		"eval=flip": {K: 4, Passed: 2, N: 4, C: 2, Errors: 1, Wilson95: [2]float64{0.15, 0.85}, Flip: 1},
 		"eval=err":  {Errors: 2},
@@ -107,6 +109,7 @@ func TestPassKChartDrawing(t *testing.T) {
 
 // A label or tool name is text, never markup.
 func TestReportEscapesNames(t *testing.T) {
+	t.Parallel()
 	sum := reportFixture(t)
 	sum.B.ToolCallsByTool["agy"][`agy:<img src=x onerror=alert(1)>`] = 99
 	var buf bytes.Buffer
@@ -119,6 +122,7 @@ func TestReportEscapesNames(t *testing.T) {
 }
 
 func TestWriteReportRefusesOverwrite(t *testing.T) {
+	t.Parallel()
 	sum := reportFixture(t)
 	f := filepath.Join(t.TempDir(), "r", "m.html")
 	if err := WriteReport(sum, nil, f, time.Now()); err != nil {
@@ -136,6 +140,7 @@ func TestWriteReportRefusesOverwrite(t *testing.T) {
 // the cost chart has no Antigravity points; a day with no grep call has no
 // search:grep point. Nothing the template sanitised away is left in the page.
 func TestReportDrawsNoMissingValues(t *testing.T) {
+	t.Parallel()
 	sum := reportFixture(t)
 	var buf bytes.Buffer
 	if err := RenderReport(&buf, sum, nil, time.Now()); err != nil {
@@ -165,6 +170,7 @@ func TestReportDrawsNoMissingValues(t *testing.T) {
 // The summary table carries the over-target row as "k of n" per column, from the
 // same Summary as show (plan 2026-10-23-session-sized-work, Phase 2).
 func TestReportContextTargetRow(t *testing.T) {
+	t.Parallel()
 	sum := reportFixture(t)
 	var buf bytes.Buffer
 	if err := RenderReport(&buf, sum, nil, time.Now()); err != nil {
@@ -191,6 +197,7 @@ func TestReportContextTargetRow(t *testing.T) {
 // An agy-only store draws one series: no historical column, no Claude Code
 // label, and the summary table has one value column.
 func TestReportAgyOnly(t *testing.T) {
+	t.Parallel()
 	ahome, _ := agyFixture(t)
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	ingestT(t, s, Options{Home: ahome})
@@ -212,6 +219,7 @@ func TestReportAgyOnly(t *testing.T) {
 }
 
 func TestRenderMarkdownReportSections(t *testing.T) {
+	t.Parallel()
 	sum := reportFixture(t)
 	score := 92.5
 	ratio := 4.5
@@ -268,6 +276,7 @@ func TestRenderMarkdownReportSections(t *testing.T) {
 }
 
 func TestWriteMarkdownReportRefusesOverwrite(t *testing.T) {
+	t.Parallel()
 	sum := reportFixture(t)
 	f := filepath.Join(t.TempDir(), "r", "m.md")
 	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
@@ -287,6 +296,7 @@ func TestWriteMarkdownReportRefusesOverwrite(t *testing.T) {
 }
 
 func TestRenderReportCohortsAndAgentRoles(t *testing.T) {
+	t.Parallel()
 	sum := reportFixture(t)
 	tPct, p50, p95, inj, ratio := 10.0, 22.0, 140.0, 640.0, 3.0
 	sum.E = SecondBrain{

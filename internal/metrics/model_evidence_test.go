@@ -7,6 +7,7 @@ import (
 )
 
 func TestModelEvidenceV910PolicyModelWeightsDecayAndRoles(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 	s := openT(t, Path(t.TempDir()))
 
@@ -117,6 +118,7 @@ func TestModelEvidenceV910PolicyModelWeightsDecayAndRoles(t *testing.T) {
 }
 
 func TestModelEvidenceEvalEmptyAndDefaultSessionCoexistence(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 	s := openT(t, Path(t.TempDir()))
 	ts := now.Add(-time.Hour).UnixMilli()

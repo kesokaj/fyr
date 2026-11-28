@@ -204,6 +204,7 @@ func TestSessionRatingsMigrationUpsertQueryAndReports(t *testing.T) {
 }
 
 func TestUpsertSessionRatingsBlocksCrossProjectOverwriteAndBounds(t *testing.T) {
+	t.Parallel()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	ts := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC).UnixMilli()
 

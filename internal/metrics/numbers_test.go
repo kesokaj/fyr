@@ -12,6 +12,7 @@ import (
 // Numbers' keys are this package's own names and its values numbers: no
 // tool, skill, agent type, label or path reaches the dream's prompt.
 func TestNumbersOnly(t *testing.T) {
+	t.Parallel()
 	sum := reportFixture(t)
 	n := sum.Numbers()
 	key := regexp.MustCompile(`^(sessions|subagents|[ABCDEFH]\.[a-z0-9_]+(\.(structural|background_runs|dream|auto))?)(\.(claude|agy|PASS|FAIL|BLOCKED|high|medium|low|git_add_all|git_add_dot|push_force|no_verify|commit_chained_to_test|[a-z0-9_]+))?$`)

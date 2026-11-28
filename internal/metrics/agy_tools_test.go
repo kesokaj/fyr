@@ -14,6 +14,7 @@ import (
 // dropped mapping fails the test (TestAgyIngestShape covers only run_command
 // and view_file).
 func TestAgyToolVocabulary(t *testing.T) {
+	t.Parallel()
 	want := []struct{ agy, stored string }{
 		{"run_command", "Bash"},
 		{"view_file", "Read"},
@@ -73,6 +74,7 @@ func TestAgyToolVocabulary(t *testing.T) {
 // SKILL.md read through read_file is a skill load, and every write or edit
 // inside the project gets the same trail kind as the view_file control row.
 func TestAgyPathKeys(t *testing.T) {
+	t.Parallel()
 	home, root := agyFixture(t)
 	plan := filepath.Join(root, ".agents", "docs", "plans", "p.md")
 	skill := "/home/u/.gemini/config/skills/golang/SKILL.md"
@@ -127,6 +129,7 @@ func TestAgyPathKeys(t *testing.T) {
 }
 
 func TestV910SkillPathAnchored(t *testing.T) {
+	t.Parallel()
 	home, root := agyFixture(t)
 	cases := []struct {
 		path string

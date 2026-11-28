@@ -11,6 +11,7 @@ import (
 // value is "n/a" and gets no end label; end labels sort by height and the
 // lower of two close ones is nudged 13px down.
 func TestLineChartDrawing(t *testing.T) {
+	t.Parallel()
 	series := []serie{{Key: "a", Label: "A", Class: "s1"}, {Key: "b", Label: "B", Class: "s2"}}
 	get := func(vals map[string]map[string]float64) func(Day, string) (float64, bool) {
 		return func(d Day, k string) (float64, bool) {

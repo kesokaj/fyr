@@ -73,6 +73,7 @@ func assertV11ColumnsAndIndex(t *testing.T, s *Store) {
 }
 
 func TestNormalizeAndResolveRepoID(t *testing.T) {
+	t.Parallel()
 	const want = "git:github.com/myorg/myrepo"
 	secretTok := strings.Join([]string{"gh", "p_", "SUPERSECRETTOKEN987654321"}, "")
 	schemeHTTPS := strings.Join([]string{"https", "://"}, "")
@@ -169,6 +170,7 @@ func TestNormalizeAndResolveRepoID(t *testing.T) {
 }
 
 func TestRepoIDWiredAcrossAllTables(t *testing.T) {
+	t.Parallel()
 	repo := filepath.Join(t.TempDir(), "wired")
 	if err := os.MkdirAll(filepath.Join(repo, ".agents", "scratch"), 0o755); err != nil {
 		t.Fatal(err)
@@ -222,6 +224,7 @@ func TestRepoIDWiredAcrossAllTables(t *testing.T) {
 }
 
 func TestDynamicVetHistoryIngestSchemas(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	st := openT(t, Path(home))
 
@@ -293,6 +296,7 @@ func TestDynamicVetHistoryIngestSchemas(t *testing.T) {
 }
 
 func TestModelEvidenceDecayedSourcesAndWaveSeparation(t *testing.T) {
+	t.Parallel()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	since := now.AddDate(0, 0, -30)
@@ -371,6 +375,7 @@ func TestModelEvidenceDecayedSourcesAndWaveSeparation(t *testing.T) {
 }
 
 func TestModelEvidenceUnclaimedEvalSessionsDecayed(t *testing.T) {
+	t.Parallel()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	since := now.AddDate(0, 0, -30)

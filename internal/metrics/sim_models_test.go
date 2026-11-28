@@ -200,6 +200,7 @@ func TestSIMMetricsPolicyModel(t *testing.T) {
 }
 
 func TestSIMMetricsDominantAndStratified(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 	since := now.Add(-7 * 24 * time.Hour)
@@ -409,6 +410,7 @@ func TestSIMMetricsLatestTrialModelCutoff(t *testing.T) {
 }
 
 func TestSIMMetricsModelShiftAudit(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 
 	// Negative gates: <3 sessions, exact 50% split, and model already seen in prior 14d.

@@ -10,6 +10,7 @@ import (
 // ProjectVerbs reads session verbs from a read-only Store snapshot, scoping
 // project queries to root and its subdirectories without matching sibling prefixes.
 func TestAutoReadsFromSnapshot(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	p := filepath.Join(dir, "metrics.db")
 	s := openT(t, p)

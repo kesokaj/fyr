@@ -115,47 +115,68 @@ func applyJoinedEvents(tx *sql.Tx, pending []pendingEvent) error {
 // patterns are taken from a body, never its text.
 func joinRecords(recs []brain.Record, ws []window, sessionOf map[string]string, put putFunc) error {
 	for _, r := range recs {
-		if r.Kind == "bug" {
-			ts := int64(0)
-			if t, err := time.ParseInLocation("2006-01-02", r.Date, time.Local); err == nil {
-				ts = t.UnixMilli()
-			}
-			for _, h := range hexRun.FindAllString(r.Body, -1) {
-				if sha, id := matchCommit(h, sessionOf); id != "" {
-					if err := put(id, "bug", r.ID, sha, ts); err != nil {
-						return err
-					}
-					break
-				}
-			}
+		if err := joinOneRecord(r, ws, sessionOf, put); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func joinOneRecord(r brain.Record, ws []window, sessionOf map[string]string, put putFunc) error {
+	if r.Kind == "bug" {
+		return joinBugRecord(r, sessionOf, put)
+	}
+	ts, ok := recordTime(r.ID)
+	if !ok {
+		return nil
+	}
+	kind, value, ok := classifyRecordEvent(r)
+	if !ok {
+		return nil
+	}
+	return putRecordInWindows(ws, kind, r.ID, value, ts, put)
+}
+
+func joinBugRecord(r brain.Record, sessionOf map[string]string, put putFunc) error {
+	ts := int64(0)
+	if t, err := time.ParseInLocation("2006-01-02", r.Date, time.Local); err == nil {
+		ts = t.UnixMilli()
+	}
+	for _, h := range hexRun.FindAllString(r.Body, -1) {
+		sha, id := matchCommit(h, sessionOf)
+		if id == "" {
 			continue
 		}
-		ts, ok := recordTime(r.ID)
-		if !ok {
+		return put(id, "bug", r.ID, sha, ts)
+	}
+	return nil
+}
+
+func classifyRecordEvent(r brain.Record) (kind, value string, ok bool) {
+	switch r.Kind {
+	case "handoff":
+		return "handoff", "", true
+	case "testing":
+		m := statusLine.FindStringSubmatch(r.Body)
+		if m == nil || !verifyTitle.MatchString(r.Title) {
+			return "", "", false
+		}
+		return "verifier", m[1], true
+	case "review":
+		return "review", findings(r.Body), true
+	default:
+		return "", "", false
+	}
+}
+
+func putRecordInWindows(ws []window, kind, ref, value string, ts int64, put putFunc) error {
+	for _, w := range ws {
+		// The window [start, end] against the stamp's minute [ts, ts+60s).
+		if w.start >= ts+60_000 || ts > w.end {
 			continue
 		}
-		var kind, value string
-		switch r.Kind {
-		case "handoff":
-			kind = "handoff"
-		case "testing":
-			m := statusLine.FindStringSubmatch(r.Body)
-			if m == nil || !verifyTitle.MatchString(r.Title) {
-				continue
-			}
-			kind, value = "verifier", m[1]
-		case "review":
-			kind, value = "review", findings(r.Body)
-		default:
-			continue
-		}
-		for _, w := range ws {
-			// The window [start, end] against the stamp's minute [ts, ts+60s).
-			if w.start < ts+60_000 && ts <= w.end {
-				if err := put(w.id, kind, r.ID, value, ts); err != nil {
-					return err
-				}
-			}
+		if err := put(w.id, kind, ref, value, ts); err != nil {
+			return err
 		}
 	}
 	return nil

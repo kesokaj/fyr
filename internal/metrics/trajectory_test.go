@@ -14,6 +14,7 @@ import (
 )
 
 func TestTrajectoriesEmpty(t *testing.T) {
+	t.Parallel()
 	st, err := Open(filepath.Join(t.TempDir(), "metrics.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -44,6 +45,7 @@ func TestTrajectoriesEmpty(t *testing.T) {
 }
 
 func TestTrajectoriesLineageAndAnomalies(t *testing.T) {
+	t.Parallel()
 	st, err := Open(filepath.Join(t.TempDir(), "metrics.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -170,6 +172,7 @@ func TestTrajectoriesLineageAndAnomalies(t *testing.T) {
 }
 
 func TestTrajectoriesAndDigestPerModelKneeAndOverride(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	dbDir := filepath.Join(home, harness.StateDir)
 	if err := os.MkdirAll(dbDir, 0o700); err != nil {

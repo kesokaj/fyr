@@ -16,6 +16,7 @@ import (
 )
 
 func TestRootCanonicalizerNeverCollapsesHome(t *testing.T) {
+	t.Parallel()
 	userHome, _ := os.UserHomeDir()
 	tmpRoot := filepath.Clean(os.TempDir())
 	sandboxDir := filepath.Join("/home/alice", harness.StateDir, "sandbox")
@@ -169,6 +170,7 @@ func TestRootCanonicalizerNeverCollapsesHome(t *testing.T) {
 }
 
 func TestDisjointRangedReadsNotRedundant(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := filepath.Join(t.TempDir(), "proj")
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -275,6 +277,7 @@ func TestDisjointRangedReadsNotRedundant(t *testing.T) {
 }
 
 func TestHookDenialsExcludedFromToolErrorRate(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := filepath.Join(t.TempDir(), "proj")
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -384,6 +387,7 @@ func TestHookDenialsExcludedFromToolErrorRate(t *testing.T) {
 }
 
 func TestRetryLoopsResetAcrossEdit(t *testing.T) {
+	t.Parallel()
 	s := openT(t, Path(t.TempDir()))
 	t0 := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC).UnixMilli()
 	exec := func(q string, args ...any) {

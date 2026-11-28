@@ -15,6 +15,7 @@ import (
 )
 
 func TestMetricsV10BackgroundRuns(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	since := now.Add(-24 * time.Hour)
@@ -67,6 +68,7 @@ func assertBackgroundRunValidationAndSummary(t *testing.T, home string, since, n
 }
 
 func TestSandboxFilterAndOptIn(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	alpha := filepath.Join(t.TempDir(), "alpha")
 	realApp := "/work/real-app"
@@ -122,6 +124,7 @@ func assertSandboxFilterModes(t *testing.T, s *Store, home, alpha string, since,
 }
 
 func TestDreamTrajectoryDigestKnee(t *testing.T) {
+	t.Parallel()
 	st, exec := openDreamDigestTestStore(t)
 	base := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
 	root := "/work/knee-proj"
@@ -147,6 +150,7 @@ func TestDreamTrajectoryDigestKnee(t *testing.T) {
 }
 
 func TestSummaryNumbersV10(t *testing.T) {
+	t.Parallel()
 	score, eff, vet, rrPct := 4.25, 3.75, 82.5, 65.0
 	sum := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
 	sum.Sessions["agy"] = 5
@@ -211,6 +215,7 @@ func assertNumbersV10Keys(t *testing.T, sum *Summary) {
 }
 
 func TestStructuralHealthSignals(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	proj := seedStructuralRepoWithSearchDB(t, home)
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)

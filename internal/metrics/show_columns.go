@@ -183,50 +183,77 @@ func (b *bashReadTracker) isUnguardedSkip(st stp) bool {
 	return false
 }
 
+type adherenceVerbAcc struct {
+	seen       map[string]bool
+	verbCounts map[string]int
+	skips      map[string]int
+}
+
+func (a *adherenceVerbAcc) addSessionSteps(x sess, steps []stp) {
+	var tracker bashReadTracker
+	for _, st := range steps {
+		a.addStep(x, st, &tracker)
+	}
+}
+
+func (a *adherenceVerbAcc) addStep(x sess, st stp, tracker *bashReadTracker) {
+	if st.kind == "compaction" {
+		tracker.isUnguardedSkip(st)
+		return
+	}
+	if st.kind != "tool" && st.kind != "assistant" && st.kind != "generation" {
+		return
+	}
+	key := x.vendor + "\x00" + x.label + "\x00" + st.ext
+	if a.seen[key] {
+		return
+	}
+	a.seen[key] = true
+	if tracker.isUnguardedSkip(st) {
+		a.skips[x.vendor]++
+	}
+	if x.vendor != historical && st.kind == "tool" && st.tool == "Bash" {
+		a.countBashVerbs(st.verbs)
+	}
+}
+
+func (a *adherenceVerbAcc) countBashVerbs(verbs []string) {
+	for _, v := range verbs {
+		if pv := printable(strings.TrimSpace(v)); pv != "" {
+			a.verbCounts[pv]++
+		}
+	}
+}
+
+func (a *adherenceVerbAcc) bashReadSkips(agySessions int) map[string]int {
+	if agySessions <= 0 && len(a.skips) == 0 {
+		return nil
+	}
+	out := map[string]int{}
+	if agySessions > 0 || a.skips["agy"] > 0 {
+		out["agy"] = a.skips["agy"]
+	}
+	for v, c := range a.skips {
+		if v != "agy" && c > 0 {
+			out[v] = c
+		}
+	}
+	return out
+}
+
 func populateAdherenceVerbs(sum *Summary, all []sess, stepsByID map[string][]stp) {
-	seen := map[string]bool{}
-	verbCounts := map[string]int{}
-	skips := map[string]int{}
+	acc := adherenceVerbAcc{
+		seen:       map[string]bool{},
+		verbCounts: map[string]int{},
+		skips:      map[string]int{},
+	}
 	for _, x := range all {
-		var tracker bashReadTracker
-		for _, st := range stepsByID[x.id] {
-			if st.kind == "compaction" {
-				tracker.isUnguardedSkip(st)
-				continue
-			}
-			if st.kind != "tool" && st.kind != "assistant" && st.kind != "generation" {
-				continue
-			}
-			key := x.vendor + "\x00" + x.label + "\x00" + st.ext
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			if tracker.isUnguardedSkip(st) {
-				skips[x.vendor]++
-			}
-			if x.vendor != historical && st.kind == "tool" && st.tool == "Bash" {
-				for _, v := range st.verbs {
-					if pv := printable(strings.TrimSpace(v)); pv != "" {
-						verbCounts[pv]++
-					}
-				}
-			}
-		}
+		acc.addSessionSteps(x, stepsByID[x.id])
 	}
-	if sum.Sessions["agy"] > 0 || len(skips) > 0 {
-		outSkips := map[string]int{}
-		if sum.Sessions["agy"] > 0 || skips["agy"] > 0 {
-			outSkips["agy"] = skips["agy"]
-		}
-		for v, c := range skips {
-			if v != "agy" && c > 0 {
-				outSkips[v] = c
-			}
-		}
-		sum.C.BashReadSkips = outSkips
+	if skips := acc.bashReadSkips(sum.Sessions["agy"]); skips != nil {
+		sum.C.BashReadSkips = skips
 	}
-	sum.C.TopBashVerbs = topVerbCounts(verbCounts, 10)
+	sum.C.TopBashVerbs = topVerbCounts(acc.verbCounts, 10)
 }
 
 func topVerbCounts(counts map[string]int, limit int) []VerbCount {

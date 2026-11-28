@@ -246,6 +246,7 @@ func TestCorrections(t *testing.T) {
 // in its docs root, inside S1's window, is not joined, since the file join
 // went with the crossing (plan 2026-10-27-ledger Phase 10, item 66).
 func TestJoinUnmigratedGivesNoTrailEvents(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := filepath.Join(t.TempDir(), "proj")
 	handoffs := filepath.Join(root, ".agents", "docs", "handoffs")

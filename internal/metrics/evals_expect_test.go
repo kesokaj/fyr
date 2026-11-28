@@ -24,6 +24,7 @@ func openExpectTestStore(t *testing.T) (*Store, func(string, ...any)) {
 }
 
 func TestExpectMatchesFilteringAndPooling(t *testing.T) {
+	t.Parallel()
 	st, exec := openExpectTestStore(t)
 
 	empty, err := st.ExpectMatches(nil)
@@ -84,6 +85,7 @@ func TestExpectMatchesFilteringAndPooling(t *testing.T) {
 }
 
 func TestExpectMatchesChunkedRuns(t *testing.T) {
+	t.Parallel()
 	st, exec := openExpectTestStore(t)
 	total := showBatchChunk + 5
 	runs := make([]string, 0, total+1)

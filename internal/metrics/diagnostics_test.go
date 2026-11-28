@@ -14,6 +14,7 @@ import (
 )
 
 func TestDiagnosticReportShapeOnly(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	s := openT(t, Path(home))
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
@@ -94,6 +95,7 @@ func assertDiagnosticReportNoLeak(t *testing.T, rep *DiagnosticReport, wantPrefi
 }
 
 func TestDiagnosticReportDedupAndMinSamples(t *testing.T) {
+	t.Parallel()
 	er, sr, lowScore := 0.50, 0.10, 2.0
 	under := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
 	under.Sessions["agy"] = 4
@@ -138,6 +140,7 @@ func assertDiagnosticDedupAndCycleMin(t *testing.T, base *Summary) {
 }
 
 func TestHiddenCouplingEditVsReadDiagnostic(t *testing.T) {
+	t.Parallel()
 	readOnly := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
 	readOnly.Health.Structural = search.StructuralSignals{
 		HiddenCouplingPairs:     5,
@@ -175,6 +178,7 @@ func TestHiddenCouplingEditVsReadDiagnostic(t *testing.T) {
 }
 
 func TestDiagnosticsHealthRegressionRulesAndActionScopes(t *testing.T) {
+	t.Parallel()
 	t.Run("pre_invocation_timeouts thresholds", func(t *testing.T) {
 		pLow := 4.9
 		underRuns := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
@@ -325,6 +329,7 @@ func findDiagSignal(sigs []DiagnosticSignal, rule string) (DiagnosticSignal, boo
 }
 
 func TestV910DiagnosticsRatesDigestAndDeltas(t *testing.T) {
+	t.Parallel()
 	t.Run("F056_small_counts_across_5000_sessions_zero_high", testV910SmallCountsZeroHigh)
 	t.Run("F056_two_day_hysteresis_and_static_invariants", testV910TwoDayHysteresis)
 	t.Run("F006_structured_auto_applied_marker", testV910StructuredAutoApplied)
@@ -590,6 +595,7 @@ func testV910SubagentCapsAndExemptSteps(t *testing.T) {
 }
 
 func TestEvalPassRateWindowDeltaAndHysteresis(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	s := openT(t, Path(home))
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)

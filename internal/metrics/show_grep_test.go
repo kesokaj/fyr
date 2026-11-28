@@ -7,6 +7,7 @@ import (
 )
 
 func TestShowGrepAttributionSkipsLeadingCDExcludesPipe(t *testing.T) {
+	t.Parallel()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
 	ts := now.Add(-2 * time.Hour).UnixMilli()

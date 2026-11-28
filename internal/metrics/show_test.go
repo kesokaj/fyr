@@ -14,6 +14,7 @@ import (
 // ingest left from Claude Code give a number per column, the historical one
 // second; what Antigravity cannot record is null, not 0 (plan fyr D7).
 func TestShowHistoricalColumn(t *testing.T) {
+	t.Parallel()
 	ahome, root := agyFixture(t)
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	historicalRows(t, s, root)
@@ -103,6 +104,7 @@ func TestShowHistoricalColumn(t *testing.T) {
 // TestShowAgyOnly: a store with no historical rows has the one agy column;
 // no claude key reaches the JSON and no claude column the text.
 func TestShowAgyOnly(t *testing.T) {
+	t.Parallel()
 	ahome, _ := agyFixture(t)
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	ingestT(t, s, Options{Home: ahome})
@@ -134,6 +136,7 @@ func TestShowAgyOnly(t *testing.T) {
 // Labelled sandbox sessions are out of the default view, in with their label
 // or --all-labels, and give pass^k.
 func TestShowLabels(t *testing.T) {
+	t.Parallel()
 	ahome, _ := agyFixture(t)
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	ingestT(t, s, Options{Source: ahome, Label: "arm=lean", Outcome: "pass"})
@@ -159,6 +162,7 @@ func TestShowLabels(t *testing.T) {
 // and the rates come with pass@k, pass^k up to n, the Wilson interval and
 // flip, each at four decimals; the text line and the JSON carry them.
 func TestShowPassKTrials(t *testing.T) {
+	t.Parallel()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	base := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC).UnixMilli()
 	for _, q := range []string{
@@ -247,6 +251,7 @@ func TestShowPassKTrials(t *testing.T) {
 // Wall and active time count main sessions only: a subagent's steps run
 // inside its parent's wall time and would be counted twice (spec B2).
 func TestShowActiveTimeMainOnly(t *testing.T) {
+	t.Parallel()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	base := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC).UnixMilli()
 	min := int64(60000)
@@ -276,6 +281,7 @@ func TestShowActiveTimeMainOnly(t *testing.T) {
 // transcript: a tool call or a message seen under one id is counted once,
 // whichever sessions repeat it (release verification of v2.6.0).
 func TestShowCountsReplayedHistoryOnce(t *testing.T) {
+	t.Parallel()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	base := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC).UnixMilli()
 	for _, q := range []string{
@@ -303,6 +309,7 @@ func TestShowCountsReplayedHistoryOnce(t *testing.T) {
 // transcript that reuses a real session's ids never hides the real session's
 // steps under --all-labels (security review 6118921..c478d86, finding 3).
 func TestShowReplayDedupeStaysWithinALabel(t *testing.T) {
+	t.Parallel()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	base := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC).UnixMilli()
 	// The sandbox session starts first, so without the label in the key it
@@ -329,6 +336,7 @@ func TestShowReplayDedupeStaysWithinALabel(t *testing.T) {
 // windows never count the same session, even one starting at the boundary
 // or running across it (release review of v2.6.0, round 7).
 func TestShowAdjacentWindowsShareNoSession(t *testing.T) {
+	t.Parallel()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	day := func(d, h int) int64 { return time.Date(2026, 10, d, h, 0, 0, 0, time.UTC).UnixMilli() }
 	s.db.Exec(`INSERT INTO sessions(id, vendor, started_at, ended_at) VALUES
@@ -351,6 +359,7 @@ func TestShowAdjacentWindowsShareNoSession(t *testing.T) {
 // The claude rows are historical: their context is computed from usage at
 // read time, the path only such rows take (plan fyr D7).
 func TestShowContextTarget(t *testing.T) {
+	t.Parallel()
 	ahome, _ := agyFixture(t) // C1: main, peak 42000; C2: a subagent
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	ingestT(t, s, Options{Home: ahome})
@@ -440,6 +449,7 @@ func TestShowContextTarget(t *testing.T) {
 }
 
 func TestShowTagCohortAndPrePostWindow(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	s := openT(t, Path(home))
 	cutoff := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
@@ -496,6 +506,7 @@ func seedCohortFixtureT(t *testing.T, s *Store, root string, preTS, postTS int64
 }
 
 func TestShowAgentRolesAndTopBashVerbs(t *testing.T) {
+	t.Parallel()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	ts := now.Add(-time.Hour).UnixMilli()
@@ -528,6 +539,7 @@ func TestShowAgentRolesAndTopBashVerbs(t *testing.T) {
 }
 
 func TestShowTagCohortSecondsZeroNullAndSandboxFilter(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	s := openT(t, Path(home))
 	cutoff := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)

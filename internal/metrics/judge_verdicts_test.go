@@ -8,6 +8,7 @@ import (
 )
 
 func TestV910InferWorkerAttribution(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	s := openT(t, Path(home))
 	now := time.Now().UTC()
@@ -69,6 +70,7 @@ func TestV910InferWorkerAttribution(t *testing.T) {
 }
 
 func TestClipPrintableUTF8Bounds(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in     string
 		maxLen int

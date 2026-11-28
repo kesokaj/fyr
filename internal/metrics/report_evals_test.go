@@ -15,6 +15,7 @@ import (
 // chart, escaped, with its suite lines; with no row, or none given, there
 // is no such section; and the page still holds no script and no URL.
 func TestReportEvalRows(t *testing.T) {
+	t.Parallel()
 	sum := reportFixture(t)
 	e, err := evalsFixture(t).Evals(EvalOptions{Now: evalsNow})
 	if err != nil {
@@ -53,6 +54,7 @@ func TestReportEvalRows(t *testing.T) {
 }
 
 func TestV910DevEvalOpenFallbackRO(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	// Must-fail: absent dev store returns ok=false.
 	if _, _, ok := OpenDevEvalFallbackRO(home); ok {

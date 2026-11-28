@@ -127,6 +127,7 @@ func agyFixture(t *testing.T) (home, root string) {
 }
 
 func TestAgyIngestShape(t *testing.T) {
+	t.Parallel()
 	home, root := agyFixture(t)
 	src := filepath.Join(home, ".gemini", "antigravity-cli")
 	for _, d := range []string{src, filepath.Join(src, "conversations")} {
@@ -198,6 +199,7 @@ func TestAgyIngestShape(t *testing.T) {
 // An ingest killed mid-copy leaves metrics-agy-*; the next ingest sweeps
 // copies older than an hour and keeps a fresh one (another ingest's).
 func TestIngestSweepsStaleCopies(t *testing.T) {
+	t.Parallel()
 	home, _ := agyFixture(t)
 	dir := t.TempDir()
 	s := openT(t, filepath.Join(dir, "metrics.db"))
@@ -221,6 +223,7 @@ func TestIngestSweepsStaleCopies(t *testing.T) {
 // when it changes: the step's later status reaches the store (review
 // 2026-10-08: rows were inserted once and never updated).
 func TestAgyStepUpdatedOnReingest(t *testing.T) {
+	t.Parallel()
 	home, _ := agyFixture(t)
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	o := Options{Home: home}
@@ -259,6 +262,7 @@ func agyRunCopy(t *testing.T) string {
 }
 
 func TestSourceLabelAndOutcome(t *testing.T) {
+	t.Parallel()
 	home, _ := agyFixture(t)
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	ingestT(t, s, Options{Home: "/nonexistent", Source: home, Label: "arm=lean", Outcome: "pass"})
@@ -278,6 +282,7 @@ func TestSourceLabelAndOutcome(t *testing.T) {
 // with --outcome stamps the label's sessions that have none, even though no
 // conversation changed, and leaves an earlier run's outcome alone.
 func TestOutcomeStampedAfterTheRun(t *testing.T) {
+	t.Parallel()
 	run1, _ := agyFixture(t)
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	ingestT(t, s, Options{Source: run1, Label: "arm=x", Outcome: "fail"})
@@ -302,6 +307,7 @@ func TestOutcomeStampedAfterTheRun(t *testing.T) {
 // prompt-injected session cannot put escape bytes or prose into the store or
 // onto the operator's terminal (security review of v2.6.0, part 1).
 func TestAgyIdentifiersAreNameShaped(t *testing.T) {
+	t.Parallel()
 	home, _ := agyFixture(t)
 	dir := filepath.Join(home, ".gemini", "antigravity-cli")
 	sqliteT(t, filepath.Join(dir, "conversation_summaries.db"),
@@ -326,6 +332,7 @@ func TestAgyIdentifiersAreNameShaped(t *testing.T) {
 // byte, a bidi override or a line separator in a conversation id never
 // reaches the terminal (release review of v2.6.0, round 4).
 func TestIngestPrintsNoControlOrFormatCharacters(t *testing.T) {
+	t.Parallel()
 	for _, id := range []string{"bad\x1b]0;t\x07", "bad\u202eevil\u2028next"} {
 		home, _ := agyFixture(t)
 		dir := filepath.Join(home, ".gemini", "antigravity-cli")
@@ -352,6 +359,7 @@ func TestIngestPrintsNoControlOrFormatCharacters(t *testing.T) {
 // `fyr record get` names, `list` for `fyr record list`, `record` for an
 // unknown prefix or no ID, and nothing for another program or verb.
 func TestRecordRead(t *testing.T) {
+	t.Parallel()
 	for cmd, want := range map[string]string{
 		"fyr record get HANDOFF-2026-10-25-1908-handoff-x":                 "handoff",
 		"fyr --home /x record get --global FEEDBACK-2026-10-21-1439-x":     "feedback",
@@ -382,6 +390,7 @@ func TestRecordRead(t *testing.T) {
 // record verb run through Bash by its kind, beside a Read's file kind; a Bash
 // step that is no record verb carries no kind and takes no slot (D17).
 func TestFirstReadsRecords(t *testing.T) {
+	t.Parallel()
 	home, root := agyFixture(t)
 	p := filepath.Join(home, ".gemini", "antigravity-cli", "conversations", "C1.db")
 	db, err := sql.Open("sqlite", p)
@@ -439,6 +448,7 @@ func TestFirstReadsRecords(t *testing.T) {
 // is stored with no end time and a zero ingest mtime, never the zero time's
 // negative milliseconds (BUG-181).
 func TestAgyZeroTimeIsNoTime(t *testing.T) {
+	t.Parallel()
 	home, root := agyFixture(t)
 	dir := filepath.Join(home, ".gemini", "antigravity-cli")
 	sqliteT(t, filepath.Join(dir, "conversation_summaries.db"),
@@ -470,6 +480,7 @@ func agyGenModel(model string, in, out, cached, ctx uint64) []byte {
 }
 
 func TestV910MetricsIngestCompactionAndKnee(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := filepath.Join(t.TempDir(), "proj")
 	os.MkdirAll(filepath.Join(home, harness.StateDir), 0o700)

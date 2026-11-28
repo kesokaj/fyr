@@ -94,53 +94,79 @@ func (s *Store) addSessions(lines map[rowKey]*rowAcc) error {
 // user step is a turn, a tool step with a tool a call, a Bash call whose
 // command hash repeats the last one a retry, a gap under activeGap active
 // time; a step replayed from another session of the row is counted once.
+type evalSessionState struct {
+	last, peak int64
+	lastHash   string
+	seq        []string
+}
+
 func (a *rowAcc) addSession(start, end int64, steps []stp) {
 	a.sessions++
 	if end > start && start > 0 {
 		a.durMs += end - start
 		a.durN++
 	}
-	var last, peak int64
-	lastHash := ""
-	var seq []string
-	for _, st := range steps {
-		if st.kind == "tool" || st.kind == "assistant" || st.kind == "generation" {
-			if a.seen[st.ext] {
-				continue
-			}
-			a.seen[st.ext] = true
-		}
-		if st.ts > 0 {
-			if last > 0 && st.ts-last < activeGap.Milliseconds() {
-				a.activeMs += st.ts - last
-			}
-			last = st.ts
-		}
-		a.in += st.in
-		a.out += st.out
-		a.cache += st.cr + st.cw
-		peak = max(peak, st.ctx)
-		switch {
-		case st.kind == "user":
-			a.turns++
-		case st.kind == "tool" && st.tool != "":
-			a.tools++
-			seq = append(seq, st.tool)
-			if st.isErr && !st.denied {
-				a.errs++
-			}
-			if st.tool == "Bash" {
-				if st.hash != "" && st.hash == lastHash {
-					a.retries++
-				}
-				lastHash = st.hash
-			} else {
-				lastHash = ""
-			}
-		}
+	var st evalSessionState
+	for _, step := range steps {
+		a.addStep(&st, step)
 	}
-	a.peaks += peak
-	a.seqs = append(a.seqs, seq)
+	a.peaks += st.peak
+	a.seqs = append(a.seqs, st.seq)
+}
+
+func (a *rowAcc) addStep(s *evalSessionState, st stp) {
+	if a.isReplayedStep(st) {
+		return
+	}
+	a.addActiveTime(s, st.ts)
+	a.in += st.in
+	a.out += st.out
+	a.cache += st.cr + st.cw
+	s.peak = max(s.peak, st.ctx)
+	if st.kind == "user" {
+		a.turns++
+		return
+	}
+	if st.kind == "tool" && st.tool != "" {
+		a.addToolStep(s, st)
+	}
+}
+
+func (a *rowAcc) isReplayedStep(st stp) bool {
+	if st.kind != "tool" && st.kind != "assistant" && st.kind != "generation" {
+		return false
+	}
+	if a.seen[st.ext] {
+		return true
+	}
+	a.seen[st.ext] = true
+	return false
+}
+
+func (a *rowAcc) addActiveTime(s *evalSessionState, ts int64) {
+	if ts <= 0 {
+		return
+	}
+	if s.last > 0 && ts-s.last < activeGap.Milliseconds() {
+		a.activeMs += ts - s.last
+	}
+	s.last = ts
+}
+
+func (a *rowAcc) addToolStep(s *evalSessionState, st stp) {
+	a.tools++
+	s.seq = append(s.seq, st.tool)
+	if st.isErr && !st.denied {
+		a.errs++
+	}
+	if st.tool != "Bash" {
+		s.lastHash = ""
+		return
+	}
+	if st.hash != "" && st.hash == s.lastHash {
+		a.retries++
+	}
+	s.lastHash = st.hash
 }
 
 // row is the line's numbers: absent where the line has none to give.

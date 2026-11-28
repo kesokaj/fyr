@@ -66,6 +66,7 @@ func TestJoinEventsSessionReadErrors(t *testing.T) {
 // note naming it and no commit events (pinned after the Phase 3 review, its
 // finding 2).
 func TestJoinEventsRootNotes(t *testing.T) {
+	t.Parallel()
 	gone := filepath.Join(t.TempDir(), "gone")
 	plain := t.TempDir()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))

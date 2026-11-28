@@ -8,6 +8,7 @@ import (
 )
 
 func TestBackgroundRunsHaltReasonPersistenceAndScrub(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	now := time.Date(2026, 11, 22, 18, 0, 0, 0, time.UTC)
 	secretTok := strings.Join([]string{"gh", "p_", "BGRUNSECRET1234567890ABCDEF"}, "")
@@ -70,6 +71,7 @@ func TestBackgroundRunsHaltReasonPersistenceAndScrub(t *testing.T) {
 }
 
 func TestIsValidShapeOutcome(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in   string
 		want bool

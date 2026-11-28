@@ -10,6 +10,7 @@ import (
 )
 
 func TestOrchestrationRunsCRUD(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	base := time.Date(2026, 11, 22, 16, 0, 0, 0, time.UTC)
 
@@ -128,6 +129,7 @@ func assertOrchestrationRunQueriesAndUpsert(t *testing.T, s *Store, base time.Ti
 }
 
 func TestShowWavesFiltersAndOrchestrationRepoIDMatch(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	s := openT(t, Path(home))
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)

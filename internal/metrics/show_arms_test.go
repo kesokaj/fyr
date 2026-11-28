@@ -15,6 +15,7 @@ import (
 // call was never seen is no call, a Grep call counts toward the search :
 // grep ratio and its day, and a Bash command repeated by hash is a retry.
 func TestAddArms(t *testing.T) {
+	t.Parallel()
 	day := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
 	ms := day.UnixMilli()
 	s := newSummary(day.AddDate(0, 0, -1), day.AddDate(0, 0, 1))
@@ -54,6 +55,7 @@ func TestAddArms(t *testing.T) {
 // The sessions table that cannot be read, or holds a row that does not
 // scan, fails Show.
 func TestShowSessionReadErrors(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 	for name, stmt := range map[string]string{
 		"query": `ALTER TABLE sessions RENAME TO gone`,
@@ -81,6 +83,7 @@ func TestShowSessionReadErrors(t *testing.T) {
 // A conversation copy whose steps cannot be read, or hold a row that does
 // not scan, fails that conversation's ingest and stores nothing of it.
 func TestAgyConversationStepErrors(t *testing.T) {
+	t.Parallel()
 	for name, stmts := range map[string][]string{
 		"no steps table": {"CREATE TABLE gen_metadata (`idx` integer, `data` blob)"},
 		"bad step row": {

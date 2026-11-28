@@ -16,6 +16,7 @@ import (
 // stored as the home is written or through the home's symlink, and whether
 // the store is --home's or a --source sandbox's (visible dream plan D5, D15).
 func TestDreamWorkNotIngested(t *testing.T) {
+	t.Parallel()
 	real := t.TempDir()
 	home := filepath.Join(t.TempDir(), "home")
 	if err := os.Symlink(real, home); err != nil {

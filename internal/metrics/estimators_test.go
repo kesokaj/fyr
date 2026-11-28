@@ -13,6 +13,7 @@ func near(a, b float64) bool { return math.Abs(a-b) < 5e-5 }
 // must fail; n=4, c=1 gives pass@2 = 1 − C(3,2)/C(4,2) = 0.5; k above n or
 // n = 0 is not an estimate.
 func TestPassAtK(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		n, c, k int
 		want    float64
@@ -39,6 +40,7 @@ func TestPassAtK(t *testing.T) {
 // τ-bench's pass^k: n=4, c=3 gives pass^2 = (3/4)(2/3) = 0.5; the plug-in
 // (c/n)^k gives 0.5625 and must fail; c below k is 0, never negative.
 func TestPassPowK(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		n, c, k int
 		want    float64
@@ -69,6 +71,7 @@ func TestPassPowK(t *testing.T) {
 // leaves [0, 1] at c = n or c = 0 (where the Wald interval collapses to a
 // point and must fail), and (0, 0) at n = 0.
 func TestWilson(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		n, c   int
 		lo, hi float64
@@ -96,6 +99,7 @@ func TestWilson(t *testing.T) {
 // whole count over n; rounding p·n to a count, as Wilson needs, must fail
 // the first case: Wilson(2, 2) is (0.3424, 1).
 func TestWilsonRate(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		n      int
 		p      float64
@@ -117,6 +121,7 @@ func TestWilsonRate(t *testing.T) {
 // C_out: always-pass and always-fail rows are 1, a coin-flip row is 0, the
 // mean over rows, 0 for no rows.
 func TestOutcomeConsistency(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		ps   []float64
 		want float64
@@ -139,6 +144,7 @@ func TestOutcomeConsistency(t *testing.T) {
 // Jaccard 1/3, must fail); order counts; an insertion costs one; two empty
 // sequences are identical.
 func TestSeqSimilarity(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		a, b []string
 		want float64

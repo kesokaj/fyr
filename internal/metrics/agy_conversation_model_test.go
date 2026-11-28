@@ -6,6 +6,7 @@ import (
 )
 
 func TestNormalizeSessionModel(t *testing.T) {
+	t.Parallel()
 	if got := normalizeSessionModel("gemini-4-neon-medium", map[string]bool{"gemini-4-neon-medium": true}); got != "gemini-4-neon-medium" {
 		t.Errorf("single model = %q, want gemini-4-neon-medium", got)
 	}
@@ -24,6 +25,7 @@ func TestNormalizeSessionModel(t *testing.T) {
 }
 
 func TestAgyGensPrefersConcreteModelField328WithFallbackTo119(t *testing.T) {
+	t.Parallel()
 	genWith := func(f119, f328 string) []byte {
 		var parts [][]byte
 		parts = append(parts, pbB(1, cat(pbB(4, cat(pbV(2, 100), pbV(3, 20))), pbB(19, []byte(f119)))))

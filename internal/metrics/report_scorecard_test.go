@@ -15,6 +15,7 @@ import (
 )
 
 func TestReportJSONAndEmptyCost(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	since := now.AddDate(0, 0, -7)
 	ahome, _ := agyFixture(t)
@@ -87,6 +88,7 @@ func TestReportJSONAndEmptyCost(t *testing.T) {
 }
 
 func TestReportScorecardAndAutonomy(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	since := now.AddDate(0, 0, -7)
 	prevTS := since.Add(-24 * time.Hour).UnixMilli()
@@ -266,6 +268,7 @@ func seedGitBranchesForAutonomyT(t *testing.T, dir string, branches ...string) {
 }
 
 func TestScorecardSecondBrainLatencyAndBypasses(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	since := now.Add(-24 * time.Hour)
@@ -320,6 +323,7 @@ func seedScorecardSecondBrainT(t *testing.T, s *Store, root string, ts int64) {
 }
 
 func TestV910ReportKPIs(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 	since := now.Add(-24 * time.Hour)
@@ -418,6 +422,7 @@ func seedV910KPIFixtureT(t *testing.T, s *Store, root string, ts int64) {
 }
 
 func TestV910ReportKPIsSIMSkillsAndRecordRun(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 	since := now.Add(-24 * time.Hour)

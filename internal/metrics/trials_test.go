@@ -70,6 +70,7 @@ func trialT(run, status, cause string) Trial {
 // changes none; the per-row fields and the stage times are NULL until
 // given; the export carries the table.
 func TestRecordTrialOnce(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := openT(t, filepath.Join(dir, "metrics.db"))
 	if err := s.RecordTrial(trialT("2026-10-31-100000/smoke/1", "pass", "")); err != nil {
@@ -115,6 +116,7 @@ func TestRecordTrialOnce(t *testing.T) {
 // on a fail or an error and identifier-shaped, a run, a harness and a
 // KEY=VALUE label, printable short text, no count below 0.
 func TestRecordTrialRefuses(t *testing.T) {
+	t.Parallel()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	bad := map[string]Trial{
 		"status":          trialT("r", "PASS", ""),
@@ -168,6 +170,7 @@ func TestRecordTrialRefuses(t *testing.T) {
 // second ingest of the same conversations, changed in between, with another
 // run keeps the first; an ingest with no run leaves NULL.
 func TestIngestRun(t *testing.T) {
+	t.Parallel()
 	home, _ := agyFixture(t)
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	ingestT(t, s, Options{Home: "/nonexistent", Source: home, Label: "eval=x", Outcome: "pass", Run: "s/x/1"})
@@ -223,6 +226,7 @@ func TestIngestRun(t *testing.T) {
 // --outcome error is the third value: accepted, and stamped on the label's
 // sessions like pass and fail.
 func TestIngestOutcomeError(t *testing.T) {
+	t.Parallel()
 	home, _ := agyFixture(t)
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	o := Options{Home: "/nonexistent", Source: home, Label: "eval=x", Outcome: "error"}
@@ -244,6 +248,7 @@ func TestIngestOutcomeError(t *testing.T) {
 // sorted, a session with no model or of another run left out; no run is
 // no model.
 func TestRunModels(t *testing.T) {
+	t.Parallel()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	for _, x := range [][3]any{
 		{"A", "r/x/1", "gemini-b"}, {"B", "r/x/1", "gemini-a"}, {"C", "r/x/2", "gemini-b"},
@@ -270,6 +275,7 @@ func TestRunModels(t *testing.T) {
 }
 
 func TestV910RunModelsExcludesSubagents(t *testing.T) {
+	t.Parallel()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	for _, row := range []struct {
 		id, run, model string
@@ -296,6 +302,7 @@ func TestV910RunModelsExcludesSubagents(t *testing.T) {
 }
 
 func TestValidateRunLowercaseErrors(t *testing.T) {
+	t.Parallel()
 	ok := Options{Home: "/nonexistent", Source: "/src", Label: "eval=x", Run: "s/x/1"}
 	if err := ok.Validate(); err != nil {
 		t.Fatalf("valid Options.Validate() = %v, want nil", err)

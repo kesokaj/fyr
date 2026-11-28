@@ -7,6 +7,7 @@ import (
 )
 
 func TestVerb(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		cmd  string
 		want []string
@@ -86,6 +87,7 @@ func TestVerb(t *testing.T) {
 // No positional word or value reaches a verb: the canary sits in each place a
 // command carries content.
 func TestVerbDropsContent(t *testing.T) {
+	t.Parallel()
 	const c = "SECRETCANARY123"
 	for _, cmd := range []string{
 		"echo " + c,
@@ -121,6 +123,7 @@ func TestVerbDropsContent(t *testing.T) {
 // Git's global options (-C dir, -c k=v, --git-dir=…) come before the
 // subcommand and never hide it; a backslash-quoted here-doc is a here-doc.
 func TestVerbGitGlobalsAndQuotedHeredoc(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		cmd  string
 		want []string
@@ -144,6 +147,7 @@ func TestVerbGitGlobalsAndQuotedHeredoc(t *testing.T) {
 // bash), a here-doc with no delimiter word drops the rest, and a
 // token-length flag or name is not kept (security review of v2.6.0, part 1).
 func TestVerbUnparsedHeredocAndLongWords(t *testing.T) {
+	t.Parallel()
 	const tok = "ghp_abcdefghijklmnopqrstuvwxyz0123456789ABCD"
 	for _, cmd := range []string{
 		"cat <<\"$D\"\n" + tok + "\nrm -rf x\n$D",
@@ -163,6 +167,7 @@ func TestVerbUnparsedHeredocAndLongWords(t *testing.T) {
 // A quoted delimiter is read whole, to its closing quote: <<'END!' ends only
 // at a line END!, never at END (security review of v2.6.0, part 1, round 2).
 func TestVerbQuotedDelimiterReadWhole(t *testing.T) {
+	t.Parallel()
 	cmd := "cat <<'END!'\nEND\nsecretword --flag\nEND!\nls"
 	if got := Verb(cmd); !reflect.DeepEqual(got, []string{"cat", "ls"}) {
 		t.Fatalf("Verb(%q) = %q, want [cat ls]", cmd, got)
@@ -173,6 +178,7 @@ func TestVerbQuotedDelimiterReadWhole(t *testing.T) {
 // from a fixed list per tool, never npx's package, and a long flag only when
 // lowercase letters, digits and dashes (operator, 2026-10-09: allowlists).
 func TestVerbAllowlists(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		cmd  string
 		want []string
@@ -199,6 +205,7 @@ func TestVerbAllowlists(t *testing.T) {
 // when that target is a tool the allowlist knows; an unquoted delimiter is the
 // whole word up to a shell metacharacter, read literally as bash does.
 func TestVerbRound4(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		cmd  string
 		want []string
@@ -220,6 +227,7 @@ func TestVerbRound4(t *testing.T) {
 // A delimiter mixing quoted and unquoted parts (E'ND') is not modelled: the
 // rest of the command is dropped rather than read with a wrong delimiter.
 func TestVerbMixedQuoteDelimiter(t *testing.T) {
+	t.Parallel()
 	for _, cmd := range []string{
 		"cat <<E'ND'\nbody1\nE\nleak_mixed x\nEND",
 		"cat <<\"E\"ND\nbody1\nE\nleak_b x\nEND",
@@ -234,6 +242,7 @@ func TestVerbMixedQuoteDelimiter(t *testing.T) {
 // The search:grep ratio counts the binary's search verbs under both names: a
 // session from before the rename ran `sh-agent search` (fyr D7, D20).
 func TestSQLiteVerbBothNames(t *testing.T) {
+	t.Parallel()
 	for v, want := range map[string]bool{
 		"fyr search --refs": true, "fyr index --rebuild": true,
 		"sh-agent search": true, "sh-agent index": true,
@@ -246,6 +255,7 @@ func TestSQLiteVerbBothNames(t *testing.T) {
 }
 
 func TestIsAssignmentIdentBounds(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in   string
 		want bool

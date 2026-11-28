@@ -412,30 +412,41 @@ func (s *Store) applySkillRatingsTelemetry(accs map[string]*skillTelemetryAcc, l
 		return err
 	}
 	for _, r := range ratings {
-		for sk := range loadedByConv[r.SessionID] {
-			if a := getSkillAcc(accs, sk); a != nil {
-				a.ratedSessions++
-				a.outcomeSum += r.OutcomeScore
-			}
-		}
-		switch r.SkillAction {
-		case "rewrite-skill":
-			if a := getSkillAcc(accs, r.TargetSkill); a != nil {
-				a.rewriteCount++
-			} else {
-				for sk := range loadedByConv[r.SessionID] {
-					if a := getSkillAcc(accs, sk); a != nil {
-						a.rewriteCount++
-					}
-				}
-			}
-		case "new-skill":
-			if a := getSkillAcc(accs, r.TargetSkill); a != nil {
-				a.newSkillCount++
-			}
-		}
+		loaded := loadedByConv[r.SessionID]
+		applyRatingOutcomeToSkills(accs, loaded, r.OutcomeScore)
+		applyRatingActionToSkills(accs, loaded, r.SkillAction, r.TargetSkill)
 	}
 	return nil
+}
+
+func applyRatingOutcomeToSkills(accs map[string]*skillTelemetryAcc, loaded map[string]bool, outcomeScore int) {
+	for sk := range loaded {
+		if a := getSkillAcc(accs, sk); a != nil {
+			a.ratedSessions++
+			a.outcomeSum += outcomeScore
+		}
+	}
+}
+
+func applyRatingActionToSkills(accs map[string]*skillTelemetryAcc, loaded map[string]bool, action, target string) {
+	if action == "new-skill" {
+		if a := getSkillAcc(accs, target); a != nil {
+			a.newSkillCount++
+		}
+		return
+	}
+	if action != "rewrite-skill" {
+		return
+	}
+	if a := getSkillAcc(accs, target); a != nil {
+		a.rewriteCount++
+		return
+	}
+	for sk := range loaded {
+		if a := getSkillAcc(accs, sk); a != nil {
+			a.rewriteCount++
+		}
+	}
 }
 
 func finalizeSkillTelemetry(accs map[string]*skillTelemetryAcc) []SkillTelemetry {

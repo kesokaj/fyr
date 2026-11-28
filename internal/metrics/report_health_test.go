@@ -167,6 +167,7 @@ func seedDevEvalStoreT(t *testing.T, home, label, status string, at time.Time) {
 }
 
 func TestMetricsReportV9Health(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 	since := now.AddDate(0, 0, -7)
 	ts := now.Add(-3 * time.Hour).UnixMilli()
@@ -407,6 +408,7 @@ func assertLiveV9ReportSections(t *testing.T, md, html string) {
 }
 
 func TestHealthAndReportsPerModelKnee(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	since := now.AddDate(0, 0, -7)
 	ts := now.Add(-2 * time.Hour).UnixMilli()
@@ -462,6 +464,7 @@ func writeStateJSONT(t *testing.T, path, body string) {
 }
 
 func TestReadBoundedRegularFileRejectsSymlinksAndOversized(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	okBytes := []byte(`{"ok":true}`)
 	writeStateJSONT(t, filepath.Join(base, "sub", "small.json"), string(okBytes))

@@ -16,6 +16,7 @@ import (
 )
 
 func TestSD122ToSD129IngestAndSyncFixes(t *testing.T) {
+	t.Parallel()
 	// SD129: rune-safe truncation in scopedKey.
 	nonASCII := strings.Repeat("é", 30)
 	if sk := scopedKey(nonASCII, strings.Repeat("x", 200)); !utf8.ValidString(sk) {
@@ -78,6 +79,7 @@ func TestSD122ToSD129IngestAndSyncFixes(t *testing.T) {
 }
 
 func TestSD122SizeChangeZeroModifiedAndSD124ModelUpdate(t *testing.T) {
+	t.Parallel()
 	home, root := agyFixture(t)
 	dir := filepath.Join(home, ".gemini", "antigravity-cli")
 	// Set zero timestamp so c.modified == 0, and test size growth & multi-model update.
@@ -127,6 +129,7 @@ func TestSD122SizeChangeZeroModifiedAndSD124ModelUpdate(t *testing.T) {
 }
 
 func TestSD132ConcurrentMigrateAndExportCleanup(t *testing.T) {
+	t.Parallel()
 	p := filepath.Join(t.TempDir(), "race.db")
 	const n = 6
 	var wg sync.WaitGroup

@@ -11,6 +11,7 @@ import (
 )
 
 func TestRecordTrialInputLinksSessionWithoutLeakingContent(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	secretTok := strings.Join([]string{"gh", "p_", "SECRETTRAIL1234567890ABCDEF"}, "")
@@ -62,6 +63,7 @@ func TestRecordTrialInputLinksSessionWithoutLeakingContent(t *testing.T) {
 }
 
 func TestExportAndImportSanitizedStateFilteringDryRunAndIdempotency(t *testing.T) {
+	t.Parallel()
 	src := openT(t, filepath.Join(t.TempDir(), "src.db"))
 	salt := src.meta(t, "salt")
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
@@ -176,6 +178,7 @@ func TestExportAndImportSanitizedStateFilteringDryRunAndIdempotency(t *testing.T
 }
 
 func TestScrubHostHomePathsEdgeCases(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		in   string
@@ -221,6 +224,7 @@ func TestScrubHostHomePathsEdgeCases(t *testing.T) {
 }
 
 func TestStateIOV14FieldsAndFutureSchemaRefusal(t *testing.T) {
+	t.Parallel()
 	src := openT(t, filepath.Join(t.TempDir(), "src.db"))
 	now := time.Date(2026, 11, 22, 19, 0, 0, 0, time.UTC)
 
@@ -289,6 +293,7 @@ func TestStateIOV14FieldsAndFutureSchemaRefusal(t *testing.T) {
 }
 
 func TestSuggestedSkills512RoundTripAndCommaTrim(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
 	var skills20 []string
 	for i := 1; i <= 20; i++ {

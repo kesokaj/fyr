@@ -7,6 +7,7 @@ import (
 )
 
 func TestSubagentCapForRoleAlignedWithSearch(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		role      string
 		wantAudit bool

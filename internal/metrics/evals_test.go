@@ -92,6 +92,7 @@ func evalsFixture(t *testing.T) *Store {
 // history, n/a where a rate cannot be had, the means over main sessions
 // only, the suite lines, and no NaN in the JSON.
 func TestEvalRows(t *testing.T) {
+	t.Parallel()
 	s := evalsFixture(t)
 	e, err := s.Evals(EvalOptions{Now: evalsNow})
 	if err != nil {
@@ -135,6 +136,7 @@ suite: trajectory similarity 0.80 over 3 rows with two or more sessions
 // --harness keeps the trials of one key exactly; a session stored before
 // migration 4 is under harness unknown; the flags still read every key.
 func TestEvalRowsHarness(t *testing.T) {
+	t.Parallel()
 	s := evalsFixture(t)
 	e, err := s.Evals(EvalOptions{Now: evalsNow, Harness: "bbb2222"})
 	if err != nil {
@@ -164,6 +166,7 @@ func TestEvalRowsHarness(t *testing.T) {
 // a row whose only graded trials are under harness unknown is history
 // even when an error trial has a known key.
 func TestHistoryFlags(t *testing.T) {
+	t.Parallel()
 	k := rowKey{label: "eval=r"}
 	tr := func(harness, status string) evalTrial { return evalTrial{key: k, harness: harness, status: status} }
 	cases := []struct {
@@ -190,6 +193,7 @@ func TestHistoryFlags(t *testing.T) {
 // A store with no suite trial prints the window and one line, and its JSON
 // has an empty list of rows, not null.
 func TestEvalRowsEmpty(t *testing.T) {
+	t.Parallel()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	e, err := s.Evals(EvalOptions{Now: evalsNow})
 	if err != nil {
@@ -210,6 +214,7 @@ func TestEvalRowsEmpty(t *testing.T) {
 // split when fyr eval starts writing the default (ADR-085); another
 // version is its own line.
 func TestEvalRowsVersionDefault(t *testing.T) {
+	t.Parallel()
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	day := evalsNow.Add(-24 * time.Hour)
 	for i, v := range []int{0, 1, 2} {

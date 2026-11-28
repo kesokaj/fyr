@@ -12,6 +12,7 @@ import (
 )
 
 func TestSD50SearchDBIngestStateCacheAndInvalidation(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	repo := filepath.Join(t.TempDir(), "repo")
 	sub := filepath.Join(repo, "sub")
@@ -65,6 +66,7 @@ func TestSD50SearchDBIngestStateCacheAndInvalidation(t *testing.T) {
 }
 
 func TestSD50WaveStatusIngestStateCacheAndInvalidation(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	waveDir := filepath.Join(home, harness.StateDir, "work", "2026-11-19-100000-1111")
 	if err := os.MkdirAll(waveDir, 0o700); err != nil {
@@ -118,6 +120,7 @@ func TestSD50WaveStatusIngestStateCacheAndInvalidation(t *testing.T) {
 }
 
 func TestSD50CopyDevSessionsSkipsExistingSteps(t *testing.T) {
+	t.Parallel()
 	devHome := t.TempDir()
 	devStore := openT(t, Path(devHome))
 	if _, err := devStore.db.Exec(`INSERT INTO sessions(id, vendor) VALUES ('S1', 'agy')`); err != nil {
@@ -168,6 +171,7 @@ func TestSD50CopyDevSessionsSkipsExistingSteps(t *testing.T) {
 }
 
 func TestV910TurnVetsSuggestedSkillsAndLateSkillRejoin(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := os.MkdirAll(filepath.Join(repo, ".agents", "scratch"), 0o755); err != nil {

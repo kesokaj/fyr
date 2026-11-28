@@ -11,6 +11,7 @@ import (
 // An escaped quote inside double quotes does not close them; ( and a brace
 // outside a word each end the segment before them.
 func TestVerbTokenizerArms(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		cmd  string
 		want []string
@@ -36,6 +37,7 @@ func TestVerbTokenizerArms(t *testing.T) {
 // A here-string opens no here-document; an unclosed or empty quoted
 // delimiter, and a << with no word after it, leave the rest unparsed.
 func TestHeredocDelimsArms(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		line     string
 		unparsed bool

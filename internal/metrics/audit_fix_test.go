@@ -14,6 +14,7 @@ import (
 // The ingest line carries no skipped-lines count: it was never incremented
 // (SD50 of the 2026-10-27 audit).
 func TestIngestLine(t *testing.T) {
+	t.Parallel()
 	got := Result{Sessions: 1, Steps: 2, Events: 3, Failed: []string{"x"}}.Line()
 	if want := "metrics: 1 sessions, 2 steps, 3 events added; 1 sources failed"; got != want {
 		t.Errorf("Line = %q, want %q", got, want)
@@ -23,6 +24,7 @@ func TestIngestLine(t *testing.T) {
 // A pass^k label is printed through the filter, as every other key: fyr eval
 // takes it from the suite file (SD55 of the 2026-10-27 audit).
 func TestWriteTextFiltersALabel(t *testing.T) {
+	t.Parallel()
 	sum := Summary{A: Outcome{PassK: map[string]PassK{"eval=a\x1b[2Jb": {K: 1, Passed: 1, PassK: 1}}}}
 	var text bytes.Buffer
 	sum.WriteText(&text)
@@ -35,6 +37,7 @@ func TestWriteTextFiltersALabel(t *testing.T) {
 // goes on, and what follows it is never read as commands (SD56 of the
 // 2026-10-27 audit).
 func TestHeredocTabsOnlyForDash(t *testing.T) {
+	t.Parallel()
 	plain := "cat <<EOF\n\tEOF\nrm -rf body-line\nEOF\necho after"
 	if got := stripHeredocs(plain); strings.Contains(got, "rm -rf body-line") || !strings.Contains(got, "echo after") {
 		t.Errorf("<< with a tab-led EOF:\n%s", got)

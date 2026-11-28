@@ -15,6 +15,7 @@ import (
 )
 
 func TestDailyDigestBuildSavePathAndFailOpenReads(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	s := openT(t, Path(home))
@@ -121,6 +122,7 @@ func TestDailyDigestBuildSavePathAndFailOpenReads(t *testing.T) {
 }
 
 func TestDailyDigestTransitionsVerdictsAndRecovery(t *testing.T) {
+	t.Parallel()
 	prev := &DailyDigest{
 		Day:     "2026-11-20",
 		Verdict: VerdictRegress,
@@ -201,6 +203,7 @@ func TestDailyDigestTransitionsVerdictsAndRecovery(t *testing.T) {
 }
 
 func TestDailyBannerInHTMLMDAndJSON(t *testing.T) {
+	t.Parallel()
 	sum := reportFixture(t)
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 
@@ -272,6 +275,7 @@ func TestDailyBannerInHTMLMDAndJSON(t *testing.T) {
 }
 
 func TestDailyDigestProjectIsolationAndHyphenatedRecovery(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	s := openT(t, Path(home))

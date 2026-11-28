@@ -12,6 +12,7 @@ import (
 )
 
 func TestPopulateAdherenceVerbsCharacterization(t *testing.T) {
+	t.Parallel()
 	sum := &Summary{Sessions: map[string]int{"agy": 2}}
 	all := []sess{
 		{id: "s1", vendor: "agy", label: ""},
@@ -83,6 +84,7 @@ func TestPopulateAdherenceVerbsCharacterization(t *testing.T) {
 }
 
 func TestJoinRecordsCharacterization(t *testing.T) {
+	t.Parallel()
 	ts, ok := recordTime("HANDOFF-2026-11-27-1430-wave3")
 	if !ok {
 		t.Fatalf("recordTime failed on valid stamped ID")
@@ -144,6 +146,7 @@ func TestJoinRecordsCharacterization(t *testing.T) {
 }
 
 func TestRenderReportCharacterization(t *testing.T) {
+	t.Parallel()
 	fixedNow := time.Date(2026, 11, 27, 15, 4, 0, 0, time.UTC)
 
 	t.Run("populated summary renders deterministic offline HTML sections", func(t *testing.T) {

@@ -272,36 +272,9 @@ func (s *Summary) verbs(v string, st stp) {
 	commit, test := false, false
 	firstVerb := st.firstNonCDVerbIdx()
 	for i, verb := range st.verbs {
-		w := strings.Fields(verb)
-		switch {
-		case isSQLiteVerb(verb):
-			a.sqlite++
-			if st.ts > 0 {
-				s.day(st.ts).SQLiteVerbs[v]++
-			}
-		case i == firstVerb && isGrepVerb(verb):
-			a.grep++
-			if st.ts > 0 {
-				s.day(st.ts).GrepCalls[v]++
-			}
-		}
-		if len(w) >= 2 && w[0] == "git" {
-			flags := " " + strings.Join(w[2:], " ") + " "
-			switch w[1] {
-			case "add":
-				if strings.Contains(flags, " -A ") || strings.Contains(flags, " --all ") {
-					s.C.Forbidden["git add -A"]++
-				}
-				if strings.Contains(flags, " . ") {
-					s.C.Forbidden["git add ."]++
-				}
-			case "push":
-				if strings.Contains(flags, " -f ") || strings.Contains(flags, " --force ") {
-					s.C.Forbidden["git push --force"]++
-				}
-			case "commit":
-				commit = true
-			}
+		s.recordSearchVerb(a, v, st.ts, verb, i == firstVerb)
+		if s.recordGitVerb(strings.Fields(verb)) {
+			commit = true
 		}
 		if strings.Contains(" "+verb+" ", " --no-verify ") {
 			s.C.Forbidden["--no-verify"]++
@@ -312,6 +285,48 @@ func (s *Summary) verbs(v string, st stp) {
 	}
 	if commit && test {
 		s.C.Forbidden["commit chained to test"]++
+	}
+}
+
+func (s *Summary) recordSearchVerb(a *acc, v string, ts int64, verb string, isFirst bool) {
+	switch {
+	case isSQLiteVerb(verb):
+		a.sqlite++
+		if ts > 0 {
+			s.day(ts).SQLiteVerbs[v]++
+		}
+	case isFirst && isGrepVerb(verb):
+		a.grep++
+		if ts > 0 {
+			s.day(ts).GrepCalls[v]++
+		}
+	}
+}
+
+func (s *Summary) recordGitVerb(w []string) bool {
+	if len(w) < 2 || w[0] != "git" {
+		return false
+	}
+	flags := " " + strings.Join(w[2:], " ") + " "
+	switch w[1] {
+	case "add":
+		s.recordForbiddenGitAdd(flags)
+	case "push":
+		if strings.Contains(flags, " -f ") || strings.Contains(flags, " --force ") {
+			s.C.Forbidden["git push --force"]++
+		}
+	case "commit":
+		return true
+	}
+	return false
+}
+
+func (s *Summary) recordForbiddenGitAdd(flags string) {
+	if strings.Contains(flags, " -A ") || strings.Contains(flags, " --all ") {
+		s.C.Forbidden["git add -A"]++
+	}
+	if strings.Contains(flags, " . ") {
+		s.C.Forbidden["git add ."]++
 	}
 }
 

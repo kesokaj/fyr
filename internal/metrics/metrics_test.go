@@ -16,6 +16,7 @@ import (
 )
 
 func TestReadEfficiencyTelemetryAndHashedPaths(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := filepath.Join(t.TempDir(), "proj")
 	if err := os.MkdirAll(filepath.Join(root, "internal", "core"), 0o755); err != nil {
@@ -149,6 +150,7 @@ func TestReadEfficiencyTelemetryAndHashedPaths(t *testing.T) {
 }
 
 func TestSecondBrainAndWorkWaveIngestAndShow(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	rootA := filepath.Join(t.TempDir(), "proj-alpha")
 	rootB := filepath.Join(t.TempDir(), "proj-beta")

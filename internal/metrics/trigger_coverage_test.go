@@ -459,6 +459,7 @@ func TestReportTriggerCoverageKPIs(t *testing.T) {
 }
 
 func TestTriggerCoverageLiveV9AndPreInvocation(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	since := now.AddDate(0, 0, -7)

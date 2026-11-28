@@ -26,6 +26,7 @@ func openDreamDigestTestStore(t *testing.T) (*Store, func(string, ...any)) {
 }
 
 func TestDreamTrajectoryDigestEmpty(t *testing.T) {
+	t.Parallel()
 	st, _ := openDreamDigestTestStore(t)
 	d, err := st.DreamTrajectoryDigest("/work/proj", time.Now().AddDate(0, 0, -7))
 	if err != nil {
@@ -37,6 +38,7 @@ func TestDreamTrajectoryDigestEmpty(t *testing.T) {
 }
 
 func TestDreamTrajectoryDigestLabelIsolationAndSinceFilter(t *testing.T) {
+	t.Parallel()
 	st, exec := openDreamDigestTestStore(t)
 	base := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
 	root := "/work/proj"
@@ -72,6 +74,7 @@ func TestDreamTrajectoryDigestLabelIsolationAndSinceFilter(t *testing.T) {
 }
 
 func TestDreamTrajectoryDigestMultiSessionAggregationAndNoLeak(t *testing.T) {
+	t.Parallel()
 	st, exec := openDreamDigestTestStore(t)
 	base := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
 	root := "/work/proj"

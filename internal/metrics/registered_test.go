@@ -27,6 +27,7 @@ func markRegistered(t *testing.T, home, root string) {
 // joins the metrics events in memory without writing brain.db (audit-choices
 // SD49, § Interfaces "The metrics join", ADR-091).
 func TestIngestJoinsRegisteredTrailOnly(t *testing.T) {
+	t.Parallel()
 	home, root := agyFixture(t)
 	os.RemoveAll(filepath.Join(root, ".agents", "docs")) // a migrated checkout
 	if out, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {

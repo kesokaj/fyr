@@ -27,6 +27,7 @@ func openT(t *testing.T, path string) *Store {
 }
 
 func TestStorePathAndMode(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	p := Path(home)
 	if want := filepath.Join(home, harness.StateDir, "metrics.db"); p != want {
@@ -47,6 +48,7 @@ func TestStorePathAndMode(t *testing.T) {
 }
 
 func TestStoreRefusesSymlinkedDatabase(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "elsewhere.db")
 	os.WriteFile(target, nil, 0o600)
@@ -64,6 +66,7 @@ func TestStoreRefusesSymlinkedDatabase(t *testing.T) {
 }
 
 func TestStoreSaltIsStable(t *testing.T) {
+	t.Parallel()
 	p := filepath.Join(t.TempDir(), "metrics.db")
 	s := openT(t, p)
 	salt1 := s.meta(t, "salt")
@@ -117,6 +120,7 @@ func TestMigrationKeepsRows(t *testing.T) {
 // A store written by a newer binary is refused, and its bytes stay as they
 // were.
 func TestNewerSchemaRefusedUntouched(t *testing.T) {
+	t.Parallel()
 	p := filepath.Join(t.TempDir(), "metrics.db")
 	s := openT(t, p)
 	s.db.Exec(`INSERT INTO sessions(id) VALUES ('keep')`)
@@ -140,6 +144,7 @@ func TestNewerSchemaRefusedUntouched(t *testing.T) {
 }
 
 func TestExportRoundTripsEveryTable(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := openT(t, filepath.Join(dir, "metrics.db"))
 	for _, q := range []string{
@@ -232,6 +237,7 @@ func TestMigrationRepairsZeroTimes(t *testing.T) {
 // export could confirm a guessed low-entropy command (security review
 // 2026-10-08). The schema row stays, so an export names its schema.
 func TestExportOmitsSalt(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := openT(t, filepath.Join(dir, "metrics.db"))
 	salt := s.meta(t, "salt")
@@ -255,6 +261,7 @@ func TestExportOmitsSalt(t *testing.T) {
 // finding 1). Here a second connection that never waits must find the
 // store locked while the first transaction is open, before it wrote.
 func TestTxTakesWriteLockAtBegin(t *testing.T) {
+	t.Parallel()
 	p := Path(t.TempDir())
 	s := openT(t, p)
 	tx, err := s.db.Begin()
@@ -280,6 +287,7 @@ func TestTxTakesWriteLockAtBegin(t *testing.T) {
 // switching a new file to WAL upgrades a read transaction to a write, and
 // SQLite answers that upgrade SQLITE_BUSY at once, without its busy handler.
 func TestFirstOpenWaitsForALock(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "metrics.db")
 	holder, err := sql.Open("sqlite", "file:"+path)
 	if err != nil {
@@ -306,6 +314,7 @@ func TestFirstOpenWaitsForALock(t *testing.T) {
 }
 
 func TestDailyDigestsMigrationSchema12AndExport(t *testing.T) {
+	t.Parallel()
 	if len(tables) != 14 {
 		t.Fatalf("len(tables) = %d, want 14 (%v)", len(tables), tables)
 	}

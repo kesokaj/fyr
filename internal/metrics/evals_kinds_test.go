@@ -61,6 +61,7 @@ func (k *kindsStore) session(id, row, run, parent string, calls ...[2]string) {
 // view_file and `fyr record get` shows 2 of 2, through the same tool map
 // and verb reduction ingest uses.
 func TestEvalRowsExpectGolden(t *testing.T) {
+	t.Parallel()
 	k := newKindsStore(t)
 	run := k.trial("r", "", "Read,fyr record", "pass")
 	k.session("a", "r", run, "", [2]string{"view_file", ""}, [2]string{"run_command", "fyr record get PLAN-2026-10-31-x --home h"})
@@ -79,6 +80,7 @@ func TestEvalRowsExpectGolden(t *testing.T) {
 // word by word, never by a prefix of a word; a tool name never matched as
 // a verb's prefix of its own; each entry counted once however often used.
 func TestMatchExpect(t *testing.T) {
+	t.Parallel()
 	tools := map[string]bool{"Read": true, "agy:browser": true}
 	verbs := map[string]bool{"fyr record add --title": true, "go test -race": true, "git": true}
 	cases := []struct {
@@ -109,6 +111,7 @@ func TestMatchExpect(t *testing.T) {
 // trial's own stored list is read, so a list that changed under one version
 // pools what each trial asked.
 func TestEvalRowsExpectCounts(t *testing.T) {
+	t.Parallel()
 	k := newKindsStore(t)
 	one := k.trial("r", "", "Read,Grep", "pass")
 	k.session("one", "r", one, "", [2]string{"view_file", ""})
@@ -142,6 +145,7 @@ func TestEvalRowsExpectCounts(t *testing.T) {
 // ExpectMatches keeps to the runs asked for: a line under --harness never
 // pools another key's trial.
 func TestExpectMatchesRunsOnly(t *testing.T) {
+	t.Parallel()
 	k := newKindsStore(t)
 	a := k.trial("r", "", "Read", "pass")
 	k.session("a", "r", a, "", [2]string{"view_file", ""})
@@ -161,6 +165,7 @@ func TestExpectMatchesRunsOnly(t *testing.T) {
 // out of every suite number, its errors and trajectory too, and reported
 // on its own line; the newest trial names a line's kind; NULL is capability.
 func TestEvalRowsKinds(t *testing.T) {
+	t.Parallel()
 	k := newKindsStore(t)
 	k.trial("cap", "", "", "pass") // NULL: stored before P8, or the default unset
 	k.trial("cap", "capability", "", "fail")
@@ -212,6 +217,7 @@ suite: trajectory similarity n/a: no row has two sessions
 // A store with no row of a kind prints no line for it and no JSON key, and
 // a kind whose rows only errored has no graded row.
 func TestEvalRowsKindAbsent(t *testing.T) {
+	t.Parallel()
 	k := newKindsStore(t)
 	k.trial("cap", "", "", "pass")
 	k.trial("reg", "regression", "", "error")
@@ -229,6 +235,7 @@ func TestEvalRowsKindAbsent(t *testing.T) {
 
 // A bumped version starts a new line, each with its own kind and match.
 func TestEvalRowsBumpedVersion(t *testing.T) {
+	t.Parallel()
 	k := newKindsStore(t)
 	for i, v := range []int{1, 2} {
 		run := fmt.Sprintf("s/r/v%d", v)

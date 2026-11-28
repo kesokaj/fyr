@@ -75,6 +75,7 @@ func readProbeStep(t *testing.T, home, id string, idx int) (typ, status int, met
 // started_ms, ended_ms and wait_ms and that show splits model, tool, wait
 // and idle minutes.
 func TestStepTimes(t *testing.T) {
+	t.Parallel()
 	home := probeFixture(t)
 	checkProbeHypotheses(t, home)
 	checkProbeIngestAndShow(t, home)

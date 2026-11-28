@@ -12,6 +12,7 @@ import (
 )
 
 func TestSubagentBudgetCapsBuilderVsAuditRoles(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		role string
 		want int
@@ -108,6 +109,7 @@ func TestSubagentBudgetCapsBuilderVsAuditRoles(t *testing.T) {
 }
 
 func TestHookDenialsSeparatedFromToolErrorsAcrossMetrics(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := filepath.Join(t.TempDir(), "proj")
 	if err := os.MkdirAll(root, 0o755); err != nil {
