@@ -1,26 +1,47 @@
-package search
+package hooks
 
 import (
+	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/kesokaj/fyr/internal/hooks/telemetry"
 	"github.com/kesokaj/fyr/internal/models"
+	"github.com/kesokaj/fyr/internal/vet"
 )
 
-func formatModelTag(home, raw string) string {
-	id, disp, think := ResolveModelDetails(home, raw)
+// FormatModelTag formats a model ID with display name and thinking effort for hook notices.
+func FormatModelTag(home, raw string) string {
+	id, disp, think := telemetry.ResolveModelDetails(home, raw)
 	if id == "" {
 		return strings.TrimSpace(raw)
 	}
-	label := id
+	lbl := id
 	if disp != "" {
-		label = fmt.Sprintf("%s [%s]", id, disp)
+		lbl = fmt.Sprintf("%s [%s]", id, disp)
 	}
 	if think != "" {
-		return fmt.Sprintf("%s, thinking=%s", label, think)
+		return fmt.Sprintf("%s, thinking=%s", lbl, think)
 	}
-	return label
+	return lbl
+}
+
+func lookupCatalogHookModel(home, s string) (fam, tier, eff string, isOrch, found bool) {
+	if strings.TrimSpace(home) == "" {
+		return "", "", "", false, false
+	}
+	cat, ok, err := models.LoadCatalog(home)
+	if err != nil || !ok {
+		return "", "", "", false, false
+	}
+	for _, e := range cat.Entries {
+		if strings.EqualFold(e.ID, s) || (e.DisplayName != "" && strings.EqualFold(e.DisplayName, s)) {
+			orch := e.InteractiveOnly || e.Mode == "orchestrator" || e.Effort == "orchestrator" || models.IsInteractiveOnlyID(e.ID)
+			return strings.ToLower(e.Family), strings.ToLower(e.Tier), strings.ToLower(e.Effort), orch, true
+		}
+	}
+	return "", "", "", false, false
 }
 
 func classifyHookModel(home, modelName string) (fam, tier, eff string, isOrch bool) {
@@ -28,15 +49,8 @@ func classifyHookModel(home, modelName string) (fam, tier, eff string, isOrch bo
 	if s == "" {
 		return "", "", "", false
 	}
-	if strings.TrimSpace(home) != "" {
-		if cat, ok, err := models.LoadCatalog(home); err == nil && ok {
-			for _, e := range cat.Entries {
-				if strings.EqualFold(e.ID, s) || (e.DisplayName != "" && strings.EqualFold(e.DisplayName, s)) {
-					orch := e.InteractiveOnly || e.Mode == "orchestrator" || e.Effort == "orchestrator" || models.IsInteractiveOnlyID(e.ID)
-					return strings.ToLower(e.Family), strings.ToLower(e.Tier), strings.ToLower(e.Effort), orch
-				}
-			}
-		}
+	if f, t, e, orch, ok := lookupCatalogHookModel(home, s); ok {
+		return f, t, e, orch
 	}
 	fam, tier, eff = models.ClassifyModel(s, "")
 	isOrch = models.IsInteractiveOnlyID(s) || eff == "orchestrator"
@@ -67,7 +81,8 @@ func isFastExecutionModelForHome(home, modelName string) bool {
 	return eff != "high" && eff != "xhigh" && eff != "max"
 }
 
-func needsGuardedProUpgradeForHome(home, modelName string) bool {
+// NeedsGuardedProUpgradeForHome reports whether a guarded subagent requires a pro model upgrade.
+func NeedsGuardedProUpgradeForHome(home, modelName string) bool {
 	s := strings.TrimSpace(modelName)
 	if s == "" {
 		return false
@@ -79,7 +94,18 @@ func needsGuardedProUpgradeForHome(home, modelName string) bool {
 	return isOrch || isFastExecutionModelForHome(home, s)
 }
 
-func suggestSessionModelNudgeForHome(home string, sc *scope, convID string, genID, turnNum int, modelName string, res VetResult) string {
+func classifyModelNudge(home, s, fam, tier, eff string, res vet.Result) (string, string) {
+	if isFastExecutionModelForHome(home, s) && (res.Intent == vet.IntentFeature || (res.Intent == vet.IntentBug && res.Score < 70)) {
+		return "__model_nudge__:pro", "model tip: architecture/deep-debug turn on fast model — consider a pro builder/planner model or orchestrator"
+	}
+	isHeavyPro := tier == "pro" && (eff == "high" || eff == "xhigh" || eff == "max" || fam == "anthropic")
+	if isHeavyPro && res.Intent == vet.IntentTrivial {
+		return "__model_nudge__:fast", "model tip: trivial turn on heavy pro reasoning model — consider a flash-tier model or orchestrator"
+	}
+	return "", ""
+}
+
+func suggestSessionModelNudgeForHome(home string, sc *Scope, convID string, genID, turnNum int, modelName string, res vet.Result) string {
 	s := strings.TrimSpace(modelName)
 	if s == "" || strings.EqualFold(s, "auto") {
 		return ""
@@ -88,25 +114,22 @@ func suggestSessionModelNudgeForHome(home string, sc *scope, convID string, genI
 	if isOrch {
 		return ""
 	}
-	var st *store
-	if sc != nil {
-		st = sc.st
+	sent, tip := classifyModelNudge(home, s, fam, tier, eff, res)
+	if sent == "" {
+		return ""
 	}
-	if isFastExecutionModelForHome(home, s) && (res.Intent == IntentFeature || (res.Intent == IntentBug && res.Score < 70)) {
-		if markSessionSentinelOnce(st, convID, genID, turnNum, "__model_nudge__:pro") {
-			return "model tip: architecture/deep-debug turn on fast model — consider a pro builder/planner model or orchestrator"
-		}
+	var db *sql.DB
+	if sc != nil && sc.St != nil {
+		db = sc.St.SQLDB
 	}
-	isHeavyPro := tier == "pro" && (eff == "high" || eff == "xhigh" || eff == "max" || fam == "anthropic")
-	if isHeavyPro && res.Intent == IntentTrivial {
-		if markSessionSentinelOnce(st, convID, genID, turnNum, "__model_nudge__:fast") {
-			return "model tip: trivial turn on heavy pro reasoning model — consider a flash-tier model or orchestrator"
-		}
+	if MarkSessionSentinelOnce(db, convID, genID, turnNum, sent) {
+		return tip
 	}
 	return ""
 }
 
-func isModelGuardedSubagent(name string) bool {
+// IsModelGuardedSubagent reports whether name is a guarded audit/judge subagent role.
+func IsModelGuardedSubagent(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "reviewer", "verifier", "security", "dreamer", "judge":
 		return true
@@ -115,9 +138,10 @@ func isModelGuardedSubagent(name string) bool {
 	}
 }
 
-func isGuardedSubagentCall(args map[string]any) (string, bool) {
+// IsGuardedSubagentCall extracts the subagent role from args and reports whether it is model-guarded.
+func IsGuardedSubagentCall(args map[string]any) (string, bool) {
 	subagent := extractSubagentType(args)
-	if isModelGuardedSubagent(subagent) {
+	if IsModelGuardedSubagent(subagent) {
 		return subagent, true
 	}
 	if subagent == "" || strings.EqualFold(subagent, "self") {
@@ -164,7 +188,7 @@ func extractSubagentType(args map[string]any) string {
 		if s == "" {
 			continue
 		}
-		if isModelGuardedSubagent(s) {
+		if IsModelGuardedSubagent(s) {
 			return strings.ToLower(s)
 		}
 		if first == "" {

@@ -1,20 +1,26 @@
-package search
+package hooks
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/kesokaj/fyr/internal/hooks/telemetry"
+	"github.com/kesokaj/fyr/internal/readledger"
 	"github.com/kesokaj/fyr/internal/redact"
+	"github.com/kesokaj/fyr/internal/symgraph"
 )
 
 const (
-	maxReadFileLines      = 800
-	maxReadFileBytes      = 46080
+	maxReadFileLines = 800
+	// MaxReadFileBytes is the byte window tracked per read_file call.
+	MaxReadFileBytes      = 46080
 	clampSkeletonMinLines = 400
 	clampSkeletonMinBytes = 16384
-	clampOnceSentinelLine = -5
+	// ClampOnceSentinelLine marks a one-shot [CLAMPED] skeleton notice in read_ledger.
+	ClampOnceSentinelLine = -5
 	clampMaxSkeletonLines = 60
 )
 
@@ -27,7 +33,7 @@ type readFileSnapshot struct {
 }
 
 func loadReadFileSnapshot(resolved string) readFileSnapshot {
-	sumHex, data, totalLines, ok := readFileDigestAndLines(resolved)
+	sumHex, data, totalLines, ok := readledger.ReadFileDigestAndLines(resolved)
 	return readFileSnapshot{
 		resolved:   resolved,
 		sumHex:     sumHex,
@@ -38,7 +44,7 @@ func loadReadFileSnapshot(resolved string) readFileSnapshot {
 }
 
 func clampReadRangeWithSnapshot(args map[string]any, snap readFileSnapshot) (int, int, bool) {
-	start, end := extractLineRangeArgs(args)
+	start, end := ExtractLineRangeArgs(args)
 	rawOffset := extractIntArg(args, "ByteOffset", "byte_offset", "byteOffset")
 	if rawOffset < 0 {
 		return 0, 0, false
@@ -56,13 +62,13 @@ func clampReadRangeWithSnapshot(args map[string]any, snap readFileSnapshot) (int
 	if len(lines) == 0 {
 		return 1, 1, rawOffset == 0
 	}
-	reqStart, reqEnd := normalizeLineRange(start, end, len(lines))
+	reqStart, reqEnd := readledger.NormalizeLineRange(start, end, len(lines))
 	reqEnd = min(reqEnd, reqStart+maxReadFileLines-1)
 	return effectiveClampedWindow(lines, reqStart, reqEnd, rawOffset)
 }
 
 func effectiveClampedWindow(lines []string, reqStart, reqEnd, rawOffset int) (int, int, bool) {
-	winStart, winEnd, cumBytes, effStart, effEnd := rawOffset, rawOffset+maxReadFileBytes, 0, 0, 0
+	winStart, winEnd, cumBytes, effStart, effEnd := rawOffset, rawOffset+MaxReadFileBytes, 0, 0, 0
 	for lineNum := reqStart; lineNum <= reqEnd; lineNum++ {
 		contentEnd := cumBytes + len(strconv.Itoa(lineNum)) + 2 + len(lines[lineNum-1])
 		nextCum := contentEnd + 1
@@ -91,48 +97,48 @@ func hasExplicitReadRange(args map[string]any) bool {
 	if args == nil {
 		return false
 	}
-	_, end := extractLineRangeArgs(args)
+	_, end := ExtractLineRangeArgs(args)
 	byteOffset := extractIntArg(args, "ByteOffset", "byte_offset", "byteOffset")
 	return end > 0 || byteOffset > 0
 }
 
-func checkUnrangedClampWithStore(ctx context.Context, st *store, root, conversationID string, snap readFileSnapshot, args map[string]any) (ReadDecision, bool) {
-	if st == nil || !shouldGuardReadInRoot(root, snap.resolved) || ctx.Err() != nil || hasExplicitReadRange(args) || !snap.ok ||
+func checkUnrangedClampWithStore(ctx context.Context, d Deps, st *Store, root, conversationID string, snap readFileSnapshot, args map[string]any) (readledger.ReadDecision, bool) {
+	if st == nil || st.SQLDB == nil || !shouldGuardReadInRoot(d, root, snap.resolved) || ctx.Err() != nil || hasExplicitReadRange(args) || !snap.ok ||
 		(snap.totalLines < clampSkeletonMinLines && len(snap.data) < clampSkeletonMinBytes) {
-		return ReadDecision{}, false
+		return readledger.ReadDecision{}, false
 	}
-	convID := normalizeLedgerConvID(conversationID)
-	genID, defTurn := st.currentGeneration(convID)
-	if st.hasClampBypassOrCoverage(ctx, convID, genID, snap.resolved, snap.sumHex, snap.totalLines) {
-		return ReadDecision{}, false
+	convID := readledger.NormalizeConvID(conversationID)
+	genID, defTurn := readledger.CurrentGeneration(st.SQLDB, convID)
+	if hasClampBypassOrCoverage(ctx, st.SQLDB, convID, genID, snap.resolved, snap.sumHex, snap.totalLines) {
+		return readledger.ReadDecision{}, false
 	}
 	if ctx.Err() != nil {
-		return ReadDecision{}, false
+		return readledger.ReadDecision{}, false
 	}
-	_ = st.upsertReadStamp(convID, genID, snap.resolved, clampOnceSentinelLine, clampOnceSentinelLine, snap.sumHex, defTurn, nowFunc().Unix())
-	relPath := relDisplayPath(root, snap.resolved)
+	_ = readledger.UpsertStamp(st.SQLDB, convID, genID, snap.resolved, ClampOnceSentinelLine, ClampOnceSentinelLine, snap.sumHex, defTurn, d.now().Unix())
+	relPath := readledger.RelDisplayPath(root, snap.resolved)
 	skel := buildClampSkeleton(snap.resolved, string(snap.data))
-	return ReadDecision{
+	return readledger.ReadDecision{
 		Allowed:      false,
-		Reason:       formatClampedLedgerNotice(relPath, snap.totalLines, snap.sumHex, skel),
+		Reason:       telemetry.FormatClampedLedgerNotice(relPath, snap.totalLines, snap.sumHex, skel),
 		ResolvedPath: snap.resolved,
 		SHA256:       snap.sumHex,
 		GenerationID: genID,
 	}, true
 }
 
-func (s *store) hasClampBypassOrCoverage(ctx context.Context, convID string, genID int, resolved, sumHex string, totalLines int) bool {
+func hasClampBypassOrCoverage(ctx context.Context, db *sql.DB, convID string, genID int, resolved, sumHex string, totalLines int) bool {
 	var count int
 	minFull := min(totalLines, maxReadFileLines)
-	err := s.db.QueryRowContext(ctx,
+	err := db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND sha256 = ? AND ((start_line = ? AND end_line = ?) OR (start_line = 1 AND end_line >= ?))`,
-		convID, genID, resolved, sumHex, clampOnceSentinelLine, clampOnceSentinelLine, minFull,
+		convID, genID, resolved, sumHex, ClampOnceSentinelLine, ClampOnceSentinelLine, minFull,
 	).Scan(&count)
 	return err == nil && count > 0
 }
 
 func buildClampSkeleton(resolvedPath, text string) string {
-	syms, _ := extractSymbolsAndRefs(resolvedPath, text)
+	syms, _ := symgraph.ExtractSymbolsAndRefs(resolvedPath, text)
 	if len(syms) > 0 {
 		var lines []string
 		for _, sy := range syms {
@@ -143,7 +149,7 @@ func buildClampSkeleton(resolvedPath, text string) string {
 		}
 		return redact.Redact(strings.Join(lines, "\n"))
 	}
-	rawLines := splitLines(text)
+	rawLines := symgraph.SplitLines(text)
 	if len(rawLines) == 0 {
 		return ""
 	}

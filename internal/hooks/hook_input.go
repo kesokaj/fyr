@@ -1,4 +1,4 @@
-package search
+package hooks
 
 import (
 	"bytes"
@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/hooks/guard"
+	"github.com/kesokaj/fyr/internal/readledger"
 )
 
 type hookSubagentMeta struct {
@@ -14,20 +17,20 @@ type hookSubagentMeta struct {
 	ParentConversationID string
 }
 
-type hookSubagentMetaKey struct{}
+type hookSubagentMetaCtx struct{}
 
 func withHookSubagentMeta(ctx context.Context, meta hookSubagentMeta) context.Context {
 	if meta.AgentName == "" && meta.ParentConversationID == "" {
 		return ctx
 	}
-	return context.WithValue(ctx, hookSubagentMetaKey{}, meta)
+	return context.WithValue(ctx, hookSubagentMetaCtx{}, meta)
 }
 
 func hookSubagentMetaFromCtx(ctx context.Context) hookSubagentMeta {
 	if ctx == nil {
 		return hookSubagentMeta{}
 	}
-	if v, ok := ctx.Value(hookSubagentMetaKey{}).(hookSubagentMeta); ok {
+	if v, ok := ctx.Value(hookSubagentMetaCtx{}).(hookSubagentMeta); ok {
 		return v
 	}
 	return hookSubagentMeta{}
@@ -54,7 +57,8 @@ func extractHookSubagentMeta(data []byte) hookSubagentMeta {
 	}
 }
 
-func extractToolTargetPath(args map[string]any) string {
+// ExtractToolTargetPath extracts the target file path from a tool argument map.
+func ExtractToolTargetPath(args map[string]any) string {
 	return extractStringArg(args, "Path", "path", "AbsolutePath", "absolutePath", "absolute_path", "FilePath", "filePath", "file_path", "TargetFile", "targetFile", "target_file")
 }
 
@@ -69,7 +73,8 @@ func extractStringArg(args map[string]any, keys ...string) string {
 	return ""
 }
 
-func extractLineRangeArgs(args map[string]any) (int, int) {
+// ExtractLineRangeArgs extracts (start, end) line numbers from read_file arguments.
+func ExtractLineRangeArgs(args map[string]any) (int, int) {
 	start := extractIntArg(args, "StartLine", "startLine", "start_line", "StartLineNumber", "startLineNumber", "start_line_number", "Offset", "offset")
 	end := extractIntArg(args, "EndLine", "endLine", "end_line", "EndLineNumber", "endLineNumber", "end_line_number")
 	limit := extractIntArg(args, "Limit", "limit", "LineCount", "lineCount", "line_count")
@@ -89,27 +94,35 @@ func extractIntArg(args map[string]any, keys ...string) int {
 		if !ok {
 			continue
 		}
-		switch n := v.(type) {
-		case float64:
-			return int(n)
-		case int:
+		if n, parsed := parseAnyInt(v); parsed {
 			return n
-		case int64:
-			return int(n)
-		case json.Number:
-			if parsed, err := n.Int64(); err == nil {
-				return int(parsed)
-			}
-		case string:
-			if parsed, err := strconv.Atoi(strings.TrimSpace(n)); err == nil {
-				return parsed
-			}
 		}
 	}
 	return 0
 }
 
-func parseAndNormalizeHookInput(o Options, data []byte) (HookInput, error) {
+func parseAnyInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case json.Number:
+		if parsed, err := n.Int64(); err == nil {
+			return int(parsed), true
+		}
+	case string:
+		if parsed, err := strconv.Atoi(strings.TrimSpace(n)); err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
+}
+
+// ParseAndNormalizeHookInput parses a raw hook JSON payload and fills field aliases.
+func ParseAndNormalizeHookInput(o Options, data []byte) (HookInput, error) {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 {
 		return HookInput{ConversationID: strings.TrimSpace(o.Session)}, nil
@@ -128,42 +141,50 @@ func parseAndNormalizeHookInput(o Options, data []byte) (HookInput, error) {
 }
 
 func applyHookEnvelopeAliases(in *HookInput, raw map[string]any, optSession string) {
+	applyHookStringAliases(in, raw)
+	applyHookNumericAliases(in, raw)
+	if !in.ContinuationActive {
+		in.ContinuationActive = hasTrueBoolArg(raw, "continuation_active", "is_continuation", "isContinuation")
+	}
+	in.ConversationID = resolveHookConversationID(*in, raw, optSession)
+}
+
+func applyHookStringAliases(in *HookInput, raw map[string]any) {
 	if len(in.WorkspacePaths) == 0 {
 		in.WorkspacePaths = extractStringSliceArg(raw, "workspace_paths", "WorkspacePaths")
 	}
-	if strings.TrimSpace(in.Cwd) == "" {
-		in.Cwd = extractStringArg(raw, "cwd", "Cwd", "workingDirectory", "working_directory")
+	fillEmptyString(&in.Cwd, raw, "cwd", "Cwd", "workingDirectory", "working_directory")
+	fillEmptyString(&in.TranscriptPath, raw, "transcript_path", "TranscriptPath")
+	fillEmptyString(&in.ArtifactDirectoryPath, raw, "artifact_directory_path", "ArtifactDirectoryPath")
+	fillEmptyString(&in.LastUserInput, raw, "last_user_input", "prompt", "user_prompt")
+}
+
+func fillEmptyString(dst *string, raw map[string]any, keys ...string) {
+	if strings.TrimSpace(*dst) == "" {
+		*dst = extractStringArg(raw, keys...)
 	}
-	if strings.TrimSpace(in.TranscriptPath) == "" {
-		in.TranscriptPath = extractStringArg(raw, "transcript_path", "TranscriptPath")
+}
+
+func applyHookNumericAliases(in *HookInput, raw map[string]any) {
+	fillZeroInt(&in.InvocationNum, raw, "invocation_num")
+	fillZeroInt(&in.InitialNumSteps, raw, "initial_num_steps")
+	fillZeroInt(&in.StepIdx, raw, "step_idx")
+	fillZeroInt(&in.ExecutionNum, raw, "execution_num")
+}
+
+func fillZeroInt(dst *int, raw map[string]any, keys ...string) {
+	if *dst == 0 {
+		*dst = extractIntArg(raw, keys...)
 	}
-	if strings.TrimSpace(in.ArtifactDirectoryPath) == "" {
-		in.ArtifactDirectoryPath = extractStringArg(raw, "artifact_directory_path", "ArtifactDirectoryPath")
-	}
-	if strings.TrimSpace(in.LastUserInput) == "" {
-		in.LastUserInput = extractStringArg(raw, "last_user_input", "prompt", "user_prompt")
-	}
-	if in.InvocationNum == 0 {
-		in.InvocationNum = extractIntArg(raw, "invocation_num")
-	}
-	if in.InitialNumSteps == 0 {
-		in.InitialNumSteps = extractIntArg(raw, "initial_num_steps")
-	}
-	if in.StepIdx == 0 {
-		in.StepIdx = extractIntArg(raw, "step_idx")
-	}
-	if in.ExecutionNum == 0 {
-		in.ExecutionNum = extractIntArg(raw, "execution_num")
-	}
-	if !in.ContinuationActive {
-		for _, k := range []string{"continuation_active", "is_continuation", "isContinuation"} {
-			if v, ok := raw[k].(bool); ok && v {
-				in.ContinuationActive = true
-				break
-			}
+}
+
+func hasTrueBoolArg(raw map[string]any, keys ...string) bool {
+	for _, k := range keys {
+		if v, ok := raw[k].(bool); ok && v {
+			return true
 		}
 	}
-	in.ConversationID = resolveHookConversationID(*in, raw, optSession)
+	return false
 }
 
 func resolveHookConversationID(in HookInput, raw map[string]any, optSession string) string {
@@ -180,8 +201,8 @@ func resolveHookConversationID(in HookInput, raw map[string]any, optSession stri
 }
 
 func applyHookToolAliases(tc *HookToolCall, raw map[string]any) {
-	for _, key := range []string{"toolCall", "tool_call", "ToolCall"} {
-		if m, ok := raw[key].(map[string]any); ok {
+	for _, k := range []string{"toolCall", "tool_call", "ToolCall"} {
+		if m, ok := raw[k].(map[string]any); ok {
 			if strings.TrimSpace(tc.Name) == "" {
 				tc.Name = extractStringArg(m, "name", "Name", "toolName", "tool_name")
 			}
@@ -252,7 +273,8 @@ func extractBrainConversationID(paths ...string) string {
 	return ""
 }
 
-func normalizeHookToolName(raw string) string {
+// NormalizeHookToolName maps Antigravity/IDE tool names to canonical hook labels.
+func NormalizeHookToolName(raw string) string {
 	s := strings.TrimSpace(raw)
 	if idx := strings.LastIndexByte(s, ':'); idx >= 0 {
 		s = s[idx+1:]
@@ -274,18 +296,19 @@ func normalizeHookToolName(raw string) string {
 	}
 }
 
-func resolveToolProjectDir(dir string, _ HookInput, target string) string {
+// ResolveToolProjectDir resolves the project directory governing a tool target path.
+func ResolveToolProjectDir(dir string, _ HookInput, target string) string {
 	t := strings.TrimSpace(target)
 	if t == "" || !filepath.IsAbs(t) {
 		return dir
 	}
-	canonTarget := resolveTargetWithAncestors("", t)
-	targetAnc := existingAncestorDir(filepath.FromSlash(canonTarget))
-	targetRoot, _, hasTargetRoot := findGitRootFast(targetAnc)
-	if dirRoot, _, ok := findGitRootFast(dir); ok {
-		canonDir := strings.TrimRight(CanonicalizePath("", dirRoot), "/")
+	canonTarget := guard.ResolveTargetWithAncestors("", t)
+	targetAnc := guard.ExistingAncestorDir(filepath.FromSlash(canonTarget))
+	targetRoot, _, hasTargetRoot := guard.FindGitRootFast(targetAnc)
+	if dirRoot, _, ok := guard.FindGitRootFast(dir); ok {
+		canonDir := strings.TrimRight(readledger.CanonicalizePath("", dirRoot), "/")
 		if canonDir != "" && (canonTarget == canonDir || strings.HasPrefix(canonTarget, canonDir+"/")) {
-			if !hasTargetRoot || strings.TrimRight(CanonicalizePath("", targetRoot), "/") == canonDir {
+			if !hasTargetRoot || strings.TrimRight(readledger.CanonicalizePath("", targetRoot), "/") == canonDir {
 				return dir
 			}
 		}

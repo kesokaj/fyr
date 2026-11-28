@@ -61,13 +61,6 @@ type VetHistoryIngestRow = vet.HistoryIngestRow
 // Fence is a per-turn cryptographic boundary wrapping untrusted reference data.
 type Fence = vet.Fence
 
-var (
-	fpRe         = vet.FilePathRe
-	idRe         = vet.IdentExprRe
-	fileTokenRe  = fpRe
-	identTokenRe = idRe
-)
-
 // New generates a collision-free 18-hex-char cryptographic fence boundary.
 func New(texts ...string) Fence { return vet.New(texts...) }
 
@@ -144,29 +137,11 @@ func vetPromptCoreWithHistory(
 	return vet.VetPromptCoreWithHistory(prompt, intent, slice, brainCtx, catalog, prev, recentSkills, recentPivots)
 }
 
-func detectTurnConflicts(prompt string, brainCtx TurnBrainContext) []string {
-	return vet.DetectTurnConflicts(prompt, brainCtx)
-}
-
 func collectMatchedRecords(brainCtx TurnBrainContext) []MatchedRecord {
 	return vet.CollectMatchedRecords(brainCtx)
 }
 
-func recordProvenance(r MatchedRecord) string { return vet.RecordProvenance(r) }
-
 func isWorkerBriefPrompt(prompt string) bool { return vet.IsWorkerBriefPrompt(prompt) }
-
-func hasWorkerCapsuleSection(lines []string) bool { return vet.HasWorkerCapsuleSection(lines) }
-
-func extractPromptAndSliceFiles(prompt string, sliceFiles []string) []string {
-	return vet.ExtractPromptAndSliceFiles(prompt, sliceFiles)
-}
-
-func normalizeSlashPath(p string) string { return vet.NormalizeSlashPath(p) }
-
-func isDirPathToken(p string) bool { return vet.IsDirPathToken(p) }
-
-func collapseOneLine(s string, maxLen int) string { return vet.CollapseOneLine(s, maxLen) }
 
 func filterSuggestedSkills(skills []SkillMeta, curFiles []string, recentSkills map[string]bool, recentPivots []string) []SkillMeta {
 	return vet.FilterSuggestedSkills(skills, curFiles, recentSkills, recentPivots)

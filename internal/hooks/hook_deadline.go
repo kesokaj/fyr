@@ -1,11 +1,9 @@
-package search
+package hooks
 
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,9 +11,17 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/hooks/guard"
+	"github.com/kesokaj/fyr/internal/readledger"
+	"github.com/kesokaj/fyr/internal/trail"
+	"github.com/kesokaj/fyr/internal/vet"
 )
 
-const preInvocationTimeoutRecorderBudget = 45 * time.Millisecond
+// TimeoutRecorderBudget returns the active timeout-recorder deadline budget
+// (45ms in production builds, 450ms under -race).
+func TimeoutRecorderBudget() time.Duration {
+	return preInvocationTimeoutRecorderBudget
+}
 
 type hookRunResult struct {
 	data []byte
@@ -28,31 +34,31 @@ type hookInputMeta struct {
 	storeRef *hookTimeoutStoreRef
 }
 
-type hookTimeoutStoreCtxKey struct{}
+type hookTimeoutStoreCtx struct{}
 
 // hookTimeoutStoreRef lets a timed-out PreInvocation recorder reuse the worker's
 // already-open SQLite store safely without concurrent close races.
 type hookTimeoutStoreRef struct {
 	mu     sync.Mutex
-	st     *store
+	st     *Store
 	root   string
 	refs   int
 	closed bool
 }
 
 func withHookTimeoutStoreRef(ctx context.Context, ref *hookTimeoutStoreRef) context.Context {
-	return context.WithValue(ctx, hookTimeoutStoreCtxKey{}, ref)
+	return context.WithValue(ctx, hookTimeoutStoreCtx{}, ref)
 }
 
 func hookTimeoutStoreRefFromCtx(ctx context.Context) *hookTimeoutStoreRef {
 	if ctx == nil {
 		return nil
 	}
-	ref, _ := ctx.Value(hookTimeoutStoreCtxKey{}).(*hookTimeoutStoreRef)
+	ref, _ := ctx.Value(hookTimeoutStoreCtx{}).(*hookTimeoutStoreRef)
 	return ref
 }
 
-func (r *hookTimeoutStoreRef) attach(st *store, root string) {
+func (r *hookTimeoutStoreRef) attach(st *Store, root string) {
 	if r == nil || st == nil {
 		return
 	}
@@ -64,7 +70,7 @@ func (r *hookTimeoutStoreRef) attach(st *store, root string) {
 	r.closed = false
 }
 
-func (r *hookTimeoutStoreRef) acquire(root string) (*store, bool) {
+func (r *hookTimeoutStoreRef) acquire(root string) (*Store, bool) {
 	if r == nil {
 		return nil, false
 	}
@@ -87,7 +93,7 @@ func (r *hookTimeoutStoreRef) release() {
 		return
 	}
 	r.refs--
-	var toClose *store
+	var toClose *Store
 	if r.refs == 0 {
 		toClose = r.st
 		r.st = nil
@@ -95,21 +101,23 @@ func (r *hookTimeoutStoreRef) release() {
 	}
 	r.mu.Unlock()
 	if toClose != nil {
-		_ = toClose.close()
+		_ = toClose.CloseErr()
 	}
 }
 
-func runHookWithDeadline(o Options, event string, in io.Reader, out io.Writer) error {
+func runHookWithDeadline(d Deps, o Options, event string, in io.Reader, out io.Writer) error {
 	if in == nil {
 		in = os.Stdin
 	}
-	deadline := o.hookDeadline
+	deadline := o.HookDeadline
 	if deadline <= 0 {
-		deadline = defaultHookDeadline
+		deadline = DefaultHookDeadline
 	}
-	dispatchFn := o.hookDispatch
+	dispatchFn := o.HookDispatch
 	if dispatchFn == nil {
-		dispatchFn = dispatchHookEvent
+		dispatchFn = func(ctx context.Context, opt Options, ev, dir string, inp HookInput, w io.Writer) error {
+			return dispatchHookEvent(ctx, d, opt, ev, dir, inp, w)
+		}
 	}
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), deadline)
@@ -121,28 +129,37 @@ func runHookWithDeadline(o Options, event string, in io.Reader, out io.Writer) e
 
 	select {
 	case res := <-ch:
-		if res.err == nil && len(res.data) > 0 {
-			_, _ = out.Write(res.data)
-			return nil
-		}
-		if event == "pre-tool-use" && isRelaySession() {
-			return writeDecision(out, "deny", "[RELAY_GUARD] pre-tool-use hook error or panic denied during fyr relay session (fail-closed)")
-		}
-		return writeHookAllowFallback(event, out)
+		return handleHookWorkerResult(event, res, out)
 	case <-ctx.Done():
-		if event == "pre-tool-use" && isRelaySession() {
-			return writeDecision(out, "deny", "[RELAY_GUARD] pre-tool-use hook deadline exceeded during fyr relay session (fail-closed)")
-		}
-		err := writeHookAllowFallback(event, out)
-		if event == "pre-invocation" {
-			select {
-			case m := <-metaCh:
-				recordPreInvocationTimeoutBounded(o, m, max(1, int(time.Since(start).Milliseconds())))
-			default:
-			}
-		}
+		return handleHookTimeout(d, o, event, metaCh, start, out)
+	}
+}
+
+func handleHookWorkerResult(event string, res hookRunResult, out io.Writer) error {
+	if res.err == nil && len(res.data) > 0 {
+		_, _ = out.Write(res.data)
+		return nil
+	}
+	if event == "pre-tool-use" && isRelaySession() {
+		return writeDecision(out, "deny", "[RELAY_GUARD] pre-tool-use hook error or panic denied during fyr relay session (fail-closed)")
+	}
+	return writeHookAllowFallback(event, out)
+}
+
+func handleHookTimeout(d Deps, o Options, event string, metaCh <-chan hookInputMeta, start time.Time, out io.Writer) error {
+	if event == "pre-tool-use" && isRelaySession() {
+		return writeDecision(out, "deny", "[RELAY_GUARD] pre-tool-use hook deadline exceeded during fyr relay session (fail-closed)")
+	}
+	err := writeHookAllowFallback(event, out)
+	if event != "pre-invocation" {
 		return err
 	}
+	select {
+	case m := <-metaCh:
+		recordPreInvocationTimeoutBounded(d, o, m, max(1, int(time.Since(start).Milliseconds())))
+	default:
+	}
+	return err
 }
 
 func runHookWorker(ctx context.Context, o Options, event string, in io.Reader, dispatchFn func(context.Context, Options, string, string, HookInput, io.Writer) error, ch chan<- hookRunResult, metaCh chan<- hookInputMeta) {
@@ -175,7 +192,7 @@ func runHookWorker(ctx context.Context, o Options, event string, in io.Reader, d
 		emitHookDecodeError(ctx, event, &buf, ch)
 		return
 	}
-	if hookBypassedForEvent(o.Home, dir, event) {
+	if HookBypassedForEvent(o.Home, dir, event) {
 		_ = writeHookAllowFallback(event, &buf)
 		sendHookResult(ctx, ch, hookRunResult{data: buf.Bytes()})
 		return
@@ -207,13 +224,13 @@ func sendHookResult(ctx context.Context, ch chan<- hookRunResult, res hookRunRes
 	}
 }
 
-func recordPreInvocationTimeoutBounded(o Options, m hookInputMeta, durationMS int) {
+func recordPreInvocationTimeoutBounded(d Deps, o Options, m hookInputMeta, durationMS int) {
 	tctx, cancel := context.WithTimeout(context.Background(), preInvocationTimeoutRecorderBudget)
 	defer cancel()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		recordPreInvocationTimeoutBestEffort(tctx, o, m, durationMS)
+		recordPreInvocationTimeoutBestEffort(tctx, d, o, m, durationMS)
 	}()
 	select {
 	case <-done:
@@ -221,95 +238,64 @@ func recordPreInvocationTimeoutBounded(o Options, m hookInputMeta, durationMS in
 	}
 }
 
-func recordPreInvocationTimeoutBestEffort(tctx context.Context, o Options, m hookInputMeta, durationMS int) {
-	if tctx.Err() != nil || hooksDisabledForHome(o.Home, m.dir) {
+func recordPreInvocationTimeoutBestEffort(tctx context.Context, d Deps, o Options, m hookInputMeta, durationMS int) {
+	if tctx.Err() != nil || HooksDisabledForHome(o.Home, m.dir) {
 		return
 	}
-	root, commonDir, ok := findGitRootFast(m.dir)
-	if !ok || hooksDisabled(root) || guardLedgerFast(root, commonDir) != nil {
+	root, commonDir, ok := guard.FindGitRootFast(m.dir)
+	if !ok || HooksDisabled(root) || guard.GuardLedgerFast(root, commonDir, d.GuardProject) != nil {
 		return
 	}
-	st, reused := m.storeRef.acquire(root)
-	if reused {
-		defer m.storeRef.release()
-	} else {
-		st = openShortTimeoutStoreCtx(tctx, projectDB(root))
-		if st == nil {
-			return
-		}
-		defer st.close()
+	st, release := acquireTimeoutRecorderStore(tctx, d, m.storeRef, root)
+	if st == nil || st.SQLDB == nil {
+		return
 	}
-	convID := normalizeLedgerConvID(m.input.ConversationID)
+	defer release()
+	convID := readledger.NormalizeConvID(m.input.ConversationID)
 	rawPrompt := StripSandboxPreamble(strings.TrimSpace(m.input.LastUserInput))
 	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(rawPrompt, "!"))
-	stampedTurn := stampPreInvocationFallbackCtx(tctx, st, convID, m.input, rawPrompt)
+	stampedTurn := stampPreInvocationFallbackCtx(tctx, d, st, convID, m.input, rawPrompt)
 	var maxTurn int
-	_ = st.db.QueryRowContext(tctx, `SELECT COALESCE(MAX(turn_num), 0) FROM vet_history WHERE conversation_id = ?`, convID).Scan(&maxTurn)
+	_ = st.SQLDB.QueryRowContext(tctx, `SELECT COALESCE(MAX(turn_num), 0) FROM vet_history WHERE conversation_id = ?`, convID).Scan(&maxTurn)
 	if tctx.Err() != nil {
 		return
 	}
-	res := VetResult{Intent: ClassifyIntent(cleanPrompt, 0), Gate: GatePassThrough}
-	_ = st.recordVetHistoryWithMetricsCtx(tctx, convID, max(maxTurn+1, stampedTurn), rawPrompt, res, nil, vetTurnMetrics{
-		durationMS: durationMS,
-		timedOut:   true,
+	res := vet.Result{Intent: vet.ClassifyIntent(cleanPrompt, 0), Gate: vet.GatePassThrough}
+	_ = vet.RecordHistoryCtx(tctx, st.SQLDB, d.now().Unix(), convID, max(maxTurn+1, stampedTurn), rawPrompt, res, nil, vet.TurnMetrics{
+		DurationMS: durationMS,
+		TimedOut:   true,
 	})
 }
 
-func openShortTimeoutStoreCtx(ctx context.Context, path string) *store {
-	if ctx.Err() != nil {
-		return nil
+func acquireTimeoutRecorderStore(tctx context.Context, d Deps, ref *hookTimeoutStoreRef, root string) (*Store, func()) {
+	if st, reused := ref.acquire(root); reused {
+		return st, ref.release
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil
+	if d.OpenShortTimeoutStoreCtx == nil || d.ProjectDB == nil {
+		return nil, func() {}
 	}
-	if err := prepareFiles(path); err != nil {
-		return nil
+	st := d.OpenShortTimeoutStoreCtx(tctx, d.ProjectDB(root))
+	if st == nil {
+		return nil, func() {}
 	}
-	absPath := path
-	if abs, err := filepath.Abs(path); err == nil {
-		absPath = abs
-	}
-	u := url.URL{
-		Scheme:   "file",
-		Path:     filepath.ToSlash(absPath),
-		RawQuery: "_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(25)&_pragma=foreign_keys(0)",
-	}
-	db, err := sql.Open("sqlite", u.String())
-	if err != nil {
-		return nil
-	}
-	db.SetMaxOpenConns(1)
-	s := &store{db: db, path: path}
-	var v string
-	if err := db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'schema'`).Scan(&v); err == nil && v == schemaVersion {
-		return s
-	}
-	if ctx.Err() != nil {
-		_ = db.Close()
-		return nil
-	}
-	if err := s.ensureSchema(); err != nil {
-		_ = db.Close()
-		return nil
-	}
-	return s
+	return st, func() { _ = st.CloseErr() }
 }
 
-func dispatchHookEvent(ctx context.Context, o Options, event, dir string, input HookInput, out io.Writer) error {
+func dispatchHookEvent(ctx context.Context, d Deps, o Options, event, dir string, input HookInput, out io.Writer) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	switch event {
 	case "session-start":
-		return handleSessionStart(ctx, o, dir, input, out)
+		return HandleSessionStart(ctx, d, o, dir, input, out)
 	case "pre-invocation":
-		return handlePreInvocation(ctx, o, dir, input, out)
+		return handlePreInvocation(ctx, d, o, dir, input, out)
 	case "pre-tool-use":
-		return handlePreToolUse(ctx, o, dir, input, out)
+		return handlePreToolUse(ctx, d, o, dir, input, out)
 	case "post-tool-use":
-		return handlePostToolUse(ctx, o, dir, input, out)
+		return handlePostToolUse(ctx, d, o, dir, input, out)
 	default:
-		return handleStopHook(ctx, o, dir, input, out)
+		return handleStopHook(ctx, d, o, dir, input, out)
 	}
 }
 
@@ -325,7 +311,9 @@ func writeHookAllowFallback(event string, out io.Writer) error {
 	return writeDecision(out, "allow", "")
 }
 
-func hooksDisabledGlobal(home string) bool {
+// HooksDisabledGlobal reports whether a regular (non-symlinked) no-hooks marker
+// exists under <home>/.config/fyr/no-hooks.
+func HooksDisabledGlobal(home string) bool {
 	h := strings.TrimSpace(home)
 	if h == "" {
 		return false
@@ -357,38 +345,40 @@ func isRelayProtectedEvent(event string) bool {
 	return (event == "pre-tool-use" || event == "post-tool-use") && isRelaySession()
 }
 
-func hookBypassedForEvent(home, dir, event string) bool {
+// HookBypassedForEvent reports whether event is bypassed by global or repo no-hooks markers.
+func HookBypassedForEvent(home, dir, event string) bool {
 	if isRelayProtectedEvent(event) {
 		return false
 	}
-	if hooksDisabledGlobal(home) {
+	if HooksDisabledGlobal(home) {
 		return true
 	}
-	return hooksDisabled(dir)
+	return HooksDisabled(dir)
 }
 
-func hooksDisabledForHome(home, dir string) bool {
-	return hooksDisabledGlobal(home) || hooksDisabled(dir)
+// HooksDisabledForHome reports whether global or repo-local no-hooks markers disable hooks.
+func HooksDisabledForHome(home, dir string) bool {
+	return HooksDisabledGlobal(home) || HooksDisabled(dir)
 }
 
 func hasRegularScratchNoHooks(base string) bool {
-	if checkScratchNoSymlinks(base) != nil {
+	if trail.CheckScratchNoSymlinks(base) != nil {
 		return false
 	}
 	fi, err := os.Lstat(filepath.Join(base, ".agents", "scratch", "no-hooks"))
 	return err == nil && fi.Mode().IsRegular()
 }
 
-// hooksDisabled reports whether dir (or its git checkout root) contains a
+// HooksDisabled reports whether dir (or its git checkout root) contains a
 // regular (non-symlinked) .agents/scratch/no-hooks marker, used by paired A/B eval scenarios.
-func hooksDisabled(dir string) bool {
+func HooksDisabled(dir string) bool {
 	if strings.TrimSpace(dir) == "" {
 		dir = "."
 	}
 	if hasRegularScratchNoHooks(dir) {
 		return true
 	}
-	if root, _, ok := findGitRootFast(dir); ok && hasRegularScratchNoHooks(root) {
+	if root, _, ok := guard.FindGitRootFast(dir); ok && hasRegularScratchNoHooks(root) {
 		return true
 	}
 	return false

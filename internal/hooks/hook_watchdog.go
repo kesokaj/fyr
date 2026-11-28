@@ -1,4 +1,4 @@
-package search
+package hooks
 
 import (
 	"context"
@@ -9,6 +9,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/hooks/guard"
+	"github.com/kesokaj/fyr/internal/readledger"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 type watchdogPreState struct {
@@ -26,7 +30,7 @@ var watchdogToolMap = map[string]string{
 }
 
 func normalizeWatchdogToolName(raw string) string {
-	norm := normalizeHookToolName(raw)
+	norm := NormalizeHookToolName(raw)
 	if mapped, ok := watchdogToolMap[norm]; ok {
 		return mapped
 	}
@@ -54,18 +58,18 @@ func watchdogArgHash(args map[string]any) string {
 }
 
 func watchdogShouldSkip(home, dir string, in HookInput) bool {
-	if (!isRelaySession() && hooksDisabledForHome(home, dir)) || strings.TrimSpace(in.ConversationID) == "" || !ensureExistingCheckoutIgnored(dir) {
+	if (!isRelaySession() && HooksDisabledForHome(home, dir)) || strings.TrimSpace(in.ConversationID) == "" || !guard.EnsureExistingCheckoutIgnored(dir) {
 		return true
 	}
-	target := extractToolTargetPath(in.ToolCall.Args)
-	return target != "" && !isRelaySession() && hooksDisabledForHome(home, resolveToolProjectDir(dir, in, target))
+	target := ExtractToolTargetPath(in.ToolCall.Args)
+	return target != "" && !isRelaySession() && HooksDisabledForHome(home, ResolveToolProjectDir(dir, in, target))
 }
 
-func evaluateWatchdogPreCtx(ctx context.Context, o Options, dir string, in HookInput) (watchdogPreState, *store, string) {
-	if ctx.Err() != nil || watchdogShouldSkip(o.Home, dir, in) {
+func evaluateWatchdogPreCtx(ctx context.Context, d Deps, o Options, dir string, in HookInput) (watchdogPreState, *Store, string) {
+	if ctx.Err() != nil || watchdogShouldSkip(o.Home, dir, in) || d.OpenLedgerStore == nil {
 		return watchdogPreState{}, nil, ""
 	}
-	st, root, err := openLedgerStore(dir)
+	st, root, err := d.OpenLedgerStore(dir)
 	if err != nil || st == nil {
 		return watchdogPreState{}, nil, ""
 	}
@@ -73,20 +77,29 @@ func evaluateWatchdogPreCtx(ctx context.Context, o Options, dir string, in HookI
 	normTool, ringTool, argHash := normalizeWatchdogToolName(in.ToolCall.Name), watchdogRingTool(in.ToolCall), watchdogArgHash(in.ToolCall.Args)
 	var role, name string
 	var toolCalls int
-	_ = st.db.QueryRowContext(ctx, `SELECT COALESCE(agent_role, ''), COALESCE(agent_name, ''), COALESCE(tool_calls, 0) FROM session_meta WHERE conversation_id = ?`, convID).Scan(&role, &name, &toolCalls)
+	_ = st.SQLDB.QueryRowContext(ctx, `SELECT COALESCE(agent_role, ''), COALESCE(agent_name, ''), COALESCE(tool_calls, 0) FROM session_meta WHERE conversation_id = ?`, convID).Scan(&role, &name, &toolCalls)
 	if role == "" && ctx.Err() == nil {
-		role, name = resolveWatchdogRoleCtx(ctx, o.Home, convID, in.LastUserInput)
+		role, name = guard.ResolveWatchdogRoleCtx(ctx, o.Home, convID, in.LastUserInput, d.guardWatchdogRoleDeps())
 	}
 	exempt := isWatchdogExempt(dir, in, normTool)
-	deny, warn := "", ""
-	if ctx.Err() == nil {
-		if deny = checkWatchdogPollLoop(ctx, st, convID, normTool, ringTool); deny == "" && !exempt {
-			if deny = checkWatchdogErrorLoop(ctx, st, convID, ringTool, argHash); deny == "" {
-				deny, warn = checkWatchdogBudget(role, toolCalls)
-			}
-		}
-	}
+	deny, warn := evaluateWatchdogBreach(ctx, st, convID, normTool, ringTool, argHash, role, toolCalls, exempt)
 	return watchdogPreState{active: true, exempt: exempt, ringTool: ringTool, argHash: argHash, role: role, agentName: name, denyReason: deny, budgetWarn: warn}, st, root
+}
+
+func evaluateWatchdogBreach(ctx context.Context, st *Store, convID, normTool, ringTool, argHash, role string, toolCalls int, exempt bool) (string, string) {
+	if ctx.Err() != nil {
+		return "", ""
+	}
+	if deny := checkWatchdogPollLoop(ctx, st, convID, normTool, ringTool); deny != "" {
+		return deny, ""
+	}
+	if exempt {
+		return "", ""
+	}
+	if deny := checkWatchdogErrorLoop(ctx, st, convID, ringTool, argHash); deny != "" {
+		return deny, ""
+	}
+	return checkWatchdogBudget(role, toolCalls)
 }
 
 // IsBuilderSubagentRole reports whether role is a general builder role
@@ -148,41 +161,42 @@ func isWatchdogExempt(dir string, in HookInput, normTool string) bool {
 		return true
 	}
 	if normTool == "run_command" {
-		return isWatchdogExemptBash(in.ToolCall.Args)
+		return IsWatchdogExemptBash(in.ToolCall.Args)
 	}
-	target := extractToolTargetPath(in.ToolCall.Args)
+	target := ExtractToolTargetPath(in.ToolCall.Args)
 	if normTool != "write_or_edit" || target == "" {
 		return false
 	}
-	toolDir := resolveToolProjectDir(dir, in, target)
+	toolDir := ResolveToolProjectDir(dir, in, target)
 	base := dir
-	if root, _, ok := findGitRootFast(toolDir); ok {
+	if root, _, ok := guard.FindGitRootFast(toolDir); ok {
 		base = root
-	} else if root, _, ok := findGitRootFast(dir); ok {
+	} else if root, _, ok := guard.FindGitRootFast(dir); ok {
 		base = root
 	}
-	if base == "" || checkScratchNoSymlinks(base) != nil {
+	if base == "" || trail.CheckScratchNoSymlinks(base) != nil {
 		return false
 	}
-	resolved, canonBase := resolveTargetWithAncestors(toolDir, target), CanonicalizePath("", base)
+	resolved, canonBase := guard.ResolveTargetWithAncestors(toolDir, target), readledger.CanonicalizePath("", base)
 	rel, err := filepath.Rel(filepath.FromSlash(canonBase), filepath.FromSlash(resolved))
 	if err != nil || !strings.HasPrefix(filepath.ToSlash(filepath.Clean(rel)), ".agents/scratch/agents/") {
 		return false
 	}
-	return !hasSymlinkSegmentUnder(base, toolDir, target) && !hasSymlinkSegmentUnder(canonBase, canonBase, filepath.FromSlash(resolved))
+	return !guard.HasSymlinkSegmentUnder(base, toolDir, target) && !guard.HasSymlinkSegmentUnder(canonBase, canonBase, filepath.FromSlash(resolved))
 }
 
-func isWatchdogExemptBash(args map[string]any) bool {
-	_, cmd := extractBashCmdArg(args)
-	segs := splitShellSegments(cmd)
-	if cmd == "" || len(segs) == 0 || hasShellExpansionOutsideSingleQuotes(cmd) {
+// IsWatchdogExemptBash reports whether a bash command is an allowed git/fyr commit-detach sequence.
+func IsWatchdogExemptBash(args map[string]any) bool {
+	_, cmd := guard.ExtractBashCmdArg(args)
+	segs := guard.SplitShellSegments(cmd)
+	if cmd == "" || len(segs) == 0 || guard.HasShellExpansionOutsideSingleQuotes(cmd) {
 		return false
 	}
 	for _, seg := range segs {
-		cmdTok, rest := unwrapSegmentCommand(tokenizeShellSegment(seg))
+		cmdTok, rest := guard.UnwrapSegmentCommand(guard.TokenizeShellSegment(seg))
 		switch {
 		case cmdTok == "git":
-			sub, subArgs := skipGitGlobalFlags(rest)
+			sub, subArgs := guard.SkipGitGlobalFlags(rest)
 			if !slices.Contains([]string{"status", "diff", "add", "commit"}, sub) && (sub != "checkout" || !slices.Contains(subArgs, "--detach")) {
 				return false
 			}

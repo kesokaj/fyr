@@ -22,11 +22,6 @@ type CapsulePivot = readledger.CapsulePivot
 // ReadDecision reports whether a file read or write is allowed by the session read ledger.
 type ReadDecision = readledger.ReadDecision
 
-type resolvedCapsulePivot struct {
-	resolved, sumHex string
-	start, end       int
-}
-
 type storeLedgerAdapter struct{ *store }
 
 func (a storeLedgerAdapter) DB() *sql.DB                           { return a.db }
@@ -143,18 +138,6 @@ func (s *store) currentGeneration(conversationID string) (int, int) {
 	return readledger.CurrentGeneration(s.db, conversationID)
 }
 
-func (s *store) upsertReadStamp(conversationID string, genID int, resolved string, start, end int, sumHex string, turnNum int, now int64) error {
-	return readledger.UpsertStamp(s.db, conversationID, genID, resolved, start, end, sumHex, turnNum, now)
-}
-
-func (s *store) upsertCapsulePivotsTx(conversationID string, turnNum int, pivots []resolvedCapsulePivot) error {
-	conv := make([]readledger.ResolvedCapsulePivot, len(pivots))
-	for i, p := range pivots {
-		conv[i] = readledger.ResolvedCapsulePivot{Resolved: p.resolved, SumHex: p.sumHex, Start: p.start, End: p.end}
-	}
-	return readledger.UpsertCapsulePivotsTx(storeLedgerAdapter{s}, nowFunc, conversationID, turnNum, conv)
-}
-
 func (s *store) checkAndRecordResolvedRead(root, conversationID, resolved string, startLine, endLine, turnNum int) (ReadDecision, error) {
 	return readledger.CheckAndRecordResolvedRead(storeLedgerAdapter{s}, ledgerHooks(), root, conversationID, resolved, startLine, endLine, turnNum)
 }
@@ -172,14 +155,11 @@ func readFileDigestAndLines(resolvedPath string) (string, []byte, int, bool) {
 	return readledger.ReadFileDigestAndLines(resolvedPath)
 }
 
-func normalizeLineRange(startLine, endLine, totalLines int) (int, int) {
-	return readledger.NormalizeLineRange(startLine, endLine, totalLines)
-}
+// BashFileRead describes a single-file read extracted from a shell command string.
+type BashFileRead = readledger.BashFileRead
 
-func normalizeLedgerConvID(conversationID string) string {
-	return readledger.NormalizeConvID(conversationID)
-}
-
-func relDisplayPath(root, resolvedPath string) string {
-	return readledger.RelDisplayPath(root, resolvedPath)
+// ParseBashFileReads extracts file reads from &&, ;, and newline shell chains
+// (including benign env prefixes and strictly read-only pipes), tracking cd prefixes.
+func ParseBashFileReads(cmd string) []BashFileRead {
+	return readledger.ParseBashFileReads(cmd)
 }

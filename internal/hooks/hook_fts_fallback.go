@@ -1,68 +1,31 @@
-package search
+package hooks
 
 import (
-	"database/sql"
 	"path"
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/kesokaj/fyr/internal/symgraph"
 )
 
 const (
-	ftsFallbackLimit   = 12
+	// FTSFallbackLimit caps the number of FTS chunks examined during AST fallback.
+	FTSFallbackLimit   = 12
 	ftsFallbackMinWord = 4
 )
 
-// registerFTSTurnCache and clearFTSTurnCache are compatibility shims kept for
-// callers outside this slice's write lease; FTS turn caching is scoped per *store.
-func registerFTSTurnCache(_ *sql.DB) {}
-
-func clearFTSTurnCache(_ *sql.DB) {}
-
-func (s *store) clearFTSTurnCache() {
-	if s == nil {
-		return
-	}
-	s.ftsTurnCacheMu.Lock()
-	s.ftsTurnCache = nil
-	s.ftsTurnCacheMu.Unlock()
-}
-
-func (s *store) lookupFTSTurnCache(key string) ([]ftsChunkHit, bool) {
-	if s == nil {
+// FTSFallbackRanked scores graph symbols via FTS5 chunk fallback when AST ranking is unconfident.
+func FTSFallbackRanked(d Deps, sc *Scope, g *symgraph.Graph, prompt string, active map[string]bool) ([]symgraph.RankedSymbol, bool) {
+	if sc == nil || sc.St == nil || sc.St.SQLDB == nil || g == nil || len(g.Syms) == 0 {
 		return nil, false
 	}
-	s.ftsTurnCacheMu.Lock()
-	defer s.ftsTurnCacheMu.Unlock()
-	if s.ftsTurnCache == nil {
-		return nil, false
-	}
-	hits, found := s.ftsTurnCache[key]
-	return hits, found
-}
-
-func (s *store) storeFTSTurnCache(key string, hits []ftsChunkHit) {
-	if s == nil {
-		return
-	}
-	s.ftsTurnCacheMu.Lock()
-	if s.ftsTurnCache == nil {
-		s.ftsTurnCache = map[string][]ftsChunkHit{}
-	}
-	s.ftsTurnCache[key] = hits
-	s.ftsTurnCacheMu.Unlock()
-}
-
-func (sc *scope) ftsFallbackRanked(g *symGraph, prompt string, active map[string]bool) ([]RankedSymbol, bool) {
-	if sc == nil || sc.st == nil || g == nil || len(g.Syms) == 0 {
-		return nil, false
-	}
-	words := extractFTSFallbackWords(prompt)
+	words := ExtractFTSFallbackWords(prompt)
 	if len(words) < 2 {
 		return nil, false
 	}
 	promptLower := strings.ToLower(prompt)
-	hits := sc.queryFTSFallbackChunks(words, promptLower)
+	hits := QueryFTSFallbackChunks(d, sc, words, promptLower)
 	if len(hits) == 0 {
 		return nil, false
 	}
@@ -82,32 +45,33 @@ func (sc *scope) ftsFallbackRanked(g *symGraph, prompt string, active map[string
 	return rankWeightedSymbols(g, scores), true
 }
 
-func (sc *scope) queryFTSFallbackChunks(words []string, promptLower string) []ftsChunkHit {
-	cacheKey := strings.Join(words, "\x00") + "\x01" + promptLower
-	var st *store
+// QueryFTSFallbackChunks queries cached or live FTS5 fallback chunks for words.
+func QueryFTSFallbackChunks(d Deps, sc *Scope, words []string, promptLower string) []symgraph.FTSChunkHit {
+	ck := strings.Join(words, "\x00") + "\x01" + promptLower
+	var st *Store
 	if sc != nil {
-		st = sc.st
+		st = sc.St
 	}
-	if cached, ok := st.lookupFTSTurnCache(cacheKey); ok {
+	if cached, ok := st.LookupFTSTurnCache(ck); ok {
 		return cached
 	}
 	minMatched := 2
 	if len(words) < 2 {
 		minMatched = 1
 	}
-	var hits []ftsChunkHit
-	if len(words) >= 2 {
-		hits = sc.runFTSFallbackSQL(ftsQuery(words, " AND "), words, promptLower, minMatched)
+	var hits []symgraph.FTSChunkHit
+	if len(words) >= 2 && d.FTSQuery != nil {
+		hits = runFTSFallbackSQL(sc, d.FTSQuery(words, " AND "), words, promptLower, minMatched)
 	}
-	if len(hits) == 0 {
-		hits = sc.runFTSFallbackSQL(ftsQuery(words, " OR "), words, promptLower, minMatched)
+	if len(hits) == 0 && d.FTSQuery != nil {
+		hits = runFTSFallbackSQL(sc, d.FTSQuery(words, " OR "), words, promptLower, minMatched)
 	}
-	st.storeFTSTurnCache(cacheKey, hits)
+	st.StoreFTSTurnCache(ck, hits)
 	return hits
 }
 
-func (sc *scope) runFTSFallbackSQL(matchExpr string, words []string, promptLower string, minMatched int) []ftsChunkHit {
-	if matchExpr == "" {
+func runFTSFallbackSQL(sc *Scope, matchExpr string, words []string, promptLower string, minMatched int) []symgraph.FTSChunkHit {
+	if matchExpr == "" || sc == nil || sc.St == nil || sc.St.SQLDB == nil {
 		return nil
 	}
 	q := `WITH m AS MATERIALIZED (
@@ -119,17 +83,17 @@ func (sc *scope) runFTSFallbackSQL(matchExpr string, words []string, promptLower
 		FROM m
 		JOIN chunks c ON c.id = m.id
 		JOIN files f ON f.oid = c.oid
-		WHERE f.project IN ` + sc.in() + `
+		WHERE f.project IN ` + sc.inClause() + `
 		ORDER BY m.score`
-	args := append([]any{matchExpr, ftsFallbackLimit * 8}, sc.keys()...)
-	rows, err := sc.st.db.Query(q, args...)
+	args := append([]any{matchExpr, FTSFallbackLimit * 8}, sc.projectArgs()...)
+	rows, err := sc.St.SQLDB.Query(q, args...)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
-	var out []ftsChunkHit
-	for rows.Next() && len(out) < ftsFallbackLimit {
-		var h ftsChunkHit
+	var out []symgraph.FTSChunkHit
+	for rows.Next() && len(out) < FTSFallbackLimit {
+		var h symgraph.FTSChunkHit
 		if rows.Scan(&h.Path, &h.Line, &h.Heading, &h.Body) != nil {
 			continue
 		}
@@ -144,12 +108,12 @@ func (sc *scope) runFTSFallbackSQL(matchExpr string, words []string, promptLower
 	return out
 }
 
-func mapChunkToGraphSymbols(g *symGraph, h ftsChunkHit) []int {
+func mapChunkToGraphSymbols(g *symgraph.Graph, h symgraph.FTSChunkHit) []int {
 	idxs := g.ByPath[h.Path]
 	if len(idxs) == 0 {
 		return nil
 	}
-	cStart, cEnd := h.Line, h.Line+chunkLines-1
+	cStart, cEnd := h.Line, h.Line+symgraph.ChunkLines-1
 	var matched []int
 	for _, idx := range idxs {
 		s := g.Syms[idx]
@@ -176,8 +140,8 @@ func mapChunkToGraphSymbols(g *symGraph, h ftsChunkHit) []int {
 	return matched[:2]
 }
 
-func rankWeightedSymbols(g *symGraph, scores map[int]float64) []RankedSymbol {
-	out := make([]RankedSymbol, 0, len(scores))
+func rankWeightedSymbols(g *symgraph.Graph, scores map[int]float64) []symgraph.RankedSymbol {
+	out := make([]symgraph.RankedSymbol, 0, len(scores))
 	for idx, sc := range scores {
 		s := g.Syms[idx]
 		s.Score = sc
@@ -192,7 +156,8 @@ func rankWeightedSymbols(g *symGraph, scores map[int]float64) []RankedSymbol {
 	return out
 }
 
-func extractFTSFallbackWords(prompt string) []string {
+// ExtractFTSFallbackWords extracts up to 8 meaningful query words from prompt.
+func ExtractFTSFallbackWords(prompt string) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, tok := range strings.Fields(strings.ToLower(prompt)) {
@@ -201,7 +166,7 @@ func extractFTSFallbackWords(prompt string) []string {
 			continue
 		}
 		for _, p := range strings.FieldsFunc(norm, isNotFTSWordRune) {
-			if len(p) < ftsFallbackMinWord || ftsFallbackStopwords[p] || isAllDigits(p) || seen[p] {
+			if len(p) < ftsFallbackMinWord || symgraph.FTSFallbackStopwords[p] || isAllFTSDigits(p) || seen[p] {
 				continue
 			}
 			seen[p] = true
@@ -234,7 +199,7 @@ func isNotFTSWordRune(r rune) bool {
 	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
 }
 
-func isAllDigits(s string) bool {
+func isAllFTSDigits(s string) bool {
 	for _, r := range s {
 		if !unicode.IsDigit(r) {
 			return false
@@ -244,10 +209,10 @@ func isAllDigits(s string) bool {
 }
 
 func allowFTSFallbackPath(p, promptLower string) bool {
-	if isExcludedASTPath(p) {
+	if symgraph.IsExcludedASTPath(p) {
 		return false
 	}
-	if isDocPath(p) {
+	if symgraph.IsDocPath(p) {
 		return strings.Contains(promptLower, ".md") || strings.Contains(promptLower, "readme") || strings.Contains(promptLower, "docs")
 	}
 	if strings.HasPrefix(p, ".agents/") || strings.Contains(p, "/.agents/") {

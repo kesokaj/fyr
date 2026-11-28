@@ -1,10 +1,15 @@
-package search
+package hooks
 
 import (
 	"context"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/hooks/guard"
+	"github.com/kesokaj/fyr/internal/hooks/telemetry"
+	"github.com/kesokaj/fyr/internal/readledger"
+	"github.com/kesokaj/fyr/internal/vet"
 )
 
 type preInvocationSubagentInfo struct {
@@ -19,11 +24,11 @@ var preInvocationVerifierPreambles = []string{
 	"you run live runtime e2e",
 }
 
-func resolvePreInvocationSubagentCtx(ctx context.Context, home string, st *store, convID, rawPrompt string) preInvocationSubagentInfo {
+func resolvePreInvocationSubagentCtx(ctx context.Context, d Deps, home string, st *Store, convID, rawPrompt string) preInvocationSubagentInfo {
 	var role, name string
 	var toolCalls int
-	if st != nil && st.db != nil {
-		_ = st.db.QueryRowContext(ctx,
+	if st != nil && st.SQLDB != nil {
+		_ = st.SQLDB.QueryRowContext(ctx,
 			`SELECT COALESCE(agent_role, ''), COALESCE(agent_name, ''), COALESCE(tool_calls, 0) FROM session_meta WHERE conversation_id = ?`,
 			convID,
 		).Scan(&role, &name, &toolCalls)
@@ -31,9 +36,9 @@ func resolvePreInvocationSubagentCtx(ctx context.Context, home string, st *store
 	meta := hookSubagentMetaFromCtx(ctx)
 	hasParent := strings.TrimSpace(meta.ParentConversationID) != ""
 	if role == "" {
-		role, name, hasParent = inferPreInvocationSubagentRole(ctx, home, convID, rawPrompt, meta, hasParent)
-		if role != "" && st != nil && st.db != nil && ctx.Err() == nil {
-			_, _ = st.db.ExecContext(ctx,
+		role, name, hasParent = inferPreInvocationSubagentRole(ctx, d, home, convID, rawPrompt, meta, hasParent)
+		if role != "" && st != nil && st.SQLDB != nil && ctx.Err() == nil {
+			_, _ = st.SQLDB.ExecContext(ctx,
 				`UPDATE session_meta SET agent_role = CASE WHEN agent_role = '' THEN ? ELSE agent_role END, agent_name = CASE WHEN agent_role = '' THEN ? ELSE agent_name END WHERE conversation_id = ?`,
 				role, name, convID,
 			)
@@ -43,7 +48,7 @@ func resolvePreInvocationSubagentCtx(ctx context.Context, home string, st *store
 	return preInvocationSubagentInfo{role: role, name: name, toolCalls: toolCalls, lightweight: light}
 }
 
-func inferPreInvocationSubagentRole(ctx context.Context, home, convID, rawPrompt string, meta hookSubagentMeta, hasParent bool) (string, string, bool) {
+func inferPreInvocationSubagentRole(ctx context.Context, d Deps, home, convID, rawPrompt string, meta hookSubagentMeta, hasParent bool) (string, string, bool) {
 	if a := strings.TrimSpace(meta.AgentName); a != "" && !strings.EqualFold(a, "main") {
 		return a, a, hasParent || IsAuditSubagentRole(a)
 	}
@@ -56,7 +61,7 @@ func inferPreInvocationSubagentRole(ctx context.Context, home, convID, rawPrompt
 	if home != "" && convID != "" && convID != "default" && ctx.Err() == nil {
 		sctx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
 		defer cancel()
-		r, n, found := lookupWatchdogSummaryRoleCtx(sctx, home, convID)
+		r, n, found := guard.LookupWatchdogSummaryRoleCtx(sctx, home, convID, d.guardWatchdogRoleDeps())
 		if found && r != "" && !strings.EqualFold(r, "main") {
 			return r, n, true
 		}
@@ -65,7 +70,7 @@ func inferPreInvocationSubagentRole(ctx context.Context, home, convID, rawPrompt
 }
 
 func matchPreInvocationRolePreamble(rawPrompt string) string {
-	if r := matchWatchdogPromptPreamble(rawPrompt); r != "" {
+	if r := guard.MatchWatchdogPromptPreamble(rawPrompt); r != "" {
 		return r
 	}
 	stripped := strings.TrimSpace(StripSandboxPreamble(rawPrompt))
@@ -92,21 +97,21 @@ func matchPreInvocationRolePreamble(rawPrompt string) string {
 	return ""
 }
 
-func handleLightweightSubagentTurn(ctx context.Context, o Options, sc *scope, dir string, in HookInput, state SessionState, sub preInvocationSubagentInfo, rawPrompt, cleanPrompt string, start time.Time) (string, string) {
+func handleLightweightSubagentTurn(ctx context.Context, d Deps, o Options, sc *Scope, dir string, in HookInput, state readledger.SessionState, sub preInvocationSubagentInfo, rawPrompt, cleanPrompt string, start time.Time) (string, string) {
 	if ctx != nil && ctx.Err() != nil {
 		return "", ""
 	}
-	cat, hasCat := loadModelsCatalog(o.Home)
-	var modelInfo resolvedModelInfo
-	if raw := cleanRawModelID(in.ModelName); raw != "" {
-		id, disp, think := resolveModelDetailsWithCatalog(cat, hasCat, raw)
-		modelInfo = resolvedModelInfo{ID: id, Display: disp, Thinking: think}
+	cat, hasCat := telemetry.LoadModelsCatalog(o.Home)
+	var modelInfo telemetry.ResolvedModelInfo
+	if raw := telemetry.CleanRawModelID(in.ModelName); raw != "" {
+		id, disp, think := telemetry.ResolveModelDetailsWithCatalog(cat, hasCat, raw)
+		modelInfo = telemetry.ResolvedModelInfo{ID: id, Display: disp, Thinking: think}
 	}
 	sections, meta := buildLightweightSubagentSections(o, sc, dir, state, sub, modelInfo.ID)
 	bp := strings.HasPrefix(strings.TrimSpace(rawPrompt), "!")
-	intent := ClassifyIntent(cleanPrompt, 0)
-	conflicts := detectTurnConflicts(cleanPrompt, TurnBrainContext{})
-	vetRes := VetResult{
+	intent := vet.ClassifyIntent(cleanPrompt, 0)
+	conflicts := vet.DetectTurnConflicts(cleanPrompt, vet.TurnBrainContext{})
+	vetRes := vet.Result{
 		Intent:              intent,
 		Gate:                lightweightSubagentGate(state.Compacted, bp, intent, conflicts),
 		Score:               100,
@@ -116,12 +121,12 @@ func handleLightweightSubagentTurn(ctx context.Context, o Options, sc *scope, di
 		SessionThinking:     modelInfo.Thinking,
 		Conflicts:           conflicts,
 	}
-	return finalizeHookEnvelope(ctx, o.Home, cat, hasCat, sc, dir, state.ConversationID, state.TurnCount, rawPrompt, cleanPrompt, in, state, vetRes, SliceResult{}, TurnBrainContext{}, meta, sections, start)
+	return telemetry.FinalizeHookEnvelope(ctx, o.Home, cat, hasCat, d.telemetryArtifactDeps(sc), dir, state.ConversationID, state.TurnCount, rawPrompt, cleanPrompt, toTelemetryConvInput(in), state, vetRes, vet.SliceResult{}, vet.TurnBrainContext{}, meta, sections, start)
 }
 
-func buildLightweightSubagentSections(o Options, sc *scope, dir string, state SessionState, sub preInvocationSubagentInfo, modelID string) ([]string, TurnBannerMeta) {
+func buildLightweightSubagentSections(o Options, sc *Scope, dir string, state readledger.SessionState, sub preInvocationSubagentInfo, modelID string) ([]string, telemetry.TurnBannerMeta) {
 	var sections []string
-	var meta TurnBannerMeta
+	var meta telemetry.TurnBannerMeta
 	meta.SessionModelResolved = true
 	if state.Compacted {
 		if o.BrainReprime != nil {
@@ -131,7 +136,7 @@ func buildLightweightSubagentSections(o Options, sc *scope, dir string, state Se
 		}
 		meta.CompactedGeneration = max(1, state.GenerationID)
 	}
-	if warnFull, warnShort := dedupContextKneeWarning(o.Home, sc, state.ConversationID, modelID, state); warnFull != "" {
+	if warnFull, warnShort := dedupContextKnee(o.Home, sc, state.ConversationID, modelID, state); warnFull != "" {
 		sections = append(sections, warnFull)
 		meta.ContextKneeWarning = warnShort
 	}
@@ -148,12 +153,12 @@ func buildLightweightSubagentSections(o Options, sc *scope, dir string, state Se
 	return sections, meta
 }
 
-func lightweightSubagentGate(compacted, bypassed bool, intent IntentMode, conflicts []string) VetGate {
-	if len(conflicts) > 0 && !bypassed {
-		return GateVetFirst
+func lightweightSubagentGate(compacted, bp bool, intent vet.IntentMode, conflicts []string) vet.VetGate {
+	if len(conflicts) > 0 && !bp {
+		return vet.GateVetFirst
 	}
-	if !compacted && !bypassed && (intent == IntentApproval || intent == IntentTrivial) {
-		return GatePassThrough
+	if !compacted && !bp && (intent == vet.IntentApproval || intent == vet.IntentTrivial) {
+		return vet.GatePassThrough
 	}
-	return GateEnrichAndProceed
+	return vet.GateEnrichAndProceed
 }

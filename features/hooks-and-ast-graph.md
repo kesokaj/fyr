@@ -4,7 +4,7 @@
 
 ## Hook lifecycle across a turn
 
-Antigravity calls `fyr search --hook` across five events (`session-start`, `pre-invocation`, `pre-tool-use`, `post-tool-use`, `stop`) under `< 250 ms` (`PRD.md` R3, `internal/search/hook.go`). Every hook obeys a `200 ms` deadline (`defaultHookDeadline`) and fails open if stores are locked or missing. Regular marker files at `~/.config/fyr/no-hooks` or `.agents/scratch/no-hooks` disable hooks (`os.Lstat`; `FYR_RELAY=1` ignores repo-local markers).
+Antigravity calls `fyr search --hook` across five events (`session-start`, `pre-invocation`, `pre-tool-use`, `post-tool-use`, `stop`) under `< 250 ms` (`PRD.md` R3, `internal/hooks/hook.go`). Every hook obeys a `200 ms` deadline (`defaultHookDeadline`) and fails open if stores are locked or missing. Regular marker files at `~/.config/fyr/no-hooks` or `.agents/scratch/no-hooks` disable hooks (`os.Lstat`; `FYR_RELAY=1` ignores repo-local markers).
 
 ```mermaid
 sequenceDiagram
@@ -29,11 +29,11 @@ sequenceDiagram
     Hook-->>Agy: allow or [VERIFY_STAMP] nudge
 ```
 
-At `session-start`, `handleSessionStart` (`internal/search/hook_session_start.go`) walks the git index directly (`internal/hooks/guard/hook_git_index.go`) without spawning `git`. It emits a `<= 1,500`-byte `SESSION_START` capsule with the date, active plan, `TODO.md` `Now` items, and dirty Go count.
+At `session-start`, `handleSessionStart` (`internal/hooks/hook_session_start.go`) walks the git index directly (`internal/hooks/guard/hook_git_index.go`) without spawning `git`. It emits a `<= 1,500`-byte `SESSION_START` capsule with the date, active plan, `TODO.md` `Now` items, and dirty Go count.
 
 ## Pure-Go AST and Markdown symbol graph
 
-`fyr index` maintains a derived symbol and FTS5 cache in `.agents/scratch/search.db`. Warm `PreInvocation` stays under `80 ms` and mid-turn dedup under `15 ms` via `git_warm_sig` and incremental `applyDirtyPaths` (`internal/search/reconcile.go`). Compaction detection (`scanTranscriptCheckpoint`), parallel slice assembly (`<= 120 ms`), lightweight subagent routing, and timeout fallback stamps (`internal/search/hook_deadline.go`) protect latency.
+`fyr index` maintains a derived symbol and FTS5 cache in `.agents/scratch/search.db`. Warm `PreInvocation` stays under `80 ms` and mid-turn dedup under `15 ms` via `git_warm_sig` and incremental `applyDirtyPaths` (`internal/search/reconcile.go`). Compaction detection (`scanTranscriptCheckpoint`), parallel slice assembly (`<= 120 ms`), lightweight subagent routing, and timeout fallback stamps (`internal/hooks/hook_deadline.go`) protect latency.
 
 Go `go/ast`, a TypeScript/TSX scanner (`internal/symgraph/symbols_ts.go`), and a Markdown heading extractor (`internal/symgraph/symbols_md.go`) populate symbols while in-place migrations preserve behavioral tables (`PRD.md` R4). The indexer resolves Go `go.mod` aliases and TS/TSX imports, normalizes package paths (`internal/symgraph/pkg_paths.go`) so multiple `package main` directories never collide, and skips generated Go files plus docs unless `--include-docs` is set. Over `import`, `call`, and `type_ref` edges, `fyr` computes PageRank, Tarjan SCCs (`internal/symgraph/graph_tarjan.go`), Louvain communities (`internal/symgraph/graph_louvain.go`), and structural signals.
 
@@ -86,7 +86,7 @@ Six deterministic mechanics keep enriched turns concise and Coordinator-aligned:
 
 ## Read deduplication and file clamping
 
-On `pre-tool-use`, dual-gate clamping and a SHA-256 read ledger prevent full-file bloat and duplicate reads (`internal/search/hook_clamp.go`, `internal/search/read_ledger.go`).
+On `pre-tool-use`, dual-gate clamping and a SHA-256 read ledger prevent full-file bloat and duplicate reads (`internal/hooks/hook_clamp.go`, `internal/search/read_ledger.go`).
 
 ```mermaid
 stateDiagram-v2
@@ -105,11 +105,11 @@ stateDiagram-v2
 
 - **Dual-gate clamping:** First unranged reads of `>= 400` lines or `>= 16,384` bytes receive a `[CLAMPED]` denial with a `60`-line skeleton. A `-5` sentinel (`clampOnceSentinelLine`) permits ranged reads or an explicit retry.
 - **Out-of-root bypass:** `PreToolUse` `read_file` passes through immediately for paths outside the workspace root or in unindexed directories.
-- **SHA-256 read ledger:** Tracks `800`-line / `46,080`-byte windows per generation. `ParseBashFileReads` (`internal/search/read_ledger_bash.go`) enforces `[CLAMPED]` and `[UNCHANGED]` across 18 Bash read patterns and read-only pipes. Edits keep `-5` sentinels, invalidate overlapping spans, and require a prior read before modifying existing files.
+- **SHA-256 read ledger:** Tracks `800`-line / `46,080`-byte windows per generation. `ParseBashFileReads` (`internal/search/read_ledger.go`) enforces `[CLAMPED]` and `[UNCHANGED]` across 18 Bash read patterns and read-only pipes. Edits keep `-5` sentinels, invalidate overlapping spans, and require a prior read before modifying existing files.
 
 ## Coordinator write guard and worker JIT capsules
 
-Isolated subagents and swarm workers share zero parent conversation memory (`PRD.md` R0). `PreToolUse` blocks direct Coordinator source edits on multi-subtask turns and injects `[FYR_WORKER_CAPSULE]` context into worker briefs (`internal/hooks/guard/hook_coordinator.go`, `internal/search/hook_worker_capsule.go`).
+Isolated subagents and swarm workers share zero parent conversation memory (`PRD.md` R0). `PreToolUse` blocks direct Coordinator source edits on multi-subtask turns and injects `[FYR_WORKER_CAPSULE]` context into worker briefs (`internal/hooks/guard/hook_coordinator.go`, `internal/hooks/hook_worker_capsule.go`).
 
 ```mermaid
 flowchart LR
@@ -126,13 +126,13 @@ flowchart LR
 ```
 
 - **`[COORDINATOR_GUARD]`:** Denies direct source edits when a turn records `COORDINATE_SUBTASKS`, `SubtaskCount >= 2`, or a regular `coordinator-only` marker (`PRD.md` R6). Exemptions allow `.agents/scratch/**` (no symlinks), `TODO.md`, linked git worktrees, `!`-bypasses, and worker briefs.
-- **Deny-first model routing:** Denies weak model overrides on guarded roles (`reviewer`, `verifier`, `security`, `dreamer`) and `swarm` `judge` prefixes. Session resolution applies `30%` 5h and `20%` week headroom fallbacks (`internal/search/hook_subagent_models.go`).
+- **Deny-first model routing:** Denies weak model overrides on guarded roles (`reviewer`, `verifier`, `security`, `dreamer`) and `swarm` `judge` prefixes. Session resolution applies `30%` 5h and `20%` week headroom fallbacks (`internal/hooks/hook_subagent_models.go`).
 - **`[FYR_WORKER_CAPSULE]` (`<= 1,200 B`):** Triggers once when a target path exists and context is non-empty (or `coordinator-only` is active). It keeps `Files:` verbatim and packs fenced blocks in priority order: files, `<= 3` records (`140 B`), top skill (`<= 400 B`), `Hop-0` slice, and `<= 600 B` `spec_contracts`.
 - **`run_workflow` allowlist (`internal/hooks/guard/hook_workflow.go`):** Limits scripts to workspace files or `~/.gemini/config/workflows/*.py` (`<= 1 MiB`), rejecting `..` and symlinks. It enforces `model="pro"` on guarded Python `agent(...)` calls while skipping string literals and comments.
 
 ## Watchdog breakers, bash stdin guard, and PostToolUse
 
-`PreToolUse` and `PostToolUse` share a two-layer Watchdog and interactive Bash guard inside the `200 ms` fail-open budget (`internal/search/hook_watchdog.go`, `internal/hooks/guard/hook_bash_guard.go`). `watchdog_ring` and `session_meta` in `.agents/scratch/search.db` break loops and budget overruns before burning context.
+`PreToolUse` and `PostToolUse` share a two-layer Watchdog and interactive Bash guard inside the `200 ms` fail-open budget (`internal/hooks/hook_watchdog.go`, `internal/hooks/guard/hook_bash_guard.go`). `watchdog_ring` and `session_meta` in `.agents/scratch/search.db` break loops and budget overruns before burning context.
 
 ```mermaid
 flowchart LR
@@ -150,14 +150,14 @@ flowchart LR
 | `[INTERACTIVE_STDIN]` | `internal/hooks/guard/hook_bash_guard.go` | Blocks interactive stdin (`read -p`, `ssh` without `-o BatchMode=yes` + command) and prepends `export GIT_TERMINAL_PROMPT=0; ` on network `git` calls |
 | `[KICKOFF_GUARD]` | `internal/hooks/guard/hook_pretool_ask.go` | Denies mid-build `ask_question` calls during Kickoff or worker turns unless citing a `PRD.md`/ADR conflict, Re-plan trigger, or quota exhaustion |
 | `[SEARCH_NUDGE]` | `internal/hooks/guard/hook_pretool_nudge.go` | Emits one allow-with-notice nudge per turn steering indexed symbol greps toward `fyr search --refs` or `--slice` |
-| `[POLL_LOOP]` | `internal/search/hook_watchdog.go` | Breaks repeated polling tool-call loops tracked in `watchdog_ring` |
-| `[ERROR_LOOP]` | `internal/search/hook_watchdog_ring.go` | Breaks `>= 3` identical failing calls or A-B-A-B repeating error loops in `watchdog_ring` |
-| `[SUBAGENT_BUDGET]` | `internal/search/hook_watchdog.go` | Tracks per-session `tool_calls` in `session_meta`, warning then denying at `(90, 120)` for builders and `(25, 40)` for audit roles |
-| `post-tool-use` | `internal/search/hook_watchdog.go` | Marks `watchdog_ring` failures by `HookToolCall.ID` or tool fallback and returns `{}` |
+| `[POLL_LOOP]` | `internal/hooks/hook_watchdog.go` | Breaks repeated polling tool-call loops tracked in `watchdog_ring` |
+| `[ERROR_LOOP]` | `internal/hooks/hook_watchdog_ring.go` | Breaks `>= 3` identical failing calls or A-B-A-B repeating error loops in `watchdog_ring` |
+| `[SUBAGENT_BUDGET]` | `internal/hooks/hook_watchdog.go` | Tracks per-session `tool_calls` in `session_meta`, warning then denying at `(90, 120)` for builders and `(25, 40)` for audit roles |
+| `post-tool-use` | `internal/hooks/hook_watchdog.go` | Marks `watchdog_ring` failures by `HookToolCall.ID` or tool fallback and returns `{}` |
 
 ## Stop verification nudge and co-activity
 
-When a turn ends normally, `handleStopHook` (`internal/search/hook_stop_stamp.go`) records passive `co_activity` pairs to improve future `--slice` ranking. It writes live progress to `<appDataDir>/brain/<conv-id>/fyr-process.md`. If Go files changed without a matching `.agents/scratch/verify.stamp`, `Stop` emits one `[VERIFY_STAMP]` nudge without running `go test`.
+When a turn ends normally, `handleStopHook` (`internal/hooks/hook_stop_stamp.go`) records passive `co_activity` pairs to improve future `--slice` ranking. It writes live progress to `<appDataDir>/brain/<conv-id>/fyr-process.md`. If Go files changed without a matching `.agents/scratch/verify.stamp`, `Stop` emits one `[VERIFY_STAMP]` nudge without running `go test`.
 
 ## Repository constellation and web preview (`fyr graph`)
 

@@ -1,25 +1,28 @@
-package search
+package hooks
 
 import (
 	"fmt"
 	"strings"
 
+	"github.com/kesokaj/fyr/internal/hooks/telemetry"
 	"github.com/kesokaj/fyr/internal/models"
+	"github.com/kesokaj/fyr/internal/vet"
 )
 
 func formatSwarmPickReason(home, picked, fbNote string) string {
-	label := formatModelTag(home, picked)
-	if label == "" {
-		label = strings.TrimSpace(picked)
+	lbl := FormatModelTag(home, picked)
+	if lbl == "" {
+		lbl = strings.TrimSpace(picked)
 	}
-	reason := "[AUTO_SWARM_MODEL] selected " + label
+	reason := "[AUTO_SWARM_MODEL] selected " + lbl
 	if fbNote != "" {
 		reason += "; " + fbNote
 	}
 	return reason
 }
 
-func inferSwarmRole(args map[string]any) string {
+// InferSwarmRole classifies a swarm worker name into judge, mechanical, or builder.
+func InferSwarmRole(args map[string]any) string {
 	tokens := tokenizeRoleHint(stringArgCI(args, "name"))
 	if len(tokens) == 0 {
 		return "builder"
@@ -34,7 +37,8 @@ func inferSwarmRole(args map[string]any) string {
 	}
 }
 
-func pickSwarmModel(home, role string) (string, string) {
+// PickSwarmModel picks an eligible model ID and optional fallback reason for role.
+func PickSwarmModel(home, role string) (string, string) {
 	resolved := strings.TrimSpace(home)
 	if resolved == "" {
 		return "", ""
@@ -76,7 +80,7 @@ func hasSwarmRoleToken(tokens, exact, prefixes []string) bool {
 	return false
 }
 
-func subagentCrossFamilyNotice(home, subagent, sessionModel string, upgraded bool) string {
+func subagentCrossFamilyNotice(d Deps, home, subagent, sessionModel string, upgraded bool) string {
 	resolved := strings.TrimSpace(home)
 	if resolved == "" {
 		return ""
@@ -89,7 +93,7 @@ func subagentCrossFamilyNotice(home, subagent, sessionModel string, upgraded boo
 	if err != nil || strings.TrimSpace(pick.Model) == "" {
 		return ""
 	}
-	pickFam, pickTag := catalogPickFamilyAndTag(cat.Entries, pick.Model)
+	pickFam, pickTag := catalogPickFamilyAndTag(d, cat.Entries, pick.Model)
 	if pickFam != "anthropic" {
 		return ""
 	}
@@ -103,18 +107,18 @@ func subagentCrossFamilyNotice(home, subagent, sessionModel string, upgraded boo
 	)
 }
 
-func catalogPickFamilyAndTag(entries []models.CatalogEntry, modelID string) (string, string) {
+func catalogPickFamilyAndTag(d Deps, entries []models.CatalogEntry, modelID string) (string, string) {
 	s := strings.TrimSpace(modelID)
 	for _, e := range entries {
 		if strings.EqualFold(e.ID, s) || (e.DisplayName != "" && strings.EqualFold(e.DisplayName, s)) {
-			label := e.ID
+			lbl := e.ID
 			if e.DisplayName != "" && !strings.EqualFold(e.DisplayName, e.ID) {
-				label = fmt.Sprintf("%s [%s]", e.ID, collapseOneLine(printable(e.DisplayName), 120))
+				lbl = fmt.Sprintf("%s [%s]", e.ID, vet.CollapseOneLine(d.printable(e.DisplayName), 120))
 			}
-			if think := normalizeThinking(e.Effort, e.ID); think != "" {
-				label = fmt.Sprintf("%s, thinking=%s", label, think)
+			if think := telemetry.NormalizeThinking(e.Effort, e.ID); think != "" {
+				lbl = fmt.Sprintf("%s, thinking=%s", lbl, think)
 			}
-			return strings.ToLower(e.Family), label
+			return strings.ToLower(e.Family), lbl
 		}
 	}
 	fam, _, _ := models.ClassifyModel(s, "")

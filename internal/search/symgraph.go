@@ -44,7 +44,6 @@ type (
 	chunk          = symgraph.Chunk
 	ref            = symgraph.Ref
 	fence          = symgraph.Fence
-	sliceTiers     = symgraph.SliceTiers
 	sliceLineCache = symgraph.SliceLineCache
 	fileChurnStat  = symgraph.FileChurnStat
 	ftsChunkHit    = symgraph.FTSChunkHit
@@ -192,10 +191,6 @@ func (sc *scope) repoMapSummary(o Options, out io.Writer) error {
 	return sc.symScope().RepoMapSummary(toSymSliceOpts(o), out)
 }
 
-func (sc *scope) renderCompactHookCapsule(o Options, g *symGraph, tiers sliceTiers, maxBytes int) string {
-	return sc.symScope().RenderCompactHookCapsule(toSymSliceOpts(o), g, tiers, maxBytes)
-}
-
 func (sc *scope) formatHop0Symbol(cache sliceLineCache, s RankedSymbol, remBytes int) string {
 	return sc.symScope().FormatHop0Symbol(cache, s, remBytes)
 }
@@ -242,16 +237,8 @@ func resolveImportTarget(fromPath, toPkg string, goMods map[string]string, pkgSe
 	return symgraph.ResolveImportTarget(fromPath, toPkg, goMods, pkgSet, fileByStem)
 }
 
-func extractCompactCapsuleMeta(capsule string) ([]CapsulePivot, []string, int) {
-	return symgraph.ExtractCompactCapsuleMeta(capsule)
-}
-
 func buildSymGraphFromDB(db *sql.DB, projects []string, goMods map[string]string, includeDocs bool) (*symGraph, error) {
 	return symgraph.BuildSymGraphFromDB(db, projects, goMods, includeDocs)
-}
-
-func queryIndexedFilesDB(db *sql.DB, projects []string, includeDocs bool) ([]symgraph.FileMeta, error) {
-	return symgraph.QueryIndexedFilesDB(db, projects, includeDocs)
 }
 
 func querySymbolNodesDB(db *sql.DB, projects []string, includeDocs bool) ([]RankedSymbol, error) {

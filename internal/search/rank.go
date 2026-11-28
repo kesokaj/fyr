@@ -3,8 +3,6 @@ package search
 import (
 	"path/filepath"
 	"strings"
-
-	"github.com/kesokaj/fyr/internal/symgraph"
 )
 
 func (sc *scope) sessionActiveFiles(sessionID string, extra map[string]bool) map[string]bool {
@@ -34,12 +32,4 @@ func (sc *scope) sessionActiveFiles(sessionID string, extra map[string]bool) map
 		}
 	}
 	return out
-}
-
-func parseQueryTerms(query string) []string {
-	return symgraph.ParseQueryTerms(query)
-}
-
-func matchesPromptTerms(s RankedSymbol, terms []string) bool {
-	return symgraph.MatchesPromptTerms(s, terms)
 }
