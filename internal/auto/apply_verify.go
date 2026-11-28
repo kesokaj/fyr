@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/check"
 	"github.com/kesokaj/fyr/internal/isolate"
 )
 
@@ -68,12 +67,12 @@ func (r *run) verifyWorktree(root, wtDir, name, runner string, tests []string) e
 		}
 	}
 	if _, err := os.Lstat(filepath.Join(wtDir, "PRD.md")); err == nil {
-		rep, cerr := check.Run(wtDir, r.o.Vocabulary, r.o.Home)
+		found, cerr := r.o.resolvedPorts().checkRepo(wtDir, r.o.Home)
 		if cerr != nil {
 			return fmt.Errorf("fyr check: %w", cerr)
 		}
-		if len(rep.Findings) > 0 {
-			return fmt.Errorf("fyr check: %d findings", len(rep.Findings))
+		if len(found) > 0 {
+			return fmt.Errorf("fyr check: %d findings", len(found))
 		}
 	}
 	return nil
@@ -196,7 +195,7 @@ func checkRawDiff(root, base, ref, class string, rawDiff []byte) error {
 		if len(fields) >= 2 && (fields[1] == "120000" || fields[1] == "160000") {
 			return fmt.Errorf("branch adds symlink or submodule %s", path)
 		}
-		if Denied(path) || (!spec.Instructions && Instruction(path)) {
+		if deniedPath(path) || (!spec.Instructions && instructionPath(path)) {
 			return fmt.Errorf("branch touches rubric-denied path %s", path)
 		}
 		trailChanged = trailChanged || path == ".agents/trail.jsonl"
@@ -248,5 +247,5 @@ func verifyTrailForApply(root, base, ref string) error {
 }
 
 func deniedTrailRecord(r brain.Record) bool {
-	return Denied(r.ID) || strings.EqualFold(r.Kind, "adr") || (strings.EqualFold(r.Kind, "plan") && strings.Contains(r.Body, deniedBox))
+	return deniedPath(r.ID) || strings.EqualFold(r.Kind, "adr") || (strings.EqualFold(r.Kind, "plan") && strings.Contains(r.Body, deniedBox))
 }

@@ -11,12 +11,12 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/dream"
+	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -41,7 +41,7 @@ func defaults() Config {
 // ConfigPath is the operator's switch. It sits beside auto/ and not inside
 // it: check c skips by top-level name, so inside it would go unwatched (D6).
 func ConfigPath(home string) string {
-	return filepath.Join(home, harness.StateDir, "auto.json")
+	return isolate.Root(home, "auto.json")
 }
 
 // span parses a duration in Go's form, or whole days as `7d`, which Go's
@@ -214,8 +214,64 @@ func save(home string, c Config) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Join(home, harness.StateDir), 0o700); err != nil {
+	if err := os.MkdirAll(isolate.Root(home, ""), 0o700); err != nil {
 		return err
 	}
-	return harness.WriteAtomic(ConfigPath(home), append(data, '\n'), 0o600)
+	return writeAtomicFile(ConfigPath(home), append(data, '\n'))
 }
+
+// IsEphemeralPath reports whether raw names a refused system root, transient
+// worktree, smoke test, eval/auto/dream sandbox, or scratch directory that
+// must neither be registered for cross-project reads nor retained/swept as a
+// workspace by fyr auto or fyr dream (ADR-532, ADR-534).
+func IsEphemeralPath(raw string) bool {
+	return dream.IsEphemeralPath(raw)
+}
+
+// filterSweepTargets removes ephemeral worktree/smoke/sandbox/scratch and
+// refused system-root paths from a sweep's discovered targets so dead or
+// transient directories are not swept or emitted as "skipped: gone" noise.
+func filterSweepTargets(targets []dream.Target, homes ...string) (kept []dream.Target, skipped int) {
+	kept = make([]dream.Target, 0, len(targets))
+	for _, t := range targets {
+		if dream.IsRefusedWorkspace(t.Root, homes...) {
+			skipped++
+			continue
+		}
+		kept = append(kept, t)
+	}
+	return kept, skipped
+}
+
+// unit is R3's single background timer: its own unit name, its own manager
+// calls, and a lower priority than an operator's work (D14). Each hourly
+// fyr auto run ingests metrics, runs plan-mode dream, and sweeps idle repos.
+// launchd has no start timeout, so the 3 h limit holds on Linux only.
+var unit = dream.Timer{
+	Unit:             "fyr-auto",
+	Plist:            "com.fyr.auto",
+	Args:             []string{"auto", "run"},
+	Description:      "fyr auto: the hourly idle-time run, while the operator has it on (R3)",
+	TimerDescription: "Run fyr auto hourly",
+	Timeout:          "3h",
+	UnitLines:        []string{"ConditionACPower=true"},
+	ServiceLines:     []string{"Nice=19", "IOSchedulingClass=idle"},
+	TimerLines:       []string{"RandomizedDelaySec=10m"},
+	PlistKeys: "  <key>ProcessType</key><string>Background</string>\n" +
+		"  <key>LowPriorityIO</key><true/>\n" +
+		"  <key>Nice</key><integer>15</integer>\n",
+	InstallVerb: "fyr auto on",
+	RemoveVerb:  "fyr auto off",
+	RemoveHint:  "fyr auto off",
+	StrictStop:  true,
+}
+
+// TimerInstalledHere reports whether this home holds auto's unit for goos.
+func TimerInstalledHere(home, goos string) bool { return unit.InstalledHere(home, goos) }
+
+// RemoveTimer removes auto's unit of this home and says whether there was one.
+func RemoveTimer(home, goos string) (bool, error) { return unit.Remove(home, goos) }
+
+// OtherSystemTimerFiles lists this home's units of the other operating
+// system, which a removal here never touches.
+func OtherSystemTimerFiles(home, goos string) []string { return unit.OtherSystemFiles(home, goos) }

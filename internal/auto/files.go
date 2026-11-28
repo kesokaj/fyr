@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 const (
@@ -66,12 +66,12 @@ type Project struct {
 	Mark                    Mark      `json:"mark"`
 }
 
-func dir(home string) string { return filepath.Join(home, harness.StateDir, "auto") }
+func dir(home string) string { return isolate.Root(home, "auto") }
 
 // ensureDir makes auto/ at 0700 and refuses it as a link: the files below it
 // are refused as links too, and a linked parent would walk round that.
 func ensureDir(home string) error {
-	if err := os.MkdirAll(filepath.Join(home, harness.StateDir), 0o700); err != nil {
+	if err := os.MkdirAll(isolate.Root(home, ""), 0o700); err != nil {
 		return err
 	}
 	d := dir(home)
@@ -167,7 +167,7 @@ func saveState(home string, st State) error {
 	if err != nil {
 		return err
 	}
-	return harness.WriteAtomic(filepath.Join(dir(home), "runs.json"), append(data, '\n'), 0o600)
+	return writeAtomicFile(filepath.Join(dir(home), "runs.json"), append(data, '\n'))
 }
 
 // modelRunsToday is the count that belongs to the day of now.
@@ -283,7 +283,41 @@ func pruneLog(home string, now time.Time) error {
 	if len(text) == len(data) {
 		return nil
 	}
-	return harness.WriteAtomic(path, []byte(text), 0o600)
+	return writeAtomicFile(path, []byte(text))
+}
+
+func writeAtomicFile(dest string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".fyr-*")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		return abandonTempFile(tmp, err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		return abandonTempFile(tmp, err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return abandonTempFile(tmp, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return abandonTempFile(tmp, err)
+	}
+	if err := os.Rename(tmp.Name(), dest); err != nil {
+		return abandonTempFile(tmp, err)
+	}
+	return nil
+}
+
+func abandonTempFile(tmp *os.File, err error) error {
+	tmp.Close()
+	if rm := os.Remove(tmp.Name()); rm != nil {
+		return fmt.Errorf("%w; temp file %s left behind: %v", err, tmp.Name(), rm)
+	}
+	return err
 }
 
 // lock takes auto.lock without waiting, through no link: held is true when

@@ -406,9 +406,9 @@ func TestSIMAutoLearningInput(t *testing.T) {
 			}
 
 			// Verify appendKickoffInput wraps SIM inside the cryptographic fence.
-			k, err := WriteKickoff(home, runAt, tc)
+			k, err := writeKickoff(home, runAt, tc)
 			if err != nil {
-				t.Fatalf("%s: WriteKickoff: %v", tc.Class, err)
+				t.Fatalf("%s: writeKickoff: %v", tc.Class, err)
 			}
 			if _, err := r.prepareLearningWorker(root, &Project{}, tc, k.Path); err != nil {
 				t.Fatalf("%s: prepareLearningWorker: %v", tc.Class, err)

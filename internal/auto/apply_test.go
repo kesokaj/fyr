@@ -13,6 +13,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/isolate"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // installLoggingGit puts a wrapper git on PATH that appends every invocation's
@@ -385,7 +386,7 @@ func TestApplySquashRedactsSecretNeedles(t *testing.T) {
 	if _, err := applyGit(root, nil, "worktree", "add", "--detach", "--", wtDir, baseHead); err != nil {
 		t.Fatalf("worktree add: %v", err)
 	}
-	t.Cleanup(func() { removeWorktree(root, wtDir) })
+	t.Cleanup(func() { _ = trail.RemoveWorktree(context.Background(), root, wtDir, true) })
 
 	r := &run{o: Options{Home: home, Now: func() time.Time { return runAt }}}
 	task := Task{Class: ClassHarnessEdit, SignalID: tokSignal, ReportDate: "2026-11-01"}

@@ -15,9 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/isolate"
-	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/redact"
-	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -46,7 +44,7 @@ func withRunner(line, runnerWhy string) string { return line + "; runner " + run
 
 // runSelectedModelTask files any rubric ask and runs at most one worker for
 // the pre-selected model task (allowing DraftsOnly tasks on dirty, non-git, or
-// GlobalWorkspace roots while enforcing clean git checkouts for non-DraftsOnly
+// globalWorkspace roots while enforcing clean git checkouts for non-DraftsOnly
 // tasks).
 func (r *run) runSelectedModelTask(root string, p *Project, t *Task, stopMsg string) (string, []Finding) {
 	if r.workerRan {
@@ -86,7 +84,7 @@ func (r *run) targetModelFor(t *Task) string {
 }
 
 func workerCheckoutStop(root string) string {
-	if root == "" || root == search.GlobalWorkspace {
+	if root == "" || root == globalWorkspace {
 		return "global workspace has no git checkout"
 	}
 	if _, _, err := trail.Roots(root); err != nil {
@@ -131,7 +129,7 @@ func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
 		return "worker state error: " + oneLine(err.Error()), []Finding{{"worker", "failed", t.Class, oneLine(err.Error())}}
 	}
 	t.Root = root
-	k, err := WriteKickoff(r.o.Home, r.o.now(), t)
+	k, err := writeKickoffWith(r.o.resolvedPorts(), r.o.Home, r.o.now(), t)
 	if err != nil {
 		r.failed = true
 		return "worker kickoff error: " + oneLine(err.Error()), []Finding{{"worker", "failed", t.Class, oneLine(err.Error())}}
@@ -191,7 +189,7 @@ func (r *run) workOptions(root string, t Task) isolate.WorkerOptions {
 		Out:            io.Discard,
 		Now:            r.o.Now,
 		Auto:           true,
-		Capsule:        DefaultCapsuleDeps(),
+		Capsule:        r.o.resolvedPorts().capsuleDeps("", "work-kickoff"),
 		TestRO:         r.o.TestRO,
 		TestRW:         r.o.TestRW,
 		TestUnconfined: r.o.TestUnconfined,
@@ -199,19 +197,11 @@ func (r *run) workOptions(root string, t Task) isolate.WorkerOptions {
 }
 
 func (r *run) pickWorkerModel(t Task) string {
-	cat, ok, err := models.LoadCatalog(r.o.Home)
-	if err != nil || !ok {
-		return ""
-	}
 	role, tier := "builder", "pro"
 	if t.DraftsOnly {
 		role, tier = "mechanical", "flash"
 	}
-	pick, err := models.PickFromCatalog(cat, role, tier)
-	if err != nil {
-		return ""
-	}
-	return pick.Model
+	return r.o.resolvedPorts().pickModel(r.o.Home, role, tier)
 }
 
 func (r *run) finishWorker(ctx context.Context, root string, p *Project, t Task, k Kickoff, runner, runnerWhy, workerModel string, cfgBefore []byte, cfgErr error, stateHash string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, runErr error, learningCutoff time.Time) (string, []Finding) {

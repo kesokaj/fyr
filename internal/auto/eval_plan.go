@@ -4,8 +4,6 @@ import (
 	"hash/fnv"
 	"slices"
 	"strings"
-
-	"github.com/kesokaj/fyr/internal/eval"
 )
 
 const maxGateRows = maxEvalGateSessions / (2 * gateRuns)
@@ -36,7 +34,7 @@ func targetMatchAliases(name string) []string {
 	return out
 }
 
-func rowNamesTarget(r eval.Row, name string) bool {
+func rowNamesTarget(r EvalRow, name string) bool {
 	for _, alias := range targetMatchAliases(name) {
 		if r.Agent == alias || r.ID == alias || strings.HasPrefix(r.ID, alias+"-") {
 			return true
@@ -48,7 +46,7 @@ func rowNamesTarget(r eval.Row, name string) bool {
 	return false
 }
 
-func rowExactTarget(r eval.Row, changed []string) bool {
+func rowExactTarget(r EvalRow, changed []string) bool {
 	for _, name := range changed {
 		for _, alias := range targetMatchAliases(name) {
 			if r.ID == alias || r.Agent == alias {
@@ -62,7 +60,7 @@ func rowExactTarget(r eval.Row, changed []string) bool {
 // hasMatchingEvalRows reports whether any row in suite names at least one
 // target skill entry (used pre-dispatch so unmapped 0-row skills do not waste
 // a worker slot or cooldown, ADR-534 F-046).
-func hasMatchingEvalRows(suite []eval.Row, targets []string) bool {
+func hasMatchingEvalRows(suite []EvalRow, targets []string) bool {
 	for _, r := range suite {
 		if slices.ContainsFunc(targets, func(name string) bool { return rowNamesTarget(r, name) }) {
 			return true
@@ -74,14 +72,14 @@ func hasMatchingEvalRows(suite []eval.Row, targets []string) bool {
 // selectGateRows builds a deterministic eval-gate row plan strictly bounded by
 // maxRows (<= maxEvalGateSessions/(2*gateRuns)), prioritizing target rows and
 // rotating holdout and regression subsets deterministically by changed targets.
-func selectGateRows(suite, holdout []eval.Row, changed []string, maxRows int) []gateRow {
+func selectGateRows(suite, holdout []EvalRow, changed []string, maxRows int) []gateRow {
 	if maxRows <= 0 {
 		return nil
 	}
 	targets, regs := partitionSuiteRows(suite, changed)
 	holdouts := make([]gateRow, 0, len(holdout))
 	for _, r := range holdout {
-		holdouts = append(holdouts, gateRow{ID: r.ID, IsHoldout: true, IsRegression: r.Kind == eval.KindRegression})
+		holdouts = append(holdouts, gateRow{ID: r.ID, IsHoldout: true, IsRegression: r.Kind == evalKindRegression})
 	}
 	rot := deterministicRotation(changed)
 	pickedTargets := pickTargetSubset(targets, len(holdouts), maxRows, rot)
@@ -95,14 +93,14 @@ func selectGateRows(suite, holdout []eval.Row, changed []string, maxRows int) []
 	return append(out, pickedRegs...)
 }
 
-func partitionSuiteRows(suite []eval.Row, changed []string) (targets, regs []gateRow) {
+func partitionSuiteRows(suite []EvalRow, changed []string) (targets, regs []gateRow) {
 	var exact, other []gateRow
 	seen := map[string]bool{}
 	for _, r := range suite {
 		if !slices.ContainsFunc(changed, func(name string) bool { return rowNamesTarget(r, name) }) {
 			continue
 		}
-		gr := gateRow{ID: r.ID, IsRegression: r.Kind == eval.KindRegression}
+		gr := gateRow{ID: r.ID, IsRegression: r.Kind == evalKindRegression}
 		if rowExactTarget(r, changed) {
 			exact = append(exact, gr)
 		} else {
@@ -112,7 +110,7 @@ func partitionSuiteRows(suite []eval.Row, changed []string) (targets, regs []gat
 	}
 	targets = append(exact, other...)
 	for _, r := range suite {
-		if r.Kind == eval.KindRegression && !seen[r.ID] {
+		if r.Kind == evalKindRegression && !seen[r.ID] {
 			regs = append(regs, gateRow{ID: r.ID, IsRegression: true})
 			seen[r.ID] = true
 		}

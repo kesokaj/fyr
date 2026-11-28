@@ -45,11 +45,11 @@ func TestKickoffBuilder(t *testing.T) {
 				entries = nil
 			}
 		}
-		task, err := PrepareTask(spec.Name, entries, id, 3)
+		task, err := prepareTask(spec.Name, entries, id, 3)
 		if err != nil {
 			t.Fatalf("%s: %v", spec.Name, err)
 		}
-		k, err := WriteKickoff(home, runAt, task)
+		k, err := writeKickoff(home, runAt, task)
 		if err != nil {
 			t.Fatalf("%s: %v", spec.Name, err)
 		}
@@ -126,7 +126,7 @@ func TestKickoffBuilderRefusals(t *testing.T) {
 		{ClassDistill, []string{".agents/skills/foo/"}, "bad id", 1},
 		{ClassDistill, []string{".agents/skills/foo/"}, "", -1},
 	} {
-		if _, err := PrepareTask(c.class, c.entries, c.id, c.count); err == nil {
+		if _, err := prepareTask(c.class, c.entries, c.id, c.count); err == nil {
 			t.Errorf("accepted %+v", c)
 		}
 	}
@@ -135,7 +135,7 @@ func TestKickoffBuilderRefusals(t *testing.T) {
 func TestKickoffRubricAndAsks(t *testing.T) {
 	t.Parallel()
 
-	task, err := PrepareTask(ClassDistill, []string{".agents/skills/auto-distilled-foo/", "AGENTS.md", "agents/bar/agent.md", "skills/fyr-auto/SKILL.md"}, "", 2)
+	task, err := prepareTask(ClassDistill, []string{".agents/skills/auto-distilled-foo/", "AGENTS.md", "agents/bar/agent.md", "skills/fyr-auto/SKILL.md"}, "", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestKickoffRubricAndAsks(t *testing.T) {
 	if strings.Join(task.Denied, ",") != "AGENTS.md,agents/bar/agent.md,skills/fyr-auto/SKILL.md" {
 		t.Errorf("distill denied: %v", task.Denied)
 	}
-	htask, err := PrepareTask(ClassHarnessEdit, []string{"skills/foo/SKILL.md", "agents/bar/agent.md", "AGENTS.md", "cmd/fyr/main.go"}, "PROPOSAL-1", 1)
+	htask, err := prepareTask(ClassHarnessEdit, []string{"skills/foo/SKILL.md", "agents/bar/agent.md", "AGENTS.md", "cmd/fyr/main.go"}, "PROPOSAL-1", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,14 @@ func idleDreamProject(t *testing.T, home string) string {
 func driftOpts(home, root string, out *bytes.Buffer) Options {
 	o := runOpts(home, out)
 	o.Env = &fakeEnv{targets: targetsOf(root), usage: usageText("90%", "90%")}
-	o.Vocabulary = check.Vocabulary{"status": {}}
+	o.Ports.CheckRepo = func(dir, home string) ([]CheckFinding, error) {
+		rep, err := check.Run(dir, check.Vocabulary{"status": {}}, home)
+		out := make([]CheckFinding, 0, len(rep.Findings))
+		for _, f := range rep.Findings {
+			out = append(out, CheckFinding{Rule: f.Rule, Where: f.Where, Line: f.Line, Text: f.Text})
+		}
+		return out, err
+	}
 	o.IsolateAvailable = func() error { return nil }
 	return o
 }
@@ -461,7 +468,7 @@ func TestTriggerSelectionAndSymlinkTripwire(t *testing.T) {
 		t.Fatalf("rotated pick: %+v", task)
 	}
 	// All targets rubric-denied (e.g. agents/ and AGENTS.md) leaves Kept empty and queues an ask.
-	deniedTask, err := PrepareTask(ClassHarnessEdit, []string{"agents/reviewer/agent.md", "AGENTS.md"}, "PROPOSAL-1", 1)
+	deniedTask, err := prepareTask(ClassHarnessEdit, []string{"agents/reviewer/agent.md", "AGENTS.md"}, "PROPOSAL-1", 1)
 	if err != nil || len(deniedTask.Kept) != 0 || len(deniedTask.Denied) != 2 {
 		t.Fatalf("PrepareTask denied-only = %+v, err=%v", deniedTask, err)
 	}

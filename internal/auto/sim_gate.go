@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/eval"
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/trail"
@@ -71,14 +70,18 @@ func changedHarnessFiles(root, base, ref string, changed []string) []string {
 }
 
 func appendPredictedGateRows(home, root string, rows []gateRow, manifest *simManifest) []gateRow {
+	return appendPredictedGateRowsWith(defaultPorts, home, root, rows, manifest)
+}
+
+func appendPredictedGateRowsWith(p Ports, home, root string, rows []gateRow, manifest *simManifest) []gateRow {
 	if manifest == nil || len(manifest.PredictedRows) == 0 {
 		return rows
 	}
-	suite, err := readCheckoutSuite(home, root)
+	suite, err := readCheckoutSuiteWith(p, home, root)
 	if err != nil {
 		return rows
 	}
-	byID := make(map[string]eval.Row, len(suite))
+	byID := make(map[string]EvalRow, len(suite))
 	for _, sr := range suite {
 		byID[sr.ID] = sr
 	}
@@ -94,7 +97,7 @@ func appendPredictedGateRows(home, root string, rows []gateRow, manifest *simMan
 		if (len(rows)+1)*2*gateRuns > maxEvalGateSessions {
 			break
 		}
-		rows = append(rows, gateRow{ID: sr.ID, IsRegression: sr.Kind == eval.KindRegression})
+		rows = append(rows, gateRow{ID: sr.ID, IsRegression: sr.Kind == evalKindRegression})
 		seen[id] = true
 	}
 	return rows

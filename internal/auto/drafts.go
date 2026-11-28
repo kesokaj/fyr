@@ -11,7 +11,6 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/redact"
-	"github.com/kesokaj/fyr/internal/search"
 )
 
 const (
@@ -299,7 +298,7 @@ func (r *run) applyMemoryDraft(root string, d draftLine) (Finding, error) {
 	if d.Scope != "" && d.Scope != "project" && d.Scope != "global" {
 		return Finding{}, fmt.Errorf("memory scope must be project or global, not %q", d.Scope)
 	}
-	isGlobal := d.Scope == "global" || root == "" || root == search.GlobalWorkspace
+	isGlobal := d.Scope == "global" || root == "" || root == globalWorkspace
 	if isGlobal && (d.Action == "retire" || d.Action == "merge") {
 		return Finding{}, fmt.Errorf("global memory cannot be %sd via draft", d.Action)
 	}

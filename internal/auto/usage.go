@@ -5,8 +5,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/kesokaj/fyr/internal/models"
 )
 
 const (
@@ -15,11 +13,8 @@ const (
 	// disabled is a window `/usage` prints no number for. agy does so when
 	// the week is out, and nothing says it means only that, so it reads as
 	// under every floor.
-	disabled = models.DisabledWindow
+	disabled = disabledWindow
 )
-
-// Pool is one quota pool's remaining percentages.
-type Pool = models.Pool
 
 func underPool(p Pool) bool { return p.Five < floorFive || p.Week < floorWeek }
 
@@ -43,13 +38,20 @@ func budgetLine(pools []Pool) string {
 // matching targetModel against [50% 5h / 30% week] (ADR-534, F-004). An empty
 // targetModel gates all pools; an unreadable or missing target pool fails closed.
 func gateBudgetForModel(runs int, targetModel, text string, readErr error) (line string, stop bool) {
+	return gateBudgetForModelWith(defaultPorts.parseUsage, runs, targetModel, text, readErr)
+}
+
+func gateBudgetForModelWith(parseUsage func(string) ([]Pool, error), runs int, targetModel, text string, readErr error) (line string, stop bool) {
 	if runs >= modelRunsPerDay {
 		return fmt.Sprintf("G9 budget: %d of %d model runs today", runs, modelRunsPerDay), true
 	}
 	if readErr != nil {
 		return "G9 budget: /usage unreadable: " + short(readErr.Error()), true
 	}
-	pools, err := models.ParseUsage(text)
+	if parseUsage == nil {
+		return "G9 budget: /usage unreadable: usage parser not configured", true
+	}
+	pools, err := parseUsage(text)
 	if err != nil {
 		return "G9 budget: /usage unreadable: " + short(err.Error()), true
 	}
@@ -110,11 +112,11 @@ func poolMatchesFamily(poolName, fam string) bool {
 	}
 }
 
-func targetPoolWeekQuota(targetModel, text string, readErr error) (int, bool) {
-	if readErr != nil || strings.TrimSpace(text) == "" {
+func targetPoolWeekQuotaWith(parseUsage func(string) ([]Pool, error), targetModel, text string, readErr error) (int, bool) {
+	if readErr != nil || strings.TrimSpace(text) == "" || parseUsage == nil {
 		return 0, false
 	}
-	pools, err := models.ParseUsage(text)
+	pools, err := parseUsage(text)
 	if err != nil {
 		return 0, false
 	}

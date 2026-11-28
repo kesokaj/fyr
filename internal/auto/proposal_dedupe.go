@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/redact"
 )
 
@@ -79,7 +79,7 @@ func brainDBExists(home string) bool {
 	if strings.TrimSpace(home) == "" {
 		return false
 	}
-	_, err := os.Lstat(filepath.Join(home, harness.StateDir, "brain.db"))
+	_, err := os.Lstat(isolate.Root(home, "brain.db"))
 	return err == nil
 }
 

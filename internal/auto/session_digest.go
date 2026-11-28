@@ -36,7 +36,7 @@ func (r *run) sessionDigestFor(c convSource) SessionDigest {
 			return d
 		}
 	}
-	d := BuildSessionDigest(id, c.label, c.text)
+	d := buildSessionDigest(id, c.label, c.text)
 	if r.sweepCache != nil {
 		if r.sweepCache.digests == nil {
 			r.sweepCache.digests = map[string]SessionDigest{}
@@ -47,9 +47,9 @@ func (r *run) sessionDigestFor(c convSource) SessionDigest {
 	return d
 }
 
-// BuildSessionDigest extracts a bounded summary from JSONL or plain-text
+// buildSessionDigest extracts a bounded summary from JSONL or plain-text
 // conversation content.
-func BuildSessionDigest(id, label, raw string) SessionDigest {
+func buildSessionDigest(id, label, raw string) SessionDigest {
 	d := SessionDigest{ID: id, Label: label}
 	for _, rawLine := range strings.Split(raw, "\n") {
 		line := strings.TrimSpace(rawLine)

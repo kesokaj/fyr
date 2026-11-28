@@ -12,8 +12,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/kesokaj/fyr/internal/eval"
-	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -49,17 +47,17 @@ func (r *run) isHarnessCheckout(root string) bool {
 }
 
 func (r *run) evalGateBranch(ctx context.Context, root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, manifest *simManifest, workerModel string) (string, []Finding) {
-	if snapErr != nil || (res.Base != "" && res.Base != snapBefore.head) {
+	if snapErr != nil || (res.Base != "" && res.Base != snapBefore.Head) {
 		return r.checkoutMovedFail(runnerWhy, t.Class, k.Branch)
 	}
-	if err := verifyBranchForApply(root, snapBefore.head, k.Branch, t.Class); err != nil {
+	if err := verifyBranchForApply(root, snapBefore.Head, k.Branch, t.Class); err != nil {
 		return r.rejectEvalGate(root, t, k, runnerWhy, err.Error(), nil)
 	}
 	candSHA, err := applyGit(root, nil, "rev-parse", "--verify", "--end-of-options", "refs/heads/"+k.Branch)
 	if err != nil || candSHA == "" {
 		return r.rejectEvalGate(root, t, k, runnerWhy, "missing candidate branch "+k.Branch, nil)
 	}
-	changed, err := changedHarnessTargets(root, snapBefore.head, "refs/heads/"+k.Branch)
+	changed, err := changedHarnessTargets(root, snapBefore.Head, "refs/heads/"+k.Branch)
 	if err != nil {
 		return r.rejectEvalGate(root, t, k, runnerWhy, err.Error(), nil)
 	}
@@ -72,12 +70,13 @@ func (r *run) evalGateBranch(ctx context.Context, root string, t Task, k Kickoff
 	if seeded {
 		seedFindings = []Finding{{"eval-gate", "holdout-seeded", holdoutPath, "seeded missing holdout suite from .agents/eval/holdout-starter.md"}}
 	}
-	rows, err := collectGateRows(r.o.Home, root, holdoutPath, changed, t.Class)
+	ports := r.o.resolvedPorts()
+	rows, err := collectGateRowsWith(ports, r.o.Home, root, holdoutPath, changed, t.Class)
 	if err != nil {
 		return r.rejectEvalGate(root, t, k, runnerWhy, err.Error(), seedFindings)
 	}
-	rows = appendPredictedGateRows(r.o.Home, root, rows, manifest)
-	simCtx := newGateSIMCtx(root, t, snapBefore.head, candSHA, changed, manifest, workerModel)
+	rows = appendPredictedGateRowsWith(ports, r.o.Home, root, rows, manifest)
+	simCtx := newGateSIMCtx(root, t, snapBefore.Head, candSHA, changed, manifest, workerModel)
 	v, fs := r.runEvalGateRows(ctx, root, t, k, runner, runnerWhy, snapBefore, snapErr, res, simCtx, rows)
 	return v, append(seedFindings, fs...)
 }
@@ -101,7 +100,7 @@ func ensureHoldoutSuite(home, root, holdoutPath string) (bool, error) {
 	if err := ensureSafeHoldoutParent(home, filepath.Dir(holdoutPath)); err != nil {
 		return false, err
 	}
-	if err := harness.WriteAtomic(holdoutPath, data, 0o600); err != nil {
+	if err := writeAtomicFile(holdoutPath, data); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -236,11 +235,15 @@ func changedHarnessTargets(root, base, ref string) ([]string, error) {
 }
 
 func collectGateRows(home, root, holdoutPath string, changed []string, class string) ([]gateRow, error) {
-	suite, err := readCheckoutSuite(home, root)
+	return collectGateRowsWith(defaultPorts, home, root, holdoutPath, changed, class)
+}
+
+func collectGateRowsWith(p Ports, home, root, holdoutPath string, changed []string, class string) ([]gateRow, error) {
+	suite, err := readCheckoutSuiteWith(p, home, root)
 	if err != nil {
 		return nil, err
 	}
-	holdout, err := eval.ReadSuiteFile(holdoutPath)
+	holdout, err := p.readSuiteFile(holdoutPath)
 	if err != nil {
 		return nil, fmt.Errorf("holdout suite: %w", err)
 	}
@@ -286,7 +289,7 @@ func (r *run) runEvalGateRows(ctx context.Context, root string, t Task, k Kickof
 				return r.rejectEvalGateSIM(root, t, k, runnerWhy, simCtx, scores, sessions, "stopped between rows: "+stopReason, verdict, findings)
 			}
 		}
-		pOut, cOut, err := r.evalPair(ctx, root, snapBefore.head, scCandSHA(simCtx), gr)
+		pOut, cOut, err := r.evalPair(ctx, root, snapBefore.Head, scCandSHA(simCtx), gr)
 		if err != nil {
 			simF := r.recordStageASIM(simCtx, scores, "skipped", scCandSHA(simCtx), "n/a", t.ID, "", "")
 			v, af := r.applyFail(runnerWhy, k.Branch, "eval gate: "+err.Error())

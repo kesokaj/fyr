@@ -71,13 +71,13 @@ func assertSIMKickoffInstructions(t *testing.T) {
 		{ClassHarnessEdit, "PROPOSAL-2026-11-22-01", []string{"skills/alpha/"}},
 		{ClassDistill, "", []string{".agents/skills/auto-distilled-x/"}},
 	} {
-		task, err := PrepareTask(tc.class, tc.files, tc.id, 3)
+		task, err := prepareTask(tc.class, tc.files, tc.id, 3)
 		if err != nil {
-			t.Fatalf("PrepareTask(%s): %v", tc.class, err)
+			t.Fatalf("prepareTask(%s): %v", tc.class, err)
 		}
-		k, err := BuildKickoff(runAt, task)
+		k, err := buildKickoff(runAt, task)
 		if err != nil {
-			t.Fatalf("BuildKickoff(%s): %v", tc.class, err)
+			t.Fatalf("buildKickoff(%s): %v", tc.class, err)
 		}
 		for _, want := range []string{"sim_manifest", "problem_id", "root_cause", "mechanism_class", "rationale", "predicted_rows", "predicted_signals"} {
 			if !strings.Contains(k.Text, want) {

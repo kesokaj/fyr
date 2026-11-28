@@ -329,6 +329,7 @@ func TestGateChecksAndMustFail(t *testing.T) {
 }
 
 func TestParseLeaseAndMarkdownFilesSection(t *testing.T) {
+	t.Parallel()
 	t.Run("markdown heading with blank lines stops at heading or paragraph", func(t *testing.T) {
 		brief := strings.Join([]string{
 			"# Brief",
@@ -390,6 +391,7 @@ func TestParseLeaseAndMarkdownFilesSection(t *testing.T) {
 }
 
 func TestGateBinaryDiffCases(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initTestGoRepo(t)
 	baseBin := filepath.Join(repo, "pkg", "existing.bin")

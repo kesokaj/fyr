@@ -1,7 +1,6 @@
 package auto
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -12,38 +11,11 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/dream"
-	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/isolate"
-	"github.com/kesokaj/fyr/internal/search"
 )
 
-// DefaultCapsuleDeps returns the search-backed structural capsule and
-// read_ledger pre-seeding callbacks for isolate.WorkerOptions.
-func DefaultCapsuleDeps() isolate.CapsuleDeps {
-	return capsuleDepsForSession("", "work-kickoff")
-}
-
-func capsuleDepsForSession(sliceSession, preseedSession string) isolate.CapsuleDeps {
-	return isolate.CapsuleDeps{
-		SliceFn: func(dir, query string, budget int) (string, error) {
-			var buf bytes.Buffer
-			err := search.BuildContextSlice(search.Options{
-				Dir:     dir,
-				Slice:   query,
-				Budget:  budget,
-				Hops:    2,
-				Session: sliceSession,
-			}, &buf)
-			return buf.String(), err
-		},
-		PreseedFn: func(dir string, pivots []isolate.CapsulePivot) error {
-			sp := make([]search.CapsulePivot, len(pivots))
-			for i, p := range pivots {
-				sp[i] = search.CapsulePivot{Path: p.Path, StartLine: p.StartLine, EndLine: p.EndLine}
-			}
-			return search.RegisterCapsulePivots(dir, preseedSession, 1, sp)
-		},
-	}
+func defaultCapsuleDeps() isolate.CapsuleDeps {
+	return defaultPorts.capsuleDeps("", "work-kickoff")
 }
 
 // The model task classes of § Task classes, in priority order.
@@ -96,9 +68,9 @@ type Kickoff struct {
 
 var kickoffNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
-// PrepareTask validates a class's typed inputs and splits its Files: entries
-// through AllowedFiles (D42).
-func PrepareTask(class string, entries []string, id string, count int) (Task, error) {
+// prepareTask validates a class's typed inputs and splits its Files: entries
+// through allowedFiles (D42).
+func prepareTask(class string, entries []string, id string, count int) (Task, error) {
 	spec, ok := lookupClass(class)
 	if !ok {
 		return Task{}, fmt.Errorf("unknown auto task class %q", class)
@@ -117,7 +89,7 @@ func PrepareTask(class string, entries []string, id string, count int) (Task, er
 			return Task{}, fmt.Errorf("untyped Files: entry %q", e)
 		}
 	}
-	kept, denied := AllowedFiles(entries, spec.Instructions)
+	kept, denied := allowedFiles(entries, spec.Instructions)
 	return Task{
 		Class: spec.Name, Outcome: spec.Outcome, DraftsOnly: spec.DraftsOnly,
 		Kept: kept, Denied: denied, ID: id, Count: count,
@@ -147,9 +119,13 @@ func validTypedEntry(e string) bool {
 	return ok
 }
 
-// BuildKickoff renders the fixed template of t for the run at now (§ The
+// buildKickoff renders the fixed template of t for the run at now (§ The
 // Kickoff and the branch, D5, D38).
-func BuildKickoff(now time.Time, t Task) (Kickoff, error) {
+func buildKickoff(now time.Time, t Task) (Kickoff, error) {
+	return buildKickoffWith(defaultPorts, now, t)
+}
+
+func buildKickoffWith(ports Ports, now time.Time, t Task) (Kickoff, error) {
 	if _, ok := lookupClass(t.Class); !ok {
 		return Kickoff{}, fmt.Errorf("unknown auto task class %q", t.Class)
 	}
@@ -179,7 +155,7 @@ func BuildKickoff(now time.Time, t Task) (Kickoff, error) {
 	text := renderKickoffBody(t, filesLine, taskLine)
 	k := Kickoff{Name: name, Branch: "work/" + name, Text: text, Files: slices.Clone(t.Kept)}
 	if t.Root != "" && !t.DraftsOnly {
-		k = AttachProjectCapsule(t.Root, k.Name, k)
+		k = attachProjectCapsuleWith(ports, t.Root, k.Name, k)
 	}
 	return k, nil
 }
@@ -194,11 +170,11 @@ func kickoffFinishRule(class string, draftsOnly bool) string {
 	return "- Run only fast targeted checks for your `Files:` (e.g. `fyr check` and package-scoped `go test`) and wait for every command to exit cleanly — never run full-repo `fyr verify` or kill a running `go test` (`fyr auto` runs full verification and eval after you exit).\n- Commit on your branch and store one handoff record with fyr record add handoff; ask no question."
 }
 
-// AttachProjectCapsule appends a structural --slice context capsule (<= 1,500
+// attachProjectCapsuleWith appends a structural --slice context capsule (<= 1,500
 // tokens) to k and pre-seeds read_ledger when root has a project search index.
-func AttachProjectCapsule(root, conversationID string, k Kickoff) Kickoff {
+func attachProjectCapsuleWith(ports Ports, root, conversationID string, k Kickoff) Kickoff {
 	wk := isolate.Kickoff{Name: k.Name, Path: k.Path, Text: k.Text, Files: k.Files}
-	deps := capsuleDepsForSession(conversationID, conversationID)
+	deps := ports.capsuleDeps(conversationID, conversationID)
 	k.Text = isolate.FormatKickoffCapsule(wk, root, deps.SliceFn, deps.PreseedFn)
 	return k
 }
@@ -226,13 +202,17 @@ func renderClassTask(t Task) (string, error) {
 	}
 }
 
-// WriteKickoff writes the rendered Kickoff to ~/.config/fyr/auto/kickoffs/,
+// writeKickoff writes the rendered Kickoff to ~/.config/fyr/auto/kickoffs/,
 // 0600, atomically, refusing a linked directory or file.
-func WriteKickoff(home string, now time.Time, t Task) (Kickoff, error) {
+func writeKickoff(home string, now time.Time, t Task) (Kickoff, error) {
+	return writeKickoffWith(defaultPorts, home, now, t)
+}
+
+func writeKickoffWith(ports Ports, home string, now time.Time, t Task) (Kickoff, error) {
 	if t.Root == "" {
 		t.Root = resolveAutoTaskRoot(home, t)
 	}
-	k, err := BuildKickoff(now, t)
+	k, err := buildKickoffWith(ports, now, t)
 	if err != nil {
 		return Kickoff{}, err
 	}
@@ -240,7 +220,7 @@ func WriteKickoff(home string, now time.Time, t Task) (Kickoff, error) {
 		return Kickoff{}, err
 	}
 	k.Path = filepath.Join(dir(home), "kickoffs", k.Name+".md")
-	if err := harness.WriteAtomic(k.Path, []byte(k.Text), 0o600); err != nil {
+	if err := writeAtomicFile(k.Path, []byte(k.Text)); err != nil {
 		return Kickoff{}, err
 	}
 	return k, nil
@@ -263,7 +243,7 @@ func resolveAutoTaskRoot(home string, t Task) string {
 	slices.Sort(cands)
 	fallback := ""
 	for _, root := range cands {
-		if root == "" || root == search.GlobalWorkspace {
+		if root == "" || root == globalWorkspace {
 			continue
 		}
 		if _, err := os.Stat(filepath.Join(root, ".agents", "scratch", "search.db")); err != nil {
@@ -311,7 +291,7 @@ func rotatedClasses(isHarness bool, lastClass string) []classSpec {
 }
 
 func preparedTask(class string, entries []string, id string, count int) *Task {
-	t, err := PrepareTask(class, entries, id, count)
+	t, err := prepareTask(class, entries, id, count)
 	if err != nil {
 		return nil
 	}

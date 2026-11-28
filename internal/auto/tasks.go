@@ -11,7 +11,6 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/redact"
-	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -75,7 +74,7 @@ func (r *run) triggerProjectClass(root string, p *Project, class string, _ []Fin
 }
 
 func (r *run) countMemoriesSince(root string, since time.Time) int {
-	global := root == "" || root == search.GlobalWorkspace
+	global := root == "" || root == globalWorkspace
 	dirArg := root
 	if global {
 		dirArg = ""
@@ -136,7 +135,7 @@ func (r *run) conversationsSinceCutoff(root string, since, cutoff time.Time) []c
 		if h == "" {
 			continue
 		}
-		if agy, _, err := search.AgyConversationTextInWindow(h, root, since, cutoff); err == nil {
+		if agy, err := r.o.resolvedPorts().readAgyConversations(h, root, since, cutoff); err == nil {
 			for _, a := range agy {
 				if !seen[a.ID] && strings.TrimSpace(a.Text) != "" && !isSelfReferentialLog(a.Text) {
 					seen[a.ID] = true

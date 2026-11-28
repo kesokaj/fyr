@@ -36,13 +36,13 @@ func TestTasksKickoffTemplates(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		task, err := PrepareTask(tc.class, tc.entries, tc.id, tc.count)
+		task, err := prepareTask(tc.class, tc.entries, tc.id, tc.count)
 		if err != nil {
-			t.Fatalf("PrepareTask(%s): %v", tc.class, err)
+			t.Fatalf("prepareTask(%s): %v", tc.class, err)
 		}
-		k, err := BuildKickoff(now, task)
+		k, err := buildKickoff(now, task)
 		if err != nil {
-			t.Fatalf("BuildKickoff(%s): %v", tc.class, err)
+			t.Fatalf("buildKickoff(%s): %v", tc.class, err)
 		}
 		if !strings.Contains(k.Text, tc.wantFiles) {
 			t.Errorf("%s Kickoff missing %q:\n%s", tc.class, tc.wantFiles, k.Text)
@@ -260,9 +260,9 @@ func TestTasksRedactedLearningInput(t *testing.T) {
 	if _, err := os.Stat(inPath); !os.IsNotExist(err) {
 		t.Errorf("cleanLearningInput left %s", inPath)
 	}
-	k, err := WriteKickoff(home, now, task)
+	k, err := writeKickoff(home, now, task)
 	if err != nil {
-		t.Fatalf("WriteKickoff: %v", err)
+		t.Fatalf("writeKickoff: %v", err)
 	}
 	cutoff, err := r.prepareLearningWorker(root, &p, task, k.Path)
 	if err != nil {
@@ -423,7 +423,7 @@ func TestLearningInputHardeningAndCutoff(t *testing.T) {
 		if !strings.Contains(got, "KEEP_CONVERSATION_MARKER") {
 			t.Errorf("conversations starved despite 16 KiB reserve")
 		}
-		k, err := WriteKickoff(home, runAt, task)
+		k, err := writeKickoff(home, runAt, task)
 		if err != nil {
 			t.Fatal(err)
 		}

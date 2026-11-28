@@ -427,4 +427,60 @@ func TestVerbAutoStatusInstallPendingBanner(t *testing.T) {
 	if !strings.Contains(got, "install") || !strings.Contains(got, "pending") || !strings.Contains(got, "abc1234") || !strings.Contains(got, "fyr install") {
 		t.Fatalf("fyr auto status missing install pending banner:\n%s", got)
 	}
+	if err := harness.SaveState(home, harness.State{Commit: "abc123456789"}); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := run([]string{"auto", "status", "--home", home}, &out); err != nil {
+		t.Fatalf("auto status after matching install: %v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "install    pending") {
+		t.Fatalf("fyr auto status kept install pending banner after matching InstalledCommit:\n%s", out.String())
+	}
+}
+
+func TestAutoPortsWiring(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	ports := autoPorts(vocabulary())
+	if ports.CheckRepo == nil || ports.InstalledCommit == nil || ports.ParseUsage == nil ||
+		ports.PickModel == nil || ports.ReadTrackedSuite == nil || ports.ReadSuiteFile == nil ||
+		ports.ParseSuite == nil || ports.CapsuleDeps == nil || ports.ReadAgyConversations == nil ||
+		ports.NewFence == nil {
+		t.Fatalf("autoPorts returned nil adapter(s): %+v", ports)
+	}
+	if got := ports.InstalledCommit(home); got != "" {
+		t.Errorf("InstalledCommit(empty) = %q, want empty", got)
+	}
+	if err := harness.SaveState(home, harness.State{Commit: "deadbeef"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := ports.InstalledCommit(home); got != "deadbeef" {
+		t.Errorf("InstalledCommit = %q, want deadbeef", got)
+	}
+	if got := ports.PickModel(home, "builder", "pro"); got != "" {
+		t.Errorf("PickModel(empty) = %q, want empty", got)
+	}
+	if _, err := ports.ParseUsage("not valid usage output"); err == nil {
+		t.Error("ParseUsage(invalid) = nil, want error")
+	}
+	pools, err := ports.ParseUsage("Gemini\tWeekly Limit Remaining\t70%\t2026-11-29T00:00:00Z\nGemini\tFive Hour Limit Remaining\t80%\t2026-11-22T23:00:00Z\n")
+	if err != nil || len(pools) != 1 || pools[0].Five != 80 || pools[0].Week != 70 {
+		t.Fatalf("ParseUsage(valid) = %+v, %v", pools, err)
+	}
+	if _, err := ports.ReadSuiteFile(filepath.Join(home, "missing.md")); err == nil {
+		t.Error("ReadSuiteFile(missing) = nil, want error")
+	}
+	deps := ports.CapsuleDeps("s1", "p1")
+	if deps.SliceFn == nil || deps.PreseedFn == nil {
+		t.Fatalf("CapsuleDeps returned nil callback(s): %+v", deps)
+	}
+	fenced := ports.NewFence("body")("sample", "auto", "body")
+	if !strings.Contains(fenced, "BEGIN DATA sample") || !strings.Contains(fenced, "END DATA sample") {
+		t.Errorf("NewFence output missing markers:\n%s", fenced)
+	}
+	ro := (&runtimeCtx{home: home}).autoRunOptions(auto.Options{Home: home})
+	if ro.Ports.CheckRepo == nil || ro.Ports.ParseUsage == nil {
+		t.Fatalf("autoRunOptions did not attach Ports: %+v", ro.Ports)
+	}
 }

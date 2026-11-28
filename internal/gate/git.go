@@ -5,8 +5,6 @@ package gate
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -102,41 +100,26 @@ func gitLine(ctx context.Context, root string, args ...string) (string, error) {
 }
 
 type checkoutSnapshot struct {
-	branch     string
-	head       string
-	statusHash string
+	head string
+	raw  trail.CheckoutSnapshot
 }
 
+var gateSnapshotOpts = trail.SnapshotOptions{IncludeStatus: true}
+
 func takeSnapshot(ctx context.Context, root string) (checkoutSnapshot, error) {
-	head, err := gitLine(ctx, root, "rev-parse", "HEAD")
+	s, err := trail.CaptureCheckoutSnapshot(ctx, root, gateSnapshotOpts)
 	if err != nil {
 		return checkoutSnapshot{}, err
 	}
-	branch, err := gitLine(ctx, root, "symbolic-ref", "--short", "-q", "HEAD")
-	if err != nil {
-		branch = ""
-	}
-	st, err := gitBytes(ctx, root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-	if err != nil {
-		return checkoutSnapshot{}, err
-	}
-	sum := sha256.Sum256(st)
-	return checkoutSnapshot{
-		branch:     branch,
-		head:       head,
-		statusHash: hex.EncodeToString(sum[:]),
-	}, nil
+	return checkoutSnapshot{head: s.Head, raw: s}, nil
 }
 
 func checkoutUnchanged(ctx context.Context, root string, before checkoutSnapshot) error {
-	now, err := takeSnapshot(ctx, root)
-	if err != nil {
-		return err
+	err := trail.CheckoutUnchanged(ctx, root, before.raw, gateSnapshotOpts)
+	if errors.Is(err, trail.ErrCheckoutChanged) {
+		return refusef("%v", err)
 	}
-	if now.head != before.head || now.branch != before.branch || now.statusHash != before.statusHash {
-		return refusef("checkout changed concurrently during operation")
-	}
-	return nil
+	return err
 }
 
 func checkScratchNoSymlinks(root string) error {
@@ -169,12 +152,7 @@ func gitConfigValue(ctx context.Context, root, key string) string {
 }
 
 func removeWorktree(ctx context.Context, mainRoot, wtDir string) error {
-	_, err := gitBytes(ctx, mainRoot, "worktree", "remove", "--force", "--", wtDir)
-	if err != nil {
-		_, _ = gitBytes(ctx, mainRoot, "worktree", "prune")
-		return err
-	}
-	return nil
+	return trail.RemoveWorktree(ctx, mainRoot, wtDir, false)
 }
 
 func verifyCommitRef(ctx context.Context, root, ref string) (string, error) {

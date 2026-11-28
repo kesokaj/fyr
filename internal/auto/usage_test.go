@@ -20,7 +20,7 @@ func TestUsageCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Pool{{Name: "Gemini Models", Five: 88, Week: 71}, {Name: "Claude and GPT models", Five: disabled, Week: 0}}
+	want := []models.Pool{{Name: "Gemini Models", Five: 88, Week: 71}, {Name: "Claude and GPT models", Five: disabled, Week: 0}}
 	if len(pools) != 2 || pools[0] != want[0] || pools[1] != want[1] {
 		t.Errorf("%+v", pools)
 	}

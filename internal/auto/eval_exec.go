@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/eval"
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/trail"
@@ -57,7 +56,7 @@ func (o Options) evalFixture(root string) string {
 	if o.EvalFixture != "" {
 		return o.EvalFixture
 	}
-	if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(eval.SuitePath))); err == nil {
+	if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(evalSuitePath))); err == nil {
 		return ""
 	}
 	def := filepath.Join(o.realHome(), "sandbox", "fyr-eval", "fixture")
@@ -74,7 +73,7 @@ func (r *run) betweenEvalRows(root string, runsBefore int, targetModel, rowID st
 	}
 	r.usageRead = false
 	text, uerr := r.usage()
-	line, stop := gateBudgetForModel(runsBefore, targetModel, text, uerr)
+	line, stop := gateBudgetForModelWith(r.o.resolvedPorts().parseUsage, runsBefore, targetModel, text, uerr)
 	r.st.Budget = strings.TrimPrefix(line, "G9 ")
 	if stop {
 		r.setHaltReason(classifyHaltReason(line))
@@ -86,8 +85,12 @@ func (r *run) betweenEvalRows(root string, runsBefore int, targetModel, rowID st
 
 // readCheckoutSuite is the suite `fyr eval` reads in root: the tracked file
 // when root has one (ADR-500), else the GUIDE-eval record of root's scope.
-func readCheckoutSuite(home, root string) ([]eval.Row, error) {
-	if rows, found, err := eval.ReadTrackedSuite(root, false); found || err != nil {
+func readCheckoutSuite(home, root string) ([]EvalRow, error) {
+	return readCheckoutSuiteWith(defaultPorts, home, root)
+}
+
+func readCheckoutSuiteWith(p Ports, home, root string) ([]EvalRow, error) {
+	if rows, found, err := p.readTrackedSuite(root); found || err != nil {
 		return rows, err
 	}
 	recs, ok, err := brain.ReadScope(home, root)
@@ -96,7 +99,7 @@ func readCheckoutSuite(home, root string) ([]eval.Row, error) {
 	}
 	for _, rec := range recs {
 		if rec.ID == "GUIDE-eval" {
-			return eval.ParseSuite(rec.Body)
+			return p.parseSuite(rec.Body)
 		}
 	}
 	return nil, fmt.Errorf("no GUIDE-eval in %s", root)

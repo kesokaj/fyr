@@ -17,7 +17,7 @@ import (
 func TestDefaultCapsuleDepsAndFormatKickoffCapsule(t *testing.T) {
 	t.Parallel()
 
-	deps := DefaultCapsuleDeps()
+	deps := defaultCapsuleDeps()
 	if deps.SliceFn == nil || deps.PreseedFn == nil {
 		t.Fatalf("DefaultCapsuleDeps returned nil callback(s): %+v", deps)
 	}
@@ -106,7 +106,7 @@ func TestRunWorkerThreadsCapsuleDeps(t *testing.T) {
 		Home:     t.TempDir(),
 		RealHome: t.TempDir(),
 		Model:    sentinelModel,
-		Capsule:  DefaultCapsuleDeps(),
+		Capsule:  defaultCapsuleDeps(),
 	}, writeKick(wiredRoot, "wired-kick"))
 	if err == nil || !strings.Contains(err.Error(), wantSentinel) {
 		t.Fatalf("RunWorker(DefaultCapsuleDeps) err = %v, want %q", err, wantSentinel)
@@ -222,7 +222,7 @@ func TestExecWorkerPropagatesRootToWriteKickoff(t *testing.T) {
 		cfg: Config{Enabled: true, ConversationIdle: "1h"},
 		st:  st,
 	}
-	task, err := PrepareTask(ClassDistill, []string{".agents/skills/auto-distilled-helpersymbol-run/"}, "", 3)
+	task, err := prepareTask(ClassDistill, []string{".agents/skills/auto-distilled-helpersymbol-run/"}, "", 3)
 	if err != nil {
 		t.Fatalf("PrepareTask: %v", err)
 	}
@@ -316,13 +316,13 @@ func TestDraftsOnlyKickoffSelfContainedSchemaAndExamplesValid(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.class, func(t *testing.T) {
-			task, err := PrepareTask(tc.class, nil, tc.id, 3)
+			task, err := prepareTask(tc.class, nil, tc.id, 3)
 			if err != nil {
-				t.Fatalf("PrepareTask: %v", err)
+				t.Fatalf("prepareTask: %v", err)
 			}
-			k, err := BuildKickoff(now, task)
+			k, err := buildKickoff(now, task)
 			if err != nil {
-				t.Fatalf("BuildKickoff: %v", err)
+				t.Fatalf("buildKickoff: %v", err)
 			}
 			if tc.zeroTool {
 				if strings.Contains(k.Text, "First read ~/.gemini/config/skills/fyr-auto/SKILL.md") {
@@ -374,13 +374,13 @@ func TestHarnessEditKickoffGuidesFastTargetedChecks(t *testing.T) {
 		{ClassHarnessEdit, []string{"skills/fyr-feature/"}, "PROPOSAL-1"},
 		{ClassDistill, []string{".agents/skills/auto-distilled-foo/"}, ""},
 	} {
-		task, err := PrepareTask(tc.class, tc.files, tc.id, 2)
+		task, err := prepareTask(tc.class, tc.files, tc.id, 2)
 		if err != nil {
-			t.Fatalf("PrepareTask(%s): %v", tc.class, err)
+			t.Fatalf("prepareTask(%s): %v", tc.class, err)
 		}
-		k, err := BuildKickoff(now, task)
+		k, err := buildKickoff(now, task)
 		if err != nil {
-			t.Fatalf("BuildKickoff(%s): %v", tc.class, err)
+			t.Fatalf("buildKickoff(%s): %v", tc.class, err)
 		}
 		for _, want := range []string{
 			"First read ~/.gemini/config/skills/fyr-auto/SKILL.md",

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kesokaj/fyr/internal/check"
 	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/metrics"
@@ -25,22 +24,22 @@ type ExitError struct {
 func (e *ExitError) Error() string { return e.Msg }
 
 // Options is what every verb runs with; the zero Now, GOOS, Path and Env are
-// the machine's own. Vocabulary, Install and Metrics are the checks only the
+// the machine's own. Ports, Install and Metrics are the adapters only the
 // binary can answer; `cmd/fyr` gives them, and a nil one is a check not run.
 type Options struct {
-	Home       string
-	Out        io.Writer
-	DryRun     bool
-	Force      bool
-	Now        func() time.Time
-	GOOS       string
-	Path       string
-	Env        Env
-	Vocabulary check.Vocabulary
-	Ingest     func() (string, error)
-	Dream      func() error
-	Install    func() []Finding
-	Metrics    func() ([]Finding, error)
+	Home    string
+	Out     io.Writer
+	DryRun  bool
+	Force   bool
+	Now     func() time.Time
+	GOOS    string
+	Path    string
+	Env     Env
+	Ports   Ports
+	Ingest  func() (string, error)
+	Dream   func() error
+	Install func() []Finding
+	Metrics func() ([]Finding, error)
 	// ReadLimit replaces every read's time limit; a test shortens it.
 	ReadLimit time.Duration
 	RealHome  string

@@ -176,6 +176,7 @@ func TestVerifyHappyAndMustFail(t *testing.T) {
 }
 
 func TestGofmtBatchesLargeSlices(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	files := []string{"a.go", "b.go", "c.go", "d.go", "z.go"}
 	for _, f := range files[:4] {
@@ -193,6 +194,7 @@ func TestGofmtBatchesLargeSlices(t *testing.T) {
 }
 
 func TestVerifyPropagatesRemoveStaleStampError(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	stampRel := filepath.FromSlash(StampRelPath)
 

@@ -52,8 +52,8 @@ func TestRubricDenied(t *testing.T) {
 		// file system may fold onto a denied name.
 		"\"a\\303.md\"", "a\nAGENTS.md", "AGENT\u017f.md", "\u017fkills/fyr-auto/SKILL.md", "A_\u017fest.go", "AGENT\u200cS.md",
 	} {
-		if !Denied(e) {
-			t.Errorf("Denied(%q) = false, want true", e)
+		if !deniedPath(e) {
+			t.Errorf("deniedPath(%q) = false, want true", e)
 		}
 	}
 	for _, e := range []string{
@@ -63,8 +63,8 @@ func TestRubricDenied(t *testing.T) {
 		"latest_test.go.txt", "contexts/x.md", "rules.md", "go.modx", "lock.go", "my-package.json",
 		"web/context/x.md", "web/rules/x.md", "internal/evaluate/x.go", "adr-notes.md",
 	} {
-		if Denied(e) {
-			t.Errorf("Denied(%q) = true, want false", e)
+		if deniedPath(e) {
+			t.Errorf("deniedPath(%q) = true, want false", e)
 		}
 	}
 }
@@ -73,7 +73,7 @@ func TestRubricAllowedFiles(t *testing.T) {
 	t.Parallel()
 
 	in := []string{"README.md", "AGENTS.md", "SPEC-greet", "internal/x_test.go", "ADR-001", "skills/fyr-retro/SKILL.md", ".agents/workflows/x.md"}
-	kept, denied := AllowedFiles(in, false)
+	kept, denied := allowedFiles(in, false)
 	if want := []string{"README.md", "SPEC-greet"}; !slices.Equal(kept, want) {
 		t.Errorf("kept %v, want %v", kept, want)
 	}
@@ -81,7 +81,7 @@ func TestRubricAllowedFiles(t *testing.T) {
 		t.Errorf("denied %v, want %v", denied, want)
 	}
 	// An instruction class gets the instruction files, and nothing denied.
-	kept, _ = AllowedFiles(in, true)
+	kept, _ = allowedFiles(in, true)
 	if want := []string{"README.md", "SPEC-greet", "skills/fyr-retro/SKILL.md", ".agents/workflows/x.md"}; !slices.Equal(kept, want) {
 		t.Errorf("an instruction class kept %v, want %v", kept, want)
 	}
@@ -92,13 +92,13 @@ func TestRubricInstruction(t *testing.T) {
 
 	for _, e := range []string{"skills/", "skills/fyr-retro/SKILL.md", "commands/x.md",
 		".agents/skills/new/", ".agents/commands/x.md", ".agents/workflows/x.md", ".agents/", "SKILLS/x", "../x"} {
-		if !Instruction(e) {
-			t.Errorf("Instruction(%q) = false, want true", e)
+		if !instructionPath(e) {
+			t.Errorf("instructionPath(%q) = false, want true", e)
 		}
 	}
 	for _, e := range []string{"README.md", "docs/skills/x.md", "SPEC-greet", "GUIDE-onboarding", "skillset/x.md", "agents/verifier/agent.md", ".agents/agents/x.md"} {
-		if Instruction(e) {
-			t.Errorf("Instruction(%q) = true, want false", e)
+		if instructionPath(e) {
+			t.Errorf("instructionPath(%q) = true, want false", e)
 		}
 	}
 }

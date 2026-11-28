@@ -35,6 +35,7 @@ func assertCloseOutcome(t *testing.T, err error, wantRefuse bool, wantSubstrs ..
 }
 
 func TestCloseKickoffGuardTagsAndDates(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initTestGoRepo(t)
 	runGit(t, repo, "tag", "v9.2.0")
@@ -155,6 +156,7 @@ func TestCloseKickoffGuardTagsAndDates(t *testing.T) {
 }
 
 func TestCloseKickoffGuardOpenPlanEarliest(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	repo := initTestGoRepo(t)
 	home := t.TempDir()

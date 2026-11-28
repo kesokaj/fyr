@@ -358,7 +358,7 @@ func matchProposalTargets(rec brain.Record, targets []harnessTarget) []string {
 	var byPath, byWord []string
 	for _, tgt := range targets {
 		entry := filepath.ToSlash(tgt.relPath) + "/"
-		if Denied(entry) {
+		if deniedPath(entry) {
 			continue
 		}
 		if strings.Contains(text, tgt.relPath) && !slices.Contains(byPath, entry) {

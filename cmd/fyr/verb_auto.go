@@ -153,6 +153,7 @@ func finishAutoRun(c *runtimeCtx, ao *autoOpts, sub string, buf *bytes.Buffer, e
 }
 
 func (c *runtimeCtx) dispatchAutoSub(sub string, o auto.Options) error {
+	o.Ports = autoPorts(vocabulary())
 	ao := autoOptsOf(c)
 	switch sub {
 	case "on":
@@ -219,7 +220,7 @@ func autoIngest(home string) (string, error) {
 
 func (c *runtimeCtx) autoRunOptions(o auto.Options) auto.Options {
 	home := c.home
-	o.Env, o.Vocabulary = autoEnv, vocabulary()
+	o.Env, o.Ports = autoEnv, autoPorts(vocabulary())
 	o.Repo = c.resolveAutoRepo()
 	if self, err := os.Executable(); err == nil {
 		o.Self = self

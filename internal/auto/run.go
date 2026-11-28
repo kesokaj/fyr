@@ -333,9 +333,10 @@ func (r *run) usage() (string, error) {
 // budgetForModel is G9: `/usage` is read only for a project past G8, so the
 // free gates spend no call.
 func (r *run) budgetForModel(targetModel string) (string, bool) {
+	parseUsage := r.o.resolvedPorts().parseUsage
 	runs := r.st.modelRunsToday(r.o.now())
 	if runs >= modelRunsPerDay {
-		return gateBudgetForModel(runs, targetModel, "", nil)
+		return gateBudgetForModelWith(parseUsage, runs, targetModel, "", nil)
 	}
 	text, err := r.usage()
 	if !r.workerRan {
@@ -343,14 +344,14 @@ func (r *run) budgetForModel(targetModel string) (string, bool) {
 			return cd, true
 		}
 	}
-	return gateBudgetForModel(runs, targetModel, text, err)
+	return gateBudgetForModelWith(parseUsage, runs, targetModel, text, err)
 }
 
 func (r *run) cooldownStopFor(targetModel, text string, readErr error) string {
 	if r.o.Force || r.st.LastModelRun.IsZero() {
 		return ""
 	}
-	weekPct, known := targetPoolWeekQuota(targetModel, text, readErr)
+	weekPct, known := targetPoolWeekQuotaWith(r.o.resolvedPorts().parseUsage, targetModel, text, readErr)
 	cd := adaptiveModelCooldown(weekPct, known)
 	elapsed := r.o.now().Sub(r.st.LastModelRun)
 	if elapsed >= cd {

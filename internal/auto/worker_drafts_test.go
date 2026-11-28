@@ -44,7 +44,7 @@ func TestAllInvalidDraftsFailAndPreserveWatermark(t *testing.T) {
 		st:  st,
 	}
 	task := Task{Class: ClassRetroLite, Outcome: OutcomeDrafts, DraftsOnly: true, Count: 5}
-	k, err := BuildKickoff(now, task)
+	k, err := buildKickoff(now, task)
 	if err != nil {
 		t.Fatal(err)
 	}

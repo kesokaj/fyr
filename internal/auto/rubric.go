@@ -48,7 +48,7 @@ var (
 
 var recordForm = regexp.MustCompile(`^[A-Z]+-[0-9A-Za-z-]+$`)
 
-// Denied reports whether the rubric denies entry, a Files: entry or a path
+// deniedPath reports whether the rubric denies entry, a Files: entry or a path
 // git names: a record ID, a repo-relative file, or a directory ending in
 // '/'. It compares without case, since a file system that folds case reaches
 // the same file, and a spelling that is not plainly clean is denied rather
@@ -56,7 +56,7 @@ var recordForm = regexp.MustCompile(`^[A-Z]+-[0-9A-Za-z-]+$`)
 // to s where strings.ToLower leaves it). An entry that holds a denied root is denied too. A name
 // that occurs at any depth cannot be ruled out of a directory entry, so what
 // a worker changed under one is judged path by path as well (D37).
-func Denied(entry string) bool {
+func deniedPath(entry string) bool {
 	if recordForm.MatchString(entry) {
 		return deniedRecord(entry)
 	}
@@ -64,6 +64,10 @@ func Denied(entry string) bool {
 	if !ok {
 		return true
 	}
+	return matchesDeniedRoot(p) || matchesDeniedSegment(p)
+}
+
+func matchesDeniedRoot(p string) bool {
 	for _, r := range deniedRoots {
 		r = strings.ToLower(r)
 		if _, tail, ok := strings.Cut(p, "/.agents/"); ok && strings.HasPrefix(".agents/"+tail+"/", r) {
@@ -74,6 +78,10 @@ func Denied(entry string) bool {
 			return true
 		}
 	}
+	return false
+}
+
+func matchesDeniedSegment(p string) bool {
 	parts := strings.Split(p, "/")
 	for _, name := range deniedNames {
 		if ok, _ := path.Match(strings.ToLower(name), parts[len(parts)-1]); ok {
@@ -88,9 +96,9 @@ func Denied(entry string) bool {
 	return false
 }
 
-// Instruction reports whether entry is a file a later session loads as an
+// instructionPath reports whether entry is a file a later session loads as an
 // instruction, or a directory that holds one.
-func Instruction(entry string) bool {
+func instructionPath(entry string) bool {
 	p, ok := normal(entry)
 	if !ok {
 		return !recordForm.MatchString(entry)
@@ -134,12 +142,12 @@ func normal(entry string) (string, bool) {
 	return p, true
 }
 
-// AllowedFiles splits a class's Files: entries into what a worker may be
+// allowedFiles splits a class's Files: entries into what a worker may be
 // given and what the rubric takes away, each in the order given. instructions
 // is true only for a class that is judged as an instruction change.
-func AllowedFiles(entries []string, instructions bool) (kept, denied []string) {
+func allowedFiles(entries []string, instructions bool) (kept, denied []string) {
 	for _, e := range entries {
-		if Denied(e) || (!instructions && Instruction(e)) {
+		if deniedPath(e) || (!instructions && instructionPath(e)) {
 			denied = append(denied, e)
 		} else {
 			kept = append(kept, e)

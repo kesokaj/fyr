@@ -2,6 +2,7 @@ package auto
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -15,39 +16,19 @@ import (
 )
 
 // checkoutSnapshot records the checkout state in step 2 and before the worker.
-type checkoutSnapshot struct {
-	head      string
-	branch    string
-	headLog   string
-	branchLog string
+type checkoutSnapshot = trail.CheckoutSnapshot
+
+var autoSnapshotOpts = trail.SnapshotOptions{
+	IncludeReflog: true,
+	FullBranchRef: true,
+	HardenConfig:  true,
 }
 
 func takeCheckoutSnapshot(root string) (checkoutSnapshot, error) {
 	if stop := gateClean(root); stop != "" {
 		return checkoutSnapshot{}, errors.New(stop)
 	}
-	head, err := applyGit(root, nil, "rev-parse", "--verify", "HEAD")
-	if err != nil || head == "" {
-		return checkoutSnapshot{}, errors.New("cannot read HEAD")
-	}
-	branch, err := applyGit(root, nil, "symbolic-ref", "-q", "HEAD")
-	if err != nil || branch == "" {
-		return checkoutSnapshot{}, errors.New("HEAD is detached")
-	}
-	headLog, err := applyGit(root, nil, "reflog", "show", "-n", "1", "--date=iso-strict", "--format=%H %gd %gs", "HEAD", "--")
-	if err != nil {
-		return checkoutSnapshot{}, errors.New("cannot read HEAD reflog")
-	}
-	branchLog, err := applyGit(root, nil, "reflog", "show", "-n", "1", "--date=iso-strict", "--format=%H %gd %gs", branch, "--")
-	if err != nil {
-		return checkoutSnapshot{}, errors.New("cannot read branch reflog")
-	}
-	return checkoutSnapshot{head: head, branch: branch, headLog: headLog, branchLog: branchLog}, nil
-}
-
-func checkoutUnchanged(root string, want checkoutSnapshot) bool {
-	got, err := takeCheckoutSnapshot(root)
-	return err == nil && got == want
+	return trail.CaptureCheckoutSnapshot(context.Background(), root, autoSnapshotOpts)
 }
 
 // applyGit runs git in dir with hooks, replace refs, commit-graph, grafts and
@@ -109,10 +90,10 @@ func (r *run) applyBranch(root string, t Task, k Kickoff, runner, runnerWhy stri
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
 	snap, err := takeCheckoutSnapshot(root)
-	if err != nil || snapErr != nil || snap != snapBefore || (res.Base != "" && res.Base != snap.head) {
+	if err != nil || snapErr != nil || snap != snapBefore || (res.Base != "" && res.Base != snap.Head) {
 		return r.checkoutMovedFail(runnerWhy, t.Class, k.Branch)
 	}
-	agentsBytes, err := readGitBlob(root, snap.head, "AGENTS.md")
+	agentsBytes, err := readGitBlob(root, snap.Head, "AGENTS.md")
 	if err != nil {
 		return r.applyFail(runnerWhy, k.Branch, "read AGENTS.md: "+err.Error())
 	}
@@ -122,7 +103,7 @@ func (r *run) applyBranch(root string, t Task, k Kickoff, runner, runnerWhy stri
 		msg := withRunner(fmt.Sprintf("PASS (no # auto: test line; proposal %s); branch %s kept", id, k.Branch), runnerWhy)
 		return msg, []Finding{askF, {"worker", t.Class, k.Branch, msg}}
 	}
-	if err := verifyBranchForApply(root, snap.head, k.Branch, t.Class); err != nil {
+	if err := verifyBranchForApply(root, snap.Head, k.Branch, t.Class); err != nil {
 		return r.applyFail(runnerWhy, k.Branch, err.Error())
 	}
 	return r.applyInWorktree(root, t, k, runner, runnerWhy, snap, tests, res)
@@ -171,9 +152,9 @@ func (r *run) fileNoTestAsk(root string, t Task, branch string) (string, Finding
 
 func (r *run) applyInWorktree(root string, t Task, k Kickoff, runner, runnerWhy string, snap checkoutSnapshot, tests []string, res isolate.WorkerResult) (string, []Finding) {
 	wtDir := filepath.Join(dir(r.o.Home), "wt-"+k.Name)
-	removeWorktree(root, wtDir)
-	defer removeWorktree(root, wtDir)
-	if _, err := applyGit(root, nil, "worktree", "add", "--detach", "--", wtDir, snap.head); err != nil {
+	_ = trail.RemoveWorktree(context.Background(), root, wtDir, true)
+	defer func() { _ = trail.RemoveWorktree(context.Background(), root, wtDir, true) }()
+	if _, err := applyGit(root, nil, "worktree", "add", "--detach", "--", wtDir, snap.Head); err != nil {
 		return r.applyFail(runnerWhy, k.Branch, "worktree add: "+err.Error())
 	}
 	squashSHA, err := r.squashInWorktree(root, wtDir, t, k, res)
@@ -187,7 +168,7 @@ func (r *run) applyInWorktree(root string, t Task, k Kickoff, runner, runnerWhy 
 		msg := withRunner(fmt.Sprintf("stopped before apply (%s); branch %s kept", r.verdict, k.Branch), runnerWhy)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
-	if !checkoutUnchanged(root, snap) {
+	if gateClean(root) != "" || trail.CheckoutUnchanged(context.Background(), root, snap, autoSnapshotOpts) != nil {
 		return r.checkoutMovedFail(runnerWhy, t.Class, k.Branch)
 	}
 	if _, err := applyGit(root, nil, "merge", "--ff-only", "--end-of-options", squashSHA); err != nil {
@@ -196,7 +177,7 @@ func (r *run) applyInWorktree(root string, t Task, k Kickoff, runner, runnerWhy 
 	r.appliedSHA = shortSHA(squashSHA)
 	r.appliedAny = true
 	r.appliedSignalID, r.appliedReportDate = t.SignalID, t.ReportDate
-	if appliedTouchesSkills(root, snap.head, squashSHA) {
+	if appliedTouchesSkills(root, snap.Head, squashSHA) {
 		// D4 / PRD R6,R9: never run real-home `fyr install` automatically; surface reminder in `fyr auto status`.
 		r.installPending = true
 		r.st.InstallPending = true
@@ -226,8 +207,8 @@ func (r *run) squashInWorktree(root, wtDir string, t Task, k Kickoff, res isolat
 	if _, err := applyGit(wtDir, nil, "merge", "--squash", "--end-of-options", "refs/heads/"+k.Branch); err != nil {
 		return "", fmt.Errorf("merge --squash: %w", err)
 	}
-	userName := cmp.Or(gitConfigValue(root, "user.name"), "fyr auto")
-	userEmail := cmp.Or(gitConfigValue(root, "user.email"), "auto@localhost")
+	userName := cmp.Or(applyGitConfig(root, "user.name"), "fyr auto")
+	userEmail := cmp.Or(applyGitConfig(root, "user.email"), "auto@localhost")
 	reportID := r.reserveReport(root, filepath.Base(root))
 	handoffID := "none"
 	if res.Handoff != nil && res.Handoff.ID != "" {
@@ -250,7 +231,7 @@ func formatApplyCommitBody(reportID, handoffID string, t Task) string {
 	return body + "\nrevert: git revert HEAD"
 }
 
-func gitConfigValue(root, key string) string {
+func applyGitConfig(root, key string) string {
 	v, _ := applyGit(root, nil, "config", "--get", "--", key)
 	return v
 }
@@ -266,9 +247,3 @@ func commitOneLine(t Task, res isolate.WorkerResult) string {
 }
 
 func shortSHA(sha string) string { return sha[:min(len(sha), 7)] }
-
-func removeWorktree(root, wtDir string) {
-	_, _ = applyGit(root, nil, "worktree", "remove", "--force", "--", wtDir)
-	_ = os.RemoveAll(wtDir)
-	_, _ = applyGit(root, nil, "worktree", "prune")
-}

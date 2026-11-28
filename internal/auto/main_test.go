@@ -27,5 +27,6 @@ func TestMain(m *testing.M) {
 	if tmp, err := filepath.EvalSymlinks(os.TempDir()); err == nil {
 		os.Setenv("TMPDIR", tmp)
 	}
+	defaultPorts = testDefaultPorts()
 	os.Exit(m.Run())
 }

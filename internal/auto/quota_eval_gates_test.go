@@ -151,9 +151,10 @@ func runV910EvalPrefixAndPreDispatchFeasibility(t *testing.T) {
 		{"feedback-log", "skills/fyr-project-memory/SKILL.md"},
 		{"project-memory", "skills/fyr-project-memory/SKILL.md"},
 	}
+	mapped := testMapEvalRows(suite)
 	for _, tc := range mustMatch {
-		var row eval.Row
-		for _, r := range suite {
+		var row EvalRow
+		for _, r := range mapped {
 			if r.ID == tc[0] {
 				row = r
 				break
@@ -163,10 +164,10 @@ func runV910EvalPrefixAndPreDispatchFeasibility(t *testing.T) {
 			t.Errorf("rowNamesTarget(%q, %q) = false, want true", tc[0], tc[1])
 		}
 	}
-	if hasMatchingEvalRows(suite, []string{"skills/unmapped-skill/"}) {
+	if hasMatchingEvalRows(mapped, []string{"skills/unmapped-skill/"}) {
 		t.Errorf("hasMatchingEvalRows matched unmapped-skill unexpectedly")
 	}
-	if !hasMatchingEvalRows(suite, []string{"skills/fyr-feature/"}) {
+	if !hasMatchingEvalRows(mapped, []string{"skills/fyr-feature/"}) {
 		t.Errorf("hasMatchingEvalRows missed skills/fyr-feature/")
 	}
 
@@ -220,7 +221,7 @@ func runV910EvalPrefixAndPreDispatchFeasibility(t *testing.T) {
 }
 
 func runV910DeterministicRowPlanner(t *testing.T) {
-	suite := []eval.Row{
+	suite := []EvalRow{
 		{ID: "feature", Prompt: "/fyr-feature main", Kind: eval.KindCapability},
 		{ID: "feature-empty", Prompt: "/fyr-feature empty", Kind: eval.KindCapability},
 		{ID: "feature-recon", Prompt: "/fyr-feature recon", Kind: eval.KindCapability},
@@ -231,7 +232,7 @@ func runV910DeterministicRowPlanner(t *testing.T) {
 		{ID: "reg-a", Prompt: "reg a", Kind: eval.KindRegression},
 		{ID: "reg-b", Prompt: "reg b", Kind: eval.KindRegression},
 	}
-	holdout := []eval.Row{
+	holdout := []EvalRow{
 		{ID: "holdout-inject-fence", Kind: eval.KindAdversarial},
 		{ID: "holdout-resume-readonly", Kind: eval.KindRegression},
 		{ID: "holdout-secret-boundary", Kind: eval.KindAdversarial},

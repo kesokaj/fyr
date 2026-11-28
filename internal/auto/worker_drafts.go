@@ -12,10 +12,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/redact"
-	"github.com/kesokaj/fyr/internal/search"
 )
 
 // collectAutoDrafts validates and applies auto-drafts.jsonl from the worker's
@@ -51,7 +49,7 @@ func (r *run) collectAutoDrafts(root, name, class string, res isolate.WorkerResu
 		return nil, nil, draftStats{}, err
 	}
 	dest := filepath.Join(dir(r.o.Home), "drafts", name+".jsonl")
-	if err := harness.WriteAtomic(dest, scrubDraftsArchive(data), 0o600); err != nil {
+	if err := writeAtomicFile(dest, scrubDraftsArchive(data)); err != nil {
 		return nil, nil, draftStats{}, err
 	}
 	fs, manifest, stats := r.processDraftLinesStats(root, class, data)
@@ -93,7 +91,7 @@ func resolveDraftsLocation(home, root, draftsDir string) (*os.Root, string, bool
 		}
 		return r, rel, true, nil
 	}
-	if root == "" || root == search.GlobalWorkspace {
+	if root == "" || root == globalWorkspace {
 		return nil, "", false, nil
 	}
 	lead, err := os.OpenRoot(root)
@@ -132,7 +130,7 @@ func (r *run) cleanWorkerDrafts(root, draftsDir string) {
 // cleanProjectDrafts removes the .agents/scratch/work/<stamp>/<name> directory
 // work.Run created in root, and empty parents up to .agents/scratch/work.
 func cleanProjectDrafts(root, draftsDir string) {
-	if draftsDir == "" || root == "" || root == search.GlobalWorkspace {
+	if draftsDir == "" || root == "" || root == globalWorkspace {
 		return
 	}
 	lead, err := os.OpenRoot(root)

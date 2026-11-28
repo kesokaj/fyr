@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/check"
-	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -51,11 +49,11 @@ func (o Options) projectFindings(root string) (fs []Finding, failed bool) {
 		failed = true
 		fs = append(fs, Finding{name, "failed", root, oneLine(err.Error())})
 	}
-	rep, err := check.Run(root, o.Vocabulary, o.Home)
+	found, err := o.resolvedPorts().checkRepo(root, o.Home)
 	if err != nil {
 		broken("check", err)
 	}
-	for _, f := range rep.Findings {
+	for _, f := range found {
 		where := f.Where
 		if f.Line > 0 {
 			where += ":" + strconv.Itoa(f.Line)
@@ -239,7 +237,7 @@ func (r *run) machineFindings() (fs []Finding, failed bool) {
 	text, err := r.usage()
 	if err == nil {
 		var pools []Pool
-		if pools, err = models.ParseUsage(text); err == nil {
+		if pools, err = r.o.resolvedPorts().parseUsage(text); err == nil {
 			r.st.Budget = budgetLine(pools)
 			r.say(r.st.Budget)
 		}
