@@ -57,6 +57,7 @@ func isVendoredPath(vendored map[string]bool, rel string) bool {
 // BUG-007, BUG-014, BUG-019) are the reason this is a test and not a
 // reminder. Vendored skills are exempt: their text may not be edited here.
 func TestNoTmpInHarnessProse(t *testing.T) {
+	t.Parallel()
 	repo, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -112,6 +113,7 @@ func TestNoTmpInHarnessProse(t *testing.T) {
 // Two rows read "not recorded when vendored" for a year (project review
 // 2026-09-30, security finding 4).
 func TestVendoredRowsCarryAPin(t *testing.T) {
+	t.Parallel()
 	repo, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

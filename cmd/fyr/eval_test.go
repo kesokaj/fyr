@@ -564,6 +564,7 @@ func TestEvalVerbList(t *testing.T) {
 // An install source Dirty cannot read is labelled unknown, never shown as a
 // clean tree (security review of the 2026-10-27 fix).
 func TestEvalBodyLabelsAnUnreadableSource(t *testing.T) {
+	t.Parallel()
 	notRepo := t.TempDir()
 	body := evalRecord{root: t.TempDir(), src: harness.Source{Dir: notRepo}, cli: "agy"}.body()
 	if !strings.Contains(body, notRepo+" (dirty: unknown") {
@@ -572,6 +573,7 @@ func TestEvalBodyLabelsAnUnreadableSource(t *testing.T) {
 }
 
 func TestEvalVerbDefaultRunner(t *testing.T) {
+	t.Parallel()
 	c := &runtimeCtx{cmd: "eval", fs: flag.NewFlagSet("eval", flag.ContinueOnError), out: &bytes.Buffer{}}
 	allVerbs()["eval"].flags(c)
 	if err := c.fs.Parse([]string{"ok"}); err != nil {
@@ -595,6 +597,7 @@ func TestEvalVerbDefaultRunner(t *testing.T) {
 }
 
 func TestEvalAndDreamAutoWatchGraphOptsIsolation(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	// eval writesState: normal row with scratch home writes; --list does not.
 	cEval := newCtx("eval", allVerbs()["eval"], &bytes.Buffer{})

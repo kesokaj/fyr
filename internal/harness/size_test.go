@@ -88,6 +88,7 @@ func checkAlwaysOnBudget(s rulesBlockStats, budget int) error {
 // beside it. It reads the repository at ../.. like TestHarnessMap, so it
 // fails — never skips — when run from anywhere else.
 func TestRenderedContextFitsAntigravityBlock(t *testing.T) {
+	t.Parallel()
 	stats, err := measureRulesBlock(DirSource(filepath.Join("..", "..")))
 	if err != nil {
 		t.Fatalf("this test reads the checkout at ../..: %v", err)
@@ -100,6 +101,7 @@ func TestRenderedContextFitsAntigravityBlock(t *testing.T) {
 }
 
 func TestAlwaysOnContextBudget(t *testing.T) {
+	t.Parallel()
 	stats, err := measureRulesBlock(DirSource(filepath.Join("..", "..")))
 	if err != nil {
 		t.Fatalf("this test reads the checkout at ../..: %v", err)
@@ -118,6 +120,7 @@ func TestAlwaysOnContextBudget(t *testing.T) {
 const renderedContextTargetBytes = 13000
 
 func TestRenderedContextUnderTarget(t *testing.T) {
+	t.Parallel()
 	src := DirSource(filepath.Join("..", ".."))
 	if _, err := fs.Stat(src.FS, "context/AGENTS.md"); err != nil {
 		t.Fatalf("this test reads the checkout at ../..: %v", err)
@@ -133,6 +136,7 @@ func TestRenderedContextUnderTarget(t *testing.T) {
 }
 
 func TestRepoAgentsUnderTarget(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile(filepath.Join("..", "..", "AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -144,6 +148,7 @@ func TestRepoAgentsUnderTarget(t *testing.T) {
 }
 
 func TestSizeChecksFailOnOversizedRule(t *testing.T) {
+	t.Parallel()
 	alwaysOver := mapSource(map[string]string{
 		"context/AGENTS.md":     "# AGENTS.md\n",
 		"skills/alpha/SKILL.md": "---\nname: alpha\ndescription: a\n---\nbody\n",
@@ -185,6 +190,7 @@ func TestSizeChecksFailOnOversizedRule(t *testing.T) {
 // so a skill past the budget has nothing that tells the model when to load it.
 // Antigravity's budget is larger (about 44,000) and drops the longest first.
 func TestSkillListingBudget(t *testing.T) {
+	t.Parallel()
 	const budget = 19500
 	skills, err := loadSkills(DirSource(filepath.Join("..", "..")))
 	if err != nil {

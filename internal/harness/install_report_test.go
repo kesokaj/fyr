@@ -15,6 +15,7 @@ import (
 // never gets the fix (security review of v1.0.0, round 2, which measured it
 // on a real install).
 func TestInstallCorrectsTheModeOfAnUnchangedFile(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root's umask games make the mode assertions meaningless")
 	}
@@ -62,6 +63,7 @@ func TestInstallCorrectsTheModeOfAnUnchangedFile(t *testing.T) {
 // no longer has. Unchanged files print nothing; --dry-run prints the same
 // lines and writes nothing (plan sh-agent-works-everywhere, Phase 1, D4, D6-D9).
 func TestInstallNamesEveryChange(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home := t.TempDir()
 	lines := func(out string, verb string) []string {

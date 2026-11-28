@@ -15,6 +15,7 @@ import (
 // Finding 6: only a canonical vX.Y.Z is a release; a non-canonical spelling
 // compared equal to the running version and reached the download.
 func TestIsReleaseVersionIsCanonical(t *testing.T) {
+	t.Parallel()
 	for v, want := range map[string]bool{
 		"v1.2.3": true, "v0.0.0": true, "v10.20.30": true,
 		"v1.02.2": false, "v01.2.2": false, "v1.2.02": false,
@@ -81,6 +82,7 @@ func TestNoteRunningElsewhereOnlyForTheRealHome(t *testing.T) {
 
 // Finding 1: adopt keeps group/other write bits that install strips.
 func TestAdoptStripsGroupAndOtherWrite(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root's umask makes mode assertions meaningless")
 	}
@@ -149,6 +151,7 @@ func TestDiffUsesTheHomeNotTmp(t *testing.T) {
 
 // Finding 15: cell must not cut a rune in half.
 func TestCellIsRuneSafe(t *testing.T) {
+	t.Parallel()
 	s := strings.Repeat("é", 40) + " " + strings.Repeat("ü", 40)
 	for max := 5; max < 120; max++ {
 		got := cell(s, max)
@@ -162,6 +165,7 @@ func TestCellIsRuneSafe(t *testing.T) {
 // global feedback and proposals; it is 0700 after every install, whatever it
 // was before.
 func TestInstallMakesTheConfigDirPrivate(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root's umask makes mode assertions meaningless")
 	}

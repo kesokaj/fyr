@@ -36,6 +36,7 @@ func history(t *testing.T, dir string) (*trailHistory, []brain.Record) {
 // per spec, where `git log -G` diffed all n revisions once per spec. The
 // commits found are the ones that added each line.
 func TestSpecCommitBisects(t *testing.T) {
+	t.Parallel()
 	early := specTrail(t, "SPEC-early", "2026-10-25T10:00:00Z", "`internal/a.go`")
 	dir := repo(t, map[string]string{"internal/a.go": "package a\n", ".agents/trail.jsonl": early})
 	trailText, added := early, map[string]string{"SPEC-early": git(t, dir, "rev-parse", "HEAD")}
@@ -76,6 +77,7 @@ func TestSpecCommitBisects(t *testing.T) {
 // the merged branch, as `git log -G` found it: a commit to the code on that
 // branch after the spec's line is counted, not hidden behind the merge.
 func TestSpecRuleMergedLine(t *testing.T) {
+	t.Parallel()
 	dir := repo(t, map[string]string{"internal/a.go": "package a\n", ".agents/trail.jsonl": trailLine(t, "GUIDE-1", "guide", "current", "x")})
 	base := git(t, dir, "rev-parse", "--abbrev-ref", "HEAD")
 	git(t, dir, "checkout", "-q", "-b", "side")
@@ -105,6 +107,7 @@ func TestSpecRuleMergedLine(t *testing.T) {
 // A commit that deleted trail.jsonl holds no line and is no error: the spec
 // committed after it is found, and is stale after a later code commit.
 func TestSpecRuleDeletedTrail(t *testing.T) {
+	t.Parallel()
 	dir := repo(t, map[string]string{"internal/a.go": "package a\n", ".agents/trail.jsonl": trailLine(t, "GUIDE-1", "guide", "current", "x")})
 	git(t, dir, "rm", "-q", ".agents/trail.jsonl")
 	git(t, dir, "commit", "-q", "-m", "drop the trail")

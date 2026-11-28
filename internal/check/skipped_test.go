@@ -21,6 +21,7 @@ func noted(rep Report, p string) bool {
 // resolves, and the note names it (IN55 of the 2026-10-27 audit): the
 // requirement it would have enforced reads as unresolved, never as clean.
 func TestTrackedTestSymlinkIsSkippedWithNote(t *testing.T) {
+	t.Parallel()
 	reqs := "# Requirements — x\n\n## Must — non-negotiable\n\n- **R1** — a rule.\n  <!-- provenance: op; enforced by: TestX -->\n"
 	dir := repo(t, map[string]string{"REQUIREMENTS.md": reqs, "internal/real.txt": "package a\n\nfunc TestX(t *testing.T) {}\n"})
 	if err := os.Symlink("real.txt", filepath.Join(dir, "internal", "link_test.go")); err != nil {
@@ -44,6 +45,7 @@ func TestTrackedTestSymlinkIsSkippedWithNote(t *testing.T) {
 // docs rule's read names it (IN53); vendoredSkips needs no note of its own,
 // and this pins that the file never leaves the docs set unnoticed.
 func TestUnreadableVendoredIsNoted(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		"skills/table.txt":         "| Skill | Source |\n|-------|--------|\n| grilling | x |\n",
 		"skills/grilling/SKILL.md": "---\nname: grilling\ndescription: grilling skill\n---\n`fyr frobnicate`\n",

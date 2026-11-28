@@ -176,6 +176,7 @@ func TestEvalVerbUnrunTrials(t *testing.T) {
 // source outside git, a clean and a dirty checkout, and a tree whose
 // dirtiness cannot be read (a directory below its top level).
 func TestHarnessKey(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git here")
 	}
@@ -231,6 +232,7 @@ func TestHarnessKey(t *testing.T) {
 // checkout's trail, and the next run of the same harness keeps its key; a
 // change under an installed directory, tracked or not, still marks it.
 func TestHarnessKeyReadsInstalledDirs(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git here")
 	}
@@ -282,6 +284,7 @@ func TestHarnessKeyReadsInstalledDirs(t *testing.T) {
 // TestTrialText: a harness or cli value is made printable and cut to 120
 // bytes on a rune boundary, so the trial's validation never refuses it.
 func TestTrialText(t *testing.T) {
+	t.Parallel()
 	if got := trialText("agy 1.4\x1b[31m"); got != "agy 1.4?[31m" {
 		t.Errorf("escape: %q", got)
 	}

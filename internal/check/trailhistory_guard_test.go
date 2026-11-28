@@ -39,6 +39,7 @@ func TestSpecRuleBlobOverCap(t *testing.T) {
 // commit carry the line and the spec clean (security review 2026-10-31,
 // finding 2).
 func TestSpecRuleIgnoresReplaceRefs(t *testing.T) {
+	t.Parallel()
 	dir := staleAfterOneCode(t)
 	git(t, dir, "replace", "--graft", "HEAD", "HEAD~2")
 	if got := strings.Fields(git(t, dir, "rev-list", "--first-parent", "HEAD", "--", ".agents/trail.jsonl")); len(got) == 0 || got[0] != git(t, dir, "rev-parse", "HEAD") {
@@ -59,6 +60,7 @@ func TestSpecRuleMergeDepth(t *testing.T) {
 // A merge that adds the line itself, in its resolution, is the spec's
 // commit: no merged side holds the line.
 func TestSpecRuleMergeAddsTheLine(t *testing.T) {
+	t.Parallel()
 	dir := mergedFixture(t, true)
 	h, specs := history(t, dir)
 	c, err := h.commitOf(specs[0])
@@ -73,6 +75,7 @@ func TestSpecRuleMergeAddsTheLine(t *testing.T) {
 
 // A line added on a branch merged into the merged side is found there.
 func TestSpecRuleNestedMerge(t *testing.T) {
+	t.Parallel()
 	dir := repo(t, map[string]string{"internal/a.go": "package a\n", ".agents/trail.jsonl": trailLine(t, "GUIDE-1", "guide", "current", "x")})
 	base := git(t, dir, "rev-parse", "--abbrev-ref", "HEAD")
 	git(t, dir, "checkout", "-q", "-b", "side")

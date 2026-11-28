@@ -40,6 +40,7 @@ func verbKeys() []string {
 
 // (a) Every line of every page fits an 80-column terminal.
 func TestHelpLinesFit(t *testing.T) {
+	t.Parallel()
 	texts := map[string]string{"the short page": shortPage}
 	for _, v := range verbKeys() {
 		texts[v] = verbHelp(v)
@@ -56,6 +57,7 @@ func TestHelpLinesFit(t *testing.T) {
 // (b) The short page names every verb but sync, and nothing else; every verb
 // has a page, sync install's.
 func TestHelpShortPageListsEveryVerb(t *testing.T) {
+	t.Parallel()
 	var listed []string
 	for _, m := range regexp.MustCompile(`(?m)^  ([a-z][a-z-]*) `).FindAllStringSubmatch(shortPage, -1) {
 		listed = append(listed, m[1])
@@ -100,6 +102,7 @@ func TestHelpShortPageListsEveryVerb(t *testing.T) {
 // (c) A page's Flags: are exactly the verb's FlagSet minus --home and
 // --repo; a verb with none prints no Flags: heading.
 func TestHelpFlagsAreTheFlagSet(t *testing.T) {
+	t.Parallel()
 	for _, v := range verbKeys() {
 		var want []string
 		newCtx(v, allVerbs()[v], io.Discard).fs.VisitAll(func(f *flag.Flag) {
@@ -128,6 +131,7 @@ func TestHelpFlagsAreTheFlagSet(t *testing.T) {
 // (d) Every way to ask for a verb's page prints the same bytes, exit 0, with
 // nothing of the flag package's own usage.
 func TestHelpFormsAgree(t *testing.T) {
+	t.Parallel()
 	placeholder := regexp.MustCompile(`(?m)^  --\S+ (string|int|int64|uint|float64|value|duration)$`)
 	for _, v := range verbKeys() {
 		want := verbHelp(v)
@@ -145,6 +149,7 @@ func TestHelpFormsAgree(t *testing.T) {
 
 // (e) help's own arguments: one known verb, or none.
 func TestHelpArguments(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	for name, tc := range map[string]struct {
 		args []string
@@ -175,6 +180,7 @@ func TestHelpArguments(t *testing.T) {
 
 // (f) sync is install's alias: not on the short page, named on install's.
 func TestHelpSyncIsInstalls(t *testing.T) {
+	t.Parallel()
 	if strings.Contains(shortPage, "\n  sync ") {
 		t.Error("the short page lists sync")
 	}
@@ -189,6 +195,7 @@ func TestHelpSyncIsInstalls(t *testing.T) {
 // (g) Each page's shape: the synopsis names its verb first, the description
 // is one to ten lines, and the page ends with the global flags line.
 func TestHelpPageShape(t *testing.T) {
+	t.Parallel()
 	if !strings.HasSuffix(shortPage, "\n"+helpLast+"\n") {
 		t.Error("the short page does not end with the global flags line")
 	}
@@ -210,6 +217,7 @@ func TestHelpPageShape(t *testing.T) {
 // one, then the verb's synopsis (the first lines of its page, from the same
 // data), then the hint; exit 2.
 func TestUsageErrSites(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	for name, tc := range map[string]struct {
 		args   []string
@@ -256,6 +264,7 @@ func TestUsageErrSites(t *testing.T) {
 // An unknown verb (including retired verbs such as relay, ADR-537 D2) names
 // itself and points at fyr help; it never prints the short page.
 func TestUsageErrUnknownVerb(t *testing.T) {
+	t.Parallel()
 	for _, verb := range []string{"nosuch", "relay"} {
 		got, code := helpRun(t, verb)
 		want := "fyr: unknown command \"" + verb + "\"\nrun 'fyr help' for the commands\n"
@@ -301,6 +310,7 @@ func TestUsageErrLeftOutSites(t *testing.T) {
 // search's page lists the --kind values in the order search itself refuses
 // an unknown one with: the usage string is a copy, so it is pinned.
 func TestHelpSearchKindsMatchSearch(t *testing.T) {
+	t.Parallel()
 	got, code := helpRun(t, "search", "--kind", "nosuch", "--home", t.TempDir(), "x")
 	_, list, ok := strings.Cut(strings.TrimSpace(got), "--kind must be one of: ")
 	list, _, _ = strings.Cut(list, ";")
@@ -321,6 +331,7 @@ func TestHelpSearchKindsMatchSearch(t *testing.T) {
 // helpLast's guard line is a copy of guardFree (ADR-505), so it is pinned:
 // a verb freed in one and not named in the other fails here.
 func TestHelpLastNamesGuardFree(t *testing.T) {
+	t.Parallel()
 	_, list, ok := strings.Cut(helpLast, "runs only ")
 	if !ok {
 		t.Fatalf("helpLast names no verb the guard frees:\n%s", helpLast)
@@ -337,6 +348,7 @@ func TestHelpLastNamesGuardFree(t *testing.T) {
 // eval's page names the sandbox layout ProjectSandboxRoot makes, its
 // <project> level included: the path is a copy, so it is pinned.
 func TestHelpEvalNamesSandboxLayout(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	rel, err := filepath.Rel(home, eval.ProjectSandboxRoot(home, filepath.Join(home, "proj")))
 	if err != nil {
@@ -353,6 +365,7 @@ func TestHelpEvalNamesSandboxLayout(t *testing.T) {
 // the fallback GUIDE-eval record, --suite-file, --runs N, --parallel N, and
 // trial-order output.
 func TestHelpEvalGolden(t *testing.T) {
+	t.Parallel()
 	got, code := helpRun(t, "eval", "-h")
 	if code != 0 {
 		t.Fatalf("fyr eval -h: exit %d\n%s", code, got)
@@ -411,6 +424,7 @@ var bareStatus = regexp.MustCompile(`[ ,][1-9](?:[,.]|$)`)
 
 // Every exit line gives each non-zero status its meaning.
 func TestHelpExitStatusesSayWhat(t *testing.T) {
+	t.Parallel()
 	for v, p := range pages {
 		for _, line := range p.about {
 			if _, exit, ok := strings.Cut(line, "Exit "); ok && bareStatus.MatchString(" "+exit) {
@@ -424,6 +438,7 @@ func TestHelpExitStatusesSayWhat(t *testing.T) {
 // across install (sync alias), metrics (report subverb), auto sim record
 // (24 CLI flags vs canonical --json-in), and search (ast/vet/hook shims).
 func TestD4DeprecationNoticesInHelp(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		text string

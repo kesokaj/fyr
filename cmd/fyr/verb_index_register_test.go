@@ -51,6 +51,7 @@ func runIndexRegister(t *testing.T, root string) (home, out string) {
 }
 
 func TestIndexRegisterSkipsEphemeralPaths(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	if resolved, err := filepath.EvalSymlinks(base); err == nil {
 		base = resolved

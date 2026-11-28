@@ -14,6 +14,7 @@ import (
 // symlink or FIFO swapped in between was followed or blocked (security
 // review 2026-10-25, finding 3). openPlain judges the file it opened.
 func TestOpenPlainJudgesTheOpenedFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	secret := filepath.Join(dir, "secret")
 	if err := os.WriteFile(secret, []byte("not yours\n"), 0o600); err != nil {
@@ -40,6 +41,7 @@ func TestOpenPlainJudgesTheOpenedFile(t *testing.T) {
 }
 
 func TestCorrectModeNeverFollowsSymlink(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target")
 	if err := os.WriteFile(target, []byte("keep\n"), 0o666); err != nil {

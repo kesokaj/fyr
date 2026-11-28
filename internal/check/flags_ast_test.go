@@ -7,6 +7,7 @@ import (
 )
 
 func TestCollectFlagTokens(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		text string
@@ -60,6 +61,7 @@ func TestCollectFlagTokens(t *testing.T) {
 }
 
 func TestUndocumentedFlagsMixedCaseAndShortFlag(t *testing.T) {
+	t.Parallel()
 	v := Vocabulary{
 		"help": {Flags: map[string]bool{"home": true, "repo": true, "help": true}},
 		"run":  {Flags: map[string]bool{"home": true, "repo": true, "help": true, "FlagName": true, "x": true, "known": true}},
@@ -96,6 +98,7 @@ func TestUndocumentedFlagsMixedCaseAndShortFlag(t *testing.T) {
 }
 
 func TestUndocumentedFlagsScopedPerVerbAndSubverb(t *testing.T) {
+	t.Parallel()
 	v := Vocabulary{
 		"help":  {Flags: map[string]bool{"home": true, "repo": true, "help": true}},
 		"alpha": {Flags: map[string]bool{"home": true, "repo": true, "help": true, "shared": true}},

@@ -28,6 +28,7 @@ func writeAgent(t *testing.T, repo, dir, content string) {
 // TestAgentsInstallAsWritten: an agent is authored as agents/<name>/agent.md
 // and install copies it unchanged — nothing is derived (D3).
 func TestAgentsInstallAsWritten(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	agents, err := loadAgents(DirSource(repo))
 	if err != nil {
@@ -55,6 +56,7 @@ func TestAgentsInstallAsWritten(t *testing.T) {
 // flat agents/<name>.md, its tool names, its keys — is refused with the file
 // named, never installed half-read (F6).
 func TestLintRefusesOldFormatAgent(t *testing.T) {
+	t.Parallel()
 	const native = "name: x\ndescription: \"an agent\"\nsubagent: true\nmainAgent: false\n"
 	for name, tc := range map[string]struct {
 		file, content string
@@ -101,6 +103,7 @@ func TestLintRefusesOldFormatAgent(t *testing.T) {
 // DeriveAgy's toolMap produced at the Phase 3a base commit (D17), so no agent
 // that installed before loses a tool and none gains an unvetted one.
 func TestKnownToolsAreTheDerivedNames(t *testing.T) {
+	t.Parallel()
 	got := slices.Clone(knownTools)
 	sort.Strings(got)
 	want := []string{"find_by_name", "grep_search", "replace_file_content", "run_command", "view_file", "write_to_file"}
@@ -114,6 +117,7 @@ func TestKnownToolsAreTheDerivedNames(t *testing.T) {
 // Antigravity installs it at (audit 2026-09-30, AG5, kept from the derivation
 // test it replaces).
 func TestCheckoutAgentsAreNative(t *testing.T) {
+	t.Parallel()
 	agents, err := loadAgents(DirSource(filepath.Join("..", "..")))
 	if err != nil {
 		t.Fatal(err)
@@ -235,6 +239,7 @@ func TestCheckoutAgentsAreNative(t *testing.T) {
 // clause (AG16) and a progress-file clause that leaves something on disk when a
 // run is cut off (AG18).
 func TestRecordAgentsCarryDataAndWriteFirst(t *testing.T) {
+	t.Parallel()
 	agents, err := loadAgents(DirSource(filepath.Join("..", "..")))
 	if err != nil {
 		t.Fatal(err)

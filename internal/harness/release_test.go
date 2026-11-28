@@ -475,6 +475,7 @@ func TestUpdateFromReleasePinsTheHost(t *testing.T) {
 }
 
 func TestInstallReleaseRefusesSymlinkAndDir(t *testing.T) {
+	t.Parallel()
 	t.Run("symlink at BinPath", func(t *testing.T) {
 		home := t.TempDir()
 		dest := filepath.Join(home, BinPath)

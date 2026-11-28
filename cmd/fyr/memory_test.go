@@ -269,6 +269,7 @@ func TestDreamTimerDryRun(t *testing.T) {
 
 // TestDreamScopeUsage: conflicting --all and --project, or bare dream, exit 2.
 func TestDreamScopeUsage(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	var out bytes.Buffer
 	err := run([]string{"dream", "--all", "--project", ".", "--dry-run", "--home", home}, &out)
@@ -352,6 +353,7 @@ func timerFilesFor(t *testing.T, home string) []string {
 // it, so uninstall and --remove-timer must not pass over it in silence: they
 // name the file and say it stays (the v2.2.0 gate's L1).
 func TestTimerOfAnotherSystemIsNamed(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	unit, plist := dream.UnitFor(home)
 	other := filepath.Join(home, "Library", "LaunchAgents", plist+".plist")
@@ -395,6 +397,7 @@ func TestTimerOfAnotherSystemIsNamed(t *testing.T) {
 // A memory usage error exits 2 like every other usage error of this binary;
 // the usage line goes to the writer.
 func TestMemoryUsageErrorExits2(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	for _, args := range [][]string{{}, {"forget"}, {"add", "extra"}} {
 		var out bytes.Buffer

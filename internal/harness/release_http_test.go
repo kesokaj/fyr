@@ -154,6 +154,7 @@ func TestUpdateFromReleaseRedirectGuardsAndSizeCap(t *testing.T) {
 }
 
 func TestReleaseRedirectLoopCDNAndLatestGuards(t *testing.T) {
+	t.Parallel()
 	t.Run("excessive redirects (>= 5 hops) rejected", func(t *testing.T) {
 		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, r.URL.Path, http.StatusFound)

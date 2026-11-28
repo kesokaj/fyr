@@ -37,6 +37,7 @@ func statusOut(t *testing.T, repo, home string) (string, int) {
 
 // A changed file is listed and counted as drift, with exit 1.
 func TestStatusDriftLines(t *testing.T) {
+	t.Parallel()
 	repo, home := statusHome(t)
 	rel := filepath.Join(harness.AgyRoot, "rules", "AGENTS.md")
 	if err := os.WriteFile(filepath.Join(home, rel), []byte("changed\n"), 0o644); err != nil {
@@ -56,6 +57,7 @@ func TestStatusDriftLines(t *testing.T) {
 // A manifest entry under ~/.claude that an install before fyr wrote is kept,
 // not drift.
 func TestStatusKeptClaudeFiles(t *testing.T) {
+	t.Parallel()
 	repo, home := statusHome(t)
 	st, _, err := harness.LoadState(home)
 	if err != nil {
@@ -77,6 +79,7 @@ func TestStatusKeptClaudeFiles(t *testing.T) {
 // A skill file Plan cannot read, and a deployed file Status cannot read,
 // each fail status with the error.
 func TestStatusPlanAndReadErrors(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root reads a mode-0 file")
 	}
@@ -143,6 +146,7 @@ func TestStatusRetroLine(t *testing.T) {
 // An installed binary stamped with another commit than the checkout's is
 // named older than the repo.
 func TestStatusBinaryOlderThanRepo(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("builds fyr")
 	}

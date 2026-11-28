@@ -26,6 +26,7 @@ func traceFindings(rep Report) []Finding {
 // fence, in a later section or under a heading that only begins with Trace
 // does not count, and the first row with a key wins.
 func TestTracesRule(t *testing.T) {
+	t.Parallel()
 	prd := strings.Join([]string{
 		"# PRD — x",
 		"",
@@ -118,6 +119,7 @@ func TestTracesRule(t *testing.T) {
 // nothing; no PRD.md, a PRD.md with no template items, or no TDD.md leaves
 // the other half checked.
 func TestTracesRuleNotes(t *testing.T) {
+	t.Parallel()
 	prd := "## Must\n\n- **R1** — x.\n"
 	sdd := "## Components\n\n| M1 | a |\n\n## Trace\n\n| R1 | M1 |\n"
 	tdd := "## Trace\n\n| M1 | T1 | TestA |\n"
@@ -162,6 +164,7 @@ func TestTracesRuleNotes(t *testing.T) {
 // fences are unwrapped, SDD traces R1 alone so R2 and S1 report as gaps while
 // M1 is traced in TDD.
 func TestTracesRuleReadsTheTemplates(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{}
 	for _, name := range []string{"PRD.md", "SDD.md", "TDD.md"} {
 		b, err := os.ReadFile(filepath.Join("..", "..", "skills", "fyr-init-project", "assets", name))
@@ -193,6 +196,7 @@ func TestTracesRuleReadsTheTemplates(t *testing.T) {
 }
 
 func TestTracesRuleRejectsMissingOrRetiredSpecsInTDDAndSDD(t *testing.T) {
+	t.Parallel()
 	prd := "## Must\n\n- **R1** — x.\n"
 	sdd := strings.Join([]string{
 		"# SDD — x",
@@ -270,6 +274,7 @@ func TestTracesRuleRejectsMissingOrRetiredSpecsInTDDAndSDD(t *testing.T) {
 }
 
 func TestTracesRuleEscapedPipesDuplicatesAndVerifiedBy(t *testing.T) {
+	t.Parallel()
 	prd := strings.Join([]string{
 		"# PRD — x",
 		"",

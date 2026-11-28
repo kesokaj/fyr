@@ -10,6 +10,7 @@ import (
 )
 
 func TestSlashNoteOnlyWhenSomeSkillIsSlashOnly(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	inv, err := LoadInventory(DirSource(repo))
 	if err != nil {
@@ -74,6 +75,7 @@ func TestInspectCountsUntrackedFiles(t *testing.T) {
 // read as "the tree is clean" to a caller deciding whether to deploy
 // (release review of v1.0.0, finding 4).
 func TestInspectFailsClosedOnUnknownStatus(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not on PATH")
 	}

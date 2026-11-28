@@ -7,8 +7,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
+	"github.com/kesokaj/fyr/internal/auto"
+	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
@@ -175,4 +178,68 @@ func installFiles(src harness.Source, home string, dryRun bool, out io.Writer) e
 		pathHint(home, out)
 	}
 	return nil
+}
+
+func runVersion(c *runtimeCtx) error {
+	if jsonOptsOf(c).jsonOut {
+		return writeVerbJSON(c.out, versionJSON{Version: buildVersion()})
+	}
+	fmt.Fprintln(c.out, "fyr", buildVersion())
+	return nil
+}
+
+func runUninstall(c *runtimeCtx) error {
+	o := dryRunJSONOptsOf(c)
+	if !o.jsonOut {
+		return runUninstallBody(c)
+	}
+	out, err := captureVerbOutput(c, func() error { return runUninstallBody(c) })
+	if err != nil {
+		return err
+	}
+	return writeVerbJSON(c.out, uninstallJSON{OK: true, DryRun: o.dryRun, Home: c.home, Output: out})
+}
+
+func runUninstallBody(c *runtimeCtx) error {
+	dryRun := dryRunJSONOptsOf(c).dryRun
+	// Any legacy dream timer and auto's timer are outside the manifest;
+	// uninstall removes them while keeping auto.json, auto/ and metrics.db (R4).
+	dreamErr := removeUninstallTimer(c, "dream", dream.TimerInstalledHere(c.home, runtime.GOOS), dryRun, func() (bool, error) {
+		return dream.RemoveTimer(c.home, runtime.GOOS)
+	})
+	autoErr := removeUninstallTimer(c, "auto", auto.TimerInstalledHere(c.home, runtime.GOOS), dryRun, func() (bool, error) {
+		return auto.RemoveTimer(c.home, runtime.GOOS)
+	})
+	err := harness.Uninstall(c.home, dryRun, c.out)
+	otherSystemTimerNote(c)
+	return errors.Join(err, dreamErr, autoErr)
+}
+
+func removeUninstallTimer(c *runtimeCtx, name string, installed, dryRun bool, remove func() (bool, error)) error {
+	if !installed {
+		return nil
+	}
+	if dryRun {
+		fmt.Fprintf(c.out, "[dry-run] would remove the %s timer\n", name)
+		return nil
+	}
+	removed, err := remove()
+	if err != nil {
+		return err
+	}
+	if removed {
+		fmt.Fprintf(c.out, "removed the %s timer\n", name)
+	}
+	return nil
+}
+
+// otherSystemTimerNote names unit files of the operating system this binary
+// is not running on: they are never removed here, and status counts them.
+func otherSystemTimerNote(c *runtimeCtx) {
+	if files := dream.OtherSystemTimerFiles(c.home, runtime.GOOS); len(files) > 0 {
+		fmt.Fprintln(c.out, "a dream timer unit for another system is in this home and stays: "+strings.Join(files, ", "))
+	}
+	if files := auto.OtherSystemTimerFiles(c.home, runtime.GOOS); len(files) > 0 {
+		fmt.Fprintln(c.out, "an auto timer unit for another system is in this home and stays: "+strings.Join(files, ", "))
+	}
 }

@@ -49,6 +49,7 @@ func readOnlyConfigDir(t *testing.T, home string) {
 }
 
 func TestInstallUnreadableManifest(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home, files := installed(t, repo)
 	writeFile(t, statePath(home), "not json\n")
@@ -60,6 +61,7 @@ func TestInstallUnreadableManifest(t *testing.T) {
 
 // A failed write whose manifest cannot be saved either names both.
 func TestInstallWriteErrorManifestUnsaved(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home, files := installed(t, repo)
 	notes := filepath.Join(home, AgyRoot, "skills", "alpha", "references", "notes.md")
@@ -76,6 +78,7 @@ func TestInstallWriteErrorManifestUnsaved(t *testing.T) {
 
 // A dry run names a stale file's removal and leaves it on disk.
 func TestInstallDryRunKeepsStale(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home, files := installed(t, repo)
 	var kept []File
@@ -105,6 +108,7 @@ func TestInstallDryRunKeepsStale(t *testing.T) {
 // A checkout whose state git cannot report is recorded as such, never as a
 // bare commit.
 func TestInstallStatusUnknown(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	gitInit(t, repo)
 	gitIn(t, repo, "add", ".")
@@ -122,6 +126,7 @@ func TestInstallStatusUnknown(t *testing.T) {
 }
 
 func TestInstallManifestUnsaved(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
@@ -142,6 +147,7 @@ func TestInstallManifestUnsaved(t *testing.T) {
 // A skill file or directory Plan cannot read fails the plan, naming the
 // skill.
 func TestPlanSkillUnreadable(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root reads a mode-0 file")
 	}

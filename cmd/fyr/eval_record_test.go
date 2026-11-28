@@ -78,6 +78,7 @@ func TestEvalVerbRecord(t *testing.T) {
 // a run with none has no interval; the title's suffix shows only past one
 // run per row or with an error.
 func TestEvalTally(t *testing.T) {
+	t.Parallel()
 	res := func(row, status string) eval.Result { return eval.Result{Row: row, Status: status} }
 	tl := tallyOf([]eval.Result{res("a", eval.StatusPass), res("b", eval.StatusError), res("a", eval.StatusFail), res("b", eval.StatusError)})
 	if tl.pass != 1 || tl.graded != 2 || tl.errors != 2 || len(tl.rows) != 2 || tl.rows[0].row != "a" || tl.rows[1].row != "b" {
@@ -108,6 +109,7 @@ func TestEvalTally(t *testing.T) {
 // but out of the suite's interval, and each row takes its own pooled expect
 // match, printed "m of n"; a row with no match prints -.
 func TestEvalTallyFromSuite(t *testing.T) {
+	t.Parallel()
 	res := func(row, status string) eval.Result { return eval.Result{Row: row, Status: status} }
 	tl := tallyOf([]eval.Result{res("a", eval.StatusPass), res("ind", eval.StatusFail)})
 	if got := tl.suiteInterval(); got != "[0.09, 0.91]" {
@@ -130,6 +132,7 @@ func TestEvalTallyFromSuite(t *testing.T) {
 // so every verb the binary has must survive metrics.Verb; one the allowlist
 // lacks reduces to bare fyr and an expect on it can never be found.
 func TestEveryVerbSurvivesTheVerbList(t *testing.T) {
+	t.Parallel()
 	for name := range allVerbs() {
 		got := metrics.Verb("fyr " + name)
 		if len(got) != 1 || got[0] != "fyr "+name {

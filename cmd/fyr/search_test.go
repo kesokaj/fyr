@@ -19,6 +19,7 @@ import (
 )
 
 func TestReorderSearchFlags(t *testing.T) {
+	t.Parallel()
 	// --limit, --kind and --refs take values: were reorder not told so they
 	// would swallow the next word (BUG-002's shape).
 	cases := map[string][]string{
@@ -91,6 +92,7 @@ func TestSearchVerb(t *testing.T) {
 // TestUsageMatchesDocComment: every verb the short page lists is in the
 // package doc comment, and back.
 func TestUsageMatchesDocComment(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile("main.go")
 	if err != nil {
 		t.Fatal(err)

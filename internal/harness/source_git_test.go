@@ -152,6 +152,7 @@ func TestResolveSource(t *testing.T) {
 }
 
 func TestBehindAndPull(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
@@ -216,6 +217,7 @@ func TestBehindAndPull(t *testing.T) {
 // (PLAN.md item 40) ssh to github.com:22 timed out, and git's own text named
 // only a host and a port, not which remote of which checkout to fix.
 func TestBehindFetchErrorNamesTheRemote(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
@@ -258,6 +260,7 @@ func TestBehindFetchErrorNamesTheRemote(t *testing.T) {
 // or a token in it, also one a global insteadOf rule adds (P3's security
 // review, finding 1). A control character is escaped, not printed.
 func TestRemoteForDisplay(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"https://tok3nuser:s3cr3tpw@github.com/kesokaj/fyr.git": "https://github.com/kesokaj/fyr.git",
 		"https://ghp_tok3n@github.com/kesokaj/fyr.git":          "https://github.com/kesokaj/fyr.git",
@@ -285,6 +288,7 @@ func TestRemoteForDisplay(t *testing.T) {
 // nothing: a path with a control character takes $'…' quoting, never Go's
 // double quotes, in which a shell expands $(…) (P3's security review, round 2).
 func TestShellArgRoundTrips(t *testing.T) {
+	t.Parallel()
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		t.Skip("bash not installed")
@@ -312,6 +316,7 @@ func TestShellArgRoundTrips(t *testing.T) {
 // ShellArg's escapes for a control character above ASCII: \u for the basic
 // plane, \U above it, so no form of the character reaches the terminal.
 func TestShellArgEscapes(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"/srv/a\u0085b":     `$'/srv/a\u0085b'`,
 		"/srv/a\U000e0001b": `$'/srv/a\U000e0001b'`,
@@ -356,6 +361,7 @@ func TestBehindFetchErrorHidesInsteadOfToken(t *testing.T) {
 
 // Through Behind: a token in the remote's URL never reaches the error.
 func TestBehindFetchErrorHidesCredentials(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
@@ -386,6 +392,7 @@ func TestBehindFetchErrorHidesCredentials(t *testing.T) {
 // TestShellArgHoldsInDash: dash has no $'…', so the form must hold no quote
 // that closes it early (the v5.5.0 gate).
 func TestShellArgHoldsInDash(t *testing.T) {
+	t.Parallel()
 	dash, err := exec.LookPath("dash")
 	if err != nil {
 		t.Skip("dash not installed")

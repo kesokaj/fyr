@@ -14,6 +14,7 @@ import (
 // or the home's, never /tmp (global Hard rules; IN10). A bare "" as the
 // MkdirTemp/CreateTemp dir means the system temp directory.
 func TestNoSystemTempDirInSource(t *testing.T) {
+	t.Parallel()
 	// Every Go package of the module, so a new package cannot bring the system
 	// temp directory back unnoticed.
 	for _, root := range []string{"../../cmd", "../../internal"} {
@@ -126,6 +127,7 @@ func TestUnpackZipEmptyParentUnpacksBesideTheZip(t *testing.T) {
 // readCapped is the one capped file read: it refuses a file over the cap
 // before reading it and returns a smaller one whole.
 func TestReadCappedRefusesOversize(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	small, big := filepath.Join(dir, "small"), filepath.Join(dir, "big")
 	if err := os.WriteFile(small, []byte("ok"), 0o644); err != nil {
@@ -149,6 +151,7 @@ func TestReadCappedRefusesOversize(t *testing.T) {
 // parseStrict lints and parses in one pass over the block: the frontmatter
 // a lenient parse would return, or the lint error.
 func TestParseStrict(t *testing.T) {
+	t.Parallel()
 	good := "name: x\ndescription: \"a: b\"\n"
 	fm, err := parseStrict(good)
 	if err != nil {
@@ -168,6 +171,7 @@ func TestParseStrict(t *testing.T) {
 // outermost first; RemoveCreated removes exactly those, so a refused unpack
 // leaves a pre-existing parent as it was.
 func TestMkdirAllTrackedAndRemoveCreated(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	existing := filepath.Join(base, "keep")
 	if err := os.Mkdir(existing, 0o700); err != nil {
@@ -208,6 +212,7 @@ func TestMkdirAllTrackedAndRemoveCreated(t *testing.T) {
 // A stream whose Stat size says nothing still fails closed one byte past the
 // cap: a FIFO fed max+1 bytes is refused, never cut short.
 func TestReadCappedRefusesOversizeStream(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("no FIFOs")
 	}

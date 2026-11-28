@@ -12,6 +12,7 @@ import (
 // in a verb that writes under it, and only when the new one is absent and
 // the old one is a plain directory (plan fyr D13, F3).
 func TestMigrateStateDir(t *testing.T) {
+	t.Parallel()
 	write := func(t *testing.T, p, body string) {
 		t.Helper()
 		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
@@ -113,6 +114,7 @@ func TestMigrateStateDir(t *testing.T) {
 // A read-only verb never migrates: it names the old directory and reads
 // nothing from it (plan fyr D13).
 func TestStateDirNotice(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	if got := StateDirNotice(home); got != "" {
 		t.Errorf("neither dir: %q", got)

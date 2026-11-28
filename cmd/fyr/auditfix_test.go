@@ -15,6 +15,7 @@ import (
 // TestListHelpExitsZero: help is a successful ask; the FlagSet prints the
 // verb's flags on the writer and the verb returns no error (IN15).
 func TestListHelpExitsZero(t *testing.T) {
+	t.Parallel()
 	for _, flag := range []string{"-h", "--help"} {
 		var out bytes.Buffer
 		if err := run([]string{"list", flag, "--home", t.TempDir()}, &out); err != nil {
@@ -30,6 +31,7 @@ func TestListHelpExitsZero(t *testing.T) {
 // like every other, exit 2 with the reason and a pointer to fyr help on the
 // writer (IN16), never the short page (plan ledger D19 4).
 func TestUnknownCommandExits2OnTheWriter(t *testing.T) {
+	t.Parallel()
 	var out bytes.Buffer
 	err := run([]string{"no-such-verb"}, &out)
 	var code exitCode

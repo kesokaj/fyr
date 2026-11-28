@@ -256,6 +256,7 @@ func TestSearchRanksARecordAboveAFile(t *testing.T) {
 
 // fyr help lists the verb, and its page its subverbs.
 func TestHelpListsRecord(t *testing.T) {
+	t.Parallel()
 	var out bytes.Buffer
 	if err := run([]string{"help"}, &out); err != nil {
 		t.Fatal(err)
@@ -278,6 +279,7 @@ func TestHelpListsRecord(t *testing.T) {
 // (an os error carrying a checkout path) is filtered like every other line
 // fyr prints from the trail.
 func TestRecordErrFiltersOtherErrors(t *testing.T) {
+	t.Parallel()
 	var out bytes.Buffer
 	err := recordErr(&runtimeCtx{out: &out}, errors.New("open /x/\x1b[31mevil/.agents: permission denied"))
 	if err == nil || strings.ContainsRune(err.Error(), 0x1b) {
@@ -463,6 +465,7 @@ func TestRecordGetJSONPartialToStderrAndListCurrentUpdated(t *testing.T) {
 }
 
 func TestSortRecordListStrictWeakOrderAndUTC(t *testing.T) {
+	t.Parallel()
 	recs := []brain.Record{
 		{ID: "CUR-early", Status: "current", Date: "2026-11-19", Updated: "2026-11-19T10:00:00Z"},
 		{ID: "PLAN-mid", Status: "open", Date: "2026-11-19", Updated: "2026-11-19T11:00:00Z"},

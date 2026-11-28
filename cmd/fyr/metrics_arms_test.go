@@ -49,6 +49,7 @@ func metricsCmd(t *testing.T, args ...string) (string, error) {
 // A store that cannot be opened, and one whose counts cannot be read, fail
 // ingest with the error.
 func TestMetricsIngestStoreErrors(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	if err := os.MkdirAll(metrics.Path(home), 0o700); err != nil {
 		t.Fatal(err)
@@ -67,6 +68,7 @@ func TestMetricsIngestStoreErrors(t *testing.T) {
 // A run whose outcome cannot be stamped counts as failed: the summary line,
 // then exit 1.
 func TestMetricsIngestFailedSource(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	craftedStore(t, home, `CREATE TABLE sessions(id TEXT)`, `CREATE TABLE steps(id TEXT)`, `CREATE TABLE events(id TEXT)`)
 	out, err := metricsCmd(t, "ingest", "--source", t.TempDir(), "--label", "a=b", "--outcome", "pass", "--home", home)
@@ -78,6 +80,7 @@ func TestMetricsIngestFailedSource(t *testing.T) {
 // --outcome error is accepted by the verb end to end, as the help text
 // promises: the empty source gives nothing to read and exit 0.
 func TestMetricsIngestOutcomeError(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	out, err := metricsCmd(t, "ingest", "--source", t.TempDir(), "--label", "a=b", "--outcome", "error", "--home", home)
 	if err != nil || !strings.Contains(out, "metrics: 0 sessions, 0 steps, 0 events added; 0 sources failed") {
@@ -87,6 +90,7 @@ func TestMetricsIngestOutcomeError(t *testing.T) {
 
 // A report over an existing file is refused with the error.
 func TestMetricsReportRefusesExistingFile(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	if _, err := metricsCmd(t, "ingest", "--home", home); err != nil {
 		t.Fatal(err)

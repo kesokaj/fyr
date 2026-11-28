@@ -69,6 +69,7 @@ func handoffEvents(t *testing.T, home string) int {
 // holding .agents/trail.jsonl gets its record events again (they were lost
 // when the join began to take registered roots only, ledger D15 1).
 func TestEvalIngestJoinsSandboxTrail(t *testing.T) {
+	t.Parallel()
 	skipWithoutProcCheck(t)
 	tmp := t.TempDir()
 	home, dir := filepath.Join(tmp, "fyr-home"), filepath.Join(tmp, "sandbox")
@@ -92,6 +93,7 @@ func TestEvalIngestJoinsSandboxTrail(t *testing.T) {
 // repository. Its sessions are still ingested, without record events, and
 // the ingest says why.
 func TestEvalIngestRefusesForeignGitDir(t *testing.T) {
+	t.Parallel()
 	skipWithoutProcCheck(t)
 	tmp := t.TempDir()
 	home, dir := filepath.Join(tmp, "fyr-home"), filepath.Join(tmp, "sandbox")

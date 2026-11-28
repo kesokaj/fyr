@@ -8,6 +8,7 @@ import (
 )
 
 func TestMockFixtureRefusesOutsideThrowawayDir(t *testing.T) {
+	t.Parallel()
 	if checkoutRootErr != nil {
 		t.Fatal(checkoutRootErr)
 	}

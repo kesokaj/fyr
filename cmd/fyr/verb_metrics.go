@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -417,4 +419,128 @@ func (c *runtimeCtx) metricsWindow() (since, until time.Time, err error) {
 		}
 	}
 	return since, until, nil
+}
+
+// metricsEvals serves `metrics evals`: the per-row view of the suite's
+// trials in the store, as text or --json (SPEC-fyr-metrics § Interfaces).
+// A trial belongs to no project, so --project is refused with the other
+// flags evals does not read (PLAN.md D16).
+func (c *runtimeCtx) metricsEvals(args []string) error {
+	if bad := c.metricsFlagsOutside("since", "until", "harness", "json"); bad != "" {
+		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics evals: --%s does not apply to evals", bad))
+	}
+	if len(args) > 0 {
+		return usageErr(c.out, "metrics", fmt.Sprintf("metrics evals takes no arguments: %q", args))
+	}
+	since, until, err := c.metricsWindow()
+	if err != nil {
+		return usageErr(c.out, "metrics", "fyr metrics evals: "+err.Error())
+	}
+	mo := metricsOptsOf(c)
+	opts := metrics.EvalOptions{Since: since, Now: until, Harness: mo.harness}
+	e, err := c.loadMetricsEvalsWithFallback(opts)
+	if err != nil {
+		return err
+	}
+	if mo.jsonOut {
+		return e.WriteJSON(c.out)
+	}
+	e.WriteText(c.out)
+	return nil
+}
+
+func (c *runtimeCtx) loadMetricsEvalsWithFallback(opts metrics.EvalOptions) (*metrics.EvalRows, error) {
+	if _, err := os.Lstat(metrics.Path(c.home)); errors.Is(err, os.ErrNotExist) {
+		if devStore, cleanup, ok := metrics.OpenDevEvalFallbackRO(c.home); ok {
+			defer cleanup()
+			return devStore.Evals(opts)
+		}
+	}
+	s, err := c.existingMetricsStore()
+	if err != nil {
+		return nil, err
+	}
+	defer s.Close()
+	e, err := s.Evals(opts)
+	if err != nil || len(e.Rows) > 0 {
+		return e, err
+	}
+	if devStore, cleanup, ok := metrics.OpenDevEvalFallbackRO(c.home); ok {
+		defer cleanup()
+		if devE, derr := devStore.Evals(opts); derr == nil && len(devE.Rows) > 0 {
+			return devE, nil
+		}
+	}
+	return e, nil
+}
+
+const maxMetricsRunJSONIn = 64 * 1024
+
+// metricsRecordRun serves `fyr metrics record-run --json-in [--json]` (F-032),
+// validating and persisting one shape-only OrchestrationRunRow into metrics.db.
+func (c *runtimeCtx) metricsRecordRun(args []string) error {
+	if bad := c.metricsFlagsOutside("json-in", "json"); bad != "" {
+		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics record-run: --%s does not apply to record-run", bad))
+	}
+	if len(args) > 0 {
+		return usageErr(c.out, "metrics", fmt.Sprintf("metrics record-run takes no arguments: %q", args))
+	}
+	if !metricsOptsOf(c).jsonIn {
+		return usageErr(c.out, "metrics", "fyr metrics record-run requires --json-in")
+	}
+	row, err := decodeOrchestrationRunJSON(stdin)
+	if err != nil {
+		return usageErr(c.out, "metrics", "fyr metrics record-run: "+err.Error())
+	}
+	if err := metrics.RecordOrchestrationRun(c.home, row); err != nil {
+		if errors.Is(err, metrics.ErrInvalidOrchestrationRun) {
+			return usageErr(c.out, "metrics", "fyr metrics record-run: "+err.Error())
+		}
+		return err
+	}
+	return c.writeRecordedRunAck(row)
+}
+
+func decodeOrchestrationRunJSON(r io.Reader) (metrics.OrchestrationRunRow, error) {
+	if r == nil {
+		return metrics.OrchestrationRunRow{}, errors.New("invalid --json-in payload: empty input")
+	}
+	raw, err := io.ReadAll(io.LimitReader(r, maxMetricsRunJSONIn+1))
+	if err != nil {
+		return metrics.OrchestrationRunRow{}, err
+	}
+	if len(raw) > maxMetricsRunJSONIn {
+		return metrics.OrchestrationRunRow{}, fmt.Errorf("invalid --json-in payload: exceeds %d bytes", maxMetricsRunJSONIn)
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return metrics.OrchestrationRunRow{}, errors.New("invalid --json-in payload: expected a JSON object")
+	}
+	var row metrics.OrchestrationRunRow
+	dec := json.NewDecoder(bytes.NewReader(trimmed))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&row); err != nil {
+		return metrics.OrchestrationRunRow{}, fmt.Errorf("invalid --json-in payload: %w", err)
+	}
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); err != io.EOF {
+		return metrics.OrchestrationRunRow{}, errors.New("invalid --json-in payload: trailing data after JSON object")
+	}
+	return row, nil
+}
+
+func (c *runtimeCtx) writeRecordedRunAck(row metrics.OrchestrationRunRow) error {
+	id := strings.TrimSpace(row.ID)
+	kind := strings.ToLower(strings.TrimSpace(row.Kind))
+	status := strings.TrimSpace(row.Status)
+	if metricsOptsOf(c).jsonOut {
+		enc := json.NewEncoder(c.out)
+		return enc.Encode(map[string]any{
+			"id":     id,
+			"kind":   kind,
+			"status": status,
+		})
+	}
+	fmt.Fprintf(c.out, "metrics: recorded orchestration run %s (%s %s)\n", id, kind, status)
+	return nil
 }

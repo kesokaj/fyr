@@ -13,6 +13,7 @@ import (
 // checkout's own .gitattributes picks (security review 2026-10-25, finding
 // 1); a plain git log -G does, which proves the fixture's driver is live.
 func TestSpecRuleRunsNoTextconv(t *testing.T) {
+	t.Parallel()
 	marker := filepath.Join(t.TempDir(), "textconv-ran")
 	prog := filepath.Join(t.TempDir(), "fake-conv")
 	if err := os.WriteFile(prog, []byte("#!/bin/sh\ntouch '"+marker+"'\ncat \"$1\"\n"), 0o755); err != nil {
@@ -42,6 +43,7 @@ func TestSpecRuleRunsNoTextconv(t *testing.T) {
 // literal in -G's extended regular expression: the spec is still found and
 // goes stale (code and security review 2026-10-25).
 func TestSpecRuleOffsetStamp(t *testing.T) {
+	t.Parallel()
 	dir := repo(t, map[string]string{
 		"internal/a.go":       "package a\n",
 		".agents/trail.jsonl": specTrail(t, "SPEC-a", "2026-10-25T12:00:00+02:00", "`internal/a.go`"),
@@ -55,6 +57,7 @@ func TestSpecRuleOffsetStamp(t *testing.T) {
 // silent pass (code review 2026-10-25, finding 2). The failures are made by
 // removing one loose object each call needs and the other does not.
 func TestSpecRuleGitFailureIsANote(t *testing.T) {
+	t.Parallel()
 	fixture := func(t *testing.T) string {
 		dir := repo(t, map[string]string{
 			"internal/x/f.go":     "package x\n",
@@ -99,6 +102,7 @@ func TestSpecRuleGitFailureIsANote(t *testing.T) {
 // follow it out: the span is reported as not resolving inside the checkout
 // (security review 2026-10-25, finding 2).
 func TestDocsRuleTrailingSlashAfterASymlink(t *testing.T) {
+	t.Parallel()
 	outside := t.TempDir()
 	os.Mkdir(filepath.Join(outside, "sub"), 0o755)
 	dir := repo(t, map[string]string{"internal/a.go": "package a\n", "README.md": "`internal/out//` `internal/out///`\n"})
@@ -118,6 +122,7 @@ func TestDocsRuleTrailingSlashAfterASymlink(t *testing.T) {
 // pass (security review 2026-10-25, finding 4): the quadratic scan took
 // seconds on this line, the linear one milliseconds.
 func TestSpansLinearOnUnclosedRuns(t *testing.T) {
+	t.Parallel()
 	var b strings.Builder
 	for k := 1; k <= 3000; k++ {
 		b.WriteString(strings.Repeat("`", k))

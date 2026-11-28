@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/search"
@@ -127,28 +126,6 @@ func (tc *turnBrainCache) ftsMatchesLockedCtx(ctx context.Context, dir, homeOver
 	return matched
 }
 
-func queryBrainFTSRecordIDsCtx(ctx context.Context, bo brain.Options, terms []string) map[string]bool {
-	hits, err := brain.SearchTurnRecordsCtx(ctx, bo, terms, 16)
-	if err != nil || len(hits) == 0 {
-		return nil
-	}
-	return filterFTSHitsByPrecision(hits, terms)
-}
-
-func filterFTSHitsByPrecision(hits []brain.Hit, terms []string) map[string]bool {
-	if len(hits) == 0 {
-		return nil
-	}
-	out := map[string]bool{}
-	for _, h := range hits {
-		if ftsHitMeetsPrecision(h, terms) {
-			out[h.Scope+"|"+h.ID] = true
-			out[h.ID] = true
-		}
-	}
-	return out
-}
-
 func (tc *turnBrainCache) loadTurnDataCtx(ctx context.Context, dir, homeOverride string, terms []string) ([]brain.Record, map[string]bool) {
 	if ctx != nil && ctx.Err() != nil {
 		return nil, nil
@@ -216,58 +193,6 @@ func (tc *turnBrainCache) loadCombinedTurnDataCtx(ctx context.Context, dir, home
 	return res.Records, fts, true
 }
 
-func ftsHitMeetsPrecision(h brain.Hit, terms []string) bool {
-	if len(terms) == 1 {
-		return len(terms[0]) >= 5
-	}
-	return countFTSHitTerms(h, terms) >= 2
-}
-
-func countFTSHitTerms(h brain.Hit, terms []string) int {
-	snipSpans := extractMarkedSnippetWords(h.Snippet)
-	titleLow := strings.ToLower(h.ID + " " + h.Title)
-	matched := 0
-	for _, t := range terms {
-		prefix := t
-		if len(prefix) > 5 {
-			prefix = prefix[:5]
-		}
-		if strings.Contains(titleLow, prefix) || hasStemPrefixInWords(snipSpans, prefix) {
-			matched++
-		}
-	}
-	return matched
-}
-
-func extractMarkedSnippetWords(snip string) []string {
-	var out []string
-	rest := snip
-	for {
-		i := strings.IndexRune(rest, '»')
-		if i < 0 {
-			return out
-		}
-		rest = rest[i+len("»"):]
-		j := strings.IndexRune(rest, '«')
-		if j < 0 {
-			return out
-		}
-		if w := strings.ToLower(strings.TrimSpace(rest[:j])); w != "" {
-			out = append(out, w)
-		}
-		rest = rest[j+len("«"):]
-	}
-}
-
-func hasStemPrefixInWords(words []string, prefix string) bool {
-	for _, w := range words {
-		if strings.HasPrefix(w, prefix) || (len(w) >= 4 && strings.HasPrefix(prefix, w)) {
-			return true
-		}
-	}
-	return false
-}
-
 func loadTurnRecordsCtx(ctx context.Context, dir, home string, global bool) []brain.Record {
 	if ctx != nil && ctx.Err() != nil {
 		return nil
@@ -312,74 +237,6 @@ func makeBrainTurnContextCtx(tc *turnBrainCache) func(ctx context.Context, dir, 
 	}
 }
 
-func totalMatchedRecords(ctx *search.TurnBrainContext) int {
-	return len(ctx.Memories) + len(ctx.Bugs) + len(ctx.ADRs)
-}
-
-func classifyTurnRecordWithFTS(ctx *search.TurnBrainContext, dir, prompt string, files, terms []string, ftsIDs map[string]bool, r brain.Record) {
-	switch r.Kind {
-	case "plan":
-		classifyPlanRecord(ctx, r)
-	case "memory":
-		classifyMemoryRecord(ctx, dir, prompt, files, terms, ftsIDs, r)
-	case "bug":
-		classifyBugRecord(ctx, prompt, files, terms, ftsIDs, r)
-	case "adr":
-		classifyADRRecord(ctx, prompt, files, terms, ftsIDs, r)
-	}
-}
-
-func classifyPlanRecord(ctx *search.TurnBrainContext, r brain.Record) {
-	if (r.Status == "open" || r.Status == "") && ctx.ActivePlan == nil {
-		ctx.ActivePlan = &search.MatchedRecord{
-			ID: r.ID, Kind: "plan", Status: r.Status, Title: r.Title,
-			Provenance: r.Provenance, Body: summarizePlanReadyPhases(r.Body),
-		}
-	}
-}
-
-func classifyMemoryRecord(ctx *search.TurnBrainContext, dir, prompt string, files, terms []string, ftsIDs map[string]bool, r brain.Record) {
-	if (r.Status != "closed" && r.Status != "") || !matchesRecordPrecisionWithFTS(r, prompt, files, terms, ftsIDs) {
-		return
-	}
-	v := brain.ComputeMemoryValidity(dir, r, 0, time.Now())
-	if v < brain.MinActiveValidity {
-		return
-	}
-	m := search.MatchedRecord{
-		ID: r.ID, Kind: "memory", Status: r.Status, Title: r.Title,
-		Provenance: r.Provenance, Body: r.Body, StaleTag: brain.MemoryStalenessTag(dir, r),
-		MemoryKind: r.MemoryKind, Validity: v, Global: r.Scope == "",
-	}
-	ctx.Memories = insertPrioritizedMemory(ctx.Memories, m, totalMatchedRecords(ctx))
-}
-
-func classifyBugRecord(ctx *search.TurnBrainContext, prompt string, files, terms []string, ftsIDs map[string]bool, r brain.Record) {
-	if (r.Status == "open" || r.Status == "") && len(ctx.Bugs) < 2 && totalMatchedRecords(ctx) < 6 && matchesRecordPrecisionWithFTS(r, prompt, files, terms, ftsIDs) {
-		ctx.Bugs = append(ctx.Bugs, search.MatchedRecord{
-			ID: r.ID, Kind: "bug", Status: r.Status, Title: r.Title,
-			Provenance: r.Provenance, Body: r.Body,
-		})
-	}
-}
-
-func classifyADRRecord(ctx *search.TurnBrainContext, prompt string, files, terms []string, ftsIDs map[string]bool, r brain.Record) {
-	if r.Status != "accepted" && r.Status != "open" && r.Status != "" {
-		return
-	}
-	rec := search.MatchedRecord{
-		ID: r.ID, Kind: "adr", Status: r.Status, Title: r.Title,
-		Provenance: r.Provenance, Body: r.Body,
-	}
-	conflict := search.CheckADRConflict(strings.ToLower(prompt), rec)
-	if conflict != "" {
-		ctx.Conflicts = append(ctx.Conflicts, conflict)
-	}
-	if (conflict != "" || (len(ctx.ADRs) < 2 && totalMatchedRecords(ctx) < 6 && matchesRecordPrecisionWithFTS(r, prompt, files, terms, ftsIDs))) && len(ctx.ADRs) < 3 {
-		ctx.ADRs = append(ctx.ADRs, rec)
-	}
-}
-
 func makeBrainReprime() func(dir, home string) string {
 	return func(dir, home string) string {
 		if home == "" {
@@ -401,25 +258,6 @@ func makeBrainReprime() func(dir, home string) string {
 			parts = append(parts, "# Active Open Plans\n"+strings.Join(lines, "\n"))
 		}
 		return strings.Join(parts, "\n\n")
-	}
-}
-
-func summarizePlanReadyPhases(body string) string {
-	if line := brain.ReadyPhasesLine(body); line != "" {
-		return line
-	}
-	return "open"
-}
-
-func makeBrainRefsForDir(tc *turnBrainCache) func(dir, target string) []search.LinkedRecord {
-	return func(dir, target string) []search.LinkedRecord {
-		return filterCachedBrainRefs(tc.records(dir, ""), target)
-	}
-}
-
-func makeBrainRefs(tc *turnBrainCache, dir string) func(string) []search.LinkedRecord {
-	return func(target string) []search.LinkedRecord {
-		return filterCachedBrainRefs(tc.records(dir, ""), target)
 	}
 }
 
@@ -479,14 +317,4 @@ func loadCurrentSpecsFromStoreCtx(ctx context.Context, dir, home string) ([]brai
 		return filterCurrentSpecs(trailRecs), nil
 	}
 	return nil, nil
-}
-
-func filterCurrentSpecs(recs []brain.Record) []brain.Record {
-	var out []brain.Record
-	for _, r := range recs {
-		if r.Kind == "spec" && r.Status == "current" {
-			out = append(out, r)
-		}
-	}
-	return out
 }

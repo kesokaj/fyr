@@ -15,6 +15,7 @@ import (
 // line by line: the oracle is that regular expression, over hand-written
 // edge lines and lines drawn from the same pieces.
 func TestIndexMatchesTheRegex(t *testing.T) {
+	t.Parallel()
 	specs := []brain.Record{{ID: "SPEC-a", Updated: "2026-10-25T10:00:00Z"}, {ID: "SPEC-b", Updated: "2026-10-25T12:00:00+02:00"}}
 	k := &checker{}
 	h := k.trailHistory(specs)
@@ -63,6 +64,7 @@ func TestIndexMatchesTheRegex(t *testing.T) {
 // in well under the time a scan to the line's end per key would take, which
 // was 49 s at 1 MiB (P2's second review).
 func TestIndexIsLinearOnALongLine(t *testing.T) {
+	t.Parallel()
 	h := (&checker{}).trailHistory([]brain.Record{{ID: "SPEC-a", Updated: "2026-10-25T10:00:00Z"}})
 	line := bytes.Repeat([]byte(`"id":"SPEC-a"`), 8<<20/13)
 	start := time.Now()
@@ -78,6 +80,7 @@ func TestIndexIsLinearOnALongLine(t *testing.T) {
 // ref that swaps HEAD for the spec's own commit would count nothing since it
 // (P2's second security review, finding 2).
 func TestSpecRuleCountIgnoresReplaceRefs(t *testing.T) {
+	t.Parallel()
 	dir := staleAfterOneCode(t)
 	git(t, dir, "replace", "HEAD", "HEAD~1")
 	added := git(t, dir, "--no-replace-objects", "rev-parse", "HEAD~1")

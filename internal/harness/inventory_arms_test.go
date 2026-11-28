@@ -13,6 +13,7 @@ import (
 // description its empty frontmatter would also lack; a skill whose
 // frontmatter names none takes its directory's name.
 func TestLoadSkillsFrontmatterArms(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	writeFile(t, filepath.Join(repo, "skills", "gamma", "SKILL.md"), "no fence here\n")
 	if _, err := loadSkills(DirSource(repo)); err == nil || !strings.Contains(err.Error(), "skill gamma: no YAML frontmatter block") {
@@ -38,6 +39,7 @@ func TestLoadSkillsFrontmatterArms(t *testing.T) {
 // agent.md with no frontmatter is refused for that, one without a name takes
 // its directory's, and one without a description is refused.
 func TestLoadAgentsFrontmatterArms(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	writeFile(t, filepath.Join(repo, "agents", ".DS_Store"), "finder\n")
 	unnamed := strings.Replace(reviewerAgent, "name: reviewer\n", "", 1)

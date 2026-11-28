@@ -97,6 +97,7 @@ func same(t *testing.T, got []Finding, want ...string) {
 // tilde fences of any info string, joins a `\` continuation, and reads
 // neither prose nor an indented block (D15).
 func TestScanReadsSpansAndFences(t *testing.T) {
+	t.Parallel()
 	text := strings.Join([]string{
 		"prose fyr nope here, then `one` and ``two `x` two``",
 		"an unclosed `span stays prose",
@@ -140,6 +141,7 @@ func TestScanReadsSpansAndFences(t *testing.T) {
 // `;` inside a span (D28), or ROADMAP.md, TODO.md and PLAN.md (D6; PLAN.md
 // item 38).
 func TestDocsRuleVerbs(t *testing.T) {
+	t.Parallel()
 	dir := repo(t, map[string]string{
 		"README.md": strings.Join([]string{
 			"`fyr frobnicate` and `fyr record frob` and `fyr search --nope`",
@@ -174,6 +176,7 @@ func TestDocsRuleVerbs(t *testing.T) {
 // identifier, an ignored path or a placeholder; a file under skills/ is
 // scanned, and a root file naming skills/… is checked.
 func TestDocsRulePaths(t *testing.T) {
+	t.Parallel()
 	dir := repo(t, map[string]string{
 		".gitignore":         ".agents/scratch/\n",
 		"internal/here.go":   "package x\n\nfunc A() {}\n",
@@ -197,6 +200,7 @@ func TestDocsRulePaths(t *testing.T) {
 // A path through a symlinked directory that leaves the checkout is refused,
 // never followed: a finding, and the file outside is not read.
 func TestDocsRuleSymlinkOutOfRoot(t *testing.T) {
+	t.Parallel()
 	outside := t.TempDir()
 	os.WriteFile(filepath.Join(outside, "secret.md"), []byte("one\n"), 0o644)
 	dir := repo(t, map[string]string{"internal/a.go": "package a\n", "README.md": "`internal/out/secret.md` `internal/out/secret.md:1`\n"})
@@ -218,6 +222,7 @@ func TestDocsRuleSymlinkOutOfRoot(t *testing.T) {
 // A vendored skill (skills/VENDORED.md) and a directory holding either
 // noindex marker are not in the docs set (D5, D20).
 func TestDocsRuleSkipsVendoredAndNoIndex(t *testing.T) {
+	t.Parallel()
 	dir := repo(t, map[string]string{
 		"skills/VENDORED.md":         "| Skill | Source |\n|-------|--------|\n| grilling | x |\n",
 		"skills/grilling/SKILL.md":   "---\nname: grilling\ndescription: vendored grilling skill\n---\n`fyr frobnicate` `internal/gone.go`\n",
@@ -238,6 +243,7 @@ func TestDocsRuleSkipsVendoredAndNoIndex(t *testing.T) {
 // "fork" in the row or under a Forks section) is checked, while verbatim
 // vendored skills and forked skills' vendored references remain skipped.
 func TestDocsRuleChecksForkSkillMDButSkipsVendored(t *testing.T) {
+	t.Parallel()
 	vendored := strings.Join([]string{
 		"| Skill | Source |",
 		"|-------|--------|",
@@ -279,6 +285,7 @@ func TestDocsRuleChecksForkSkillMDButSkipsVendored(t *testing.T) {
 // A current spec, guide or deploy record is checked; a change record and a
 // retired spec are not. A bad trail line is a refusal naming the line.
 func TestDocsRuleRecords(t *testing.T) {
+	t.Parallel()
 	trail := trailLine(t, "CHANGE-2026-10-25-x", "change", "closed", "`fyr frobnicate`") +
 		trailLine(t, "GUIDE-a", "guide", "current", "line one\n`fyr frobnicate` `internal/gone.go`") +
 		trailLine(t, "SPEC-old", "spec", "retired", "`fyr frobnicate`")
@@ -295,6 +302,7 @@ func TestDocsRuleRecords(t *testing.T) {
 // Outside a checkout Run refuses and checks nothing; a checkout with no
 // trail gives the note.
 func TestRunRefusesANonCheckout(t *testing.T) {
+	t.Parallel()
 	_, err := Run(t.TempDir(), vocab)
 	if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "is not a git checkout") {
 		t.Fatalf("a plain directory: %v, want a refusal", err)
@@ -307,6 +315,7 @@ func TestRunRefusesANonCheckout(t *testing.T) {
 
 // Findings come in rule order, then by place and line.
 func TestFindingsSorted(t *testing.T) {
+	t.Parallel()
 	fs := []Finding{
 		{"PRD.md", 1, "trace", ""}, {"b.md", 2, "requirement", ""}, {"SPEC-a", 0, "spec-stale", ""}, {"b.md", 1, "path", ""}, {"a.md", 9, "verb", ""},
 	}
@@ -323,6 +332,7 @@ func TestFindingsSorted(t *testing.T) {
 // not take the ignore answer of every other candidate with it (the real
 // checkout's `.agents/skills` link reported every scratch path).
 func TestDocsRuleIgnoreSurvivesASymlinkedParent(t *testing.T) {
+	t.Parallel()
 	dir := repo(t, map[string]string{
 		".gitignore":        ".agents/scratch/*\n",
 		".agents/kit/a.sh":  "#!/bin/sh\n",
@@ -347,6 +357,7 @@ func TestDocsRuleIgnoreSurvivesASymlinkedParent(t *testing.T) {
 // yet (fresh git clone), while an unignored missing directory still reports a
 // path finding.
 func TestCheckIgnoredDirectoryMissingOnFreshClone(t *testing.T) {
+	t.Parallel()
 	dir := repo(t, map[string]string{
 		".gitignore":             ".agents/scratch/\n",
 		".agents/rules/.gitkeep": "",
@@ -365,6 +376,7 @@ func TestCheckIgnoredDirectoryMissingOnFreshClone(t *testing.T) {
 // A tracked doc the check cannot read (a link, here) is named in a note,
 // not skipped in silence (IN53 of the 2026-10-27 audit).
 func TestSkippedDocIsNoted(t *testing.T) {
+	t.Parallel()
 	dir := repo(t, map[string]string{"README.md": "x\n", ".agents/trail.jsonl": trailLine(t, "ADR-063", "adr", "accepted", "x")})
 	if err := os.Symlink("README.md", filepath.Join(dir, "LINK.md")); err != nil {
 		t.Fatal(err)
@@ -384,6 +396,7 @@ func TestSkippedDocIsNoted(t *testing.T) {
 }
 
 func TestDocsRuleInvalidLineRanges(t *testing.T) {
+	t.Parallel()
 	dir := repo(t, map[string]string{
 		"internal/here.go": "package x\n\nfunc A() {}\n",
 		"README.md": strings.Join([]string{
@@ -398,6 +411,7 @@ func TestDocsRuleInvalidLineRanges(t *testing.T) {
 }
 
 func TestV910CheckFreshClone(t *testing.T) {
+	t.Parallel()
 	emptyHome := t.TempDir()
 	base := map[string]string{
 		"internal/a.go":      "package a\n",
@@ -449,6 +463,7 @@ func copyFiles(src map[string]string, k, v string) map[string]string {
 }
 
 func TestV910CheckEightMutationsAndEvalRegexes(t *testing.T) {
+	t.Parallel()
 	t.Run("M1_M2_M3_M6_core_mutations", testV910CoreMutations)
 	t.Run("M4_undocumented_cli_flags", testV910DriftM4)
 	t.Run("M5b_deleted_flag_stale_binary", testV910DriftM5b)

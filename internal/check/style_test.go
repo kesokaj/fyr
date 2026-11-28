@@ -12,6 +12,7 @@ import (
 const validSpecSections = "\n\n## Purpose\n\nOk.\n\n## Interfaces\n\nOk.\n\n## Data\n\nOk.\n\n## Failure modes\n\n| Mode | Trigger | Behavior | Recovery |\n|---|---|---|---|\n| err | bad | fail | retry |\n\n## Verification\n\nOk.\n"
 
 func TestDocsStyleAndAgentsBudget(t *testing.T) {
+	t.Parallel()
 	t.Run("track1_scope_and_exclusions", testStyleTrack1Scope)
 	t.Run("agent_only_db_safety_only", testStyleAgentDBSafetyOnly)
 	t.Run("mermaid_node_cap", testStyleMermaidCap)
@@ -338,6 +339,7 @@ func testProjectAgentsBudget(t *testing.T) {
 }
 
 func TestSpecStructure(t *testing.T) {
+	t.Parallel()
 	t.Run("valid_spec_passes", func(t *testing.T) {
 		body := "# SPEC-ok\nCode: `internal/a.go`.\n## Purpose\nx\n## interfaces\nx\n## Data\nx\n## Failure Modes\n| M | T | O | R |\n|---|---|---|---|\n| e | b | f | r |\n## Verification\n`a_test.go`\n"
 		dir := repo(t, map[string]string{"internal/a.go": "package a\n", "internal/a_test.go": "package a\n", ".agents/trail.jsonl": specTrail(t, "SPEC-ok", "2026-10-25T10:00:00Z", body)})

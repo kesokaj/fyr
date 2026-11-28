@@ -9,6 +9,7 @@ import (
 )
 
 func TestGitCheckGolden(t *testing.T) {
+	t.Parallel()
 	remote := filepath.Join(t.TempDir(), "remote.git")
 	git(t, filepath.Dir(remote), "init", "--bare", "-q", remote)
 
@@ -78,6 +79,7 @@ func TestGitCheckGolden(t *testing.T) {
 }
 
 func TestGitCheckRefusesNonCheckout(t *testing.T) {
+	t.Parallel()
 	plain := t.TempDir()
 	if err := os.WriteFile(filepath.Join(plain, "a.txt"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)

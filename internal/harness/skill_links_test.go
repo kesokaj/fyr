@@ -16,6 +16,7 @@ import (
 // sends the agent to improvise from memory. Skills vendored verbatim are
 // skipped: their links are upstream's, and the fix there is a re-fetch.
 func TestSkillLinksResolve(t *testing.T) {
+	t.Parallel()
 	repo, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

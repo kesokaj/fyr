@@ -15,6 +15,7 @@ import (
 // security finding 1). A file, a symlink and a directory younger than the
 // age are left where they are.
 func TestSweepStaleDirsStaysInParent(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	// `u[1]` as a glob matches `u1` and not itself: the old code swept the
 	// sibling and skipped its own home.

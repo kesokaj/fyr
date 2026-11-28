@@ -32,6 +32,7 @@ func TestAdoptRelativeSourceThroughLinkedRepo(t *testing.T) {
 }
 
 func TestAdoptDanglingSymlinkDest(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	repo := newRepo(t)
 	src := filepath.Join(t.TempDir(), "ext-skill")

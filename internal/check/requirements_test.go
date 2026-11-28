@@ -13,6 +13,7 @@ import (
 // and a path with ::case resolve; a struck item and ## Could are skipped,
 // and an item under ## Should is read.
 func TestRequirementsRule(t *testing.T) {
+	t.Parallel()
 	reqs := strings.Join([]string{
 		"# Requirements — x",
 		"",
@@ -90,6 +91,7 @@ func TestRequirementsRule(t *testing.T) {
 // No enforced-by field anywhere gives the note and no finding (D30), and
 // so does no file.
 func TestRequirementsRuleNotes(t *testing.T) {
+	t.Parallel()
 	rep := run(t, repo(t, map[string]string{"REQUIREMENTS.md": "## Must\n\n- **R1** — one, with no comment.\n"}))
 	same(t, rep.Findings)
 	if !strings.Contains(notes(rep), "REQUIREMENTS.md has no enforced-by field: not checked") {
@@ -116,6 +118,7 @@ func TestRequirementsRuleNotes(t *testing.T) {
 // tracked files): an ignored local file proves nothing on another checkout
 // (IN54 of the 2026-10-27 audit).
 func TestRequirementsResolveTrackedPathsOnly(t *testing.T) {
+	t.Parallel()
 	reqs := strings.Join([]string{
 		"# Requirements — x",
 		"",
@@ -144,6 +147,7 @@ func TestRequirementsResolveTrackedPathsOnly(t *testing.T) {
 // PRD.md only and says so; every finding and note names the file read
 // (PLAN-2026-10-29-root-docs-and-fyr-serve D6).
 func TestRequirementsRuleReadsPRD(t *testing.T) {
+	t.Parallel()
 	item := "## Must\n\n- **R1** — x.\n  <!-- enforced by: TestGone -->\n"
 	other := "# t\n\n## Must\n\n- **R9** — y.\n  <!-- enforced by: TestAlsoGone -->\n"
 	for _, tc := range []struct {
@@ -174,6 +178,7 @@ func TestRequirementsRuleReadsPRD(t *testing.T) {
 // init scaffolds emit 0 findings under fyr check, while unwrapping the fences
 // yields one placeholder finding per Must and Should item.
 func TestRequirementsRuleReadsThePRDTemplate(t *testing.T) {
+	t.Parallel()
 	tmpl, err := os.ReadFile(filepath.Join("..", "..", "skills", "fyr-init-project", "assets", "PRD.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -211,6 +216,7 @@ func unwrapMarkdownFences(text string) string {
 }
 
 func TestRequirementsRuleFencedAndEmptyAndRetired(t *testing.T) {
+	t.Parallel()
 	prd := strings.Join([]string{
 		"# PRD — x",
 		"",

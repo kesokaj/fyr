@@ -11,6 +11,7 @@ import (
 // repository tracks that run under pipefail (the skills' scripts), and proves
 // the check on both states first.
 func TestScriptsHaveNoEarlyExitPipe(t *testing.T) {
+	t.Parallel()
 	for _, bad := range []string{
 		"bad=$(find . -print | head -1)\n",
 		"git log --format=%h | grep -q -- \"^$sha\" || exit 2\n",
@@ -132,6 +133,7 @@ func TestScriptsHaveNoEarlyExitPipe(t *testing.T) {
 // TestCheckoutInstallsClean: the install plan over the real checkout has no
 // refusal — a secret-shaped name or a symlink anywhere under skills/ fails it.
 func TestCheckoutInstallsClean(t *testing.T) {
+	t.Parallel()
 	repo, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

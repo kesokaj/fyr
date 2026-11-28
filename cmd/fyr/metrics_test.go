@@ -176,6 +176,7 @@ func TestMetricsVerb(t *testing.T) {
 }
 
 func TestMetricsUsageErrorsExit2(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	for _, args := range [][]string{
 		{"metrics"},
@@ -270,6 +271,7 @@ func TestMetricsUsageErrorsExit2(t *testing.T) {
 // show, report --no-ingest, evals and export on a home that never ingested say so and exit 1;
 // they never create an empty store whose zeros would read as "no sessions".
 func TestMetricsWithoutStore(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	for _, args := range [][]string{
 		{"metrics", "show"},
@@ -292,6 +294,7 @@ func TestMetricsWithoutStore(t *testing.T) {
 }
 
 func TestMetricsTrajectoryCLI(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	ws := filepath.Join(home, "proj")
 	agyHomeIn(t, home, "11111111-1111-1111-1111-111111111111", ws)
@@ -582,6 +585,7 @@ func mustParseDayT(t *testing.T, day string) time.Time {
 }
 
 func TestMetricsSubcommandEmptyAndZeroFlagsRefusedViaUsageErr(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	for _, args := range [][]string{
 		{"metrics", "show", "--limit", "0"},
@@ -788,6 +792,7 @@ func seedSinceTagStoreT(t *testing.T, home, repo string) {
 func jsonInt(v int64) string { b, _ := json.Marshal(v); return string(b) }
 
 func TestDailyDigestCLIAndFlagRejections(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	agyHome(t, home, "DD1")
 	var out bytes.Buffer

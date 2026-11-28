@@ -41,6 +41,7 @@ func lockedDir(t *testing.T, dir string) {
 }
 
 func TestAdoptRefusesAnInvalidName(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	src := adoptSource(t, "bad name", "")
 	if _, err := Adopt(repo, t.TempDir(), src, false); err == nil || !strings.Contains(err.Error(), "must be a single local path segment") {
@@ -54,6 +55,7 @@ func TestAdoptRefusesAnInvalidName(t *testing.T) {
 // A dest that cannot be stat'ed for a reason other than absence stops adopt
 // before anything is staged.
 func TestAdoptDestStatError(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	if err := os.RemoveAll(filepath.Join(repo, "skills")); err != nil {
 		t.Fatal(err)
@@ -69,6 +71,7 @@ func TestAdoptDestStatError(t *testing.T) {
 }
 
 func TestAdoptScratchNotADirectory(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	writeFile(t, filepath.Join(repo, ".agents"), "a file where .agents/ belongs\n")
 	_, err := Adopt(repo, t.TempDir(), adoptSource(t, "gamma", ""), false)
@@ -80,6 +83,7 @@ func TestAdoptScratchNotADirectory(t *testing.T) {
 
 // A staging parent that cannot be written to stops adopt before the copy.
 func TestAdoptStagingNotRemovable(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root writes into a read-only directory")
 	}
@@ -104,6 +108,7 @@ func TestAdoptStagingNotRemovable(t *testing.T) {
 // A backup left by an earlier run that cannot be removed stops swapIn
 // with the existing skill untouched.
 func TestAdoptBackupNotRemovable(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home := t.TempDir()
 	if _, err := Adopt(repo, home, adoptSource(t, "gamma", "old body\n"), false); err != nil {
@@ -127,6 +132,7 @@ func TestAdoptBackupNotRemovable(t *testing.T) {
 // A rename into an unwritable skills/ with no previous skill of that name
 // fails and keeps the prepared copy where the message says.
 func TestAdoptRenameFailsWithNoPrevious(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root renames into a read-only directory")
 	}

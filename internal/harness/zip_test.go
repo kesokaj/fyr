@@ -80,6 +80,7 @@ func noZipDirs(t *testing.T, parent string) {
 }
 
 func TestUnpackZipGitHubTopFolder(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	zp := filepath.Join(dir, "styrman-harness-main.zip")
 	entries := harnessEntries(t, "styrman-harness-main/")
@@ -117,6 +118,7 @@ func TestUnpackZipGitHubTopFolder(t *testing.T) {
 }
 
 func TestUnpackZipRootLayout(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	zp := filepath.Join(dir, "flat.zip")
 	writeZip(t, zp, harnessEntries(t, ""))
@@ -130,6 +132,7 @@ func TestUnpackZipRootLayout(t *testing.T) {
 }
 
 func TestUnpackZipRefuses(t *testing.T) {
+	t.Parallel()
 	base := func(t *testing.T) []zipEntry { return harnessEntries(t, "top/") }
 	cases := []struct {
 		name  string
@@ -228,6 +231,7 @@ func TestUnpackZipLimits(t *testing.T) {
 }
 
 func TestUnpackZipNotHarness(t *testing.T) {
+	t.Parallel()
 	zp := filepath.Join(t.TempDir(), "other.zip")
 	writeZip(t, zp, []zipEntry{{name: "proj/README.md", body: "x"}, {name: "proj/main.go", body: "package main"}})
 	parent := t.TempDir()
@@ -247,6 +251,7 @@ func TestUnpackZipNotHarness(t *testing.T) {
 }
 
 func TestInstallRecordsZipOrigin(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home := t.TempDir()
 	src := DirSource(repo)
@@ -309,6 +314,7 @@ func TestResolveSourceSkipsZipManifest(t *testing.T) {
 }
 
 func TestUnpackZipRefusesDuplicateName(t *testing.T) {
+	t.Parallel()
 	entries := harnessEntries(t, "top/")
 	entries = append(entries, zipEntry{name: "top/skills/alpha/SKILL.md", body: "---\nname: alpha\ndescription: second copy\n---\n"})
 	zp := filepath.Join(t.TempDir(), "dup.zip")
@@ -337,6 +343,7 @@ func TestUnpackZipRefusesDuplicateName(t *testing.T) {
 // A refusal found after the names pass — a symlink, a duplicate, a size —
 // must still leave no parent directory behind (BUG-093's second half).
 func TestUnpackZipLateRefusalCreatesNoParent(t *testing.T) {
+	t.Parallel()
 	cases := map[string]struct {
 		entry zipEntry
 		want  string
@@ -361,6 +368,7 @@ func TestUnpackZipLateRefusalCreatesNoParent(t *testing.T) {
 }
 
 func TestUnpackZipRefusesDeepOrLongNames(t *testing.T) {
+	t.Parallel()
 	deep := "top/" + strings.Repeat("d/", 40) + "f"
 	long := "top/" + strings.Repeat("n", 1100)
 	for label, name := range map[string]string{"deep": deep, "long": long} {
@@ -378,6 +386,7 @@ func TestUnpackZipRefusesDeepOrLongNames(t *testing.T) {
 // The sum names the very bytes that were unpacked: one read, hashed and
 // parsed from the same buffer.
 func TestUnpackZipSumIsOfTheBytesRead(t *testing.T) {
+	t.Parallel()
 	zp := filepath.Join(t.TempDir(), "sum.zip")
 	writeZip(t, zp, harnessEntries(t, "top/"))
 	data, err := os.ReadFile(zp)
@@ -408,6 +417,7 @@ func TestUnpackZipRefusesOversizedArchive(t *testing.T) {
 // The Antigravity CLI's token file is secret-shaped: a skill tree carrying
 // one is refused like a key file.
 func TestSecretShapedCLITokenFiles(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"antigravity-oauth-token", ".credentials.json"} {
 		if !SecretShaped(name) {
 			t.Errorf("SecretShaped(%q) = false, want true", name)
@@ -437,6 +447,7 @@ func zipSum(t *testing.T, p string) string {
 }
 
 func TestVerifyZipSums(t *testing.T) {
+	t.Parallel()
 	t.Run("verified", func(t *testing.T) {
 		_, zp := releaseZipDir(t, "v1.2.3")
 		tag, err := VerifyZipSums(zp, zipSum(t, zp))
@@ -557,6 +568,7 @@ func TestVerifyZipSums(t *testing.T) {
 
 // A check's error stops UnpackZip before anything is written.
 func TestUnpackZipCheckStopsBeforeWriting(t *testing.T) {
+	t.Parallel()
 	zp := filepath.Join(t.TempDir(), "z.zip")
 	writeZip(t, zp, harnessEntries(t, "top/"))
 	parent := t.TempDir()

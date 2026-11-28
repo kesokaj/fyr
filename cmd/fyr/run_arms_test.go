@@ -26,6 +26,7 @@ func TestRunWithoutAnyHome(t *testing.T) {
 // update --from-zip moves the old state directory first, and a refusal of
 // that move stops it before the zip is read.
 func TestUpdateFromZipMigrationRefused(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	elsewhere := t.TempDir()
 	old := filepath.Join(home, harness.OldStateDir)

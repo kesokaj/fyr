@@ -37,6 +37,7 @@ type simHelpInfo struct {
 }
 
 func TestCLIDocsFresh(t *testing.T) {
+	t.Parallel()
 	want := renderCLIReference()
 	if again := renderCLIReference(); want != again {
 		t.Fatalf("renderCLIReference is non-deterministic:\n%s", firstLineDiff(want, again))
@@ -63,6 +64,7 @@ func TestCLIDocsFresh(t *testing.T) {
 }
 
 func TestCLIDocsStandaloneCheckAndDrift(t *testing.T) {
+	t.Parallel()
 	doc, vocab := renderCLIReference(), vocabulary()
 	if missing := missingCLIDocEntries(doc, vocab); len(missing) > 0 {
 		t.Fatalf("generated %s missing entries: %v", cliRefRelPath, missing)

@@ -92,6 +92,7 @@ func checkHarnessMapVerbs(t *testing.T, text string, re *regexp.Regexp) map[stri
 // sends experience off the machine any more (ADR-062), so `report` is never on
 // the map (`fyr report` is the local-only usage report verb, ADR-516).
 func TestHarnessMap(t *testing.T) {
+	t.Parallel()
 	data, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -128,6 +129,7 @@ func TestHarnessMap(t *testing.T) {
 }
 
 func TestCountMermaidNodes(t *testing.T) {
+	t.Parallel()
 	sample := `flowchart LR
     %% comment nodeIgnored --> otherIgnored
     subgraph lane["Lane"]

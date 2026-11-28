@@ -21,6 +21,7 @@ import (
 // all verbs are constructed lazily via allVerbs() without any production init()
 // functions in cmd/fyr/.
 func TestAllVerbsAndNoProdInit(t *testing.T) {
+	t.Parallel()
 	got := allVerbs()
 	if len(got) != 33 {
 		t.Fatalf("len(allVerbs()) = %d, want 33", len(got))
@@ -74,6 +75,7 @@ func countInitFuncs(t *testing.T, path string, src any) int {
 // really takes, the globals on all; record's subverbs take recordFlags'
 // flags, so `record get --title` is not taken (plan fyr-check D14).
 func TestVocabularyVerbsAndFlags(t *testing.T) {
+	t.Parallel()
 	v := vocabulary()
 	for name, vb := range allVerbs() {
 		spec, ok := v[name]
@@ -264,6 +266,7 @@ func TestCheckVerb(t *testing.T) {
 // The summary counts each rule group in its place: one finding of each
 // group but docs gives distinct counts, so a swapped pair is seen.
 func TestPrintCheckSummaryOrder(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	printCheck(&b, check.Report{Findings: []check.Finding{
 		{Where: "SPEC-a", Rule: "spec-stale"},
@@ -349,6 +352,7 @@ func TestGitCheckVerb(t *testing.T) {
 }
 
 func TestVocabularyCoversStateAndAutoForce(t *testing.T) {
+	t.Parallel()
 	v := vocabulary()
 	st, ok := v["state"]
 	if !ok {
@@ -368,6 +372,7 @@ func TestVocabularyCoversStateAndAutoForce(t *testing.T) {
 }
 
 func TestVocabularyMetricsRecordRunFlags(t *testing.T) {
+	t.Parallel()
 	v := vocabulary()
 	recRun := v["metrics"].Subverbs["record-run"]
 	if !recRun["json-in"] || !recRun["json"] || !recRun["home"] || !recRun["repo"] {

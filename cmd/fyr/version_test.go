@@ -6,6 +6,7 @@ import (
 )
 
 func TestShouldRebuild(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ goOnPath, child, own, want bool }{
 		{true, false, true, true},
 		{true, true, true, false},
@@ -22,6 +23,7 @@ func TestShouldRebuild(t *testing.T) {
 }
 
 func TestBinaryOlder(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		rev, commit string
 		want        bool
@@ -43,6 +45,7 @@ func TestBinaryOlder(t *testing.T) {
 }
 
 func TestVersionFromInfo(t *testing.T) {
+	t.Parallel()
 	stamp := func(rev, modified string) *debug.BuildInfo {
 		return &debug.BuildInfo{
 			Main:     debug.Module{Version: "(devel)"},
@@ -71,6 +74,7 @@ func TestVersionFromInfo(t *testing.T) {
 // version from the module version Go stamps at a clean tag; anything else
 // falls back to the revision.
 func TestReleaseFromInfo(t *testing.T) {
+	t.Parallel()
 	rev := debug.BuildSetting{Key: "vcs.revision", Value: "b64ffe886729abcdef"}
 	cases := []struct {
 		name string

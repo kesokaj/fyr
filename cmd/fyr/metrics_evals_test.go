@@ -19,6 +19,7 @@ import (
 // keeps one key exactly, and no value that is not a number reaches JSON.
 // The view's means and suite are pinned in internal/metrics (TestEvalRows).
 func TestMetricsEvals(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	s, err := metrics.Open(metrics.Path(home))
 	if err != nil {
@@ -92,6 +93,7 @@ func TestMetricsEvals(t *testing.T) {
 
 // ingest's refusal of a reading flag names every subcommand that reads it.
 func TestMetricsIngestRefusalNamesEvals(t *testing.T) {
+	t.Parallel()
 	out, err := metricsCmd(t, "ingest", "--since", "2026-10-01", "--home", t.TempDir())
 	if exitOf(err) != 2 || !strings.HasPrefix(out, "fyr metrics ingest: --since belongs to show, report or evals\n") || !strings.Contains(out, "usage: fyr metrics") {
 		t.Errorf("%v %q", err, out)
@@ -101,6 +103,7 @@ func TestMetricsIngestRefusalNamesEvals(t *testing.T) {
 // report draws the same rows under its pass^k chart, and none under
 // --project: a trial belongs to no project (PLAN.md D16).
 func TestMetricsReportEvalRows(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	s, err := metrics.Open(metrics.Path(home))
 	if err != nil {
@@ -130,6 +133,7 @@ func TestMetricsReportEvalRows(t *testing.T) {
 }
 
 func TestV910MetricsEvalsDevFallback(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	// Seed main metrics.db with zero eval rows and dev/fyr-eval store with eval rows.
 	mainStore, err := metrics.Open(metrics.Path(home))

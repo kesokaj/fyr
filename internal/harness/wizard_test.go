@@ -13,6 +13,7 @@ import (
 // 0600 (never left world-readable when secrets are written), symlinked ENV_FILE
 // targets must be refused, and active temp files must be cleaned up on exit.
 func TestWizardWriteEnvPermissionsAndSymlink(t *testing.T) {
+	t.Parallel()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "skills", "bash", "assets", "wizard-template.sh"))
 	if err != nil {
 		t.Fatal(err)

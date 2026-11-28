@@ -55,7 +55,7 @@ Exposes all `34` CLI commands (`33` action verbs plus `help`), global flags, and
 
 Implements: M5 · Spec: `SPEC-fyr-delivery` and per-domain `SPEC-fyr-*` records · Guide: [Delivery & Customization](features/delivery-and-customization.md)
 
-- **Interfaces:** Global flags (`--home DIR`, `--repo DIR`, `-C DIR` / `--dir DIR`, `--help`) work before or after the verb (`cmd/fyr/run_dispatch.go`). `fyr help <verb>` prints full usage from `cmd/fyr/help_text.go` and `cmd/fyr/help_text_eval.go`.
+- **Interfaces:** Global flags (`--home DIR`, `--repo DIR`, `-C DIR` / `--dir DIR`, `--help`) work before or after the verb (`cmd/fyr/run_dispatch.go`). `fyr help <verb>` prints full usage from `cmd/fyr/help_text.go`.
 - **Real-home guard:** Builds outside `~/.local/bin/fyr` require `--home DIR` before opening stores (`cmd/fyr/realhome_guard.go`, ADR-505).
 - **Errors & dependencies:** Usage errors exit `2`; refusals and failed checks exit `1`. Delegates to M6–M8, M10–M14, M19–M21, and M23–M26.
 

@@ -16,6 +16,7 @@ type fakeInfo struct {
 func (f fakeInfo) Sys() any { return f.sys }
 
 func TestOwnedByCaller(t *testing.T) {
+	t.Parallel()
 	mine := &syscall.Stat_t{Uid: uint32(os.Geteuid())}
 	other := &syscall.Stat_t{Uid: uint32(os.Geteuid() + 1)}
 	if !ownedByCaller(fakeInfo{sys: mine}) {

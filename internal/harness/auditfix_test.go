@@ -13,6 +13,7 @@ import (
 // permission key in any spelling the old deny list missed is refused, and
 // every skill, command and rule in the tree is accepted.
 func TestLintAllowListPerKind(t *testing.T) {
+	t.Parallel()
 	if _, err := LoadInventory(DirSource(filepath.Join("..", ".."))); err != nil {
 		t.Fatalf("the checkout's skills, commands and rules: %v", err)
 	}
@@ -100,6 +101,7 @@ func TestLintAllowListPerKind(t *testing.T) {
 // name, which is rendered in backticks into the deployed context and joined
 // into a path: it passes validName like a skill's or an agent's (IN25).
 func TestLintRefusesBadDocNames(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"a`b", "a\nb", ".hidden", "-dash"} {
 		for _, dir := range []string{"commands", "rules"} {
 			repo := newRepo(t)
@@ -156,6 +158,7 @@ func TestDiffWritesNothing(t *testing.T) {
 // manages is dropped when the state is read, so no install, uninstall or
 // status ever removes or reads it (IN26, D12).
 func TestLoadStateKeepsManagedRootsOnly(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	keep := []string{".gemini/config/a.md", ".claude/agents/x.md", "./.claude/rules/y.md", ".local/bin/fyr", ".local/bin/sh-agent"}
 	drop := []string{".ssh/authorized_keys", ".", ".gemini/config", ".gemini", ".claude", ".gemini/../.ssh/x", ".gemini/config/../../.bashrc", ".local/bin/other", StateDir + "/state.json"}
@@ -175,6 +178,7 @@ func TestLoadStateKeepsManagedRootsOnly(t *testing.T) {
 // still on disk is kept, never removed (plan fyr D32), so status classes it
 // kept, not stale, and it is no drift (IN32).
 func TestStatusCountsKeptClaudeFiles(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home := t.TempDir()
 	files, err := Plan(DirSource(repo), nil)
@@ -203,6 +207,7 @@ func TestStatusCountsKeptClaudeFiles(t *testing.T) {
 // TestReadSumsRefusesTwoMarkers: SHA256SUMS names one release; a file
 // carrying two different markers is refused, not read by its first (IN28).
 func TestReadSumsRefusesTwoMarkers(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	line := strings.Repeat("a", 64) + "  fyr-linux-amd64\n"
 	writeFile(t, filepath.Join(dir, "SHA256SUMS"), "# fyr v1.2.3\n"+line+"# fyr v9.9.9\n")

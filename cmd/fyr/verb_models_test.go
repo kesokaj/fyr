@@ -645,6 +645,7 @@ func TestV910ModelsCallerFamilyRolesExhaustedAndDevEval(t *testing.T) {
 }
 
 func TestMergeMetricsEvidenceWeightedMeans(t *testing.T) {
+	t.Parallel()
 	out := map[string]models.ModelEvidence{}
 	mergeMetricsEvidenceInto(out, map[string]metrics.ModelEvidence{
 		"gemini-4-carbon-high": {

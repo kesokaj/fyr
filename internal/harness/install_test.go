@@ -10,6 +10,7 @@ import (
 )
 
 func TestInventoryAndRender(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	skills, err := loadSkills(DirSource(repo))
 	if err != nil {
@@ -63,6 +64,7 @@ func TestInventoryAndRender(t *testing.T) {
 }
 
 func TestInstallStatusResyncUninstall(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home := t.TempDir()
 	self := []byte("#!/bin/sh\necho fyr\n")
@@ -186,6 +188,7 @@ func TestInstallStatusResyncUninstall(t *testing.T) {
 }
 
 func TestInstallMarksDirtyTree(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	gitIn(t, repo, "init", "-q")
 	gitIn(t, repo, "add", ".")
@@ -230,6 +233,7 @@ func TestInstallMarksDirtyTree(t *testing.T) {
 // checkout: go build into the repo's scratch space, then that build installs
 // into a scratch home and copies itself there, stamped with the revision.
 func TestReinstallBuildsAndInstalls(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go not on PATH")
 	}

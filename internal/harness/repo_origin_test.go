@@ -7,6 +7,7 @@ import (
 // TestParseOrigin: every shape the installer writes into the manifest's repo
 // value is read by one parser (IN6), so no reader cuts prefixes by hand.
 func TestParseOrigin(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		repo string
 		want Origin
@@ -37,6 +38,7 @@ func TestParseOrigin(t *testing.T) {
 
 // TestSourceOriginString: what Install records for each kind of source.
 func TestSourceOriginString(t *testing.T) {
+	t.Parallel()
 	if got := DirSource("/tree").OriginString(); got != "/tree" {
 		t.Errorf("tree: %q", got)
 	}

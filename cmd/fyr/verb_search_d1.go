@@ -3,12 +3,20 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
+	"unicode/utf8"
 
+	"github.com/kesokaj/fyr/internal/auto"
 	"github.com/kesokaj/fyr/internal/brain"
+	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 func hookVerb() verb {
@@ -228,4 +236,243 @@ func recordHitsData(o search.Options) ([]brain.Hit, string, error) {
 		hits, err := brain.Search(bo, o.Words, o.Kind, limit)
 		return hits, fmt.Sprintf("records: %d hits for %q", len(hits), strings.Join(o.Words, " ")), err
 	}
+}
+
+// now is the clock `index --register` dates the marker with; a test replaces it.
+var now = time.Now
+
+// runRegister is `fyr index --register`: the operator's consent that this
+// checkout reaches the cross-project consumers (ADR-068). It skips ephemeral
+// worktree/smoke/sandbox/scratch paths (ADR-532), writes the marker in the
+// checkout's git common directory, then indexes as a plain `fyr index`, whose
+// prepare registers the checkout in the global search index now that the marker
+// exists. The marker comes first, so a failed index leaves a valid one, and the
+// error says so.
+func runRegister(c *runtimeCtx, o search.Options) error {
+	if o.Global {
+		fmt.Fprintln(c.out, "fyr index: --register and --global do not go together")
+		return exitCode(2)
+	}
+	main, top, err := trail.Roots(o.Dir)
+	if errors.Is(err, trail.ErrNotCheckout) {
+		fmt.Fprintln(c.out, "fyr index: --register needs a git checkout")
+		return exitCode(2)
+	}
+	if err != nil {
+		return fmt.Errorf("index --register: %w", err)
+	}
+	jsonOut := indexOptsOf(c).jsonOut
+	var buf bytes.Buffer
+	out := c.out
+	if jsonOut {
+		out = &buf
+	}
+	if eph := ephemeralRegisterTarget(o.Dir, top, main); eph != "" {
+		fmt.Fprintln(out, search.Printable("note: skipping registration for ephemeral path "+eph))
+		if jsonOut {
+			return writeIndexJSON(c, o.Dir, buf.String())
+		}
+		return nil
+	}
+	if _, err = trail.Register(filepath.Join(c.home, harness.StateDir), o.Dir, now()); err != nil {
+		return fmt.Errorf("index --register: %w", err)
+	}
+	if err := search.Index(o, out); err != nil {
+		return fmt.Errorf("registered %s, but the index failed: %w", main, err)
+	}
+	fmt.Fprintf(out, "registered %s\n", main)
+	// The marker is consent, not yet a reader: say so when nothing takes it.
+	root := search.RegistryRoot(o.Dir)
+	if ok, err := search.HasScopeRecords(c.home, root); err == nil && !ok {
+		fmt.Fprintln(out, search.Printable("note: "+root+" has no .agents/trail.jsonl, so no cross-project read takes it until it has records (fyr record import, or the first fyr record add)"))
+	}
+	if jsonOut {
+		return writeIndexJSON(c, o.Dir, buf.String())
+	}
+	return nil
+}
+
+func ephemeralRegisterTarget(dir, top, main string) string {
+	for _, p := range []string{top, main, dir} {
+		if auto.IsEphemeralPath(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+func makeSkillCatalog() func(home string) []search.SkillMeta {
+	return LoadSkillCatalog
+}
+
+// LoadSkillCatalog reads installed SKILL.md metadata under
+// <home>/.gemini/config/skills/<name>/SKILL.md. Returns nil when home is empty
+// or no skills are installed (zero phantom fallback).
+func LoadSkillCatalog(home string) []search.SkillMeta {
+	if home == "" {
+		return nil
+	}
+	skillsDir := filepath.Join(home, ".gemini", "config", "skills")
+	entries, err := os.ReadDir(skillsDir)
+	if err != nil {
+		return nil
+	}
+	var out []search.SkillMeta
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		p := filepath.Join(skillsDir, e.Name(), "SKILL.md")
+		if meta, ok := parseSkillMetaFile(e.Name(), p); ok {
+			out = append(out, meta)
+		}
+	}
+	return out
+}
+
+func parseSkillMetaFile(name, path string) (search.SkillMeta, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return search.SkillMeta{}, false
+	}
+	raw := string(data)
+	desc := extractSkillDescription(raw)
+	digest := extractActionableSkillDigest(raw)
+	if digest == "" {
+		digest = desc
+	}
+	if desc == "" && digest == "" {
+		return search.SkillMeta{}, false
+	}
+	desc = truncateUTF8(desc, 600)
+	digest = truncateUTF8(digest, 600)
+	return search.SkillMeta{
+		Name:        name,
+		Description: desc,
+		Path:        "~/.gemini/config/skills/" + name + "/SKILL.md",
+		Digest:      digest,
+	}, true
+}
+
+func isYAMLBlockHeader(s string) bool {
+	if s == "" || (s[0] != '|' && s[0] != '>') {
+		return false
+	}
+	for _, r := range s[1:] {
+		if r != '+' && r != '-' && (r < '1' || r > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func unquoteYAMLValue(s string) string {
+	if len(s) >= 2 && ((s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'')) {
+		return s[1 : len(s)-1]
+	}
+	return s
+}
+
+func skillFrontmatterLines(text string) []string {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	if len(lines) < 3 || strings.TrimSpace(lines[0]) != "---" {
+		return nil
+	}
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			return lines[1:i]
+		}
+	}
+	return lines[1:]
+}
+
+func collectSkillDescLines(fm []string) ([]string, bool) {
+	var descLines []string
+	inDesc, isBlock := false, false
+	for _, line := range fm {
+		if rest, ok := strings.CutPrefix(line, "description:"); ok {
+			inDesc = true
+			rest = strings.TrimSpace(rest)
+			isBlock = isYAMLBlockHeader(rest)
+			if !isBlock && rest != "" {
+				descLines = append(descLines, rest)
+			}
+			continue
+		}
+		if !inDesc || strings.TrimSpace(line) == "" {
+			continue
+		}
+		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+			descLines = append(descLines, strings.TrimSpace(line))
+			continue
+		}
+		break
+	}
+	return descLines, isBlock
+}
+
+func extractSkillDescription(text string) string {
+	fm := skillFrontmatterLines(text)
+	if len(fm) == 0 {
+		return ""
+	}
+	descLines, isBlock := collectSkillDescLines(fm)
+	joined := strings.Join(descLines, " ")
+	if !isBlock {
+		joined = unquoteYAMLValue(joined)
+	}
+	return joined
+}
+
+func skillBodyStartLine(lines []string) int {
+	if len(lines) < 3 || strings.TrimSpace(lines[0]) != "---" {
+		return 0
+	}
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+func isSkillDigestSkippable(t string) bool {
+	return t == "" || strings.HasPrefix(t, "# ") || strings.HasPrefix(t, "<!--")
+}
+
+func extractActionableSkillDigest(text string) string {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	var parts []string
+	inFence, total := false, 0
+	for i := skillBodyStartLine(lines); i < len(lines) && total < 580; i++ {
+		t := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(t, "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence || isSkillDigestSkippable(t) {
+			continue
+		}
+		if len(t) > 180 {
+			t = truncateUTF8(t, 180) + "..."
+		}
+		parts = append(parts, t)
+		total += len(t) + 3
+		if len(parts) >= 6 {
+			break
+		}
+	}
+	return truncateUTF8(strings.Join(parts, " | "), 600)
+}
+
+func truncateUTF8(s string, maxBytes int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= maxBytes {
+		return s
+	}
+	i := maxBytes
+	for i > 0 && !utf8.RuneStart(s[i]) {
+		i--
+	}
+	return strings.TrimSpace(s[:i])
 }

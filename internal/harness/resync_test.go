@@ -16,6 +16,7 @@ import (
 // The next install is silent about them, and uninstall, before or after the
 // first fyr install, never touches them either.
 func TestResyncKeepsOldClaudeFiles(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home := t.TempDir()
 	put := func(rel, body string) {
@@ -120,6 +121,7 @@ func TestResyncKeepsOldClaudeFiles(t *testing.T) {
 // far), the IN2 rule; the old ~/.claude entries are not put back into it,
 // and none of them is removed (plan fyr D32, security review of Phase 5b).
 func TestInstallFailureKeepsClaudeFilesOutOfTheManifest(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory modes")
 	}
@@ -176,6 +178,7 @@ func TestInstallFailureKeepsClaudeFilesOutOfTheManifest(t *testing.T) {
 // files on disk no manifest listed (audit of 2026-09-30, IN2). After a
 // failure the manifest is (every old entry still on disk) ∪ (written so far).
 func TestInstallMidFailureKeepsManifestComplete(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory modes")
 	}
@@ -242,6 +245,7 @@ func TestInstallMidFailureKeepsManifestComplete(t *testing.T) {
 // stale file that cannot be removed leaves the files written before it
 // listed (code review round 2, 2026-10-01).
 func TestInstallResyncFailureKeepsManifest(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory modes")
 	}

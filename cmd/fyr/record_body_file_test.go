@@ -292,6 +292,7 @@ func TestMemoryAddBodyFile(t *testing.T) {
 // fyr record get instead of using --out, and handoff's record add passes --id
 // so the Kickoff names the stored handoff ID.
 func TestNoRedirectedFyrInstructions(t *testing.T) {
+	t.Parallel()
 	repo, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

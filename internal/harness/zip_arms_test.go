@@ -17,6 +17,7 @@ import (
 // A directory entry whose path an earlier file entry already holds fails the
 // unpack with the MkdirAll error itself.
 func TestUnpackZipDirOverFile(t *testing.T) {
+	t.Parallel()
 	zp := filepath.Join(t.TempDir(), "h.zip")
 	writeZip(t, zp, append(harnessEntries(t, ""),
 		zipEntry{name: "skills/a", body: "x"},
@@ -33,6 +34,7 @@ func TestUnpackZipDirOverFile(t *testing.T) {
 // A file entry whose path an earlier directory entry already holds fails the
 // unpack, naming the entry.
 func TestUnpackZipFileOverDir(t *testing.T) {
+	t.Parallel()
 	zp := filepath.Join(t.TempDir(), "h.zip")
 	writeZip(t, zp, append(harnessEntries(t, ""),
 		zipEntry{name: "skills/b/", mode: fs.ModeDir | 0o755},
@@ -48,6 +50,7 @@ func TestUnpackZipFileOverDir(t *testing.T) {
 // An archive with context/AGENTS.md but no skills/ passes every check before
 // the write and is refused after it.
 func TestUnpackZipNoSkillsTree(t *testing.T) {
+	t.Parallel()
 	zp := filepath.Join(t.TempDir(), "h.zip")
 	writeZip(t, zp, []zipEntry{{name: "context/AGENTS.md", body: "# AGENTS.md\n"}})
 	parent := t.TempDir()
@@ -61,6 +64,7 @@ func TestUnpackZipNoSkillsTree(t *testing.T) {
 // The check sees the sum before the archive is parsed: a file that is not a
 // zip at all is refused for its sum, never for its format (ADR-039).
 func TestUnpackZipChecksBeforeParsing(t *testing.T) {
+	t.Parallel()
 	zp := filepath.Join(t.TempDir(), "h.zip")
 	writeFile(t, zp, "not a zip")
 	refused := errors.New("checksum refused")

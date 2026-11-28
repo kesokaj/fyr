@@ -8,6 +8,7 @@ import (
 // The names a v3.0.0 release publishes and a release binary fetches: one
 // asset set, one repository (plan fyr D5a, Interfaces § The crossing).
 func TestReleaseNames(t *testing.T) {
+	t.Parallel()
 	if got := assetName("linux", "amd64"); got != "fyr-linux-amd64" {
 		t.Errorf("assetName = %s, want fyr-linux-amd64", got)
 	}
@@ -31,6 +32,7 @@ func TestReleaseNames(t *testing.T) {
 }
 
 func TestParseSums(t *testing.T) {
+	t.Parallel()
 	line := strings.Repeat("a", 64) + "  fyr-linux-amd64\n"
 	tag, err := parseSums([]byte("# fyr v1.2.3\n"+line), "release v1.2.3")
 	if err != nil || tag != "v1.2.3" {
@@ -45,6 +47,7 @@ func TestParseSums(t *testing.T) {
 }
 
 func TestChecksumFor(t *testing.T) {
+	t.Parallel()
 	sums := "# fyr v1.2.3\n" +
 		strings.Repeat("a", 64) + "  fyr-linux-amd64\n" +
 		strings.Repeat("B", 64) + " *fyr-darwin-arm64\n" +
@@ -83,6 +86,7 @@ func TestChecksumFor(t *testing.T) {
 }
 
 func TestCompareRelease(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		a, b string
 		want int

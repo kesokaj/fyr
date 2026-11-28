@@ -23,6 +23,7 @@ import (
 // ingested; the same arrangement without that reason is, which shows the
 // link would have been read.
 func TestEvalIngestSkipsReplaced(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	home, real, dir := filepath.Join(tmp, "fyr-home"), filepath.Join(tmp, "real"), filepath.Join(tmp, "sandbox")
 	agyHome(t, real, "C1")
@@ -100,6 +101,7 @@ func TestEvalIngestSkipsReplaced(t *testing.T) {
 // (PLAN.md item 48); the same real home with another reason is, which shows
 // it would have been read.
 func TestEvalIngestSkipsWriteFailed(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	home := filepath.Join(tmp, "fyr-home")
 	for _, c := range []struct {
@@ -126,6 +128,7 @@ func TestEvalIngestSkipsWriteFailed(t *testing.T) {
 }
 
 func TestEvalIngestPopulatesSessionModel(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	home := filepath.Join(tmp, "fyr-home")
 	dir := filepath.Join(tmp, "sb")

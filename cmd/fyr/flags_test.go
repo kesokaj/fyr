@@ -42,6 +42,7 @@ func allFlags() *flag.FlagSet {
 }
 
 func TestReorder(t *testing.T) {
+	t.Parallel()
 	cases := map[string][]string{
 		// BUG-002: the flag package stops at the first positional argument.
 		"adopt my-skill --home /x":          {"--home", "/x", "adopt", "my-skill"},
@@ -125,6 +126,7 @@ func TestVerbRefusesAnotherVerbsFlag(t *testing.T) {
 // review 2026-10-01, f2), and a verb that takes no positional arguments
 // refuses it instead of ignoring it.
 func TestDoubleDashKeepsFollowingArgumentsPositional(t *testing.T) {
+	t.Parallel()
 	fs := flag.NewFlagSet("x", flag.ContinueOnError)
 	fs.String("from-zip", "", "")
 	fs.String("home", "", "") // the global flags sit on every verb's FlagSet in run()
@@ -190,6 +192,7 @@ func TestUpdateFromZipDecidedByParsedFlags(t *testing.T) {
 // repository a release binary updates from (harness.ReleaseRepo), never the
 // name before the rename (code review of v2.7.0..881389a, 2026-10-25).
 func TestOneRepositoryName(t *testing.T) {
+	t.Parallel()
 	_, name, _ := strings.Cut(harness.ReleaseRepo, "/")
 	want := "git@github.com:" + name + ".git"
 	for _, rel := range []string{"README.md", "DEPLOY-remote", "cmd/fyr/verb_install.go", "internal/harness/repo_git.go"} {
@@ -264,6 +267,7 @@ func classifyTurnRecord(ctx *search.TurnBrainContext, dir, prompt string, files,
 }
 
 func TestClassifyTurnRecordSkipsUnrelatedADRs(t *testing.T) {
+	t.Parallel()
 	recs := []brain.Record{
 		{ID: "ADR-001", Kind: "adr", Status: "accepted", Title: "Unrelated one", Body: "We never use XML soap envelopes."},
 		{ID: "ADR-002", Kind: "adr", Status: "accepted", Title: "Unrelated two", Body: "Rejected: soap envelopes."},
@@ -619,6 +623,7 @@ func testV910LocalBinAgyLookup(t *testing.T) {
 }
 
 func TestReportNoIngestWritesState(t *testing.T) {
+	t.Parallel()
 	// report --no-ingest writesState: true for --daily-digest --no-ingest; false for read-only report --no-ingest (matching TestStateDirMigrationByVerb).
 	for _, tc := range []struct {
 		name string
@@ -649,6 +654,7 @@ func TestReportNoIngestWritesState(t *testing.T) {
 }
 
 func TestRecordAndReportOptsOfCacheOnNil(t *testing.T) {
+	t.Parallel()
 	rc := &runtimeCtx{}
 	rec1 := recordOptsOf(rc)
 	if rc.opts != rec1 {

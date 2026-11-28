@@ -10,6 +10,7 @@ import (
 )
 
 func TestWithin(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		parent, child string
 		want          bool
@@ -36,6 +37,7 @@ func TestWithin(t *testing.T) {
 // so what is asserted here is the contract it protects: after the call
 // returns, the destination holds exactly the bytes and nothing else does.
 func TestWriteAtomicIsAtomicAndDurable(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "nested", "context.md")
 	data := []byte("# AGENTS.md\n\nwhole file\n")
@@ -79,6 +81,7 @@ func TestWriteAtomicIsAtomicAndDurable(t *testing.T) {
 // or context file would let a tree outside the repo decide what every
 // machine reads.
 func TestRenderContextRefusesSymlinks(t *testing.T) {
+	t.Parallel()
 	t.Run("context directory is a link", func(t *testing.T) {
 		repo := newRepo(t)
 		outside := t.TempDir()
@@ -120,6 +123,7 @@ func TestRenderContextRefusesSymlinks(t *testing.T) {
 // nothing is left behind unseen (the settings writer's own diagnostic, kept
 // when it moved onto WriteAtomic; code review 2026-09-30).
 func TestAbandonNamesATempFileItCouldNotRemove(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores the directory permissions this test relies on")
 	}
@@ -157,6 +161,7 @@ func TestAbandonNamesATempFileItCouldNotRemove(t *testing.T) {
 // renamed into place is never still open (ETXTBSY on Linux). Round 2 of the
 // 2026-09-30 review swapped the two lines and every test stayed green.
 func TestWriteAtomicClosesBeforeRename(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile("fswrite.go")
 	if err != nil {
 		t.Fatal(err)

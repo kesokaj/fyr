@@ -127,6 +127,7 @@ func TestRestatementGrepRunsOutsideHarness(t *testing.T) {
 // harness skill — excludes that subtree from the living files, and only it:
 // the skill's own SKILL.md beside the catalog stays in.
 func TestRestatementGrepSkipsVendoredCatalog(t *testing.T) {
+	t.Parallel()
 	for _, tool := range []string{"bash", "git"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Skipf("%s not on PATH", tool)

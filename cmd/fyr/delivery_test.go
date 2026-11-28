@@ -70,6 +70,7 @@ func trailRecord(t *testing.T, id string) string {
 // It said v2.4.1 and left out `metrics` while the repository was at v2.6.2
 // (project review 2026-10-09, row 3, BUG-167).
 func TestDeliverySpecCurrent(t *testing.T) {
+	t.Parallel()
 	data := trailRecord(t, "SPEC-fyr-delivery")
 	_, para, ok := strings.Cut(data, "\n**Built and shipped**")
 	if !ok {
@@ -143,6 +144,7 @@ func newestVersion(tags []string, trail []byte) (string, bool) {
 // Before the tag is cut the release record is ahead of the tags, and the
 // paragraph must name it (DEPLOY-remote § Releases runs the test before the tag).
 func TestNewestVersion(t *testing.T) {
+	t.Parallel()
 	trail := []byte(`{"date":"2026-10-25","id":"CHANGE-2026-10-25-1200-release-v3-0-0","kind":"change"}` + "\n" + `{"id":"CHANGE-2026-09-18-release-v1.2.3"}`)
 	if got, ok := newestVersion([]string{"v2.7.0", "v2.10.1", "junk"}, trail); !ok || got != "v3.0.0" {
 		t.Errorf("newestVersion = %s %v, want v3.0.0", got, ok)

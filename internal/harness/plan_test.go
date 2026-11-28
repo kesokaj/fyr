@@ -13,6 +13,7 @@ import (
 // directory or is the binary, and the manifest records the one vendor that a
 // reader of state.json (the init-project skill) checks for.
 func TestPlanAntigravityOnly(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	files, err := Plan(DirSource(repo), []byte("#!/bin/sh\n"))
 	if err != nil {
@@ -65,6 +66,7 @@ func TestPlanAntigravityOnly(t *testing.T) {
 // hooks.json PreToolUse/PostToolUse matchers must include ask_question
 // ([KICKOFF_GUARD]) and grep_search ([SEARCH_NUDGE]) alongside existing tools.
 func TestHooksJSONMatcherCoversKickoffAndSearchNudgeTools(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	files, err := Plan(DirSource(repo), []byte("#!/bin/sh\n"))
 	if err != nil {
@@ -111,6 +113,7 @@ func TestHooksJSONMatcherCoversKickoffAndSearchNudgeTools(t *testing.T) {
 // it) and install is the one step that would copy it into both vendor
 // directories on every machine (security review 2026-09-16).
 func TestPlanRefusesSecretShapedFiles(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{".env", ".env.local", "server.key", "cert.pem", "creds.tfvars", "application_default_credentials.json", "sa-key.json"} {
 		t.Run(name, func(t *testing.T) {
 			repo := newRepo(t)
@@ -149,6 +152,7 @@ func TestPlanRefusesSecretShapedFiles(t *testing.T) {
 // the repo must not land group-writable in ~/.gemini/config, where its contents are
 // instructions every session reads (security review of v1.0.0).
 func TestPlanDropsGroupAndOtherWrite(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	loose := filepath.Join(repo, "skills", "alpha", "loose.md")
 	if err := os.WriteFile(loose, []byte("reference\n"), 0o666); err != nil {
@@ -179,6 +183,7 @@ func TestPlanDropsGroupAndOtherWrite(t *testing.T) {
 }
 
 func TestPlanInstallsWorkflowScripts(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	wfDir := filepath.Join(repo, "workflows")
 	if err := os.MkdirAll(wfDir, 0o755); err != nil {
@@ -240,6 +245,7 @@ func TestPlanInstallsWorkflowScripts(t *testing.T) {
 }
 
 func TestHooksJSONIncludesPostToolUse(t *testing.T) {
+	t.Parallel()
 	var parsed struct {
 		FyrBrain struct {
 			PostToolUse []struct {

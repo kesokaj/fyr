@@ -15,6 +15,7 @@ import (
 // refusals name the cause and what to do, never a bare rename error
 // (BUG-189, the v3.1.0 gate's § 3c matrix).
 func TestDryRunRefusesADirectoryAtAFilePath(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	rel := filepath.Join(".gemini", "config", "skills", "x", "SKILL.md")
 	if err := os.MkdirAll(filepath.Join(home, rel), 0o755); err != nil {
@@ -42,6 +43,7 @@ func TestDryRunRefusesADirectoryAtAFilePath(t *testing.T) {
 // through saveOnError: the file it wrote before the refusal is listed, so
 // uninstall can remove it (audit 2026-09-30, IN2; ledger item 56).
 func TestRealRunSavesManifestWhenDirInTheWay(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	written := filepath.Join(".gemini", "config", "skills", "a", "SKILL.md")
 	blocked := filepath.Join(".gemini", "config", "skills", "x", "SKILL.md")

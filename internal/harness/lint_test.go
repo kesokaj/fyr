@@ -11,6 +11,7 @@ import (
 // neither "dispatch prompt" nor "harness binary" (TDD.md § T6; audit
 // 2026-09-30, AG12). Until now only inspection enforced it.
 func TestAgentDescriptionRules(t *testing.T) {
+	t.Parallel()
 	for name, front := range map[string]string{
 		"two lines":       "name: x\ndescription: |\n  first line\n  second line\nsubagent: true\nmainAgent: false\n",
 		"dispatch prompt": "name: x\ndescription: \"the dispatch prompt names the file\"\nsubagent: true\nmainAgent: false\n",
@@ -42,6 +43,7 @@ func TestAgentDescriptionRules(t *testing.T) {
 // description is measured after its continuation lines are joined (audit
 // 2026-09-30, D19).
 func TestLintDescriptionLimit(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("word ", 206) // 1,029 characters after the trailing space is trimmed
 	if _, err := parseStrict("name: x\ndescription: \"" + long + "\"\n"); err == nil {
 		t.Error("a 1,025-character description passed Lint")
@@ -73,6 +75,7 @@ func TestLintDescriptionLimit(t *testing.T) {
 // active, so a harness skill never sets it — the operator's permission mode
 // decides (BUG-143, graduated here).
 func TestLintRefusesAllowedTools(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	dir := filepath.Join(repo, "skills", "x")
 	os.MkdirAll(dir, 0o755)
@@ -94,6 +97,7 @@ func TestLintRefusesAllowedTools(t *testing.T) {
 // cannot read is refused rather than skipped — a quoted or spaced key is the
 // same key to a YAML parser (security review 2026-10-01; one rule per kind).
 func TestLintPermissionKeysByKind(t *testing.T) {
+	t.Parallel()
 	skill := func(front string) error {
 		repo := newRepo(t)
 		dir := filepath.Join(repo, "skills", "x")
@@ -170,6 +174,7 @@ func TestLintPermissionKeysByKind(t *testing.T) {
 // having none, so the permission-key lint never saw it and the file deployed
 // as written (the v2.1.0 gate's L5). A file with no frontmatter still loads.
 func TestLintRefusesUnreadableFrontmatterInDocs(t *testing.T) {
+	t.Parallel()
 	load := func(kind, text string) error {
 		repo := newRepo(t)
 		os.MkdirAll(filepath.Join(repo, kind), 0o755)
@@ -223,6 +228,7 @@ func TestLintRefusesUnreadableFrontmatterInDocs(t *testing.T) {
 // reader errors, nests it, or reads a top-level key). Refused in every kind,
 // whatever else the file gets right.
 func TestLintSeesEveryKeyAYAMLReaderSees(t *testing.T) {
+	t.Parallel()
 	const hidden = "allowed-tools: Bash(*)"
 	// Every kind sets only the keys of its allow-list (ADR-056, IN23), so its
 	// keep-loading shapes use them; only a skill's holds a list or a map.
@@ -341,6 +347,7 @@ func TestLintSeesEveryKeyAYAMLReaderSees(t *testing.T) {
 // only, interactive sessions end the turn to wait and wake when background work
 // finishes, and the work lead's no-write rule while a run is going stays.
 func TestPrintModeOnlyPolling(t *testing.T) {
+	t.Parallel()
 	repo := filepath.Join("..", "..")
 	for _, root := range []string{"context", "agents", "skills", "rules", "commands"} {
 		err := filepath.WalkDir(filepath.Join(repo, root), func(path string, d os.DirEntry, err error) error {

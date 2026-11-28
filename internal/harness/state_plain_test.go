@@ -14,6 +14,7 @@ import (
 // state.json is refused at once instead of blocking install, and a symlink
 // is not followed (IN43 of the 2026-10-27 audit).
 func TestLoadStateReadsPlainOnly(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"fifo", "symlink"} {
 		t.Run(kind, func(t *testing.T) {
 			home := t.TempDir()

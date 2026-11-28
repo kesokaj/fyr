@@ -15,6 +15,7 @@ import (
 // FIFO, or a FIFO itself, is classed without being opened; reading it first
 // blocked status forever (IN27).
 func TestStatusAndDiffNeverOpenAFIFO(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
@@ -75,6 +76,7 @@ func TestStatusAndDiffNeverOpenAFIFO(t *testing.T) {
 }
 
 func TestNonRegularFilesAreRefusedWithoutBlocking(t *testing.T) {
+	t.Parallel()
 	runNoHang := func(name string, fn func() error) {
 		t.Helper()
 		ch := make(chan error, 1)

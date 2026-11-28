@@ -10,6 +10,7 @@ import (
 // the section, in a fence, or in a retired spec, is not read, and a `## `
 // line inside a fence does not end the section.
 func TestVerificationFileNames(t *testing.T) {
+	t.Parallel()
 	body := strings.Join([]string{
 		"Code: `internal/a/a.go`.",
 		"",

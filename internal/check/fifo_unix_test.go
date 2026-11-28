@@ -14,6 +14,7 @@ import (
 // opened with a blocking open after checkPath's Lstat, and openRegular,
 // which every read now goes through after its Lstat.
 func TestReadsRefuseAFIFO(t *testing.T) {
+	t.Parallel()
 	dir := repo(t, map[string]string{"README.md": "x\n"})
 	if err := syscall.Mkfifo(filepath.Join(dir, "pipe"), 0o644); err != nil {
 		t.Fatal(err)

@@ -8,6 +8,7 @@ import (
 )
 
 func TestParseFrontmatter(t *testing.T) {
+	t.Parallel()
 	front := "name: x\ndescription: |\n  line one\n  line two\nquoted: \"a: b\"\nmetadata:\n  version: \"1.2\"\n  author: me\ntools: [Read, Grep]\nskills:\n  - alpha\n  - beta\nplain: first\n  second\nempty:\n"
 	fm := Parse(front)
 	want := map[string]string{
@@ -36,6 +37,7 @@ func TestParseFrontmatter(t *testing.T) {
 }
 
 func TestLintRejectsUnquotedComment(t *testing.T) {
+	t.Parallel()
 	// A plain scalar with " #" is a YAML comment start: strict parsers
 	// truncate it or, inside a flow sequence, fail the whole file. The
 	// Antigravity CLI dropped the `bug` and `feature` skills that way.
@@ -68,6 +70,7 @@ func TestLintRejectsUnquotedComment(t *testing.T) {
 }
 
 func TestLoadSkillsRejectsUnquotedComment(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	p := filepath.Join(repo, "skills", "gamma", "SKILL.md")
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -83,6 +86,7 @@ func TestLoadSkillsRejectsUnquotedComment(t *testing.T) {
 }
 
 func TestSplitRejectsMissingFrontmatter(t *testing.T) {
+	t.Parallel()
 	if _, _, err := Split("# no frontmatter\n"); err == nil {
 		t.Fatal("expected an error")
 	}
@@ -97,6 +101,7 @@ func TestSplitRejectsMissingFrontmatter(t *testing.T) {
 // `adopt` used to be able to leave behind (its staging now lives outside
 // skills/), and what a hand-copied directory can still produce.
 func TestLoadSkillsRefusesDuplicateNames(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	dup := filepath.Join(repo, "skills", "alpha-copy")
 	if err := os.MkdirAll(dup, 0o755); err != nil {
@@ -122,6 +127,7 @@ func TestLoadSkillsRefusesDuplicateNames(t *testing.T) {
 // written after it (and before a real closing line a lenient reader would
 // take) was never checked (security read of a62eb9d..768efce).
 func TestSplitFenceIsOneLine(t *testing.T) {
+	t.Parallel()
 	if _, _, err := Split("---\r\nname: x\r\n---\r\nbody\r\n"); err != nil {
 		t.Errorf("a CRLF file is not read: %v", err)
 	}
@@ -152,6 +158,7 @@ func TestSplitFenceIsOneLine(t *testing.T) {
 }
 
 func TestLintRejectsDuplicateKeysAndTrailingCommentAfterQuotes(t *testing.T) {
+	t.Parallel()
 	if _, err := parseStrict("name: x\nname: y\n"); err == nil || !strings.Contains(err.Error(), "duplicated") {
 		t.Errorf("duplicate top-level key accepted: %v", err)
 	}
@@ -188,6 +195,7 @@ func TestLintRejectsDuplicateKeysAndTrailingCommentAfterQuotes(t *testing.T) {
 }
 
 func TestLintSkillFrontmatterAnd140CharCap(t *testing.T) {
+	t.Parallel()
 	if SkillDescriptionLimit != 140 {
 		t.Fatalf("SkillDescriptionLimit = %d, want 140", SkillDescriptionLimit)
 	}

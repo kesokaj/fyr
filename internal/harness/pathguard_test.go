@@ -23,6 +23,7 @@ func writeFile(t *testing.T, p, content string) {
 // local segment, naming the file, so `../x` or `a/b` never reaches
 // filepath.Join (styrman-crew's 2026-09-14 review of the mirror refresh).
 func TestSkillAndAgentNamesMustBeOneLocalSegment(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		bad  bool
@@ -67,6 +68,7 @@ func TestSkillAndAgentNamesMustBeOneLocalSegment(t *testing.T) {
 // resync removes a stale planned-less file inside the home and leaves a
 // `../` entry's target untouched.
 func TestResyncNeverFollowsANonLocalManifestEntry(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	stale := filepath.Join(home, AgyRoot, "agents", "old", "agent.md")
@@ -92,6 +94,7 @@ func TestResyncNeverFollowsANonLocalManifestEntry(t *testing.T) {
 // the state is READ, so every reader — install's resync, uninstall, status —
 // is guarded in one place (security review 2026-09-14).
 func TestLoadStateDropsNonLocalManifestEntries(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	if err := SaveState(home, State{Repo: "r", Files: []string{".gemini/config/a.md", "../escape", "/etc/passwd", "ok/../../x"}}); err != nil {
 		t.Fatal(err)
@@ -110,6 +113,7 @@ func TestLoadStateDropsNonLocalManifestEntries(t *testing.T) {
 // link's 0777 becomes a world-writable file in ~/.gemini/config (security review
 // 2026-09-14, high). The same refusal guards adopt's copy.
 func TestSkillFilesAndAdoptCopiesRefuseSymlinks(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	dir := filepath.Join(repo, "skills", "s")
 	writeFile(t, filepath.Join(repo, "context", "AGENTS.md"), "# ctx\n")
@@ -133,6 +137,7 @@ func TestSkillFilesAndAdoptCopiesRefuseSymlinks(t *testing.T) {
 // the model. The skill walk and adopt's copy already refuse links; these
 // readers must too (BUG-036).
 func TestContextAgentsAndDocsRefuseSymlinks(t *testing.T) {
+	t.Parallel()
 	valid := map[string]string{
 		"context":   "# extra\n\nbytes that must not be deployed\n",
 		"agents":    "---\nname: shadow\ndescription: \"an agent\"\nsubagent: true\nmainAgent: false\n---\nbody\n",
@@ -175,6 +180,7 @@ func TestContextAgentsAndDocsRefuseSymlinks(t *testing.T) {
 // walk only visits skills loadSkills returned, so swallowing the read error
 // would drop the skill silently instead of refusing the link (BUG-036).
 func TestSymlinkedSkillMdIsRefused(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	writeFile(t, filepath.Join(repo, "context", "AGENTS.md"), "# ctx\n")
 	dir := filepath.Join(repo, "skills", "s")
@@ -197,6 +203,7 @@ func TestSymlinkedSkillMdIsRefused(t *testing.T) {
 // A directory under skills/ with no SKILL.md is not a skill and is skipped,
 // which the refusal above must not turn into an error.
 func TestSkillDirWithoutSkillMdIsSkipped(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	writeFile(t, filepath.Join(repo, "context", "AGENTS.md"), "# ctx\n")
 	writeFile(t, filepath.Join(repo, "skills", "real", "SKILL.md"), "---\nname: real\ndescription: \"x\"\n---\nbody\n")
@@ -216,6 +223,7 @@ func TestSkillDirWithoutSkillMdIsSkipped(t *testing.T) {
 // os.ReadDir and filepath.Glob before it, follows a directory link, so guarding the leaf files alone let
 // the same payload through one path segment up (BUG-036, review round 2).
 func TestManagedDirsRefuseSymlinks(t *testing.T) {
+	t.Parallel()
 	skillMD := "---\nname: s\ndescription: \"x\"\n---\nbody\n"
 	content := map[string]string{
 		"context":   "# ctx\n",
@@ -365,6 +373,7 @@ func TestPathShadows(t *testing.T) {
 
 // executableAt is what PathShadows calls a binary; it is only as honest as this.
 func TestExecutableAt(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	exe := binAt(t, dir)
 	plain := filepath.Join(dir, "plain")
@@ -411,6 +420,7 @@ func TestExecutableAt(t *testing.T) {
 // from another path a shell can reach by name has updated a file it is not
 // (BUG-079).
 func TestRunningElsewhere(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	binDir := filepath.Join(root, "home", ".local", "bin")
 	installed := binAt(t, binDir)

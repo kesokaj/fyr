@@ -8,6 +8,7 @@ import (
 )
 
 func TestSkillCatalogInstalledPathsAndZeroPhantom(t *testing.T) {
+	t.Parallel()
 	if got := LoadSkillCatalog(""); len(got) != 0 {
 		t.Fatalf("LoadSkillCatalog(\"\") = %+v, want empty", got)
 	}

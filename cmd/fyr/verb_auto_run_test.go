@@ -133,6 +133,7 @@ func TestChecksInstallFindings(t *testing.T) {
 }
 
 func TestChecksMetricsFindingsEmptyStore(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	if got, err := autoMetricsFindings(home); len(got) != 0 || err != nil {
 		t.Errorf("%v, %v", got, err)

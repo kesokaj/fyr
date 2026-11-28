@@ -17,6 +17,7 @@ import (
 // sites returned a plain error instead — exit 1, the message on stderr —
 // until the project review of 2026-10-09 (row 4, BUG-168).
 func TestUsageErrorsExit2(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	for name, tc := range map[string]struct {
 		args []string
@@ -55,6 +56,7 @@ func TestUsageErrorsExit2(t *testing.T) {
 // The version verb was the one verb no test drove through run() (project
 // review 2026-10-09, row 13).
 func TestVersionVerb(t *testing.T) {
+	t.Parallel()
 	var out bytes.Buffer
 	if err := run([]string{"version"}, &out); err != nil {
 		t.Fatal(err)
@@ -80,6 +82,7 @@ func TestHelperMain(t *testing.T) {
 // Nothing read main's exit status until the project review of 2026-10-09
 // (row 13).
 func TestMainExitStatus(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		args   string
 		code   int
@@ -126,6 +129,7 @@ func TestMainExitStatus(t *testing.T) {
 // and nothing else: the vendor an older manifest recorded is never forwarded,
 // so the child, which has no --vendor, never refuses it (plan fyr Phase 2).
 func TestInstallPassArgsForwardsTheHomeOnly(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	if err := harness.SaveState(home, harness.State{Vendor: "all"}); err != nil {
 		t.Fatal(err)
@@ -143,6 +147,7 @@ func TestInstallPassArgsForwardsTheHomeOnly(t *testing.T) {
 // install takes — so each one set gets one line on stderr naming its new
 // name, and the verb runs as if it were absent (plan fyr D15).
 func TestOldEnvVariablesGetANotice(t *testing.T) {
+	t.Parallel()
 	c := exec.Command(os.Args[0], "-test.run=^TestHelperMain$")
 	var env []string
 	for _, kv := range os.Environ() {

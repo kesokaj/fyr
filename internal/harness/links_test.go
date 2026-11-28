@@ -27,6 +27,7 @@ func deployedSkillFiles(files []File) []string {
 // A linked destination is kept, never written through, and never enters the
 // manifest.
 func TestInstallDoesNotFollowLinkedDest(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home := t.TempDir()
 	files, err := Plan(DirSource(repo), nil)
@@ -107,6 +108,7 @@ func TestInstallDoesNotFollowLinkedDest(t *testing.T) {
 // operator's link now, or a file under a linked directory; neither is
 // removed, written or chmodded through (security review of IN3's fix).
 func TestUninstallAndLinkedDirs(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home := t.TempDir()
 	files, err := Plan(DirSource(repo), nil)
@@ -159,6 +161,7 @@ func TestUninstallAndLinkedDirs(t *testing.T) {
 // and nothing else; the metrics store is the only copy of what expired
 // transcripts held, and stays (R4, ADR-055).
 func TestUninstallKeepsMetricsStore(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home := t.TempDir()
 	files, err := Plan(DirSource(repo), nil)
@@ -185,6 +188,7 @@ func TestUninstallKeepsMetricsStore(t *testing.T) {
 // link is kept by uninstall (security review round 2 of IN3: the guard at
 // the one line that answers it had no test).
 func TestUninstallSkipsLink(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home := t.TempDir()
 	files, err := Plan(DirSource(repo), nil)
@@ -219,6 +223,7 @@ func TestUninstallSkipsLink(t *testing.T) {
 // none of them through it (security review round 3: the underLink half of
 // the guard had no test of its own).
 func TestUninstallSkipsFilesUnderLink(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home := t.TempDir()
 	files, err := Plan(DirSource(repo), nil)
@@ -253,6 +258,7 @@ func TestUninstallSkipsFilesUnderLink(t *testing.T) {
 // TestResyncSkipsLink: the resync loop removed a path the old manifest named
 // even when it had become a symlink (audit of 2026-09-30, IN3).
 func TestResyncSkipsLink(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home := t.TempDir()
 	files, err := Plan(DirSource(repo), nil)

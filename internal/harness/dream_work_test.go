@@ -13,6 +13,7 @@ import (
 // more when no symlink is in the way (visible dream plan D15). InDreamWork
 // matches the directory and below it, never a sibling sharing its prefix.
 func TestDreamWorkPaths(t *testing.T) {
+	t.Parallel()
 	real := t.TempDir()
 	link := filepath.Join(t.TempDir(), "home")
 	if err := os.Symlink(real, link); err != nil {

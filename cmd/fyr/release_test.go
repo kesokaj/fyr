@@ -143,6 +143,7 @@ func TestReleaseBinaryUpdateCheckExitsTwo(t *testing.T) {
 // findings 2, 8, 9): a plain copy is a real kind of place, and every refusal
 // on it names the cause and the alternative.
 func TestUpdateOnPlainCopyNamesTheAlternative(t *testing.T) {
+	t.Parallel()
 	copy := plainCopyOf(t)
 	home := t.TempDir()
 	var out bytes.Buffer
@@ -158,6 +159,7 @@ func TestUpdateOnPlainCopyNamesTheAlternative(t *testing.T) {
 }
 
 func TestAdoptOnPlainCopySaysWhereToCommit(t *testing.T) {
+	t.Parallel()
 	copy := plainCopyOf(t)
 	home := t.TempDir()
 	src := filepath.Join(t.TempDir(), "widget")

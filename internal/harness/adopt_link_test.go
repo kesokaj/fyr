@@ -11,6 +11,7 @@ import (
 // resolved, so the destination is compared resolved too, and a skill is never
 // replaced by its own subdirectory (IN42 of the 2026-10-27 audit).
 func TestAdoptSeesOverlapThroughALinkedRepo(t *testing.T) {
+	t.Parallel()
 	real := t.TempDir()
 	inner := filepath.Join(real, "skills", "alpha", "alpha")
 	if err := os.MkdirAll(inner, 0o755); err != nil {

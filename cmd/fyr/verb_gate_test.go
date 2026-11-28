@@ -320,6 +320,7 @@ func TestV910VerbGateLandWorkerFlagsAndDetail(t *testing.T) {
 }
 
 func TestShortHashAndPrintVerifyLandText(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		in   string
 		n    int

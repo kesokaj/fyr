@@ -40,6 +40,7 @@ func notes(rep Report) string { return strings.Join(rep.Notes, "\n") }
 // committed updated clears it; an uncommitted spec edit is not stale; a
 // commit to trail.jsonl or a *.md file alone is not counted.
 func TestSpecRuleStaleness(t *testing.T) {
+	t.Parallel()
 	body := "Code: `internal/a` and `README.md`, `internal/a/a.go:1`."
 	dir := repo(t, map[string]string{
 		"README.md":           "x\n",
@@ -74,6 +75,7 @@ func TestSpecRuleStaleness(t *testing.T) {
 // A commit carrying both the code and the spec's update is not counted:
 // that is the Definition of Done's normal case.
 func TestSpecRuleSameCommit(t *testing.T) {
+	t.Parallel()
 	dir := repo(t, map[string]string{
 		"internal/a/a.go":     "package a\n",
 		".agents/trail.jsonl": specTrail(t, "SPEC-a", "2026-10-25T10:00:00Z", "`internal/a/a.go`"),
@@ -88,6 +90,7 @@ func TestSpecRuleSameCommit(t *testing.T) {
 // A spec naming only *.md files, .agents/trail.jsonl, a missing path and an
 // ignored one is unlinked; a retired spec is not read.
 func TestSpecRuleUnlinked(t *testing.T) {
+	t.Parallel()
 	dir := repo(t, map[string]string{
 		".gitignore":          ".agents/scratch/\n",
 		"AGENTS.md":           "x\n",
@@ -104,6 +107,7 @@ func TestSpecRuleUnlinked(t *testing.T) {
 // A shallow clone and a partial clone skip rule (b) with a note, and give
 // no finding, though the spec's code moved on.
 func TestSpecRuleSkipsAnIncompleteHistory(t *testing.T) {
+	t.Parallel()
 	src := repo(t, map[string]string{
 		"internal/a.go":       "package a\n",
 		".agents/trail.jsonl": specTrail(t, "SPEC-a", "2026-10-25T10:00:00Z", "`internal/a.go`"),
@@ -133,6 +137,7 @@ func TestSpecRuleSkipsAnIncompleteHistory(t *testing.T) {
 // The spec's commit is the oldest that adds its current line: a later
 // commit that only moves the line in trail.jsonl does not reset the count.
 func TestSpecRuleOldestCommit(t *testing.T) {
+	t.Parallel()
 	spec := specTrail(t, "SPEC-a", "2026-10-25T10:00:00Z", "`internal/a.go`")
 	others := trailLine(t, "GUIDE-1", "guide", "current", "x") + trailLine(t, "GUIDE-2", "guide", "current", "y") + trailLine(t, "GUIDE-3", "guide", "current", "z")
 	dir := repo(t, map[string]string{"internal/a.go": "package a\n", ".agents/trail.jsonl": spec + others})

@@ -39,6 +39,7 @@ func fsHarness() map[string]string {
 }
 
 func TestPlanFromFSSource(t *testing.T) {
+	t.Parallel()
 	files, err := Plan(mapSource(fsHarness()), nil)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
@@ -89,6 +90,7 @@ func TestPlanFromFSSource(t *testing.T) {
 // Every refusal a checkout install makes, an install from an FS source makes
 // too, naming the file by its path inside the source.
 func TestFSSourceRefusals(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		change map[string]string // "" deletes the file
@@ -130,6 +132,7 @@ func TestFSSourceRefusals(t *testing.T) {
 // A directory named SKILL.md is not a regular file, from an FS source as from
 // a checkout.
 func TestFSSourceSkillMdMustBeRegular(t *testing.T) {
+	t.Parallel()
 	m := fstest.MapFS{}
 	for name, body := range fsHarness() {
 		m[name] = &fstest.MapFile{Data: []byte(body), Mode: 0o444}
@@ -145,6 +148,7 @@ func TestFSSourceSkillMdMustBeRegular(t *testing.T) {
 // DirSource reads the tree through os.DirFS and keeps the path for the link
 // checks, so the embedded and on-disk readers are one code path.
 func TestDirSourceReadsTheSameAsFS(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	for name, body := range fsHarness() {
 		writeFile(t, filepath.Join(repo, filepath.FromSlash(name)), body)
@@ -175,6 +179,7 @@ func TestDirSourceReadsTheSameAsFS(t *testing.T) {
 // DirSource follows it to the skill's files, as the path-based reader did by
 // resolving it; a link that points nowhere is refused, never skipped.
 func TestDirSourceFollowsLinkedSkillDir(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	for name, body := range fsHarness() {
 		writeFile(t, filepath.Join(repo, filepath.FromSlash(name)), body)
@@ -210,6 +215,7 @@ func TestDirSourceFollowsLinkedSkillDir(t *testing.T) {
 // An install from the embedded files records the release, not a path, with
 // no commit — no git command runs for it (D17).
 func TestEmbeddedInstallState(t *testing.T) {
+	t.Parallel()
 	src := mapSource(fsHarness())
 	src.Version = "v1.2.3"
 	home := t.TempDir()

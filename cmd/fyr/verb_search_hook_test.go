@@ -197,6 +197,7 @@ func TestPreInvocationProgressiveMemory(t *testing.T) {
 }
 
 func TestExtractSkillDescription(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		raw  string

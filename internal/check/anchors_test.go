@@ -6,6 +6,7 @@ import (
 )
 
 func TestAnchorLinksMustPassAndFail(t *testing.T) {
+	t.Parallel()
 	readme := strings.Join([]string{
 		"# Top Title",
 		"",
@@ -50,6 +51,7 @@ func TestAnchorLinksMustPassAndFail(t *testing.T) {
 }
 
 func TestSectionRefsC50AndMatching(t *testing.T) {
+	t.Parallel()
 	rootAgents := strings.Join([]string{
 		"# AGENTS.md — root",
 		"",
@@ -133,6 +135,7 @@ func TestSectionRefsC50AndMatching(t *testing.T) {
 }
 
 func TestAnchorBoundaryRejectsT1MatchingT10(t *testing.T) {
+	t.Parallel()
 	dir := repo(t, map[string]string{
 		"TDD.md":    "# TDD\n\n## T10 — Tenth\n",
 		"README.md": "Bad ref: `TDD.md § T1`.\n",

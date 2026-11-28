@@ -47,6 +47,7 @@ func TestStateRealHomeGuardRefusesWithoutHome(t *testing.T) {
 }
 
 func TestStateUsageErrorsExit2(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	for name, args := range map[string][]string{
 		"bare state":          {"state", "--home", home},
@@ -131,6 +132,7 @@ func TestStateCLIRoundTripMemoryOptInDryRunIdempotentAndOperatorProvenance(t *te
 }
 
 func TestStateCLIRejectsCorruptZipSlipAndFutureSchema(t *testing.T) {
+	t.Parallel()
 	writeZip := func(entries map[string][]byte, symlink bool) string {
 		p := filepath.Join(t.TempDir(), "bad.zip")
 		var buf bytes.Buffer

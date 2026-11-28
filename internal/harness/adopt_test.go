@@ -9,6 +9,7 @@ import (
 )
 
 func TestAdopt(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home := t.TempDir()
 	src := filepath.Join(home, ".agents", "skills", "gamma")
@@ -127,6 +128,7 @@ func TestAdoptRefusesDestructiveSources(t *testing.T) {
 // with neither the old skill nor the new one. The copy is staged and renamed
 // into place, so a refusal mid-walk changes nothing.
 func TestAdoptFailedCopyKeepsTheExistingSkill(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home := t.TempDir()
 
@@ -253,6 +255,7 @@ func assertSkillsClean(t *testing.T, repo, when string) {
 // credential on the way out, but adopt copies into skills/, where it would
 // be committed and pushed before any consumer's install ever refused it.
 func TestAdoptRefusesSecretShapedFiles(t *testing.T) {
+	t.Parallel()
 	repo := newRepo(t)
 	home := t.TempDir()
 	src := filepath.Join(t.TempDir(), "widget")

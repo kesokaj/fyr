@@ -12,6 +12,7 @@ import (
 // a subverb does not hide the subverb; an unknown subverb is the one
 // finding, its flags not checked.
 func TestVerbFindingsFlagForms(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ text, want string }{
 		{"fyr --home=/tmp/h nope", "`fyr nope`: fyr has no verb nope"},
 		{"fyr --repo=. --home=x nope", "`fyr nope`: fyr has no verb nope"},
