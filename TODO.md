@@ -7,9 +7,14 @@
 
 ## Now
 
+- `PLAN-2026-11-28-conversations-retention` (`ADR-538`) — Workstream 2: Automatic Antigravity Conversation Retention (`fyr conversations`)
+  - [x] Phase 0: Live spike (Path A confirmed, `ConversationService` wire shapes confirmed), `ADR-538`, `SPEC-fyr-conversations`, `PRD.md` R0/R3/R4 amendment
+  - [ ] Wave 1 (Phase 1 + Phase 2): `internal/conversations/**` core engine & read-only store adapters (`internal/{metrics,search,dream,auto}/retention_read.go`)
+  - [ ] Wave 2 (Phase 3): `cmd/fyr/verb_conversations.go`, `SessionStart` hook Path A/B integration, `fyr status` `convs` line, `verb.go`, `docs/cli-reference.md`
+  - [ ] Wave 3 (Phase 4): `SDD.md`/`TDD.md`/`features/`/`areas.md`/`fyr-handoff`, full `fyr-dev verify` + `golangci-lint`, independent `reviewer` + `security`, close plan
+
 ## Next
 
-- Workstream 2 — Automatic Antigravity Conversation Retention (`fyr conversations`, `ADR-538`)
 - Release Preflight — `/fyr-preflight v9.14.0` once Workstream 2 verifies green (followed by read-only `fyr conversations prune --dry-run` preview after install)
 
 ## Backlog
