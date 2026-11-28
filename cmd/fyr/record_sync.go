@@ -9,7 +9,7 @@ import (
 
 // recordExport serves `record export`: writes the project's exported-kind
 // records from brain.db to .agents/trail.jsonl on demand.
-func recordExport(c *ctx, o brain.Options) error {
+func recordExport(c *runtimeCtx, o brain.Options) error {
 	n, err := brain.Export(o)
 	if err == nil {
 		fmt.Fprintf(c.out, "export: %d records written to .agents/trail.jsonl\n", n)
@@ -19,7 +19,7 @@ func recordExport(c *ctx, o brain.Options) error {
 
 // recordSync serves `record sync`: loads .agents/trail.jsonl into brain.db and
 // its FTS5 index on demand.
-func recordSync(c *ctx, o brain.Options) error {
+func recordSync(c *runtimeCtx, o brain.Options) error {
 	priorCount := 0
 	if !o.Global {
 		if prior, ok, rerr := brain.ReadScope(o.Home, o.Dir); rerr == nil && ok {
@@ -39,21 +39,22 @@ func recordSync(c *ctx, o brain.Options) error {
 
 // recordImport serves `record import`: the project's trail, or with
 // --global the home's old logs.
-func recordImport(c *ctx, o brain.Options, rest []string) error {
+func recordImport(c *runtimeCtx, o brain.Options, rest []string) error {
+	opts := recordOptsOf(c)
 	var res *brain.ImportResult
 	var err error
-	if c.global {
-		res, err = brain.ImportGlobal(o, c.dryRun)
+	if opts.global {
+		res, err = brain.ImportGlobal(o, opts.dryRun)
 	} else {
 		docs := ""
 		if len(rest) == 1 {
 			docs = rest[0]
 		}
-		res, err = brain.Import(o, docs, c.dryRun)
+		res, err = brain.Import(o, docs, opts.dryRun)
 	}
 	if err == nil {
 		printImport(c, res)
-		warnImportRedactable(res, c.dryRun)
+		warnImportRedactable(res, opts.dryRun)
 	}
 	return recordErr(c, err)
 }
@@ -62,9 +63,9 @@ func recordImport(c *ctx, o brain.Options, rest []string) error {
 // name afterwards (D13): the import itself removes nothing. Each path is one
 // shell word (brain.ShellQuote), and git is told to read them literally: a
 // tracked name can hold a glob or start with a dash.
-func printImport(c *ctx, res *brain.ImportResult) {
+func printImport(c *runtimeCtx, res *brain.ImportResult) {
 	p := func(format string, a ...any) { fmt.Fprintln(c.out, search.Printable(fmt.Sprintf(format, a...))) }
-	if c.dryRun {
+	if recordOptsOf(c).dryRun {
 		// A dry run opens no store, so it cannot say what the store holds:
 		// its records are what the sources hold (PLAN.md item 58).
 		p("import (dry run: nothing written, the store not read): %s; %d records in the sources, %d dropped (git history keeps them)", brain.ImportSummary(res), len(res.Records), res.Dropped)

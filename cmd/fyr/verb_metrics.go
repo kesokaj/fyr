@@ -13,10 +13,53 @@ import (
 	"github.com/kesokaj/fyr/internal/metrics"
 )
 
+// metricsOpts holds parsed flags for `fyr metrics`, embedding reportOpts so
+// report-shared flags register once via registerReportFlags.
+type metricsOpts struct {
+	reportOpts
+	source, outcome, harness string
+	jsonIn                   bool
+	limit                    int
+}
+
+func metricsOptsOf(c *runtimeCtx) *metricsOpts {
+	if o, ok := c.opts.(*metricsOpts); ok {
+		return o
+	}
+	return &metricsOpts{}
+}
+
+func metricsVerb() verb {
+	return verb{
+		flags:       registerMetricsFlags,
+		afterParse:  validateMetricsProjectFlag,
+		writesState: metricsWritesState,
+		positional:  true,
+		run:         runMetrics,
+	}
+}
+
+func registerMetricsFlags(c *runtimeCtx) {
+	o := &metricsOpts{}
+	c.opts = o
+	c.fs.StringVar(&o.source, "source", "", "ingest: the sandbox home `DIR` to read instead of this one")
+	c.fs.StringVar(&o.outcome, "outcome", "", "ingest: the --source run's acceptance result, `pass|fail|error`")
+	registerReportFlags(c.fs, &o.reportOpts, true)
+	c.fs.BoolVar(&o.jsonOut, "json", false, "show, report, evals, trajectory, record-run: print JSON (report: stdout unless --out)")
+	c.fs.BoolVar(&o.jsonIn, "json-in", false, "record-run: read JSON payload from stdin")
+	c.fs.StringVar(&o.harness, "harness", "", "evals: only the trials of the harness key `KEY`, exactly")
+	c.fs.IntVar(&o.limit, "limit", 0, "trajectory: print at most `N` main sessions (default 10)")
+}
+
+func metricsWritesState(c *runtimeCtx) bool {
+	sub := c.fs.Arg(0)
+	return sub == "ingest" || sub == "record-run" || (sub == "report" && reportWritesState(c))
+}
+
 // metricsSummary is what show reads: the show options (a usage error exits
 // 2 with its reason on the writer), the existing store, opened and closed
 // here, and its summary.
-func (c *ctx) metricsSummary(sub string) (*metrics.Summary, error) {
+func (c *runtimeCtx) metricsSummary(sub string) (*metrics.Summary, error) {
 	o, err := c.metricsShowOptions()
 	if err != nil {
 		return nil, usageErr(c.out, "metrics", "fyr metrics "+sub+": "+err.Error())
@@ -36,7 +79,7 @@ func (c *ctx) metricsSummary(sub string) (*metrics.Summary, error) {
 // it against the switch (plan fyr-check D14).
 var metricsSubverbs = []string{"ingest", "show", "report", "evals", "trajectory", "export", "record-run"}
 
-func runMetrics(c *ctx) error {
+func runMetrics(c *runtimeCtx) error {
 	args := c.fs.Args()
 	if len(args) == 0 {
 		return usageErr(c.out, "metrics", "")
@@ -63,14 +106,15 @@ func runMetrics(c *ctx) error {
 
 // metricsIngest serves `metrics ingest`: a failed source is exit 1 after
 // the summary line.
-func (c *ctx) metricsIngest(args []string) error {
+func (c *runtimeCtx) metricsIngest(args []string) error {
 	if bad := c.metricsFlagsOutside("source", "label", "outcome"); bad != "" {
 		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics ingest: --%s belongs to show, report or evals", bad))
 	}
 	if len(args) > 0 {
 		return usageErr(c.out, "metrics", fmt.Sprintf("metrics ingest takes no arguments: %q", args))
 	}
-	o := metrics.Options{Home: c.home, Source: c.metricsSource, Label: c.metricsLabel, Outcome: c.metricsOutcome}
+	mo := metricsOptsOf(c)
+	o := metrics.Options{Home: c.home, Source: mo.source, Label: mo.label, Outcome: mo.outcome}
 	if err := o.Validate(); err != nil {
 		return usageErr(c.out, "metrics", "fyr metrics ingest: "+err.Error())
 	}
@@ -111,7 +155,7 @@ func ingestTo(home string, w io.Writer) error {
 }
 
 // metricsShow serves `metrics show`, as text or --json.
-func (c *ctx) metricsShow(args []string) error {
+func (c *runtimeCtx) metricsShow(args []string) error {
 	if bad := c.metricsFlagsOutside("since", "since-tag", "until", "project", "label", "all-labels", "context-target", "include-sandboxes", "json"); bad != "" {
 		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics show: --%s does not apply to show", bad))
 	}
@@ -122,7 +166,7 @@ func (c *ctx) metricsShow(args []string) error {
 	if err != nil {
 		return err
 	}
-	if c.metricsJSON {
+	if metricsOptsOf(c).jsonOut {
 		return sum.WriteJSON(c.out)
 	}
 	sum.WriteText(c.out)
@@ -130,7 +174,7 @@ func (c *ctx) metricsShow(args []string) error {
 }
 
 // metricsReport serves `metrics report`: HTML, --md, --json, --daily-digest, or --web.
-func (c *ctx) metricsReport(args []string) error {
+func (c *runtimeCtx) metricsReport(args []string) error {
 	if bad := c.metricsFlagsOutside("since", "since-tag", "until", "project", "global", "md", "json", "daily-digest", "web", "listen", "include-sandboxes", "label", "all-labels", "context-target", "out", "no-ingest"); bad != "" {
 		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics report: --%s does not apply to report", bad))
 	}
@@ -142,14 +186,15 @@ func (c *ctx) metricsReport(args []string) error {
 
 // metricsTrajectory serves `metrics trajectory`: per-session token trajectory,
 // subagent hierarchy, and context/tool anomalies, as text or --json (D6).
-func (c *ctx) metricsTrajectory(args []string) error {
+func (c *runtimeCtx) metricsTrajectory(args []string) error {
 	if bad := c.metricsFlagsOutside("project", "limit", "json"); bad != "" {
 		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics trajectory: --%s does not apply to trajectory", bad))
 	}
 	if len(args) > 1 {
 		return usageErr(c.out, "metrics", fmt.Sprintf("metrics trajectory takes at most one session id: %q", args))
 	}
-	if c.limit < 0 {
+	mo := metricsOptsOf(c)
+	if mo.limit < 0 {
 		return usageErr(c.out, "metrics", "fyr metrics trajectory: --limit must be >= 0")
 	}
 	proj, err := c.trajectoryProject()
@@ -166,22 +211,22 @@ func (c *ctx) metricsTrajectory(args []string) error {
 		sid = args[0]
 	}
 	list, err := s.Trajectories(metrics.TrajectoryOptions{
-		Project: proj, SessionID: sid, Limit: c.limit,
+		Project: proj, SessionID: sid, Limit: mo.limit,
 	})
 	if err != nil {
 		fmt.Fprintln(c.out, "fyr metrics trajectory: "+err.Error())
 		return exitCode(1)
 	}
-	if c.metricsJSON {
+	if mo.jsonOut {
 		return metrics.WriteTrajectoriesJSON(c.out, list)
 	}
 	metrics.WriteTrajectoriesText(c.out, list)
 	return nil
 }
 
-func (c *ctx) trajectoryProject() (string, error) {
-	if c.metricsProject != "" {
-		return filepath.Abs(c.metricsProject)
+func (c *runtimeCtx) trajectoryProject() (string, error) {
+	if proj := reportOptsOf(c).project; proj != "" {
+		return filepath.Abs(proj)
 	}
 	if c.dirFlag != "" {
 		return c.projectDir()
@@ -190,7 +235,7 @@ func (c *ctx) trajectoryProject() (string, error) {
 }
 
 // metricsExport serves `metrics export FILE`.
-func (c *ctx) metricsExport(args []string) error {
+func (c *runtimeCtx) metricsExport(args []string) error {
 	if bad := c.metricsFlagsOutside(); bad != "" {
 		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics export: --%s does not apply to export", bad))
 	}
@@ -212,7 +257,7 @@ func (c *ctx) metricsExport(args []string) error {
 // metricsFlagsOutside names the first metrics flag set on the command line
 // that is not in allowed, or "": a flag a subcommand does not read is a
 // usage error, never ignored.
-func (c *ctx) metricsFlagsOutside(allowed ...string) string {
+func (c *runtimeCtx) metricsFlagsOutside(allowed ...string) string {
 	ok := make(map[string]bool, len(allowed))
 	for _, a := range allowed {
 		ok[a] = true
@@ -229,7 +274,7 @@ func (c *ctx) metricsFlagsOutside(allowed ...string) string {
 // existingMetricsStore opens the store for show, report and export, which
 // read it: a home that never ingested has none, and creating an empty one
 // would print zeros that read as "no sessions" (exit 1 instead).
-func (c *ctx) existingMetricsStore() (*metrics.Store, error) {
+func (c *runtimeCtx) existingMetricsStore() (*metrics.Store, error) {
 	path := metrics.Path(c.home)
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 		fmt.Fprintf(c.out, "fyr metrics: no metrics store at %s; run `fyr metrics ingest` first\n", path)
@@ -240,22 +285,23 @@ func (c *ctx) existingMetricsStore() (*metrics.Store, error) {
 
 // metricsShowOptions reads show's filters; --label and --all-labels exclude
 // each other, and --project is made absolute as the store records roots.
-func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
+func (c *runtimeCtx) metricsShowOptions() (metrics.ShowOptions, error) {
+	ro := reportOptsOf(c)
 	var o metrics.ShowOptions
-	if c.metricsProject != "" && c.global {
+	if ro.project != "" && ro.global {
 		return o, errors.New("--project and --global exclude each other")
 	}
-	if err := validateShowLabelFlags(c.metricsLabel, c.metricsAllLabels); err != nil {
+	if err := validateShowLabelFlags(ro.label, ro.allLabels); err != nil {
 		return o, err
 	}
 	if err := c.validateReportAndShowFlags(); err != nil {
 		return o, err
 	}
 	o.Home = c.home
-	o.ContextTarget = c.metricsContextTarget
-	o.Label, o.AllLabels = c.metricsLabel, c.metricsAllLabels
-	o.IncludeSandboxes = c.metricsIncludeSandboxes
-	if c.metricsProject != "" {
+	o.ContextTarget = ro.contextTarget
+	o.Label, o.AllLabels = ro.label, ro.allLabels
+	o.IncludeSandboxes = ro.includeSandboxes
+	if ro.project != "" {
 		proj, err := c.resolveMetricsProject()
 		if err != nil {
 			return o, err
@@ -268,52 +314,73 @@ func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
 	return o, nil
 }
 
-func (c *ctx) validateReportAndShowFlags() error {
-	if c.metricsSource != "" || c.metricsOutcome != "" {
-		return errors.New("--source and --outcome belong to ingest")
+func (c *runtimeCtx) validateReportAndShowFlags() error {
+	if err := c.validateMetricsOnlySubverbFlags(); err != nil {
+		return err
 	}
-	if c.metricsHarness != "" {
-		return errors.New("--harness belongs to evals")
-	}
-	if c.limit != 0 {
-		return errors.New("--limit belongs to trajectory")
-	}
-	var ctxGiven, listenGiven, outGiven bool
-	c.fs.Visit(func(f *flag.Flag) {
-		ctxGiven = ctxGiven || f.Name == "context-target"
-		listenGiven = listenGiven || f.Name == "listen"
-		outGiven = outGiven || f.Name == "out"
-	})
+	ro := reportOptsOf(c)
+	ctxGiven, listenGiven, outGiven := c.visitedReportFlags()
 	isReport := c.cmd == "report" || c.fs.Arg(0) == "report"
-	if (c.metricsOut != "" || outGiven) && !isReport {
+	if (ro.out != "" || outGiven) && !isReport {
 		return errors.New("--out belongs to report")
 	}
-	if (c.global || c.metricsMD || c.metricsWeb || c.metricsDailyDigest || c.noIngest || listenGiven || c.metricsListen != "") && !isReport {
+	if ro.hasReportOnlyFlag(listenGiven) && !isReport {
 		return errors.New("--global, --md, --web, --listen, --daily-digest and --no-ingest belong to report")
 	}
-	if ctxGiven && c.metricsContextTarget <= 0 {
+	if ctxGiven && ro.contextTarget <= 0 {
 		return errors.New("--context-target takes a token count above 0")
 	}
 	return c.validateReportModeExclusions(listenGiven, outGiven)
 }
 
-func (c *ctx) validateReportModeExclusions(listenGiven, outGiven bool) error {
-	if c.metricsDailyDigest && (c.metricsWeb || c.metricsMD || outGiven || c.metricsOut != "" || listenGiven || c.metricsListen != "") {
+func (c *runtimeCtx) validateMetricsOnlySubverbFlags() error {
+	mo, ok := c.opts.(*metricsOpts)
+	if !ok {
+		return nil
+	}
+	if mo.source != "" || mo.outcome != "" {
+		return errors.New("--source and --outcome belong to ingest")
+	}
+	if mo.harness != "" {
+		return errors.New("--harness belongs to evals")
+	}
+	if mo.limit != 0 {
+		return errors.New("--limit belongs to trajectory")
+	}
+	return nil
+}
+
+func (c *runtimeCtx) visitedReportFlags() (ctxGiven, listenGiven, outGiven bool) {
+	c.fs.Visit(func(f *flag.Flag) {
+		ctxGiven = ctxGiven || f.Name == "context-target"
+		listenGiven = listenGiven || f.Name == "listen"
+		outGiven = outGiven || f.Name == "out"
+	})
+	return ctxGiven, listenGiven, outGiven
+}
+
+func (ro *reportOpts) hasReportOnlyFlag(listenGiven bool) bool {
+	return ro.global || ro.md || ro.web || ro.dailyDigest || ro.noIngest || listenGiven || ro.listen != ""
+}
+
+func (c *runtimeCtx) validateReportModeExclusions(listenGiven, outGiven bool) error {
+	ro := reportOptsOf(c)
+	if ro.dailyDigest && (ro.web || ro.md || outGiven || ro.out != "" || listenGiven || ro.listen != "") {
 		return errors.New("--daily-digest cannot be combined with --web, --md or --out")
 	}
-	if (listenGiven || c.metricsListen != "") && !c.metricsWeb {
+	if (listenGiven || ro.listen != "") && !ro.web {
 		return errors.New("--listen requires --web")
 	}
-	if listenGiven && strings.TrimSpace(c.metricsListen) == "" {
+	if listenGiven && strings.TrimSpace(ro.listen) == "" {
 		return errors.New("--listen takes an address HOST:PORT")
 	}
-	if c.metricsWeb && (outGiven || c.metricsOut != "" || c.metricsMD || c.metricsJSON) {
+	if ro.web && (outGiven || ro.out != "" || ro.md || ro.jsonOut) {
 		return errors.New("--web cannot be combined with --out, --md or --json")
 	}
-	if c.metricsMD && c.metricsJSON {
+	if ro.md && ro.jsonOut {
 		return errors.New("--md and --json exclude each other")
 	}
-	if outGiven && strings.TrimSpace(c.metricsOut) == "" {
+	if outGiven && strings.TrimSpace(ro.out) == "" {
 		return errors.New("--out needs a file: --out <file>")
 	}
 	return nil
@@ -334,15 +401,16 @@ func validateShowLabelFlags(label string, allLabels bool) error {
 
 // metricsWindow reads --since and --until: zero for either not given, and
 // --until exclusive, so --since A --until B and --since B never overlap.
-func (c *ctx) metricsWindow() (since, until time.Time, err error) {
-	if c.metricsSince != "" {
-		if since, err = time.Parse("2006-01-02", c.metricsSince); err != nil {
-			return since, until, fmt.Errorf("--since %q: want YYYY-MM-DD", c.metricsSince)
+func (c *runtimeCtx) metricsWindow() (since, until time.Time, err error) {
+	ro := reportOptsOf(c)
+	if ro.since != "" {
+		if since, err = time.Parse("2006-01-02", ro.since); err != nil {
+			return since, until, fmt.Errorf("--since %q: want YYYY-MM-DD", ro.since)
 		}
 	}
-	if c.metricsUntil != "" {
-		if until, err = time.Parse("2006-01-02", c.metricsUntil); err != nil {
-			return since, until, fmt.Errorf("--until %q: want YYYY-MM-DD", c.metricsUntil)
+	if ro.until != "" {
+		if until, err = time.Parse("2006-01-02", ro.until); err != nil {
+			return since, until, fmt.Errorf("--until %q: want YYYY-MM-DD", ro.until)
 		}
 		if !since.IsZero() && !until.After(since) {
 			return since, until, errors.New("--until must be after --since")

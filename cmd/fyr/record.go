@@ -13,6 +13,54 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
+// recordOpts holds parsed flags for `fyr record`.
+type recordOpts struct {
+	title, titleFile, bodyFile, out, status, id, project, kind string
+	global, body, jsonIn, jsonOut, open, all, dryRun           bool
+	limit                                                      int
+}
+
+func recordOptsOf(c *runtimeCtx) *recordOpts {
+	if o, ok := c.opts.(*recordOpts); ok {
+		return o
+	}
+	return &recordOpts{}
+}
+
+func recordVerb() verb {
+	return verb{
+		flags: registerRecordFlags,
+		writesState: func(c *runtimeCtx) bool {
+			// Every record verb except import --dry-run opens brain.db (creating
+			// or migrating it; reads do not auto-load trail.jsonl, ADR-091).
+			return !recordOptsOf(c).dryRun
+		},
+		positional: true,
+		run:        runRecord,
+	}
+}
+
+func registerRecordFlags(c *runtimeCtx) {
+	o := &recordOpts{}
+	c.opts = o
+	c.fs.StringVar(&o.title, "title", "", "add, edit: the record's one-line title, `T`")
+	c.fs.StringVar(&o.titleFile, "title-file", "", "add: read the title from `FILE`, one line, instead of --title")
+	c.fs.StringVar(&o.bodyFile, "body-file", "", "add, edit: read the body from `FILE` instead of stdin")
+	c.fs.StringVar(&o.out, "out", "", "get: write the record's body to `FILE` under .agents/scratch/")
+	c.fs.StringVar(&o.status, "status", "", "add, edit: the status `S`; each kind takes its own, and a status it does not take is refused with the kind's list")
+	c.fs.StringVar(&o.id, "id", "", "add: the `ID` to use instead of the next one")
+	c.fs.StringVar(&o.project, "project", "", "add, list with --global: the project `ROOT` a global record is about")
+	c.fs.BoolVar(&o.global, "global", false, "the global scope instead of this project's")
+	c.fs.BoolVar(&o.body, "body", false, "edit: read the new body on stdin")
+	c.fs.BoolVar(&o.jsonIn, "json-in", false, "add, edit: read JSON payload from stdin")
+	c.fs.BoolVar(&o.jsonOut, "json", false, "get, list: print records as JSON")
+	c.fs.StringVar(&o.kind, "kind", "", "list: only records of kind `K`")
+	c.fs.IntVar(&o.limit, "limit", 0, "list: print at most `N` records")
+	c.fs.BoolVar(&o.open, "open", false, "list: only open records (open plans and bugs, current specs, deploy docs and guides, queued proposals)")
+	c.fs.BoolVar(&o.all, "all", false, "list: every scope, each line ending in its scope")
+	c.fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change, change nothing")
+}
+
 // recordFlags is the flags each record subverb takes, besides --home and
 // --repo: one it does not take is a usage error, never parsed and ignored
 // (IN5's rule, per subverb).
@@ -29,7 +77,7 @@ var recordFlags = map[string]map[string]bool{
 // runRecord serves `record add|get|edit|list|export|sync|import` (spec
 // the record SPEC-fyr-record); it needs no harness tree. Exit 0 with
 // or without output, 1 a refusal, 2 a usage error, the reason on the writer.
-func runRecord(c *ctx) error {
+func runRecord(c *runtimeCtx) error {
 	var sub string
 	rest := c.fs.Args()
 	if len(rest) > 0 {
@@ -47,10 +95,10 @@ func runRecord(c *ctx) error {
 	if err != nil {
 		return err
 	}
-	return dispatchRecord(c, brain.Options{Home: c.home, Dir: wd, Repo: c.repoFlag, Global: c.global}, sub, rest, set)
+	return dispatchRecord(c, brain.Options{Home: c.home, Dir: wd, Repo: c.repoFlag, Global: recordOptsOf(c).global}, sub, rest, set)
 }
 
-func dispatchRecord(c *ctx, o brain.Options, sub string, rest []string, set map[string]bool) error {
+func dispatchRecord(c *runtimeCtx, o brain.Options, sub string, rest []string, set map[string]bool) error {
 	switch sub {
 	case "add":
 		if len(rest) == 1 {
@@ -77,7 +125,7 @@ func dispatchRecord(c *ctx, o brain.Options, sub string, rest []string, set map[
 			return recordSync(c, o)
 		}
 	case "import":
-		if len(rest) <= 1 && (!c.global || len(rest) == 0) {
+		if len(rest) <= 1 && (!recordOptsOf(c).global || len(rest) == 0) {
 			return recordImport(c, o, rest)
 		}
 	}
@@ -95,7 +143,7 @@ func unknownRecordSub(sub string) string {
 
 // recordFlagsSet returns the flags set on the command line; a flag sub does
 // not take is a usage error, said on the writer.
-func recordFlagsSet(c *ctx, sub string, takes map[string]bool) (map[string]bool, error) {
+func recordFlagsSet(c *runtimeCtx, sub string, takes map[string]bool) (map[string]bool, error) {
 	set := map[string]bool{}
 	var stray []string
 	c.fs.Visit(func(f *flag.Flag) {
@@ -112,19 +160,20 @@ func recordFlagsSet(c *ctx, sub string, takes map[string]bool) (map[string]bool,
 }
 
 // recordList serves `record list`: one line per record, or JSON with --json.
-func recordList(c *ctx, o brain.Options, set map[string]bool) error {
-	if set["limit"] && c.limit < 1 {
+func recordList(c *runtimeCtx, o brain.Options, set map[string]bool) error {
+	opts := recordOptsOf(c)
+	if set["limit"] && opts.limit < 1 {
 		return usageErr(c.out, "record", "fyr record list: --limit must be at least 1")
 	}
-	recs, err := brain.List(o, brain.ListFilter{Kind: c.kind, Open: c.openRecords, Project: c.recProject, All: c.recAll})
+	recs, err := brain.List(o, brain.ListFilter{Kind: opts.kind, Open: opts.open, Project: opts.project, All: opts.all})
 	if err != nil {
 		return recordErr(c, err)
 	}
 	sortRecordList(recs)
-	if c.limit > 0 && len(recs) > c.limit {
-		recs = recs[:c.limit]
+	if opts.limit > 0 && len(recs) > opts.limit {
+		recs = recs[:opts.limit]
 	}
-	if c.jsonOut {
+	if opts.jsonOut {
 		js, jerr := brain.FormatRecordsJSON(recs, false)
 		if jerr != nil {
 			return recordErrTo(stderr, jerr)
@@ -133,7 +182,7 @@ func recordList(c *ctx, o brain.Options, set map[string]bool) error {
 		return nil
 	}
 	for _, r := range recs {
-		fmt.Fprintln(c.out, formatRecordListLine(r, c.recAll))
+		fmt.Fprintln(c.out, formatRecordListLine(r, opts.all))
 	}
 	return nil
 }
@@ -196,15 +245,16 @@ func formatRecordListLine(r brain.Record, showScope bool) string {
 // recordGet serves `record get`: each record found, a blank line between,
 // then the refusal naming any missing; with --out writes one record's
 // body under .agents/scratch/; or with --json prints a JSON array.
-func recordGet(c *ctx, o brain.Options, ids []string, set map[string]bool) error {
-	if set["out"] && c.jsonOut {
+func recordGet(c *runtimeCtx, o brain.Options, ids []string, set map[string]bool) error {
+	opts := recordOptsOf(c)
+	if set["out"] && opts.jsonOut {
 		return usageErr(c.out, "record", "fyr record get takes --out or --json, not both")
 	}
 	if set["out"] {
 		if len(ids) != 1 {
 			return usageErr(c.out, "record", "fyr record get --out takes one id")
 		}
-		if _, _, err := brain.CheckScratchOut(o.Dir, c.recOut); err != nil {
+		if _, _, err := brain.CheckScratchOut(o.Dir, opts.out); err != nil {
 			return recordErr(c, err)
 		}
 	}
@@ -213,9 +263,9 @@ func recordGet(c *ctx, o brain.Options, ids []string, set map[string]bool) error
 		if err != nil {
 			return recordErr(c, err)
 		}
-		return recordErr(c, brain.WriteScratch(o.Dir, c.recOut, recs[0].Body))
+		return recordErr(c, brain.WriteScratch(o.Dir, opts.out, recs[0].Body))
 	}
-	if c.jsonOut {
+	if opts.jsonOut {
 		if len(recs) > 0 || err == nil {
 			js, jerr := brain.FormatRecordsJSON(recs, true)
 			if jerr != nil {
@@ -236,7 +286,7 @@ func recordGet(c *ctx, o brain.Options, ids []string, set map[string]bool) error
 
 // recordErr prints a refusal (exit 1) or a usage error (exit 2) on the
 // writer, through printable: the message can quote a record's own text.
-func recordErr(c *ctx, err error) error {
+func recordErr(c *runtimeCtx, err error) error {
 	return recordErrTo(c.out, err)
 }
 

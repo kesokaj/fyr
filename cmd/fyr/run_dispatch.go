@@ -44,7 +44,7 @@ func run(args []string, out io.Writer) error {
 	return c.execute(v, rest)
 }
 
-func (c *ctx) execute(v verb, rest []string) error {
+func (c *runtimeCtx) execute(v verb, rest []string) error {
 	if stop, err := c.parse(v, rest); stop {
 		return err
 	}
@@ -72,7 +72,7 @@ func (c *ctx) execute(v verb, rest []string) error {
 // resolveSource sets c.src for a verb that reads the harness; done says the
 // verb ends here, with err as its result: the source did not resolve, or a
 // zip place answered without one (BUG-203).
-func (c *ctx) resolveSource() (done bool, err error) {
+func (c *runtimeCtx) resolveSource() (done bool, err error) {
 	src, err := harness.ResolveSource(c.repoFlag, c.home, buildVersion())
 	if err != nil {
 		if handled, zerr := c.zipPlaceWithoutSource(); handled {
@@ -86,7 +86,7 @@ func (c *ctx) resolveSource() (done bool, err error) {
 
 // parse parses the verb's flags and arguments; stop says run ends here, with
 // err as its result.
-func (c *ctx) parse(v verb, rest []string) (stop bool, err error) {
+func (c *runtimeCtx) parse(v verb, rest []string) (stop bool, err error) {
 	if c.cmd == "auto" && hasAutoSIMSubcommand(rest) {
 		return c.parseAutoSIMArgs(rest)
 	}
@@ -105,13 +105,8 @@ func (c *ctx) parse(v verb, rest []string) (stop bool, err error) {
 		// --from-zip x` would otherwise run the verb as if nothing had been said.
 		return true, usageErr(c.out, c.cmd, fmt.Sprintf("%s takes no arguments: %q", c.cmd, c.fs.Args()))
 	}
-	if c.cmd == "metrics" || c.cmd == "report" {
-		projectVisited := false
-		c.fs.Visit(func(f *flag.Flag) { projectVisited = projectVisited || f.Name == "project" })
-		if projectVisited && (c.metricsProject == "" || c.metricsProject == missingProjectSentinel || strings.HasPrefix(c.metricsProject, "-")) {
-			fmt.Fprintf(c.out, "fyr %s: --project needs a directory: --project <dir>\n", c.cmd)
-			return true, exitCode(2)
-		}
+	if v.afterParse != nil {
+		return v.afterParse(c)
 	}
 	return false, nil
 }
@@ -120,14 +115,14 @@ func (c *ctx) parse(v verb, rest []string) (stop bool, err error) {
 // accepts it, and only the verbs that resolve the harness tree read it. Said,
 // never silently dropped, and the verb still runs (IN36 of the 2026-10-27
 // audit).
-func (c *ctx) warnIgnoredRepo(v verb) {
+func (c *runtimeCtx) warnIgnoredRepo(v verb) {
 	if c.repoFlag != "" && !v.source && !v.readsRepo {
 		fmt.Fprintf(stderr, "fyr: warning: --repo is ignored by %s\n", c.cmd)
 	}
 }
 
 // resolveHome sets c.home: --home, else the user's home, made absolute.
-func (c *ctx) resolveHome() error {
+func (c *runtimeCtx) resolveHome() error {
 	c.home = c.homeFlag
 	if c.home == "" {
 		h, err := os.UserHomeDir()
@@ -148,7 +143,7 @@ func (c *ctx) resolveHome() error {
 
 // updateFromZipFlag runs `update --from-zip`; zip is false when this is not
 // that command line.
-func (c *ctx) updateFromZipFlag() (zip bool, err error) {
+func (c *runtimeCtx) updateFromZipFlag() (zip bool, err error) {
 	fromZipSet := false
 	c.fs.Visit(func(f *flag.Flag) { fromZipSet = fromZipSet || f.Name == "from-zip" })
 	// The parsed FlagSet decides, never a scan of the raw arguments: `--home --`
@@ -229,59 +224,57 @@ func splitLeadingVerb(args []string) (cmd string, rest []string, errMsg string) 
 // writes nothing there, yet migrates too. Moving the old directory early is harmless — one rename, refused for
 // a symlink, and both directories present are left alone — and a verb that
 // starts writing there later needs no change here (IN18).
-func (c *ctx) writesState() bool {
+func (c *runtimeCtx) writesState() bool {
+	if c.writesStateFn != nil {
+		return c.writesStateFn(c)
+	}
 	switch c.cmd {
 	case "install", "sync", "uninstall", "adopt", "index", "search", "dream":
-		return !c.dryRun
-	case "record":
-		// Every record verb except import --dry-run opens brain.db (creating
-		// or migrating it; reads do not auto-load trail.jsonl, ADR-091).
 		return !c.dryRun
 	case "update":
 		return !c.dryRun && !c.check
 	case "memory":
 		return c.fs.Arg(0) == "add"
-	case "report":
-		return c.reportWritesState()
-	case "metrics":
-		sub := c.fs.Arg(0)
-		return sub == "ingest" || sub == "record-run" || (sub == "report" && c.reportWritesState())
 	case "eval":
 		// Sandboxes, the metrics store and the testing record; --list reads,
 		// and a refused --home is refused before anything moves (D37).
 		return !c.evalList && evalHomeRefused(c.homeFlag, c.home) == ""
 	case "auto":
-		if len(c.args) >= 1 && c.args[0] == "sim" {
-			return len(c.args) >= 2 && (c.args[1] == "record" || c.args[1] == "merge")
-		}
-		// status and any --dry-run read; on, off and real run write auto.json or auto/.
-		sub := c.fs.Arg(0)
-		return !c.dryRun && (sub == "on" || sub == "off" || sub == "run")
+		return c.autoWritesState()
 	case "models":
-		if (c.modelsTier != "" && c.modelsPick == "") || (c.modelsExplain != "" && c.modelsPick != "") {
-			return false
-		}
-		if c.modelsRefresh || !models.CatalogExists(c.home) {
-			return true
-		}
-		if c.modelsPick != "" {
-			if normRole, _, err := models.NormalizeRoleTier(c.modelsPick, c.modelsTier); err == nil {
-				return isCrossFamilyRole(normRole)
-			}
-		}
-		return false
+		return c.modelsWritesState()
 	}
 	return false
 }
 
-func (c *ctx) reportWritesState() bool {
-	return !c.noIngest || c.metricsDailyDigest
+func (c *runtimeCtx) autoWritesState() bool {
+	if len(c.args) >= 1 && c.args[0] == "sim" {
+		return len(c.args) >= 2 && (c.args[1] == "record" || c.args[1] == "merge")
+	}
+	// status and any --dry-run read; on, off and real run write auto.json or auto/.
+	sub := c.fs.Arg(0)
+	return !c.dryRun && (sub == "on" || sub == "off" || sub == "run")
+}
+
+func (c *runtimeCtx) modelsWritesState() bool {
+	if (c.modelsTier != "" && c.modelsPick == "") || (c.modelsExplain != "" && c.modelsPick != "") {
+		return false
+	}
+	if c.modelsRefresh || !models.CatalogExists(c.home) {
+		return true
+	}
+	if c.modelsPick != "" {
+		if normRole, _, err := models.NormalizeRoleTier(c.modelsPick, c.modelsTier); err == nil {
+			return isCrossFamilyRole(normRole)
+		}
+	}
+	return false
 }
 
 // migrateStateDir moves ~/.config/sh-agent to ~/.config/fyr for a verb that
 // writes there, and names it on stderr for one that only reads, which reads
 // nothing from it.
-func (c *ctx) migrateStateDir() error {
+func (c *runtimeCtx) migrateStateDir() error {
 	if c.writesState() {
 		return harness.MigrateStateDir(c.home, c.out)
 	}

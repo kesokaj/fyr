@@ -15,14 +15,14 @@ const maxMetricsRunJSONIn = 64 * 1024
 
 // metricsRecordRun serves `fyr metrics record-run --json-in [--json]` (F-032),
 // validating and persisting one shape-only OrchestrationRunRow into metrics.db.
-func (c *ctx) metricsRecordRun(args []string) error {
+func (c *runtimeCtx) metricsRecordRun(args []string) error {
 	if bad := c.metricsFlagsOutside("json-in", "json"); bad != "" {
 		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics record-run: --%s does not apply to record-run", bad))
 	}
 	if len(args) > 0 {
 		return usageErr(c.out, "metrics", fmt.Sprintf("metrics record-run takes no arguments: %q", args))
 	}
-	if !c.jsonIn {
+	if !metricsOptsOf(c).jsonIn {
 		return usageErr(c.out, "metrics", "fyr metrics record-run requires --json-in")
 	}
 	row, err := decodeOrchestrationRunJSON(stdin)
@@ -66,11 +66,11 @@ func decodeOrchestrationRunJSON(r io.Reader) (metrics.OrchestrationRunRow, error
 	return row, nil
 }
 
-func (c *ctx) writeRecordedRunAck(row metrics.OrchestrationRunRow) error {
+func (c *runtimeCtx) writeRecordedRunAck(row metrics.OrchestrationRunRow) error {
 	id := strings.TrimSpace(row.ID)
 	kind := strings.ToLower(strings.TrimSpace(row.Kind))
 	status := strings.TrimSpace(row.Status)
-	if c.metricsJSON {
+	if metricsOptsOf(c).jsonOut {
 		enc := json.NewEncoder(c.out)
 		return enc.Encode(map[string]any{
 			"id":     id,

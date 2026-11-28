@@ -12,6 +12,19 @@ import (
 	"github.com/kesokaj/fyr/internal/state"
 )
 
+// stateOpts holds parsed flags for `fyr state`.
+type stateOpts struct {
+	out, since                     string
+	dryRun, jsonOut, includeMemory bool
+}
+
+func stateOptsOf(c *runtimeCtx) *stateOpts {
+	if o, ok := c.opts.(*stateOpts); ok {
+		return o
+	}
+	return &stateOpts{}
+}
+
 var stateFlags = map[string]map[string]bool{
 	"export": {"out": true, "since": true, "include-memory": true, "json": true},
 	"import": {"dry-run": true, "include-memory": true, "json": true},
@@ -21,15 +34,17 @@ func stateVerb() verb {
 	return verb{flags: registerStateFlags, positional: true, readsRepo: true, run: runState}
 }
 
-func registerStateFlags(c *ctx) {
-	c.dryRunFlag()
-	c.fs.Bool("include-memory", false, "export, import: include memory, feedback, proposal and SIM ledger rows")
-	c.fs.BoolVar(&c.jsonOut, "json", false, "print export or import summary as JSON")
-	c.fs.StringVar(&c.metricsOut, "out", "", "export: write the zip bundle to `FILE` (0600, atomic)")
-	c.fs.StringVar(&c.metricsSince, "since", "", "export: include rows on or after `YYYY-MM-DD`")
+func registerStateFlags(c *runtimeCtx) {
+	o := &stateOpts{}
+	c.opts = o
+	c.fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change, change nothing")
+	c.fs.BoolVar(&o.includeMemory, "include-memory", false, "export, import: include memory, feedback, proposal and SIM ledger rows")
+	c.fs.BoolVar(&o.jsonOut, "json", false, "print export or import summary as JSON")
+	c.fs.StringVar(&o.out, "out", "", "export: write the zip bundle to `FILE` (0600, atomic)")
+	c.fs.StringVar(&o.since, "since", "", "export: include rows on or after `YYYY-MM-DD`")
 }
 
-func runState(c *ctx) error {
+func runState(c *runtimeCtx) error {
 	args := c.fs.Args()
 	if len(args) == 0 {
 		return usageErr(c.out, "state", "")
@@ -52,7 +67,7 @@ func runState(c *ctx) error {
 	return runStateImport(c, rest)
 }
 
-func runStateExport(c *ctx, args []string, set map[string]bool) error {
+func runStateExport(c *runtimeCtx, args []string, set map[string]bool) error {
 	if len(args) > 0 {
 		return usageErr(c.out, "state", fmt.Sprintf("state export takes no arguments: %q", args))
 	}
@@ -64,15 +79,16 @@ func runStateExport(c *ctx, args []string, set map[string]bool) error {
 	if err != nil {
 		return err
 	}
+	o := stateOptsOf(c)
 	var since time.Time
 	if set["since"] {
-		if since, err = time.Parse("2006-01-02", c.metricsSince); err != nil {
-			return usageErr(c.out, "state", fmt.Sprintf("fyr state export: --since %q: want YYYY-MM-DD", c.metricsSince))
+		if since, err = time.Parse("2006-01-02", o.since); err != nil {
+			return usageErr(c.out, "state", fmt.Sprintf("fyr state export: --since %q: want YYYY-MM-DD", o.since))
 		}
 	}
 	res, err := state.Export(state.ExportOptions{
 		Home: c.home, Dir: wd, Repo: c.repoFlag, Since: since,
-		IncludeMemory: stateBoolFlag(c.fs, "include-memory"), OutPath: outPath, FyrVersion: buildVersion(),
+		IncludeMemory: o.includeMemory, OutPath: outPath, FyrVersion: buildVersion(),
 	})
 	if err != nil {
 		if brain.IsUsage(err) {
@@ -80,7 +96,7 @@ func runStateExport(c *ctx, args []string, set map[string]bool) error {
 		}
 		return err
 	}
-	if c.jsonOut {
+	if o.jsonOut {
 		return writeJSONLine(c.out, res)
 	}
 	simText := ""
@@ -93,7 +109,7 @@ func runStateExport(c *ctx, args []string, set map[string]bool) error {
 	return nil
 }
 
-func runStateImport(c *ctx, args []string) error {
+func runStateImport(c *runtimeCtx, args []string) error {
 	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
 		return usageErr(c.out, "state", "fyr state import requires <bundle.zip>")
 	}
@@ -105,9 +121,10 @@ func runStateImport(c *ctx, args []string) error {
 	if !filepath.IsAbs(bundlePath) && c.dirFlag != "" {
 		bundlePath = filepath.Join(wd, bundlePath)
 	}
+	o := stateOptsOf(c)
 	res, err := state.Import(state.ImportOptions{
 		Home: c.home, Dir: wd, BundlePath: bundlePath, Repo: c.repoFlag,
-		IncludeMemory: stateBoolFlag(c.fs, "include-memory"), DryRun: c.dryRun,
+		IncludeMemory: o.includeMemory, DryRun: o.dryRun,
 	})
 	if err != nil {
 		if brain.IsUsage(err) {
@@ -115,7 +132,7 @@ func runStateImport(c *ctx, args []string) error {
 		}
 		return err
 	}
-	if c.jsonOut {
+	if o.jsonOut {
 		return writeJSONLine(c.out, res)
 	}
 	prefix := ""
@@ -123,7 +140,7 @@ func runStateImport(c *ctx, args []string) error {
 		prefix = "[dry-run] "
 	}
 	simText := ""
-	if stateBoolFlag(c.fs, "include-memory") || res.SIM.Total > 0 {
+	if o.includeMemory || res.SIM.Total > 0 {
 		simText = fmt.Sprintf(" sim=%d", res.SIM.Inserted+res.SIM.Updated)
 	}
 	fmt.Fprintf(c.out, "%sstate import: insert=%d updated=%d skip_duplicate=%d conflict=%d operator_preserved=%d (brain=%d metrics=%d%s)\n",
@@ -131,7 +148,7 @@ func runStateImport(c *ctx, args []string) error {
 	return nil
 }
 
-func checkStateSubFlags(c *ctx, sub string, takes map[string]bool) (map[string]bool, error) {
+func checkStateSubFlags(c *runtimeCtx, sub string, takes map[string]bool) (map[string]bool, error) {
 	set := map[string]bool{}
 	var stray []string
 	c.fs.Visit(func(f *flag.Flag) {
@@ -147,11 +164,11 @@ func checkStateSubFlags(c *ctx, sub string, takes map[string]bool) (map[string]b
 	return set, nil
 }
 
-func resolveStateOutPath(c *ctx, wd string, set map[string]bool) (string, error) {
+func resolveStateOutPath(c *runtimeCtx, wd string, set map[string]bool) (string, error) {
 	if !set["out"] {
 		return "", nil
 	}
-	raw := strings.TrimSpace(c.metricsOut)
+	raw := strings.TrimSpace(stateOptsOf(c).out)
 	if raw == "" || strings.HasPrefix(raw, "-") {
 		return "", usageErr(c.out, "state", "fyr state export: --out needs a file: --out <file>")
 	}
@@ -159,14 +176,4 @@ func resolveStateOutPath(c *ctx, wd string, set map[string]bool) (string, error)
 		return filepath.Join(wd, raw), nil
 	}
 	return raw, nil
-}
-
-func stateBoolFlag(fs *flag.FlagSet, name string) bool {
-	if f := fs.Lookup(name); f != nil {
-		if g, ok := f.Value.(flag.Getter); ok {
-			b, _ := g.Get().(bool)
-			return b
-		}
-	}
-	return false
 }

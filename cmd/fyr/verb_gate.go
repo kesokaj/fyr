@@ -19,6 +19,23 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
+// gateOpts holds parsed flags for `fyr verify`, `gate`, `land`, and `close`.
+type gateOpts struct {
+	base, leaseFile, landMessage, closeID, closeTitle, closeBodyFile string
+	lease                                                            stringSliceFlag
+	maxFiles, maxLines                                               int
+	timeout                                                          time.Duration
+	judge, judgeModel, workerModel, workerSession                    string
+	jsonOut                                                          bool
+}
+
+func gateOptsOf(c *runtimeCtx) *gateOpts {
+	if o, ok := c.opts.(*gateOpts); ok {
+		return o
+	}
+	return &gateOpts{}
+}
+
 func registerGateVerbs(m map[string]verb) {
 	m["verify"] = verb{flags: registerVerifyFlags, run: runVerify}
 	m["gate"] = verb{flags: registerGateFlags, positional: true, run: runGate}
@@ -34,46 +51,54 @@ func (s *stringSliceFlag) Set(v string) error {
 	return nil
 }
 
-func registerVerifyFlags(c *ctx) {
-	c.fs.BoolVar(&c.jsonOut, "json", false, "print report as JSON")
-	c.fs.DurationVar(&c.gateTimeout, "timeout", 0, "per-command test timeout `D` (default 30m)")
+func registerVerifyFlags(c *runtimeCtx) {
+	o := &gateOpts{}
+	c.opts = o
+	c.fs.BoolVar(&o.jsonOut, "json", false, "print report as JSON")
+	c.fs.DurationVar(&o.timeout, "timeout", 0, "per-command test timeout `D` (default 30m)")
 }
 
-func registerGateFlags(c *ctx) {
-	c.fs.StringVar(&c.gateBase, "base", "", "base commit or branch `REF` (default HEAD)")
-	c.fs.Var(&c.gateLease, "lease", "allowed path pattern `GLOB` (repeatable)")
-	c.fs.StringVar(&c.gateLeaseFile, "lease-file", "", "read lease patterns from `FILE`")
-	c.fs.IntVar(&c.gateMaxFiles, "max-files", 0, "maximum changed files `N` (default 50)")
-	c.fs.IntVar(&c.gateMaxLines, "max-lines", 0, "maximum changed lines `N` (default 1500)")
-	c.fs.StringVar(&c.gateJudge, "judge", "", "cross-family LLM judge acceptance criterion `TEXT`")
-	c.fs.StringVar(&c.gateJudgeModel, "judge-model", "", "explicit judge model `ID` (with --judge)")
-	c.fs.StringVar(&c.gateWorkerModel, "worker-model", "", "worker model `ID` attributed on judge verdict")
-	c.fs.StringVar(&c.gateWorkerSession, "worker-session", "", "worker session `ID` attributed on judge verdict")
-	c.fs.BoolVar(&c.jsonOut, "json", false, "print report as JSON")
+func registerGateFlags(c *runtimeCtx) {
+	o := &gateOpts{}
+	c.opts = o
+	c.fs.StringVar(&o.base, "base", "", "base commit or branch `REF` (default HEAD)")
+	c.fs.Var(&o.lease, "lease", "allowed path pattern `GLOB` (repeatable)")
+	c.fs.StringVar(&o.leaseFile, "lease-file", "", "read lease patterns from `FILE`")
+	c.fs.IntVar(&o.maxFiles, "max-files", 0, "maximum changed files `N` (default 50)")
+	c.fs.IntVar(&o.maxLines, "max-lines", 0, "maximum changed lines `N` (default 1500)")
+	c.fs.StringVar(&o.judge, "judge", "", "cross-family LLM judge acceptance criterion `TEXT`")
+	c.fs.StringVar(&o.judgeModel, "judge-model", "", "explicit judge model `ID` (with --judge)")
+	c.fs.StringVar(&o.workerModel, "worker-model", "", "worker model `ID` attributed on judge verdict")
+	c.fs.StringVar(&o.workerSession, "worker-session", "", "worker session `ID` attributed on judge verdict")
+	c.fs.BoolVar(&o.jsonOut, "json", false, "print report as JSON")
 }
 
-func registerLandFlags(c *ctx) {
-	c.fs.StringVar(&c.landMessage, "message", "", "squash commit subject/body `TEXT`")
-	c.fs.Var(&c.gateLease, "lease", "allowed path pattern `GLOB` (repeatable)")
-	c.fs.StringVar(&c.gateLeaseFile, "lease-file", "", "read lease patterns from `FILE`")
-	c.fs.IntVar(&c.gateMaxFiles, "max-files", 0, "maximum changed files `N` (default 50)")
-	c.fs.IntVar(&c.gateMaxLines, "max-lines", 0, "maximum changed lines `N` (default 1500)")
-	c.fs.DurationVar(&c.gateTimeout, "timeout", 0, "per-command verify timeout `D` (default 30m)")
-	c.fs.StringVar(&c.gateJudge, "judge", "", "cross-family LLM judge acceptance criterion `TEXT`")
-	c.fs.StringVar(&c.gateJudgeModel, "judge-model", "", "explicit judge model `ID` (with --judge)")
-	c.fs.StringVar(&c.gateWorkerModel, "worker-model", "", "worker model `ID` attributed on judge verdict")
-	c.fs.StringVar(&c.gateWorkerSession, "worker-session", "", "worker session `ID` attributed on judge verdict")
-	c.fs.BoolVar(&c.jsonOut, "json", false, "print report as JSON")
+func registerLandFlags(c *runtimeCtx) {
+	o := &gateOpts{}
+	c.opts = o
+	c.fs.StringVar(&o.landMessage, "message", "", "squash commit subject/body `TEXT`")
+	c.fs.Var(&o.lease, "lease", "allowed path pattern `GLOB` (repeatable)")
+	c.fs.StringVar(&o.leaseFile, "lease-file", "", "read lease patterns from `FILE`")
+	c.fs.IntVar(&o.maxFiles, "max-files", 0, "maximum changed files `N` (default 50)")
+	c.fs.IntVar(&o.maxLines, "max-lines", 0, "maximum changed lines `N` (default 1500)")
+	c.fs.DurationVar(&o.timeout, "timeout", 0, "per-command verify timeout `D` (default 30m)")
+	c.fs.StringVar(&o.judge, "judge", "", "cross-family LLM judge acceptance criterion `TEXT`")
+	c.fs.StringVar(&o.judgeModel, "judge-model", "", "explicit judge model `ID` (with --judge)")
+	c.fs.StringVar(&o.workerModel, "worker-model", "", "worker model `ID` attributed on judge verdict")
+	c.fs.StringVar(&o.workerSession, "worker-session", "", "worker session `ID` attributed on judge verdict")
+	c.fs.BoolVar(&o.jsonOut, "json", false, "print report as JSON")
 }
 
-func registerCloseFlags(c *ctx) {
-	c.fs.StringVar(&c.closeID, "id", "", "explicit handoff record `ID` (HANDOFF-<stamp>-<slug>)")
-	c.fs.StringVar(&c.closeTitle, "title", "", "handoff record title `TEXT` (required)")
-	c.fs.StringVar(&c.closeBodyFile, "body-file", "", "read handoff body from `FILE` instead of stdin")
-	c.fs.BoolVar(&c.jsonOut, "json", false, "print report as JSON")
+func registerCloseFlags(c *runtimeCtx) {
+	o := &gateOpts{}
+	c.opts = o
+	c.fs.StringVar(&o.closeID, "id", "", "explicit handoff record `ID` (HANDOFF-<stamp>-<slug>)")
+	c.fs.StringVar(&o.closeTitle, "title", "", "handoff record title `TEXT` (required)")
+	c.fs.StringVar(&o.closeBodyFile, "body-file", "", "read handoff body from `FILE` instead of stdin")
+	c.fs.BoolVar(&o.jsonOut, "json", false, "print report as JSON")
 }
 
-func runVerify(c *ctx) error {
+func runVerify(c *runtimeCtx) error {
 	wd, err := c.projectDir()
 	if err != nil {
 		return err
@@ -82,16 +107,17 @@ func runVerify(c *ctx) error {
 		Dir:     wd,
 		Home:    c.home,
 		Vocab:   vocabulary(),
-		Timeout: c.gateTimeout,
+		Timeout: gateOptsOf(c).timeout,
 	})
 	return emitGateOutcome(c, rep, len(rep.Steps) > 0 || err == nil, err, printVerifyText)
 }
 
-func runGate(c *ctx) error {
+func runGate(c *runtimeCtx) error {
 	if c.fs.NArg() != 1 {
 		return usageErr(c.out, "gate", "fyr gate requires <worktree> or <branch>")
 	}
-	if strings.TrimSpace(c.gateJudgeModel) != "" && strings.TrimSpace(c.gateJudge) == "" {
+	o := gateOptsOf(c)
+	if strings.TrimSpace(o.judgeModel) != "" && strings.TrimSpace(o.judge) == "" {
 		return usageErr(c.out, "gate", "fyr gate: --judge-model requires --judge")
 	}
 	wd, err := c.projectDir()
@@ -101,27 +127,28 @@ func runGate(c *ctx) error {
 	rep, err := gate.Gate(context.Background(), gate.GateOptions{
 		Dir:             wd,
 		Target:          c.fs.Arg(0),
-		Base:            c.gateBase,
+		Base:            o.base,
 		Home:            c.home,
 		RealHome:        realUserHome(),
-		Lease:           c.gateLease,
-		LeaseFile:       c.gateLeaseFile,
-		MaxFiles:        c.gateMaxFiles,
-		MaxLines:        c.gateMaxLines,
-		Judge:           c.gateJudge,
-		JudgeModel:      c.gateJudgeModel,
-		WorkerModel:     strings.TrimSpace(c.gateWorkerModel),
-		WorkerSessionID: strings.TrimSpace(c.gateWorkerSession),
+		Lease:           o.lease,
+		LeaseFile:       o.leaseFile,
+		MaxFiles:        o.maxFiles,
+		MaxLines:        o.maxLines,
+		Judge:           o.judge,
+		JudgeModel:      o.judgeModel,
+		WorkerModel:     strings.TrimSpace(o.workerModel),
+		WorkerSessionID: strings.TrimSpace(o.workerSession),
 		RecordVerdict:   recordGateJudgeVerdict(c.home),
 	})
 	return emitGateOutcome(c, rep, rep.MainRoot != "", err, printGateText)
 }
 
-func runLand(c *ctx) error {
+func runLand(c *runtimeCtx) error {
 	if c.fs.NArg() != 1 {
 		return usageErr(c.out, "land", "fyr land requires <branch>")
 	}
-	if strings.TrimSpace(c.gateJudgeModel) != "" && strings.TrimSpace(c.gateJudge) == "" {
+	o := gateOptsOf(c)
+	if strings.TrimSpace(o.judgeModel) != "" && strings.TrimSpace(o.judge) == "" {
 		return usageErr(c.out, "land", "fyr land: --judge-model requires --judge")
 	}
 	wd, err := c.projectDir()
@@ -131,19 +158,19 @@ func runLand(c *ctx) error {
 	rep, err := gate.Land(context.Background(), gate.LandOptions{
 		Dir:             wd,
 		Branch:          c.fs.Arg(0),
-		Message:         c.landMessage,
+		Message:         o.landMessage,
 		Home:            c.home,
 		RealHome:        realUserHome(),
 		Vocab:           vocabulary(),
-		Timeout:         c.gateTimeout,
-		Lease:           c.gateLease,
-		LeaseFile:       c.gateLeaseFile,
-		MaxFiles:        c.gateMaxFiles,
-		MaxLines:        c.gateMaxLines,
-		Judge:           c.gateJudge,
-		JudgeModel:      c.gateJudgeModel,
-		WorkerModel:     strings.TrimSpace(c.gateWorkerModel),
-		WorkerSessionID: strings.TrimSpace(c.gateWorkerSession),
+		Timeout:         o.timeout,
+		Lease:           o.lease,
+		LeaseFile:       o.leaseFile,
+		MaxFiles:        o.maxFiles,
+		MaxLines:        o.maxLines,
+		Judge:           o.judge,
+		JudgeModel:      o.judgeModel,
+		WorkerModel:     strings.TrimSpace(o.workerModel),
+		WorkerSessionID: strings.TrimSpace(o.workerSession),
 		RecordVerdict:   recordGateJudgeVerdict(c.home),
 	})
 	return emitGateOutcome(c, rep, rep.MainRoot != "", err, printLandText)
@@ -185,8 +212,9 @@ func recordGateJudgeVerdict(home string) func(gate.JudgeVerdictRecord) error {
 	}
 }
 
-func runClose(c *ctx) error {
-	if strings.TrimSpace(c.closeTitle) == "" {
+func runClose(c *runtimeCtx) error {
+	o := gateOptsOf(c)
+	if strings.TrimSpace(o.closeTitle) == "" {
 		return usageErr(c.out, "close", "fyr close requires --title")
 	}
 	wd, err := c.projectDir()
@@ -200,22 +228,22 @@ func runClose(c *ctx) error {
 	rep, err := gate.Close(context.Background(), gate.CloseOptions{
 		Dir:   wd,
 		Home:  c.home,
-		ID:    c.closeID,
-		Title: c.closeTitle,
+		ID:    o.closeID,
+		Title: o.closeTitle,
 		Body:  bodyText,
 	})
 	if err != nil {
 		return gateErrCode(c.cmd, err)
 	}
-	warnRedactable(c.closeID, c.closeTitle, bodyText)
-	if c.jsonOut {
+	warnRedactable(o.closeID, o.closeTitle, bodyText)
+	if o.jsonOut {
 		return writeJSONLine(c.out, rep)
 	}
 	fmt.Fprintln(c.out, rep.ID)
 	return nil
 }
 
-func readCloseBody(c *ctx) (string, error) {
+func readCloseBody(c *runtimeCtx) (string, error) {
 	bodySet := false
 	c.fs.Visit(func(f *flag.Flag) { bodySet = bodySet || f.Name == "body-file" })
 	var (
@@ -230,7 +258,7 @@ func readCloseBody(c *ctx) (string, error) {
 			return "", fmt.Errorf("%w: no body on stdin; pass --body-file <file> or pipe a handoff body on stdin", gate.ErrRefused)
 		}
 	} else {
-		r, cleanup, err = openBodyReader(c.closeBodyFile, true)
+		r, cleanup, err = openBodyReader(gateOptsOf(c).closeBodyFile, true)
 		if err != nil {
 			if brain.IsRefusal(err) || brain.IsUsage(err) {
 				return "", fmt.Errorf("%w: %v", gate.ErrRefused, err)
@@ -323,9 +351,9 @@ func peekPipeSyscallConn(f *os.File) (io.Reader, bool) {
 	return io.MultiReader(bytes.NewReader(b[:got]), f), true
 }
 
-func emitGateOutcome[T any](c *ctx, rep T, hasReport bool, err error, printText func(io.Writer, T)) error {
+func emitGateOutcome[T any](c *runtimeCtx, rep T, hasReport bool, err error, printText func(io.Writer, T)) error {
 	if err == nil || (hasReport && errors.Is(err, gate.ErrFailed)) {
-		if c.jsonOut {
+		if gateOptsOf(c).jsonOut {
 			if jerr := writeJSONLine(c.out, rep); jerr != nil {
 				return jerr
 			}
