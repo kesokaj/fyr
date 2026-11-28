@@ -7,17 +7,17 @@
 
 ## Now
 
-**Phase 3 — Wave 3a: Pinch-Point Characterization Tests, `internal/sqliteutil`, `init()` Removal & CLI Split (`D1`, `D4`)** (`PLAN-2026-11-27-craft-cleanup`, `ADR-537`):
-- [x] Slice `w3a-sqliteutil-init`: extracted `internal/sqliteutil`, typed `search.ReadVetHistoryForIngest` (zero raw `vet_history` SQL in `metrics`), replaced `auto->isolate` `init()` with explicit `isolate.CapsuleDeps` (`da3fb281`, `2915d288`, `C1`, `C3`) (`who: AI`)
-- [x] Slice `w3a-char-tests`: package char tests + `TestEvalGate`/`TestKickoffGuard*` (`b03ac226`) and 4-file `workflows_test.go` split + `areas.md` (`5b090c4c`, `D8`, `D9`) (`who: AI`)
-- [ ] Slice `w3a-cli-verbs`: all 8 prod `cmd/fyr` `init()`s removed (`d3cfc2de`) and all 50+ per-verb flag fields migrated off `runtimeCtx` into per-verb option structs + `verb.writesState` (`1a3715d3`, `7aefe58c`, `69d5f1fa`); remaining: drop 1-line `type ctx = runtimeCtx` alias across 9 trivial files + cache `c.opts` nil fallback in `recordOptsOf`/`reportOptsOf`, implement `ADR-537` D1 (`fyr hook`/`ast`/`vet` + `v9.x` `fyr search` shims + `hooks.json`), mark `D4` deprecations, regenerate `docs/cli-reference.md`, sync `SDD.md`/`TDD.md` (`C4`, `A4`) (`who: AI`)
-- [ ] Checkpoint (Phase 3): gate & land remaining `w3a-cli-*` slices sequentially, tighten `arch_fitness_test.go` allowlists (0 `init()` in `cmd/fyr` & `internal/auto`, `dupHelperCeilingTable`, `sqliteAllowlist`), run `fyr verify`, update `TODO.md`, commit & push (`who: AI`)
+**Phase 4 — Wave 3b: Hotspot Monolith Decomposition, Complexity Reduction & `t.Parallel()`** (`PLAN-2026-11-27-craft-cleanup`, `ADR-537`):
+- [ ] Slice `w3b-search-split`: extract `internal/readledger`, `internal/symgraph`, `internal/vet`, and `internal/hooks` out of `internal/search` (`114 -> <= 25` prod files/pkg), split `hook_pre_invocation.go`, refactor `summarizePackages`/`extractExprRefs` to `Cog <= 15`, scope `ftsTurnCache` per `Store`, rename milestone tests (`C2`, `A2`, `A6`, `C6`, `C8`, `C9`, `D10`) (`who: AI`)
+- [ ] Slice `w3b-metrics-split`: extract `internal/metrics/report` and `internal/metrics/ingest` (`72 -> <= 35` prod files/pkg), refactor `populateAdherenceVerbs`/`joinRecords`/`(*Summary).verbs` to `Cog <= 15` / `Nest <= 3`, unexport internals, rename milestone tests (`C5`, `A5`, `C6`, `C8`, `D10`) (`who: AI`)
+- [ ] Slice `w3b-sim-auto`: extract `internal/sim`, split `internal/brain/turn_records.go` SQL vs formatting, narrow `internal/auto` fan-out (`11 -> <= 6`), refactor `hasProposalEvidence` (`Cog <= 15`), dedup `auto`/`gate`/`dream` helpers, unexport internals (`C5`, `A2`, `A3`, `C7`, `C8`) (`who: AI`)
+- [ ] Slice `w3b-isolate-parallel`: extract `internal/isolate/acp` (`52 -> <= 35` prod files/pkg), refactor `fingerprintWith` (`Cog <= 15` / `Nest <= 4`), align/share `splitShellSegments`, move global test seams onto `Options` structs and enable `t.Parallel()`, rename `v910_*_test.go` (`C5`, `C6`, `C7`, `C9`, `D4`, `D10`) (`who: AI`)
+- [ ] Checkpoint (Phase 4 — Final): gate & land sequentially, update `cmd/fyr` callers + `t.Parallel()`, tighten all 4 fitness ratchets (`<= 35` prod files/pkg, `Cog <= 15`, `Nest <= 4`), update `areas.md`/`SDD.md`/`TDD.md`, run full verify + uncapped `golangci-lint`, run independent `reviewer` + `security` lenses, clear `TODO.md`, commit & push (`who: AI`)
 
 ## Next
 
-- Phase 4 — Wave 3b: Hotspot Monolith Decomposition (`search`, `metrics`, `sim`, `isolate/acp`), Complexity Reduction & `t.Parallel()` (`PLAN-2026-11-27-craft-cleanup`)
 - Workstream 2 — Automatic Antigravity Conversation Retention (`fyr conversations`, `ADR-538`)
-- Release Preflight — `/fyr-preflight v9.14.0` once Workstream 1 + Workstream 2 verify green
+- Release Preflight — `/fyr-preflight v9.14.0` once Workstream 1 + Workstream 2 verify green (followed by read-only `fyr conversations prune --dry-run` preview after install)
 
 ## Backlog
 
