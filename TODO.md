@@ -8,10 +8,10 @@
 ## Now
 
 **Phase 3 — Wave 3a: Pinch-Point Characterization Tests, `internal/sqliteutil`, `init()` Removal & CLI Split (`D1`, `D4`)** (`PLAN-2026-11-27-craft-cleanup`, `ADR-537`):
-- [ ] Slice `w3a-char-tests`: Feathers pinch-point characterization tests (`graph`, `isolate`, `metrics`, `search`) + split `workflows_test.go` & `TestEvalGate` (`D8`, `D9`) (`who: AI`)
-- [ ] Slice `w3a-sqliteutil-init`: extract `internal/sqliteutil`, typed `search.ReadVetHistory` (zero cross-DB raw SQL), replace `auto->isolate` `init()` with `isolate.CapsuleDeps` (`C1`, `C3`) (`who: AI`)
-- [ ] Slice `w3a-cli-verbs`: replace `ctx` God Struct + 9 `cmd/fyr` `init()`s with `runtimeCtx` + `buildVerbs()`; split `fyr search` into `search`/`hook`/`ast`/`vet` with `v9.x` shims (`D1`), mark `D4` deprecations, update `hooks.json` & regenerate `docs/cli-reference.md` (`C4`, `A4`) (`who: AI`)
-- [ ] Checkpoint (Phase 3): gate & land sequentially, tighten `arch_fitness_test.go` allowlists, run `fyr verify`, update `TODO.md`, commit & push (`who: AI`)
+- [x] Slice `w3a-sqliteutil-init`: extracted `internal/sqliteutil`, typed `search.ReadVetHistoryForIngest` (zero raw `vet_history` SQL in `metrics`), replaced `auto->isolate` `init()` with explicit `isolate.CapsuleDeps` (`da3fb281`, `2915d288`, `C1`, `C3`) (`who: AI`)
+- [ ] Slice `w3a-char-tests`: package char tests + `TestEvalGate`/`TestKickoffGuard*` splits landed (`b03ac226`); remaining: split `workflows_test.go` + update `areas.md` (`D8`, `D9`) (`who: AI`)
+- [ ] Slice `w3a-cli-verbs`: all 8 prod `cmd/fyr` `init()`s removed via lazy `allVerbs()` (`d3cfc2de`); remaining: replace `ctx` God Struct with `runtimeCtx` + per-verb opts, split `fyr search` into `search`/`hook`/`ast`/`vet` with `v9.x` shims (`D1`), mark `D4` deprecations, update `hooks.json` & regenerate `docs/cli-reference.md` (`C4`, `A4`) (`who: AI`)
+- [ ] Checkpoint (Phase 3): gate & land Sub-wave 3a-2 sequentially, tighten `arch_fitness_test.go` allowlists (0 `init()` in `cmd/fyr` & `internal/auto`), run `fyr verify`, update `TODO.md`, commit & push (`who: AI`)
 
 ## Next
 
