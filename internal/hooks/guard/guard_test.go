@@ -248,3 +248,63 @@ func TestWorkflowGuardAndWatchdogPreamble(t *testing.T) {
 		t.Fatalf("SkipPythonWSAndComments = %d, want 11", pos)
 	}
 }
+
+func testWorkflowDeps(fast bool) WorkflowDeps {
+	return WorkflowDeps{
+		EffectiveSessionModel:  func() string { return "gemini-2.5-flash" },
+		NeedsGuardedProUpgrade: func(_, _ string) bool { return fast },
+		IsModelGuardedSubagent: func(name string) bool { return name == "reviewer" || name == "security" },
+		FormatModelTag:         func(_, raw string) string { return raw },
+		SanitizePrintable:      func(s string) string { return s },
+		WriteDecision: func(w io.Writer, dec, reason string) error {
+			return json.NewEncoder(w).Encode(map[string]any{"decision": dec, "reason": reason})
+		},
+		WriteDecisionOverwrite: func(w io.Writer, dec, reason string, ow map[string]any) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"decision": dec, "reason": reason, "overwrite": ow})
+		},
+	}
+}
+
+func TestWorkflowGuardNilCallbacksFailClosed(t *testing.T) {
+	t.Parallel()
+	script := `agent("a", "b", "c", type_name="reviewer", model="flash")`
+	in := WorkflowInput{ToolArgs: map[string]any{"script": script}}
+
+	depsNoWriter := testWorkflowDeps(false)
+	depsNoWriter.WriteDecision = nil
+	var errBuf bytes.Buffer
+	if err := HandlePreToolWorkflow(in, depsNoWriter, &errBuf); err == nil {
+		t.Fatal("expected error when WriteDecision is nil")
+	}
+
+	cases := []struct {
+		name         string
+		mutate       func(*WorkflowDeps)
+		want         string
+		checkInspect bool
+	}{
+		{"nil_needs_pro_upgrade", func(d *WorkflowDeps) { d.NeedsGuardedProUpgrade = nil }, "NeedsGuardedProUpgrade", true},
+		{"nil_is_guarded_subagent", func(d *WorkflowDeps) { d.IsModelGuardedSubagent = nil }, "IsModelGuardedSubagent", true},
+		{"nil_write_decision_overwrite", func(d *WorkflowDeps) { d.WriteDecisionOverwrite = nil }, "WriteDecisionOverwrite", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			deps := testWorkflowDeps(false)
+			tc.mutate(&deps)
+			var buf bytes.Buffer
+			if err := HandlePreToolWorkflow(WorkflowInput{ToolArgs: map[string]any{"script": "x = 1"}}, deps, &buf); err != nil {
+				t.Fatalf("HandlePreToolWorkflow error: %v", err)
+			}
+			if !strings.Contains(buf.String(), `"decision":"deny"`) || !strings.Contains(buf.String(), tc.want) {
+				t.Fatalf("expected fail-closed deny mentioning %q, got %s", tc.want, buf.String())
+			}
+			if tc.checkInspect {
+				deny, patches := inspectWorkflowScript("", script, "gemini-2.5-flash", true, deps)
+				if deny == "" || !strings.Contains(deny, tc.want) || len(patches) != 0 {
+					t.Fatalf("inspectWorkflowScript = (%q, %v), want deny mentioning %q", deny, patches, tc.want)
+				}
+			}
+		})
+	}
+}

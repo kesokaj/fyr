@@ -18,48 +18,65 @@ type credPattern struct {
 	re   *regexp.Regexp
 }
 
-// The credential shapes of the preamble (:128-137, BUG-160), assembled lazily
-// via sync.Once from short pieces so compiled .rodata holds no self-matching
-// vendor literals (BUG-538).
+const credPatternMask byte = 0xA5
+
+type maskedCredSpec struct {
+	kind    string
+	pattern string
+}
+
+// The credential shapes of the preamble (:128-137, BUG-160), stored XOR-masked
+// with 0xA5 and decoded lazily via sync.Once so compiled .rodata holds no
+// printable vendor prefix pieces that the linker could coalesce (BUG-538).
 var (
-	credNames      = regexp.MustCompile(`^(id_rsa|id_ecdsa|id_ed25519|id_dsa|\.credentials\.json|application_default_credentials\.json|credentials\.db|access_tokens\.db|.*oauth-token.*|hosts\.yml|\.netrc|\.git-credentials|.*\.p12|.*\.pfx)$`)
-	credPaths      = regexp.MustCompile(`/\.aws/credentials$|/\.docker/config\.json$`)
-	credPatternsMu sync.Once
-	credText       []credPattern
-	credPrivBegin  *regexp.Regexp
-	credAWS        *regexp.Regexp
-	credExample    []byte
-	credRefreshVal *regexp.Regexp
+	credNames       = regexp.MustCompile(`^(id_rsa|id_ecdsa|id_ed25519|id_dsa|\.credentials\.json|application_default_credentials\.json|credentials\.db|access_tokens\.db|.*oauth-token.*|hosts\.yml|\.netrc|\.git-credentials|.*\.p12|.*\.pfx)$`)
+	credPaths       = regexp.MustCompile(`/\.aws/credentials$|/\.docker/config\.json$`)
+	maskedCredSpecs = []maskedCredSpec{
+		{"github-token", "\xc2\xcd\xfe\xca\xd5\xd6\xd0\xd7\xf8\xfa\xfe\xe4\x88\xff\xc4\x88\xdf\x95\x88\x9c\xf8\xde\x96\x95\x89\xd8"},
+		{"github-pat", "\xc2\xcc\xd1\xcd\xd0\xc7\xfa\xd5\xc4\xd1\xfa\xfe\xe4\x88\xff\xc4\x88\xdf\x95\x88\x9c\xfa\xf8\xde\x96\x95\x89\xd8"},
+		{"private-key", "\x88\x88\x88\x88\x88\xe7\xe0\xe2\xec\xeb\x85\xfe\xe4\x88\xff\x85\xf8\x8f\xf5\xf7\xec\xf3\xe4\xf1\xe0\x85\xee\xe0\xfc\x88\x88\x88\x88\x88"},
+		{"anthropic-key", "\xd6\xce\x88\xc4\xcb\xd1\x88\xfe\xe4\x88\xff\xc4\x88\xdf\x95\x88\x9c\xfa\x88\xf8\xde\x97\x95\x89\xd8"},
+		{"openai-key", "\xd6\xce\x88\xd5\xd7\xca\xcf\x88\xfe\xe4\x88\xff\xc4\x88\xdf\x95\x88\x9c\xfa\x88\xf8\xde\x97\x95\x89\xd8"},
+		{"refresh-token", "\x87\xd7\xc0\xc3\xd7\xc0\xd6\xcd\xfa\xd1\xca\xce\xc0\xcb\x87"},
+		{"google-access-token", "\xdc\xc4\x97\x9c\xf9\x8b\xfe\xe4\x88\xff\xc4\x88\xdf\x95\x88\x9c\xfa\x88\xf8\xde\x97\x95\x89\xd8"},
+		{"google-api-key", "\xe4\xec\xdf\xc4\xfe\xe4\x88\xff\xc4\x88\xdf\x95\x88\x9c\xfa\x88\xf8\xde\x96\x90\xd8"},
+		{"gitlab-token", "\xc2\xc9\xd5\xc4\xd1\x88\xfe\xe4\x88\xff\xc4\x88\xdf\x95\x88\x9c\xfa\x88\xf8\xde\x97\x95\x89\xd8"},
+	}
+	maskedCredAWS        = "\xe4\xee\xec\xe4\xfe\xe4\x88\xff\x95\x88\x9c\xf8\xde\x94\x93\xd8"
+	maskedCredExample    = "\xe4\xee\xec\xe4\xec\xea\xf6\xe3\xea\xe1\xeb\xeb\x92\xe0\xfd\xe4\xe8\xf5\xe9\xe0"
+	maskedCredRefreshVal = "\xfb\xf9\xd6\x8f\x9f\xf9\xd6\x8f\x8d\x87\xfe\xfb\x87\xf9\xf9\xf9\xd7\xf9\xcb\xf8\xde\x95\x89\x97\x90\x93\xd8\x87\xd9\x82\xfe\xfb\x82\xf9\xf9\xf9\xd7\xf9\xcb\xf8\xde\x95\x89\x97\x90\x93\xd8\x82\xd9\xfe\xfb\xf9\xd6\x89\xd8\xf9\xf8\xf9\xd7\xf9\xcb\xc5\xf8\xde\x94\x89\x97\x90\x93\xd8\x8c"
+	credPatternsMu       sync.Once
+	credText             []credPattern
+	credPrivBegin        *regexp.Regexp
+	credAWS              *regexp.Regexp
+	credExample          []byte
+	credRefreshVal       *regexp.Regexp
 )
+
+func unmaskCredPattern(masked string) string {
+	b := make([]byte, len(masked))
+	for i := range len(masked) {
+		b[i] = masked[i] ^ credPatternMask
+	}
+	return string(b)
+}
 
 func ensureCredPatterns() {
 	credPatternsMu.Do(initCredPatterns)
 }
 
 func initCredPatterns() {
-	for _, row := range []struct {
-		kind  string
-		parts []string
-	}{
-		{"github-token", []string{"gh", `[opsur]_[A-Za-z0-9]{30,}`}},
-		{"github-pat", []string{"git", "hub_pat_", `[A-Za-z0-9_]{30,}`}},
-		{"private-key", []string{"---", "--BEGIN [A-Z ]*PRI", "VATE KEY-----"}},
-		{"anthropic-key", []string{"sk-", "ant", `-[A-Za-z0-9_-]{20,}`}},
-		{"openai-key", []string{"sk-", "proj", `-[A-Za-z0-9_-]{20,}`}},
-		{"refresh-token", []string{`"ref`, `resh_`, `token"`}},
-		{"google-access-token", []string{"ya", `29\.[A-Za-z0-9_-]{20,}`}},
-		{"google-api-key", []string{"AI", "za", `[A-Za-z0-9_-]{35}`}},
-		{"gitlab-token", []string{"gl", "pat", `-[A-Za-z0-9_-]{20,}`}},
-	} {
-		re := regexp.MustCompile(strings.Join(row.parts, ""))
-		if row.kind == "private-key" {
+	credText = make([]credPattern, 0, len(maskedCredSpecs))
+	for _, spec := range maskedCredSpecs {
+		re := regexp.MustCompile(unmaskCredPattern(spec.pattern))
+		if spec.kind == "private-key" {
 			credPrivBegin = re
 		}
-		credText = append(credText, credPattern{kind: row.kind, re: re})
+		credText = append(credText, credPattern{kind: spec.kind, re: re})
 	}
-	credAWS = regexp.MustCompile(strings.Join([]string{"AK", "IA", `[A-Z0-9]{16}`}, ""))
-	credExample = []byte(strings.Join([]string{"AK", "IA", "IOSFODNN7EXAMPLE"}, ""))
-	credRefreshVal = regexp.MustCompile(strings.Join([]string{`^\s*:\s*("[^"\\\r\n]{0,256}"|'[^'\\\r\n]{0,256}'|[^\s,}\]\r\n`, "`", `]{1,256})`}, ""))
+	credAWS = regexp.MustCompile(unmaskCredPattern(maskedCredAWS))
+	credExample = []byte(unmaskCredPattern(maskedCredExample))
+	credRefreshVal = regexp.MustCompile(unmaskCredPattern(maskedCredRefreshVal))
 }
 
 // Finding is what the scan saw at one path: counts, unparsed bare-marker

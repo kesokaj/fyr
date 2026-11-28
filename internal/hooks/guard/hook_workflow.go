@@ -49,8 +49,35 @@ type workflowCallSpan struct {
 	inFString bool
 }
 
+func validateWorkflowPolicyDeps(deps WorkflowDeps) string {
+	switch {
+	case deps.NeedsGuardedProUpgrade == nil:
+		return "[MODEL_OVERRIDE] run_workflow guard misconfigured: missing NeedsGuardedProUpgrade callback."
+	case deps.IsModelGuardedSubagent == nil:
+		return "[MODEL_OVERRIDE] run_workflow guard misconfigured: missing IsModelGuardedSubagent callback."
+	default:
+		return ""
+	}
+}
+
+func validateWorkflowDeps(deps WorkflowDeps) string {
+	if deny := validateWorkflowPolicyDeps(deps); deny != "" {
+		return deny
+	}
+	if deps.WriteDecisionOverwrite == nil {
+		return "[MODEL_OVERRIDE] run_workflow guard misconfigured: missing WriteDecisionOverwrite callback."
+	}
+	return ""
+}
+
 // HandlePreToolWorkflow validates and optionally rewrites guarded agent() calls in run_workflow scripts.
 func HandlePreToolWorkflow(in WorkflowInput, deps WorkflowDeps, out io.Writer) error {
+	if deps.WriteDecision == nil {
+		return errors.New("[MODEL_OVERRIDE] run_workflow guard misconfigured: missing WriteDecision callback")
+	}
+	if deny := validateWorkflowDeps(deps); deny != "" {
+		return deps.WriteDecision(out, "deny", deny)
+	}
 	script, inlineKey, isInline, loadDeny := loadWorkflowScriptSource(in.Home, in.Dir, in.ToolArgs)
 	if loadDeny != "" {
 		return deps.WriteDecision(out, "deny", loadDeny)
@@ -244,7 +271,10 @@ func readContainedWorkflowScript(cleanDir, rel string, requireRegular bool) (str
 }
 
 func inspectWorkflowScript(home, src, modelName string, isInline bool, deps WorkflowDeps) (string, []workflowPatch) {
-	fast := deps.NeedsGuardedProUpgrade != nil && deps.NeedsGuardedProUpgrade(home, modelName)
+	if deny := validateWorkflowPolicyDeps(deps); deny != "" {
+		return deny, nil
+	}
+	fast := deps.NeedsGuardedProUpgrade(home, modelName)
 	spans, scanDeny := scanWorkflowAgentCalls(src)
 	if scanDeny != "" {
 		return scanDeny, nil
@@ -289,7 +319,10 @@ func inspectSingleAgentCall(home, src string, sp [2]int, modelName string, fast,
 	if !typeIsLit {
 		return inspectNonLiteralTypeAgent(home, typeArg, mArg, args, modelName, fast, isInline, deps)
 	}
-	if deps.IsModelGuardedSubagent == nil || !deps.IsModelGuardedSubagent(typeName) {
+	if deps.IsModelGuardedSubagent == nil {
+		return "[MODEL_OVERRIDE] run_workflow guard misconfigured: missing IsModelGuardedSubagent callback.", "", nil
+	}
+	if !deps.IsModelGuardedSubagent(typeName) {
 		return "", "", nil
 	}
 	return inspectGuardedModelArg(home, typeName, mArg, modelName, fast, isInline, deps)

@@ -239,3 +239,66 @@ func put(t *testing.T, p, s string, mode os.FileMode) {
 		t.Fatal(err)
 	}
 }
+
+func TestMaskedCredPatternsAndMatches(t *testing.T) {
+	t.Parallel()
+	ensureCredPatterns()
+
+	allMasked := []string{maskedCredAWS, maskedCredExample, maskedCredRefreshVal}
+	for _, spec := range maskedCredSpecs {
+		allMasked = append(allMasked, spec.pattern)
+	}
+	for idx, entry := range allMasked {
+		if len(entry) == 0 {
+			t.Fatalf("masked entry %d is empty", idx)
+		}
+		for i := range len(entry) {
+			if entry[i] < 0x80 {
+				t.Fatalf("masked entry %d byte %d = 0x%02x (< 0x80)", idx, i, entry[i])
+			}
+		}
+	}
+
+	if credPrivBegin == nil || credAWS == nil || credRefreshVal == nil || string(credExample) != awsExample {
+		t.Fatalf("initCredPatterns left nil/mismatched globals: priv=%v aws=%v refresh=%v example=%q",
+			credPrivBegin != nil, credAWS != nil, credRefreshVal != nil, string(credExample))
+	}
+	assertCredTextPatternMatches(t)
+}
+
+func assertCredTextPatternMatches(t *testing.T) {
+	t.Helper()
+	cases := []struct {
+		kind string
+		hit  string
+		miss string
+	}{
+		{kind: "github-token", hit: ghSample, miss: "gh" + "o_short"},
+		{kind: "github-pat", hit: "git" + "hub_pat_" + strings.Repeat("A", 32), miss: "git" + "hub_pat_short"},
+		{kind: "private-key", hit: "-----" + "BEGIN RSA " + "PRIVATE " + "KEY-----", miss: "BEGIN PUBLIC KEY"},
+		{kind: "anthropic-key", hit: "sk-" + "ant-" + strings.Repeat("a", 24), miss: "sk-" + "ant-short"},
+		{kind: "openai-key", hit: "sk-" + "proj-" + strings.Repeat("b", 24), miss: "sk-" + "proj-short"},
+		{kind: "refresh-token", hit: `"` + "ref" + "resh_" + "tok" + `en"`, miss: `"access_label"`},
+		{kind: "google-access-token", hit: "ya" + "29." + strings.Repeat("c", 24), miss: "ya" + "29.short"},
+		{kind: "google-api-key", hit: "AI" + "za" + strings.Repeat("d", 35), miss: "AI" + "za" + strings.Repeat("d", 10)},
+		{kind: "gitlab-token", hit: "gl" + "pat-" + strings.Repeat("e", 24), miss: "gl" + "pat-short"},
+	}
+	if len(credText) != len(cases) {
+		t.Fatalf("credText len = %d, want %d", len(credText), len(cases))
+	}
+	for i, tc := range cases {
+		p := credText[i]
+		if p.kind != tc.kind {
+			t.Fatalf("credText[%d].kind = %q, want %q", i, p.kind, tc.kind)
+		}
+		if !p.re.MatchString(tc.hit) || p.re.MatchString(tc.miss) {
+			t.Errorf("%s match mismatch: hit=%v miss=%v", p.kind, p.re.MatchString(tc.hit), p.re.MatchString(tc.miss))
+		}
+	}
+	if !credAWS.MatchString(awsKey) || credAWS.MatchString("AK"+"IA"+"SHORT") {
+		t.Errorf("credAWS match mismatch")
+	}
+	if !credRefreshVal.MatchString(`: "opaque-value"`) || credRefreshVal.MatchString("no-colon") {
+		t.Errorf("credRefreshVal match mismatch")
+	}
+}

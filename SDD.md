@@ -46,7 +46,7 @@ flowchart LR
 Executable fitness tests (`TestPackageLayeringAndSQLiteConfinement`) lock five structural boundaries across every Go package.
 
 - **Single external dependency:** `modernc.org/sqlite` is the only direct third-party dependency in `go.mod`, confined to `internal/sqliteutil` (R4).
-- **Zero-outbound leaves:** `.`, `internal/trail`, `internal/redact`, `internal/graph`, and `internal/webpreview` import zero internal packages.
+- **Zero-outbound leaves:** `.`, `internal/trail`, `internal/redact`, `internal/graph`, `internal/webpreview`, `internal/readledger`, `internal/isolate/acp`, and `internal/isolate/creds` import zero internal packages.
 - **Installer isolation:** `internal/harness` imports only root package `.` and never links SQLite (R4).
 - **One-way orchestration:** Domain packages never import orchestrators (`internal/auto`, `internal/dream`, `internal/gate`).
 - **Permanent vs derived stores:** `brain.db` and `metrics.db` migrate forward permanently; `search.db` is a rebuildable cache (R4).

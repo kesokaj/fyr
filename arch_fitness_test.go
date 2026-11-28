@@ -19,7 +19,16 @@ import (
 const fyrModulePath = "github.com/kesokaj/fyr"
 
 var (
-	leafPackages         = map[string]bool{".": true, "internal/trail": true, "internal/redact": true, "internal/graph": true, "internal/webpreview": true}
+	leafPackages = map[string]bool{
+		".":                      true,
+		"internal/trail":         true,
+		"internal/redact":        true,
+		"internal/graph":         true,
+		"internal/webpreview":    true,
+		"internal/readledger":    true,
+		"internal/isolate/acp":   true,
+		"internal/isolate/creds": true,
+	}
 	sqliteAllowlist      = map[string]bool{"internal/sqliteutil": true}
 	orchestratorPackages = map[string]bool{"internal/auto": true, "internal/dream": true, "internal/gate": true}
 )

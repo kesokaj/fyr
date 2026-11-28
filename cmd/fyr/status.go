@@ -82,6 +82,14 @@ func applyStatusLine(sum *statusSummary, line string) {
 }
 
 func status(src harness.Source, home string, out io.Writer) error {
+	return statusWithAutoLine(src, home, out, auto.StatusLine)
+}
+
+func statusAutoOptions(home string) auto.Options {
+	return auto.Options{Home: home, Ports: autoPorts(vocabulary())}
+}
+
+func statusWithAutoLine(src harness.Source, home string, out io.Writer, autoLine func(auto.Options) string) error {
 	repo := src.Dir
 	// Read first: the source line says when this home came from a zip, which
 	// the embedded files or a checkout beside it do not describe (ADR-038).
@@ -105,7 +113,7 @@ func status(src harness.Source, home string, out io.Writer) error {
 	binaryLines(home, repo, info, out)
 	retroLine(home, out)
 	fmt.Fprintln(out, "dream      "+dream.StatusLine(home))
-	fmt.Fprintln(out, "auto       "+auto.StatusLine(auto.Options{Home: home}))
+	fmt.Fprintln(out, "auto       "+autoLine(statusAutoOptions(home)))
 
 	inv, err := harness.LoadInventory(src)
 	if err != nil {
