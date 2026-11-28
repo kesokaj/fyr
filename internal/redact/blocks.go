@@ -8,10 +8,7 @@ import (
 // A key block opens at a PEM header, or at a header whose dashes a chat UI
 // rewrote, and closes at the matching footer. A footer followed on the same
 // line by another header keeps the block open (two keys concatenated).
-var (
-	blockClose = regexp.MustCompile(strings.Join([]string{"(?i)---", "--END[^-]*(---", "--)?|END[A-Z ]*PRI", "VATE KEY"}, ""))
-	blockLabel = regexp.MustCompile(`(?i)^BEGIN ([A-Z0-9][A-Z0-9 ]*[A-Z0-9])`)
-)
+var blockLabel = regexp.MustCompile(`(?i)^BEGIN ([A-Z0-9][A-Z0-9 ]*[A-Z0-9])`)
 
 // labelAt returns the label of the header that starts at s ("RSA PRIVATE
 // KEY"), or "" when the header names none.
@@ -27,6 +24,7 @@ func labelAt(s string) string {
 }
 
 func blockOpenStart(raw string, jsonl bool) (string, []int) {
+	ensureNeedles()
 	line := strings.TrimSuffix(raw, "\n")
 	if open := blockOpen.FindStringIndex(line); open != nil || !jsonl {
 		return line, open
@@ -36,6 +34,7 @@ func blockOpenStart(raw string, jsonl bool) (string, []int) {
 }
 
 func decodedBlockClose(raw string, first bool) (string, int, []int) {
+	ensureNeedles()
 	dec := decoded(strings.TrimSuffix(raw, "\n"))
 	off := 0
 	if first {
@@ -52,9 +51,24 @@ func decodedBlockClose(raw string, first bool) (string, int, []int) {
 	return dec, off, loc
 }
 
+func findBlockClose(cur string, off int, raw string, first, jsonl, isDecoded bool) (string, int, []int, bool) {
+	ensureNeedles()
+	if loc := blockClose.FindStringIndex(cur[off:]); loc != nil {
+		return cur, off, loc, isDecoded
+	}
+	if !jsonl || isDecoded {
+		return cur, off, nil, isDecoded
+	}
+	if dec, dOff, dLoc := decodedBlockClose(raw, first); dLoc != nil {
+		return dec, dOff, dLoc, true
+	}
+	return cur, off, nil, isDecoded
+}
+
 // blockEnd returns the index of the line that closes the key block opened on
 // line i, or the last non-empty line and false when nothing closes it.
 func blockEnd(lines []string, i int, jsonl bool) (int, bool) {
+	ensureNeedles()
 	openLine, open := blockOpenStart(lines[i], jsonl)
 	if open == nil {
 		return i, false
@@ -62,12 +76,8 @@ func blockEnd(lines []string, i int, jsonl bool) (int, bool) {
 	j, off, label := i, open[1], labelAt(openLine[open[0]:])
 	cur, isDecoded := openLine, openLine != strings.TrimSuffix(lines[i], "\n")
 	for j < len(lines) {
-		loc := blockClose.FindStringIndex(cur[off:])
-		if loc == nil && jsonl && !isDecoded {
-			if dec, dOff, dLoc := decodedBlockClose(lines[j], j == i); dLoc != nil {
-				cur, off, loc, isDecoded = dec, dOff, dLoc, true
-			}
-		}
+		var loc []int
+		cur, off, loc, isDecoded = findBlockClose(cur, off, lines[j], j == i, jsonl, isDecoded)
 		if loc == nil {
 			j++
 			if j < len(lines) {
@@ -98,6 +108,7 @@ func blockEnd(lines []string, i int, jsonl bool) (int, bool) {
 }
 
 func nextBlockOpen(cur string, after int, jsonl, isDecoded bool) (string, int, []int, bool) {
+	ensureNeedles()
 	if next := blockOpen.FindStringIndex(cur[after:]); next != nil {
 		return cur, after, next, isDecoded
 	}

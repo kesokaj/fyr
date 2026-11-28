@@ -28,6 +28,7 @@ var needleNearMiss = map[string]string{
 // audit: ten needles had no positive row, about fifteen no near-miss).
 func TestEveryNeedleHasAShapeAndANearMiss(t *testing.T) {
 	t.Parallel()
+	ensureNeedles()
 	needles := map[string]bool{}
 	for _, n := range prefixNeedles {
 		needles[n] = true
@@ -60,6 +61,7 @@ func TestEveryNeedleHasAShapeAndANearMiss(t *testing.T) {
 // needlesIn names every needle, prefix or keyword, that fires on s; needleIn
 // stops at the first.
 func needlesIn(s string) []string {
+	ensureNeedles()
 	var hit []string
 	for _, n := range prefixNeedles {
 		if strings.Contains(s, n) {

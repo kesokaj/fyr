@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -514,5 +516,53 @@ func TestRedactPEMCaseAndMultiBlock(t *testing.T) {
 	outMixed := RedactJSONL(mixedTail)
 	if strings.Contains(outMixed, "FAKEBODY") || !strings.Contains(outMixed, `"after"`) {
 		t.Errorf("mixed raw close + escaped second PEM leaked: %q", outMixed)
+	}
+}
+
+func TestEnsureNeedlesAndMaskedTable(t *testing.T) {
+	t.Parallel()
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ensureNeedles()
+			_ = len(prefixNeedles)
+			_ = beginNeedle
+			_ = blockOpen.String()
+			_ = blockClose.String()
+		}()
+	}
+	wg.Wait()
+
+	want := []string{
+		"---" + "--BEGIN", "PRI" + "VATE KEY", "AK" + "IA", "AS" + "IA", "AI" + "za", "ya" + "29.", "GOC" + "SPX-",
+		"gh" + "p_", "gh" + "o_", "gh" + "s_", "gh" + "u_", "gh" + "r_", "gith" + "ub_pat_",
+		"gl" + "pat-", "gl" + "dt-", "gl" + "rt-", "gl" + "ptt-",
+		"sk-" + "ant-", "sk-" + "proj-",
+		"whs" + "ec_", "pyp" + "i-AgEIcHlwaS5vcmc", "pyp" + "i-AgENdGVzdC5weXBpLm9yZw",
+		"sk-" + "svcacct-", "sk-" + "admin-", "sk-" + "None-",
+		"AGE-" + "SECR" + "ET-KEY-", "do" + "p_v1_", "do" + "o_v1_", "do" + "r_v1_",
+	}
+	if !slices.Equal(prefixNeedles, want) {
+		t.Fatalf("prefixNeedles (%d) = %q, want (%d) %q", len(prefixNeedles), prefixNeedles, len(want), want)
+	}
+	if beginNeedle != want[0] {
+		t.Errorf("beginNeedle = %q, want %q", beginNeedle, want[0])
+	}
+	wantOpen := "(?i)" + "---" + "--BEGIN|BEGIN[A-Z ]*PRI" + "VATE KEY"
+	if blockOpen == nil || blockOpen.String() != wantOpen {
+		t.Errorf("blockOpen = %v, want %q", blockOpen, wantOpen)
+	}
+	wantClose := "(?i)" + "---" + "--END[^-]*(" + "---" + "--)?|END[A-Z ]*PRI" + "VATE KEY"
+	if blockClose == nil || blockClose.String() != wantClose {
+		t.Errorf("blockClose = %v, want %q", blockClose, wantClose)
+	}
+	for _, entry := range append(slices.Clone(maskedPrefixNeedles), maskedBlockOpen, maskedBlockClose) {
+		for i := range len(entry) {
+			if entry[i] < 0x80 {
+				t.Errorf("masked byte 0x%02x in %x is printable ASCII; must be >= 0x80", entry[i], entry)
+			}
+		}
 	}
 }

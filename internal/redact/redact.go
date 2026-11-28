@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 const redactedValue = "[redacted by fyr]"
@@ -20,32 +21,63 @@ const redactedValue = "[redacted by fyr]"
 //
 // prefixNeedles are vendor token shapes, matched case-sensitively: they are
 // distinctive as written. Nothing shorter than a vendor's own prefix is
-// listed — a bare `sk-` would match every "task-". Assembled at init from
-// short pieces so compiled .rodata never packs adjacent vendor prefixes into a
-// credential-shaped run (BUG-538).
+// listed — a bare `sk-` would match every "task-". Stored XORed with
+// needleMask (0xA5, turning every ASCII byte into >= 0x80) and decoded lazily
+// via sync.Once so compiled .rodata never holds printable vendor prefixes
+// regardless of Go linker string packing (BUG-538).
+const needleMask byte = 0xA5
+
 var (
+	needlesOnce   sync.Once
 	prefixNeedles []string
 	beginNeedle   string
 	blockOpen     *regexp.Regexp
+	blockClose    *regexp.Regexp
 )
 
-func init() {
-	for _, parts := range [][]string{
-		{"---", "--BE", "GIN"}, {"PRI", "VATE", " KEY"}, {"AK", "IA"}, {"AS", "IA"}, {"AI", "za"}, {"ya", "29."}, {"GOC", "SPX-"},
-		{"gh", "p_"}, {"gh", "o_"}, {"gh", "s_"}, {"gh", "u_"}, {"gh", "r_"}, {"git", "hub_", "pat_"},
-		{"gl", "pat-"}, {"gl", "dt-"}, {"gl", "rt-"}, {"gl", "ptt-"},
-		{"sk-", "ant", "-"}, {"sk-", "pro", "j-"},
-		// Stripe webhook secrets and PyPI tokens (security review 2026-09-30, f3);
-		// Stripe live/test keys stay in keywordNeedles (`sk_test_` sits in `task_test_`).
-		{"whs", "ec_"}, {"pypi-", "AgEIcH", "lwaS5vcmc"}, {"pypi-", "AgENdG", "VzdC5weXBpLm9yZw"},
-		{"sk-", "svca", "cct-"}, {"sk-", "adm", "in-"}, {"sk-", "Non", "e-"},
-		// An age key and DigitalOcean tokens (v1.14.0 gate, security f1).
-		{"AGE-", "SECRET-", "KEY-"}, {"do", "p_v", "1_"}, {"do", "o_v", "1_"}, {"do", "r_v", "1_"},
-	} {
-		prefixNeedles = append(prefixNeedles, strings.Join(parts, ""))
+var maskedPrefixNeedles = []string{
+	"\x88\x88\x88\x88\x88\xe7\xe0\xe2\xec\xeb", "\xf5\xf7\xec\xf3\xe4\xf1\xe0\x85\xee\xe0\xfc",
+	"\xe4\xee\xec\xe4", "\xe4\xf6\xec\xe4", "\xe4\xec\xdf\xc4", "\xdc\xc4\x97\x9c\x8b", "\xe2\xea\xe6\xf6\xf5\xfd\x88",
+	"\xc2\xcd\xd5\xfa", "\xc2\xcd\xca\xfa", "\xc2\xcd\xd6\xfa", "\xc2\xcd\xd0\xfa", "\xc2\xcd\xd7\xfa",
+	"\xc2\xcc\xd1\xcd\xd0\xc7\xfa\xd5\xc4\xd1\xfa",
+	"\xc2\xc9\xd5\xc4\xd1\x88", "\xc2\xc9\xc1\xd1\x88", "\xc2\xc9\xd7\xd1\x88", "\xc2\xc9\xd5\xd1\xd1\x88",
+	"\xd6\xce\x88\xc4\xcb\xd1\x88", "\xd6\xce\x88\xd5\xd7\xca\xcf\x88",
+	// Stripe webhook secrets and PyPI tokens (security review 2026-09-30, f3);
+	// Stripe live/test keys stay in keywordNeedles (`sk_test_` sits in `task_test_`).
+	"\xd2\xcd\xd6\xc0\xc6\xfa",
+	"\xd5\xdc\xd5\xcc\x88\xe4\xc2\xe0\xec\xc6\xed\xc9\xd2\xc4\xf6\x90\xd3\xc6\xc8\xc6",
+	"\xd5\xdc\xd5\xcc\x88\xe4\xc2\xe0\xeb\xc1\xe2\xf3\xdf\xc1\xe6\x90\xd2\xc0\xfd\xe7\xd5\xe9\xc8\x9c\xdc\xff\xd2",
+	"\xd6\xce\x88\xd6\xd3\xc6\xc4\xc6\xc6\xd1\x88", "\xd6\xce\x88\xc4\xc1\xc8\xcc\xcb\x88", "\xd6\xce\x88\xeb\xca\xcb\xc0\x88",
+	// An age key and DigitalOcean tokens (v1.14.0 gate, security f1).
+	"\xe4\xe2\xe0\x88\xf6\xe0\xe6\xf7\xe0\xf1\x88\xee\xe0\xfc\x88",
+	"\xc1\xca\xd5\xfa\xd3\x94\xfa", "\xc1\xca\xca\xfa\xd3\x94\xfa", "\xc1\xca\xd7\xfa\xd3\x94\xfa",
+}
+
+const (
+	maskedBlockOpen  = "\x8d\x9a\xcc\x8c\x88\x88\x88\x88\x88\xe7\xe0\xe2\xec\xeb\xd9\xe7\xe0\xe2\xec\xeb\xfe\xe4\x88\xff\x85\xf8\x8f\xf5\xf7\xec\xf3\xe4\xf1\xe0\x85\xee\xe0\xfc"
+	maskedBlockClose = "\x8d\x9a\xcc\x8c\x88\x88\x88\x88\x88\xe0\xeb\xe1\xfe\xfb\x88\xf8\x8f\x8d\x88\x88\x88\x88\x88\x8c\x9a\xd9\xe0\xeb\xe1\xfe\xe4\x88\xff\x85\xf8\x8f\xf5\xf7\xec\xf3\xe4\xf1\xe0\x85\xee\xe0\xfc"
+)
+
+func unmaskNeedle(masked string) string {
+	b := make([]byte, len(masked))
+	for i := range len(masked) {
+		b[i] = masked[i] ^ needleMask
 	}
-	beginNeedle = strings.Join([]string{"---", "--BE", "GIN"}, "")
-	blockOpen = regexp.MustCompile("(?i)" + strings.Join([]string{"---", "--BEGIN|BEGIN[A-Z ]*PRI", "VATE KEY"}, ""))
+	return string(b)
+}
+
+func ensureNeedles() {
+	needlesOnce.Do(initNeedles)
+}
+
+func initNeedles() {
+	prefixNeedles = make([]string, len(maskedPrefixNeedles))
+	for i, m := range maskedPrefixNeedles {
+		prefixNeedles[i] = unmaskNeedle(m)
+	}
+	beginNeedle = prefixNeedles[0]
+	blockOpen = regexp.MustCompile(unmaskNeedle(maskedBlockOpen))
+	blockClose = regexp.MustCompile(unmaskNeedle(maskedBlockClose))
 }
 
 // keywordNeedles are assignment and header shapes, matched without regard to
@@ -189,6 +221,7 @@ var keywordNeedles = []struct {
 }
 
 func needleIn(s string) (string, bool) {
+	ensureNeedles()
 	for _, n := range prefixNeedles {
 		if strings.Contains(s, n) {
 			return n, true
@@ -234,6 +267,7 @@ func marker(text string, jsonl bool) string {
 // survives, so no structure inside it — JSON values, keys, arrays — can carry
 // a secret past the rule (D13, which retired the per-value JSON walk).
 func redactLines(data []byte, jsonl bool) ([]byte, []redaction) {
+	ensureNeedles()
 	lines := strings.SplitAfter(string(data), "\n")
 	var out strings.Builder
 	var recs []redaction
