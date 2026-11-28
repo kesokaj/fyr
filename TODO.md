@@ -9,9 +9,9 @@
 
 **Phase 3 — Wave 3a: Pinch-Point Characterization Tests, `internal/sqliteutil`, `init()` Removal & CLI Split (`D1`, `D4`)** (`PLAN-2026-11-27-craft-cleanup`, `ADR-537`):
 - [x] Slice `w3a-sqliteutil-init`: extracted `internal/sqliteutil`, typed `search.ReadVetHistoryForIngest` (zero raw `vet_history` SQL in `metrics`), replaced `auto->isolate` `init()` with explicit `isolate.CapsuleDeps` (`da3fb281`, `2915d288`, `C1`, `C3`) (`who: AI`)
-- [ ] Slice `w3a-char-tests`: package char tests + `TestEvalGate`/`TestKickoffGuard*` splits landed (`b03ac226`); remaining: split `workflows_test.go` + update `areas.md` (`D8`, `D9`) (`who: AI`)
-- [ ] Slice `w3a-cli-verbs`: all 8 prod `cmd/fyr` `init()`s removed via lazy `allVerbs()` (`d3cfc2de`); remaining: replace `ctx` God Struct with `runtimeCtx` + per-verb opts, split `fyr search` into `search`/`hook`/`ast`/`vet` with `v9.x` shims (`D1`), mark `D4` deprecations, update `hooks.json` & regenerate `docs/cli-reference.md` (`C4`, `A4`) (`who: AI`)
-- [ ] Checkpoint (Phase 3): gate & land Sub-wave 3a-2 sequentially, tighten `arch_fitness_test.go` allowlists (0 `init()` in `cmd/fyr` & `internal/auto`), run `fyr verify`, update `TODO.md`, commit & push (`who: AI`)
+- [x] Slice `w3a-char-tests`: package char tests + `TestEvalGate`/`TestKickoffGuard*` (`b03ac226`) and 4-file `workflows_test.go` split + `areas.md` (`5b090c4c`, `D8`, `D9`) (`who: AI`)
+- [ ] Slice `w3a-cli-verbs`: all 8 prod `cmd/fyr` `init()`s removed (`d3cfc2de`) and all 50+ per-verb flag fields migrated off `runtimeCtx` into per-verb option structs + `verb.writesState` (`1a3715d3`, `7aefe58c`, `69d5f1fa`); remaining: drop 1-line `type ctx = runtimeCtx` alias across 9 trivial files + cache `c.opts` nil fallback in `recordOptsOf`/`reportOptsOf`, implement `ADR-537` D1 (`fyr hook`/`ast`/`vet` + `v9.x` `fyr search` shims + `hooks.json`), mark `D4` deprecations, regenerate `docs/cli-reference.md`, sync `SDD.md`/`TDD.md` (`C4`, `A4`) (`who: AI`)
+- [ ] Checkpoint (Phase 3): gate & land remaining `w3a-cli-*` slices sequentially, tighten `arch_fitness_test.go` allowlists (0 `init()` in `cmd/fyr` & `internal/auto`, `dupHelperCeilingTable`, `sqliteAllowlist`), run `fyr verify`, update `TODO.md`, commit & push (`who: AI`)
 
 ## Next
 
