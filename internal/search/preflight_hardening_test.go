@@ -161,6 +161,7 @@ func TestKickoffGuardHeadlessNoEscapeAndSubagentWorkerHint(t *testing.T) {
 }
 
 func TestReadLedgerBashStrictSedAndPipeFilterAllowlists(t *testing.T) {
+	t.Parallel()
 	mustIgnore := []string{
 		"sed -n -e '1,10p' -e'1w out.txt' a.go",
 		"sed -n -e '1,10p' -e'1e ls' a.go",
@@ -196,6 +197,7 @@ func TestReadLedgerBashStrictSedAndPipeFilterAllowlists(t *testing.T) {
 }
 
 func TestInferSliceVerifyRejectsUnsafePathsAndSetsSubtaskTrust(t *testing.T) {
+	t.Parallel()
 	if got := vet.InferSliceVerify("builder", []string{"scripts/a;rm -rf /.sh"}); got != "" {
 		t.Errorf("unsafe .sh verify = %q, want empty", got)
 	}

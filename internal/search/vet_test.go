@@ -16,6 +16,7 @@ import (
 var fenceBoundaryRe = regexp.MustCompile(`^=====[0-9a-f]{18}=====$`)
 
 func TestFenceNewAndDataCollisionResistance(t *testing.T) {
+	t.Parallel()
 	f := New("sample payload")
 	if !fenceBoundaryRe.MatchString(f.String()) {
 		t.Fatalf("Fence.String() = %q, want =====<18-hex>=====", f.String())
@@ -42,6 +43,7 @@ func TestFenceNewAndDataCollisionResistance(t *testing.T) {
 }
 
 func TestClassifyIntentAllNineModes(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		prompt     string
 		symbolHits int
@@ -93,6 +95,7 @@ func TestClassifyIntentAllNineModes(t *testing.T) {
 }
 
 func TestVetPromptGatesAndBypasses(t *testing.T) {
+	t.Parallel()
 	// 1. PASS_THROUGH for approvals, trivial edits, /slash commands, and ! prefix.
 	for _, p := range []string{
 		"go all approved",
@@ -233,6 +236,7 @@ func TestVetPromptGatesAndBypasses(t *testing.T) {
 }
 
 func TestMatchSkillsDigestCapAndSecuritySubagent(t *testing.T) {
+	t.Parallel()
 	longDigest := strings.Repeat("x", 900)
 	custom := []SkillMeta{
 		{Name: "golang", Path: "skills/golang/SKILL.md", Digest: longDigest},
@@ -279,6 +283,7 @@ func TestMatchSkillsDigestCapAndSecuritySubagent(t *testing.T) {
 }
 
 func TestMatchSkillsFrontendSlateUIRouting(t *testing.T) {
+	t.Parallel()
 	cat := loadInstalledRepoSkillCatalog(t)
 	// Positive: Angular / SlateUI / uiButton / provideSlateUiTheme / .component.ts outranks generic typescript under IntentFeature.
 	featSkills, _ := MatchSkills(
@@ -450,6 +455,7 @@ func BenchmarkVetPrompt(b *testing.B) {
 }
 
 func TestMatchedRecordMemoryMetadata(t *testing.T) {
+	t.Parallel()
 	rec := MatchedRecord{
 		ID:         "MEMORY-test",
 		Kind:       "memory",
@@ -540,6 +546,7 @@ func extractTestFrontmatterDesc(text string) string {
 }
 
 func TestV910DynamicSkillPrefetch(t *testing.T) {
+	t.Parallel()
 	// 1. Nil or empty catalog MUST yield 0 phantom skills across all intents.
 	for _, intent := range []IntentMode{IntentTask, IntentBug, IntentFeature, IntentCorrection, IntentReview, IntentRelease} {
 		got, _ := MatchSkills("Fix Go auth JWT in service.go and terraform HCL", intent, []string{"service.go"}, nil)
@@ -647,6 +654,7 @@ func TestV910DynamicSkillPrefetch(t *testing.T) {
 }
 
 func TestV910VetFirstCalibration(t *testing.T) {
+	t.Parallel()
 	// 1. 10/10 clear natural-language engineering prompts must receive ENRICH_AND_PROCEED (not false VET_FIRST).
 	clearPrompts := []string{
 		"Add rate limiting to the HTTP middleware with 100 requests per minute per IP",
@@ -703,6 +711,7 @@ func TestV910VetFirstCalibration(t *testing.T) {
 }
 
 func TestV910CoordinatorNarrow(t *testing.T) {
+	t.Parallel()
 	singlePkgPrompts := []string{
 		"In internal/search/vet.go: (1) update EvaluateAnchors, (2) calibrate decideVetGate, (3) add unit tests in internal/search/vet_test.go",
 		"1. Add validation helper in internal/cfg/load.go 2. Wire defaults in internal/cfg/validate.go 3. Add tests in internal/cfg/load_test.go",
@@ -740,6 +749,7 @@ func TestV910CoordinatorNarrow(t *testing.T) {
 }
 
 func TestV910VetCoordinatorAndDynamicSkillPrefetch(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	writeFile(t, dir, "internal/alpha/alpha.go", "package alpha\n\nfunc AlphaWork() int { return 1 }\n")
 	writeFile(t, dir, "internal/alpha/helper.go", "package alpha\n\nfunc AlphaHelper() int { return 2 }\n")
@@ -824,6 +834,7 @@ func TestV910VetCoordinatorAndDynamicSkillPrefetch(t *testing.T) {
 }
 
 func TestV910NoSecretScannerFalsePositivesInVetSources(t *testing.T) {
+	t.Parallel()
 	paths := []string{
 		"vet.go",
 		"hook_coordinator.go",
@@ -847,6 +858,7 @@ func TestV910NoSecretScannerFalsePositivesInVetSources(t *testing.T) {
 }
 
 func TestFTSTurnCacheScopedPerStore(t *testing.T) {
+	t.Parallel()
 	s1 := &store{}
 	s2 := &store{}
 	want := []ftsChunkHit{{path: "internal/vet/vet.go", line: 10, heading: "vet"}}

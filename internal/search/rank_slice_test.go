@@ -12,6 +12,7 @@ import (
 )
 
 func TestPersonalizedPageRank(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 
@@ -81,6 +82,7 @@ func ActiveSessionHandler() error {
 }
 
 func TestBuildContextSliceAndBudget(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 
@@ -143,6 +145,7 @@ func HopTwoSecondLeaf() error {
 }
 
 func TestSearchFileSkeleton(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 
@@ -177,6 +180,7 @@ func (e *Engine) Run(limit int) error {
 }
 
 func TestFindSymbolPath(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 
@@ -215,6 +219,7 @@ func LeafTarget() error {
 }
 
 func TestFindAffected(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 
@@ -256,6 +261,7 @@ func TestDirectCaller(t *testing.T) {
 }
 
 func TestRepoMapSummary(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 
@@ -282,6 +288,7 @@ func BetaHelper() {}
 }
 
 func TestSearchMapNoFalseCycles(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 
@@ -322,6 +329,7 @@ func Helper() error {
 }
 
 func TestFindPackageCyclesMultiHop(t *testing.T) {
+	t.Parallel()
 	deps := map[string][]string{
 		"a": {"b"},
 		"b": {"a"},

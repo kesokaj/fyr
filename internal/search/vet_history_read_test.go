@@ -23,6 +23,7 @@ func openTestSQLiteDB(t *testing.T, stmts ...string) *sql.DB {
 }
 
 func TestReadVetHistoryForIngestMissingAndEmpty(t *testing.T) {
+	t.Parallel()
 	if rows, err := ReadVetHistoryForIngest(nil); err != nil || rows != nil {
 		t.Fatalf("nil db = (%v, %v), want (nil, nil)", rows, err)
 	}
@@ -43,6 +44,7 @@ func TestReadVetHistoryForIngestMissingAndEmpty(t *testing.T) {
 }
 
 func TestReadVetHistoryForIngestPreV10NineCols(t *testing.T) {
+	t.Parallel()
 	db := openTestSQLiteDB(t,
 		`CREATE TABLE vet_history(conversation_id TEXT, turn_num INT, intent TEXT, gate TEXT, score INT, raw_prompt TEXT, suggested_skills TEXT, pivot_files TEXT, created_at INT)`,
 		`INSERT INTO vet_history VALUES ('C1', 2, 'FIX', 'PROCEED', 85, 'fix bug', 'golang', 'a.go', 200)`,
@@ -71,6 +73,7 @@ func TestReadVetHistoryForIngestPreV10NineCols(t *testing.T) {
 }
 
 func TestReadVetHistoryForIngestV10Schema(t *testing.T) {
+	t.Parallel()
 	db := openTestSQLiteDB(t,
 		`CREATE TABLE vet_history(conversation_id TEXT, turn_num INT, intent TEXT, gate TEXT, score INT, raw_prompt TEXT, improved_prompt TEXT, present_anchors TEXT, missing_anchors TEXT, suggested_skills TEXT, pivot_files TEXT, subtask_count INT DEFAULT 0, directive TEXT DEFAULT '', created_at INT)`,
 		`INSERT INTO vet_history VALUES ('C10', 1, 'FEATURE', 'PROCEED', 92, 'build', '', '', '', 'fyr-feature', 'main.go', 3, 'PROCEED', 1700000100)`,
@@ -89,6 +92,7 @@ func TestReadVetHistoryForIngestV10Schema(t *testing.T) {
 }
 
 func TestReadVetHistoryForIngestV11V12AndOptionalCols(t *testing.T) {
+	t.Parallel()
 	// Standard v12 schema (without pivots_used_count / skills_loaded_count columns).
 	v12DB := openTestSQLiteDB(t,
 		schemaSQL,

@@ -16,6 +16,7 @@ func testRenderProcessArtifactForHome(home, convID, stage string, rows []VetHist
 }
 
 func TestRenderProcessArtifactEmojiFreeStructuredMarkdown(t *testing.T) {
+	t.Parallel()
 	emojiRe := regexp.MustCompile("[\U0001F300-\U0001FAFF\u2600-\u27BF]")
 	procMD := testRenderProcessArtifactForHome("", "conv-json", "Build", []VetHistoryRow{{
 		TurnNum: 1, Intent: IntentBug, Gate: GateEnrichAndProceed, Score: 88, SuggestedSkills: nil, PivotFiles: []string{"a.go"},
@@ -38,6 +39,7 @@ func TestRenderProcessArtifactEmojiFreeStructuredMarkdown(t *testing.T) {
 }
 
 func TestSafeBacktickTextFenceAndParseFenceHexToken(t *testing.T) {
+	t.Parallel()
 	if got := safeBacktickTextFence("hello\n```\nworld\n"); got != "````text\nhello\n```\nworld\n````" {
 		t.Errorf("safeBacktickTextFence upgraded fence = %q", got)
 	}
@@ -59,6 +61,7 @@ func TestSafeBacktickTextFenceAndParseFenceHexToken(t *testing.T) {
 }
 
 func TestRenderProcessArtifactModelCatalog(t *testing.T) {
+	t.Parallel()
 	// 1. Missing models.json renders role-family policy with zero hardcoded model IDs.
 	emptyHome := t.TempDir()
 	gotPolicy := testRenderProcessArtifactForHome(emptyHome, "conv-1", "2. Vet", nil, nil)
@@ -117,6 +120,7 @@ func TestRenderProcessArtifactModelCatalog(t *testing.T) {
 }
 
 func TestProcessArtifactSecurityHardening(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	// 1. Anchored brain directory refuses nested arbitrary /brain/<conv>/sub paths, empty home, and relative paths.
 	if isUnderBrainDirForHome(home, "relative/brain/conv-1") {
@@ -216,6 +220,7 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 }
 
 func TestHomeAnchoredBrainDirAndRejectsOutsideHome(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "brain", "conv-1")
 	if isUnderBrainDirForHome("", outside) {

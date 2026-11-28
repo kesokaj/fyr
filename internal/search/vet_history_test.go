@@ -14,6 +14,7 @@ import (
 )
 
 func TestVetHistoryTableAndHelpers(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
@@ -76,6 +77,7 @@ func TestVetHistoryTableAndHelpers(t *testing.T) {
 }
 
 func TestVetScoreAndCarryForward(t *testing.T) {
+	t.Parallel()
 	// 1. Full 100/100 score when all 6 anchors are present.
 	brainCtx := TurnBrainContext{
 		ADRs: []MatchedRecord{{ID: "ADR-511", Kind: "adr", Title: "Zero-daemon CLI hooks"}},
@@ -143,6 +145,7 @@ func TestVetScoreAndCarryForward(t *testing.T) {
 }
 
 func TestSynthesizeImprovedPromptAndStatefulHookTurn(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
@@ -252,6 +255,7 @@ func TestSynthesizeImprovedPromptAndStatefulHookTurn(t *testing.T) {
 }
 
 func TestBuildVetSliceFiltersUnconfidentShellFiles(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	// Add a shell fixture with 3-letter helper functions ("can", "see", "one") that used to leak into SliceResult.Files.
@@ -294,6 +298,7 @@ func TestBuildVetSliceFiltersUnconfidentShellFiles(t *testing.T) {
 }
 
 func TestMatchSkillsBashVsGolangAndDiagnosticMentions(t *testing.T) {
+	t.Parallel()
 	cat := loadInstalledRepoSkillCatalog(t)
 	// 1. Diagnostic mention ("loading the bash skill very often") suppresses bash.
 	skills1, sec1 := MatchSkills(
@@ -346,6 +351,7 @@ func TestMatchSkillsBashVsGolangAndDiagnosticMentions(t *testing.T) {
 }
 
 func TestMatchSkillsDocsSte100TriageAndBashWizard(t *testing.T) {
+	t.Parallel()
 	cat := loadInstalledRepoSkillCatalog(t)
 	// 1. docs-ste100-80 triggers on ASD-STE100, BLUF, and README/documentation authoring.
 	skillsAudit, _ := MatchSkills("Audit the documentation in README.md and SDD.md for BLUF and collapsible details", IntentTask, []string{"README.md", "SDD.md"}, cat)
@@ -381,6 +387,7 @@ func TestMatchSkillsDocsSte100TriageAndBashWizard(t *testing.T) {
 }
 
 func TestVetPromptClauseAndSecurityPrecision(t *testing.T) {
+	t.Parallel()
 	// 1. Mid-sentence "will actually", "can actually", "that actually", "to actually" must NOT classify as CORRECTION.
 	for _, p := range []string{
 		"Update VetPrompt so the agent will actually execute the task",
@@ -406,6 +413,7 @@ func TestVetPromptClauseAndSecurityPrecision(t *testing.T) {
 }
 
 func TestHookFyrProcessArtifact(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {

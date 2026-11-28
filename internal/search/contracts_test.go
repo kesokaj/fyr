@@ -9,6 +9,7 @@ import (
 )
 
 func TestContractsGoAndTSSignaturesByFileDirAndSymbol(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 
@@ -129,6 +130,7 @@ function internalFormat(x: string): string {
 }
 
 func TestContractsSpecSectionsFaultsTSVAndGuardrails(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "internal/pay/charge.go", "package pay\n\nfunc Charge(amount int) error { return nil }\n")
@@ -260,6 +262,7 @@ func TestContractsSpecSectionsFaultsTSVAndGuardrails(t *testing.T) {
 }
 
 func TestContractsBudgetUTF8SanitizationAndErrors(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "pkg/utf/mod.go", "package utf\n\nfunc ProcessUTF8(s string) string { return s }\n")
@@ -362,6 +365,7 @@ func TestContractsBudgetUTF8SanitizationAndErrors(t *testing.T) {
 }
 
 func TestContractsRootTargetAndEscapedPipeTable(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "pkg/root/api.go", "package root\n\nfunc ExportedRoot() error { return nil }\n")

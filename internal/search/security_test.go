@@ -12,6 +12,7 @@ import (
 // Findings of reviews/2026-09-29-security-search-index.md, one test each.
 
 func TestPathWithURISpecialCharacters(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	root := filepath.Join(parent, "q?mark#frag%20x")
 	if err := os.Rename(newRepo(t), root); err != nil {
@@ -41,6 +42,7 @@ func TestPathWithURISpecialCharacters(t *testing.T) {
 // repository, is not consent, and a clone of a registered checkout does not
 // carry its marker (ADR-068, ADR-086, SD19).
 func TestRegistersOnlyHarnessProjects(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	plain := newRepo(t)
 	writeFile(t, plain, "docs/guide.md", "# a pelican guide\n")
@@ -65,6 +67,7 @@ func TestRegistersOnlyHarnessProjects(t *testing.T) {
 }
 
 func TestHashesOddNamesItself(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, `"quoted.md`, "a lemming in quotes\n")
@@ -78,6 +81,7 @@ func TestHashesOddNamesItself(t *testing.T) {
 }
 
 func TestOutputStripsControlCharacters(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	writeFile(t, root, "notes/x.md", "# BUG-001: \x1b]0;pwned\x07title\n\nthe \x1b[31mbadger\x1b[0m escaped\n")
 	commitAll(t, root, "add")
@@ -94,6 +98,7 @@ func TestOutputStripsControlCharacters(t *testing.T) {
 }
 
 func TestGlobalDirIsPrivate(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	// --global creates the state directory itself; a registration would
@@ -109,6 +114,7 @@ func TestGlobalDirIsPrivate(t *testing.T) {
 }
 
 func TestSkipsSecretShapedFiles(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, ".env", "TOKEN=wolverine-secret\n")
@@ -123,6 +129,7 @@ func TestSkipsSecretShapedFiles(t *testing.T) {
 // Round 2 of the security review.
 
 func TestGlobalDropsCheckoutWithoutTrail(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := trailRepo(t)
 	writeFile(t, root, "docs/evil.md", "an ocelot planted in docs\n")
@@ -138,6 +145,7 @@ func TestGlobalDropsCheckoutWithoutTrail(t *testing.T) {
 }
 
 func TestHintAndNotesArePrintable(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "a\x1b[31mb/z.go", "package x\n")
@@ -163,6 +171,7 @@ func TestHintAndNotesArePrintable(t *testing.T) {
 }
 
 func TestSkipsMoreSecretNames(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	writeFile(t, root, ".git-credentials", "https://u:caracal@example.invalid\n")
 	writeFile(t, root, ".aws/credentials", "caracal key\n")
@@ -182,6 +191,7 @@ func TestSkipsMoreSecretNames(t *testing.T) {
 // Round 3 of the security review.
 
 func TestRegistrationKeptWhenCheckErrors(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root reads a mode-000 directory; the check cannot fail here")
 	}
@@ -212,6 +222,7 @@ func TestRegistrationKeptWhenCheckErrors(t *testing.T) {
 }
 
 func TestRebuiltNoteIsPrintable(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	root := filepath.Join(parent, "esc\x1b[2Jrepo")
 	if err := os.Rename(newRepo(t), root); err != nil {
@@ -243,6 +254,7 @@ func TestDropReasonIgnoresLocale(t *testing.T) {
 // Security review of aae16af..f41e5c0.
 
 func TestRefuseSymlinkedDatabase(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"search.db", "search.db-wal", "search.db-shm"} {
 		root := newRepo(t)
 		// An EMPTY target: SQLite accepts an empty file as a new database, so
@@ -284,6 +296,7 @@ func TestRefuseSymlinkedDatabase(t *testing.T) {
 }
 
 func TestDatabaseIsPrivate(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"demo"}})
@@ -312,6 +325,7 @@ func TestDatabaseIsPrivate(t *testing.T) {
 // the working tree misparsed, the old path read as an entry with three
 // characters cut off, which could point outside the checkout.
 func TestWorktreeRenameStaysInsideCheckout(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	outside := filepath.Join(filepath.Dir(root), "x")
@@ -343,6 +357,7 @@ func TestWorktreeRenameStaysInsideCheckout(t *testing.T) {
 // skip-worktree whose parent directory becomes a symlink was read through
 // the link, outside the checkout.
 func TestReadsNeverLeaveCheckout(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ bit, link string }{
 		{"--skip-worktree", "absolute"},
 		{"--assume-unchanged", "relative"}, // the shape the security check measured

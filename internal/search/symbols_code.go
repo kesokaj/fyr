@@ -80,19 +80,39 @@ func findInterfaceImplementers(iface symbolRow, req []symbolRow, recvMethods map
 	return out
 }
 
-var goPredeclared = map[string]bool{}
-var stdlibOnlyMethods = map[string]bool{}
+func searchWordSet(words string) map[string]bool {
+	fields := strings.Fields(words)
+	out := make(map[string]bool, len(fields))
+	for _, w := range fields {
+		out[w] = true
+	}
+	return out
+}
 
-func init() {
-	for _, w := range strings.Fields("bool byte comparable complex64 complex128 error float32 float64 int int8 int16 int32 int64 rune string uint uint8 uint16 uint32 uint64 uintptr any true false iota nil append cap clear close complex copy delete imag len make max min new panic print println real recover _") {
-		goPredeclared[w] = true
-	}
-	for _, m := range strings.Fields("Scan QueryRow QueryRowContext Exec ExecContext Prepare Next Err CombinedOutput Output WriteString WriteByte ReadByte FindString FindStringSubmatch FindAllString FindAllStringSubmatch MatchString ReplaceAllString SubexpNames Truncate Unix UnixNano UnixMilli Milliseconds Seconds Minutes Hours AfterFunc Chdir SetMaxOpenConns Lstat Chmod Chtimes MkdirAll ReadFile WriteFile OpenFile ReadDir EvalSymlinks IsRegular Perm Fatal Fatalf Errorf Helper TempDir Cleanup Skip") {
-		stdlibOnlyMethods[m] = true
-	}
-	for _, w := range strings.Fields("if for while switch catch function return typeof instanceof new import export super console Math JSON Object Array Promise String Number Boolean Error Map Set Date RegExp parseInt parseFloat print len range str int float bool list dict set tuple isinstance getattr setattr") {
-		codeSkip[w] = true
-	}
+var goPredeclared = map[string]bool{
+	"bool": true, "byte": true, "comparable": true, "complex64": true, "complex128": true,
+	"error": true, "float32": true, "float64": true, "int": true, "int8": true,
+	"int16": true, "int32": true, "int64": true, "rune": true, "string": true,
+	"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true,
+	"uintptr": true, "any": true, "true": true, "false": true, "iota": true, "nil": true,
+	"append": true, "cap": true, "clear": true, "close": true, "complex": true,
+	"copy": true, "delete": true, "imag": true, "len": true, "make": true,
+	"max": true, "min": true, "new": true, "panic": true, "print": true,
+	"println": true, "real": true, "recover": true, "_": true,
+}
+
+var stdlibOnlyMethods = map[string]bool{
+	"Scan": true, "QueryRow": true, "QueryRowContext": true, "Exec": true, "ExecContext": true,
+	"Prepare": true, "Next": true, "Err": true, "CombinedOutput": true, "Output": true,
+	"WriteString": true, "WriteByte": true, "ReadByte": true, "FindString": true,
+	"FindStringSubmatch": true, "FindAllString": true, "FindAllStringSubmatch": true,
+	"MatchString": true, "ReplaceAllString": true, "SubexpNames": true, "Truncate": true,
+	"Unix": true, "UnixNano": true, "UnixMilli": true, "Milliseconds": true,
+	"Seconds": true, "Minutes": true, "Hours": true, "AfterFunc": true, "Chdir": true,
+	"SetMaxOpenConns": true, "Lstat": true, "Chmod": true, "Chtimes": true, "MkdirAll": true,
+	"ReadFile": true, "WriteFile": true, "OpenFile": true, "ReadDir": true, "EvalSymlinks": true,
+	"IsRegular": true, "Perm": true, "Fatal": true, "Fatalf": true, "Errorf": true,
+	"Helper": true, "TempDir": true, "Cleanup": true, "Skip": true,
 }
 
 func isGoPredeclared(name string) bool    { return goPredeclared[name] }
@@ -122,43 +142,72 @@ var (
 	tsDeclRe     = regexp.MustCompile(`^\s*(export\s+)?(?:default\s+)?(?:async\s+)?(function|class|interface|type|const)\s+([A-Za-z_$][A-Za-z0-9_$]*)`)
 	pyDeclRe     = regexp.MustCompile(`^(\s*)(?:async\s+)?(def|class)\s+([A-Za-z_][A-Za-z0-9_]*)`)
 	shDeclRe     = regexp.MustCompile(`^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_-]*)\s*(?:\(\s*\))?\s*\{?|([A-Za-z_][A-Za-z0-9_-]*)\s*\(\s*\)\s*\{)`)
-	codeSkip     = map[string]bool{}
+	codeSkip     = map[string]bool{
+		"if": true, "for": true, "while": true, "switch": true, "catch": true,
+		"function": true, "return": true, "typeof": true, "instanceof": true, "new": true,
+		"import": true, "export": true, "super": true, "console": true, "Math": true,
+		"JSON": true, "Object": true, "Array": true, "Promise": true, "String": true,
+		"Number": true, "Boolean": true, "Error": true, "Map": true, "Set": true,
+		"Date": true, "RegExp": true, "parseInt": true, "parseFloat": true, "print": true,
+		"len": true, "range": true, "str": true, "int": true, "float": true, "bool": true,
+		"list": true, "dict": true, "set": true, "tuple": true, "isinstance": true,
+		"getattr": true, "setattr": true,
+	}
 )
 
+func parseGoFallbackFuncLine(trim, pkgName string, lineNum int) (symbolRow, []symRefRow, string, bool) {
+	m := goFuncLineRe.FindStringSubmatch(trim)
+	if m == nil {
+		return symbolRow{}, nil, "", false
+	}
+	recv, name := m[1], m[2]
+	kind, curSym := "func", name
+	if recv != "" {
+		kind, curSym = "method", recv+"."+name
+	}
+	sy := symbolRow{
+		name: name, recv: recv, kind: kind, pkg: pkgName,
+		startLine: lineNum, endLine: lineNum, sig: strings.TrimSuffix(trim, "{"),
+		exported: boolInt(ast.IsExported(name)), bodyHash: hashString(trim),
+	}
+	var refs []symRefRow
+	if _, body, ok := strings.Cut(trim, "{"); ok && body != "" {
+		refs = scanLineCalls(body, curSym, lineNum, goPredeclared)
+	}
+	return sy, refs, curSym, true
+}
+
+func parseGoFallbackTypeLine(trim, pkgName string, lineNum int) (symbolRow, string, bool) {
+	m := goTypeLineRe.FindStringSubmatch(trim)
+	if m == nil {
+		return symbolRow{}, "", false
+	}
+	name, kind := m[1], m[2]
+	if kind != "struct" && kind != "interface" {
+		kind = "type"
+	}
+	sy := symbolRow{
+		name: name, kind: kind, pkg: pkgName, startLine: lineNum, endLine: lineNum,
+		sig: "type " + name + " " + kind, exported: boolInt(ast.IsExported(name)), bodyHash: hashString(trim),
+	}
+	return sy, name, true
+}
+
 func parseGoFallback(text, pkgName string) ([]symbolRow, []symRefRow) {
-	lines := splitLines(text)
 	var syms []symbolRow
 	var refs []symRefRow
 	curSym := ""
-	for i, l := range lines {
+	for i, l := range splitLines(text) {
 		trim := strings.TrimSpace(l)
-		if m := goFuncLineRe.FindStringSubmatch(trim); m != nil {
-			recv, name := m[1], m[2]
-			kind := "func"
-			curSym = name
-			if recv != "" {
-				kind, curSym = "method", recv+"."+name
-			}
-			syms = append(syms, symbolRow{
-				name: name, recv: recv, kind: kind, pkg: pkgName,
-				startLine: i + 1, endLine: i + 1, sig: strings.TrimSuffix(trim, "{"),
-				exported: boolInt(ast.IsExported(name)), bodyHash: hashString(trim),
-			})
-			if _, body, ok := strings.Cut(trim, "{"); ok && body != "" {
-				refs = append(refs, scanLineCalls(body, curSym, i+1, goPredeclared)...)
-			}
+		if sy, lineRefs, sym, ok := parseGoFallbackFuncLine(trim, pkgName, i+1); ok {
+			curSym = sym
+			syms = append(syms, sy)
+			refs = append(refs, lineRefs...)
 			continue
 		}
-		if m := goTypeLineRe.FindStringSubmatch(trim); m != nil {
-			name, kind := m[1], m[2]
-			if kind != "struct" && kind != "interface" {
-				kind = "type"
-			}
-			curSym = name
-			syms = append(syms, symbolRow{
-				name: name, kind: kind, pkg: pkgName, startLine: i + 1, endLine: i + 1,
-				sig: "type " + name + " " + kind, exported: boolInt(ast.IsExported(name)), bodyHash: hashString(trim),
-			})
+		if sy, sym, ok := parseGoFallbackTypeLine(trim, pkgName, i+1); ok {
+			curSym = sym
+			syms = append(syms, sy)
 			continue
 		}
 		if curSym != "" {

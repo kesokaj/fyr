@@ -134,6 +134,7 @@ func simulateFullChainReads(root string, chainFiles []string) string {
 }
 
 func TestSliceVsGrepTokenEfficiencyAndRecall(t *testing.T) {
+	t.Parallel()
 	root, files := seedMultiHopBenchmarkRepo(t)
 	home := t.TempDir()
 

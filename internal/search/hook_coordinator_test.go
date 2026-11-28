@@ -12,6 +12,7 @@ import (
 )
 
 func TestPreToolWriteCoordinatorGuard(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	writeFile(t, dir, "internal/alpha/alpha.go", "package alpha\n\nfunc AlphaWork() int { return 1 }\n")
 	writeFile(t, dir, "internal/beta/beta.go", "package beta\n\nfunc BetaWork() int { return 2 }\n")

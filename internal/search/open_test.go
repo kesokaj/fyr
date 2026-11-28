@@ -14,6 +14,7 @@ import (
 )
 
 func TestRefuseOutsideCheckout(t *testing.T) {
+	t.Parallel()
 	_, err := runSearch(t, Options{Dir: t.TempDir(), Words: []string{"x"}})
 	if err == nil || err.Error() != "search: not inside a git checkout; use grep" {
 		t.Errorf("got %v", err)
@@ -21,6 +22,7 @@ func TestRefuseOutsideCheckout(t *testing.T) {
 }
 
 func TestRefuseNotIgnored(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	writeFile(t, root, ".gitignore", "")
 	commitAll(t, root, "unignore")
@@ -34,6 +36,7 @@ func TestRefuseNotIgnored(t *testing.T) {
 }
 
 func TestRefuseSymlinkedScratch(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	elsewhere := t.TempDir()
 	os.MkdirAll(filepath.Join(root, ".agents"), 0o755)
@@ -113,6 +116,7 @@ func TestHelperIndex(t *testing.T) {
 }
 
 func TestConcurrentReconcile(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	for i := 0; i < 200; i++ {
@@ -143,6 +147,7 @@ func TestConcurrentReconcile(t *testing.T) {
 }
 
 func TestArgumentErrors(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	for _, o := range []Options{
 		{Dir: root, Words: []string{"x"}, Limit: 51},

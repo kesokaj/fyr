@@ -122,7 +122,7 @@ func TestPreInvocationParallelSliceAndSubDeadlineDegradation(t *testing.T) {
 			Home:         home,
 			Hook:         "pre-invocation",
 			HookIn:       bytes.NewReader(inJSON),
-			hookDeadline: 200 * time.Millisecond,
+			hookDeadline: defaultHookDeadline,
 			BrainRefsForDir: func(d, target string) []LinkedRecord {
 				enteredOnce.Do(func() {
 					defer close(sliceDone)
@@ -518,7 +518,7 @@ func runV910BrainSubDeadlineAndTimeoutT(t *testing.T) {
 	var out bytes.Buffer
 	err := Search(Options{
 		Dir: dir, Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(inJSON),
-		hookDeadline: 200 * time.Millisecond,
+		hookDeadline: defaultHookDeadline,
 		BrainTurnContext: func(d, h, p string, files []string) TurnBrainContext {
 			<-releaseBrain
 			return TurnBrainContext{}

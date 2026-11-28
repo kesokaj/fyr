@@ -7,6 +7,7 @@ import (
 )
 
 func TestSplitIdentTokens(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name              string
 		path, head, body  string
@@ -51,6 +52,7 @@ func TestSplitIdentTokens(t *testing.T) {
 }
 
 func TestSearchCamelCaseTokensAndMatchOffsetFallback(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "internal/harness/inventory.go", strings.Join([]string{
@@ -78,6 +80,7 @@ func TestSearchCamelCaseTokensAndMatchOffsetFallback(t *testing.T) {
 }
 
 func TestDistinctTermFileRerankingAcrossChunks(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 
@@ -117,6 +120,7 @@ func TestDistinctTermFileRerankingAcrossChunks(t *testing.T) {
 }
 
 func TestStopWordFilteringAndFallback(t *testing.T) {
+	t.Parallel()
 	got := filterQueryWords([]string{"where", "are", "the", "x", "knownTools", "and"})
 	if len(got) != 1 || got[0] != "knownTools" {
 		t.Fatalf("filterQueryWords = %v, want [knownTools]", got)
@@ -143,6 +147,7 @@ func TestStopWordFilteringAndFallback(t *testing.T) {
 }
 
 func TestBatchedSnippetsAndSchemaV9RefsOID(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	for i := 1; i <= 5; i++ {
@@ -177,6 +182,7 @@ func TestBatchedSnippetsAndSchemaV9RefsOID(t *testing.T) {
 }
 
 func TestPrepareQueryTermsPreservesCompositeIdentStopTokens(t *testing.T) {
+	t.Parallel()
 	got := prepareQueryTerms([]string{"no_hooks", "to_pkg"})
 	want := []string{"no", "hooks", "to", "pkg"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
@@ -198,6 +204,7 @@ func TestPrepareQueryTermsPreservesCompositeIdentStopTokens(t *testing.T) {
 }
 
 func TestDistinctTermKindFilterBeyond400OtherChunks(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	for i := 0; i < 420; i++ {

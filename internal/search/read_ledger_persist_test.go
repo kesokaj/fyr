@@ -13,6 +13,7 @@ import (
 )
 
 func TestReadLedgerPersistenceEditAndExternalCheckout(t *testing.T) {
+	t.Parallel()
 	runReadHook := func(dir, home, convID string, args map[string]any) HookDecisionOutput {
 		t.Helper()
 		req, _ := json.Marshal(map[string]any{

@@ -7,6 +7,7 @@ import (
 )
 
 func TestProtoFieldsPaths(t *testing.T) {
+	t.Parallel()
 	usage := append(append(pbVarint(2, 23949), pbVarint(3, 1497)...), pbVarint(5, 20398)...)
 	msg := append(append(pb(19, []byte("gemini-3.8-flash")), pb(7, usage)...), pbVarint(1, 42)...)
 
@@ -31,6 +32,7 @@ func TestProtoFieldsPaths(t *testing.T) {
 }
 
 func TestProtoFieldsRejectsGarbage(t *testing.T) {
+	t.Parallel()
 	if f := ProtoFields([]byte{0x0a, 0xff}); f != nil {
 		t.Fatalf("truncated message decoded: %v", f)
 	}

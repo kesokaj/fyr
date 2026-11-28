@@ -56,48 +56,89 @@ func extractTypeExprRefs(fset *token.FileSet, node ast.Node, fromSym string, imp
 	return refs
 }
 
+type exprRefCollector struct {
+	fset       *token.FileSet
+	fromSym    string
+	imports    map[string]string
+	locals     map[string]bool
+	stdlibVars map[string]bool
+	skipSel    map[*ast.SelectorExpr]bool
+	refs       []symRefRow
+}
+
+func (c *exprRefCollector) visit(n ast.Node) bool {
+	switch x := n.(type) {
+	case *ast.CallExpr:
+		c.visitCall(x)
+	case *ast.CompositeLit:
+		c.refs = append(c.refs, extractTypeExprRefs(c.fset, x.Type, c.fromSym, c.imports)...)
+	case *ast.KeyValueExpr:
+		c.addIdentRef(x.Value)
+	case *ast.SelectorExpr:
+		c.visitSelector(x)
+	}
+	return true
+}
+
+func (c *exprRefCollector) visitCall(x *ast.CallExpr) {
+	if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
+		if c.skipSel == nil {
+			c.skipSel = map[*ast.SelectorExpr]bool{}
+		}
+		c.skipSel[sel] = true
+	}
+	if r, ok := callTarget(c.fset, x.Fun, c.fromSym, c.imports, c.locals, c.stdlibVars); ok {
+		c.refs = append(c.refs, r)
+	}
+	for _, arg := range x.Args {
+		c.addIdentRef(arg)
+	}
+}
+
+func (c *exprRefCollector) addIdentRef(expr ast.Expr) {
+	id, ok := expr.(*ast.Ident)
+	if !ok || c.locals[id.Name] || isGoPredeclared(id.Name) {
+		return
+	}
+	c.refs = append(c.refs, symRefRow{
+		fromSym: c.fromSym, toName: id.Name, kind: "call",
+		confidence: ConfidenceExtracted, weight: WeightExtracted,
+		line: c.fset.Position(id.Pos()).Line,
+	})
+}
+
+func (c *exprRefCollector) visitSelector(x *ast.SelectorExpr) {
+	if c.skipSel[x] {
+		return
+	}
+	id, ok := x.X.(*ast.Ident)
+	if !ok {
+		return
+	}
+	imp, isImp := c.imports[id.Name]
+	if !isImp || isStdlibImport(imp) {
+		return
+	}
+	c.refs = append(c.refs, symRefRow{
+		fromSym: c.fromSym, toPkg: imp, toName: x.Sel.Name, kind: "call",
+		confidence: ConfidenceExtracted, weight: WeightExtracted,
+		line: c.fset.Position(x.Sel.Pos()).Line,
+	})
+}
+
 func extractExprRefs(fset *token.FileSet, node ast.Node, fromSym string, imports map[string]string, locals, stdlibVars map[string]bool) []symRefRow {
 	if node == nil {
 		return nil
 	}
-	var refs []symRefRow
-	var skipSel map[*ast.SelectorExpr]bool
-	ast.Inspect(node, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.CallExpr:
-			if sel, ok := x.Fun.(*ast.SelectorExpr); ok {
-				if skipSel == nil {
-					skipSel = map[*ast.SelectorExpr]bool{}
-				}
-				skipSel[sel] = true
-			}
-			if r, ok := callTarget(fset, x.Fun, fromSym, imports, locals, stdlibVars); ok {
-				refs = append(refs, r)
-			}
-			for _, arg := range x.Args {
-				if id, ok := arg.(*ast.Ident); ok && !locals[id.Name] && !isGoPredeclared(id.Name) {
-					refs = append(refs, symRefRow{fromSym: fromSym, toName: id.Name, kind: "call", confidence: ConfidenceExtracted, weight: WeightExtracted, line: fset.Position(id.Pos()).Line})
-				}
-			}
-		case *ast.CompositeLit:
-			refs = append(refs, extractTypeExprRefs(fset, x.Type, fromSym, imports)...)
-		case *ast.KeyValueExpr:
-			if id, ok := x.Value.(*ast.Ident); ok && !locals[id.Name] && !isGoPredeclared(id.Name) {
-				refs = append(refs, symRefRow{fromSym: fromSym, toName: id.Name, kind: "call", confidence: ConfidenceExtracted, weight: WeightExtracted, line: fset.Position(id.Pos()).Line})
-			}
-		case *ast.SelectorExpr:
-			if skipSel[x] {
-				return true
-			}
-			if id, ok := x.X.(*ast.Ident); ok {
-				if imp, isImp := imports[id.Name]; isImp && !isStdlibImport(imp) {
-					refs = append(refs, symRefRow{fromSym: fromSym, toPkg: imp, toName: x.Sel.Name, kind: "call", confidence: ConfidenceExtracted, weight: WeightExtracted, line: fset.Position(x.Sel.Pos()).Line})
-				}
-			}
-		}
-		return true
-	})
-	return refs
+	c := exprRefCollector{
+		fset:       fset,
+		fromSym:    fromSym,
+		imports:    imports,
+		locals:     locals,
+		stdlibVars: stdlibVars,
+	}
+	ast.Inspect(node, c.visit)
+	return c.refs
 }
 
 func matchImplicitInterfaces(syms []symbolRow) []symRefRow {

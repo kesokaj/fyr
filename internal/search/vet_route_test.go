@@ -9,6 +9,7 @@ import (
 )
 
 func TestVetRoutesIntentToFeature(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		prompt string
@@ -311,6 +312,7 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 }
 
 func TestReadOnlyAndMultiPackageLookupSkipsDecomposeAndKeepsSliceRoute(t *testing.T) {
+	t.Parallel()
 	// (a) Read-only multi-package lookup with "do not edit" and phase/wave prose must not decompose
 	// into COORDINATE_SUBTASKS / /fyr-swarm and must keep "fyr search --slice".
 	readOnlyPrompt := "Find all callers and references of BannerFormatter.Format across internal/greet and internal/format in this repository: run fyr search --affected or --slice first (never grep), state each caller's path:start-end (Symbol) citation, and state which fyr command picks a live model for a builder role and which fyr workflow runs 2+ independent phases in waves. Do not edit any file and do not ask me anything."
@@ -369,6 +371,7 @@ func TestReadOnlyAndMultiPackageLookupSkipsDecomposeAndKeepsSliceRoute(t *testin
 }
 
 func TestRouteFeatureSkipsSwarmOnDiagnosticPrompts(t *testing.T) {
+	t.Parallel()
 	multiPkgSlice := SliceResult{
 		Files:      []string{"internal/search/hook_pre_invocation.go", "internal/brain/store.go", "cmd/fyr/verb_search_hook.go"},
 		SymbolHits: 3,

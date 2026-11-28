@@ -11,6 +11,7 @@ import (
 )
 
 func TestChunkMarkdownHeadingsAndWindows(t *testing.T) {
+	t.Parallel()
 	text := "# Top\nintro\n```sh\n# not a heading\n```\n## Second\n" + strings.Repeat("line\n", 85)
 	cs := chunkText("x.md", text)
 	if len(cs) != 4 {
@@ -26,6 +27,7 @@ func TestChunkMarkdownHeadingsAndWindows(t *testing.T) {
 }
 
 func TestRefsIDsAndPaths(t *testing.T) {
+	t.Parallel()
 	rs := parseRefs("see BUG-049 and ADR-033a in `internal/harness/repo.go:12-30`.\nalso ./cmd/x/main.go, plans/x.md and a/internal/y.go; not BUG-49\n")
 	want := map[string]int{"BUG-049": 1, "ADR-033a": 1, "internal/harness/repo.go": 1, "cmd/x/main.go": 2, "plans/x.md": 2, "internal/y.go": 2}
 	got := map[string]int{}
@@ -43,6 +45,7 @@ func TestRefsIDsAndPaths(t *testing.T) {
 }
 
 func TestSearchRanksAndCaps(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	var many strings.Builder
@@ -85,6 +88,7 @@ func TestSearchRanksAndCaps(t *testing.T) {
 }
 
 func TestSearchOperatorCharactersAreLiteral(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "x.md", "BUG-049 and a.go and NOT a keyword\n")
@@ -100,6 +104,7 @@ func TestSearchOperatorCharactersAreLiteral(t *testing.T) {
 }
 
 func TestRefs(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "notes/decisions.md", "# Decisions\n\nsupersedes ADR-040\nand ADR-040 again\n")
@@ -144,6 +149,7 @@ func TestRefs(t *testing.T) {
 // parseRefs skips lines that cannot hold a reference before it runs its
 // regular expressions; the result must be what the expressions alone give.
 func TestRefsPrefilterIsEquivalent(t *testing.T) {
+	t.Parallel()
 	text := strings.Join([]string{
 		"only an id: ADR-033a",
 		"only a bug: BUG-049.",
@@ -192,6 +198,7 @@ func TestRefsPrefilterIsEquivalent(t *testing.T) {
 // line), and counted twice against --limit and the per-file cap (audit of
 // 2026-09-30, SD2).
 func TestNoDuplicateHitAcrossRounds(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "notes.md", "# notes\nline two\nline three\nline four\nzebra quokka here now\n")
@@ -206,6 +213,7 @@ func TestNoDuplicateHitAcrossRounds(t *testing.T) {
 }
 
 func TestExtractGoSymbolsAndImplicitInterfaces(t *testing.T) {
+	t.Parallel()
 	src := `package demo
 
 import (
@@ -306,6 +314,7 @@ func runTask(task string) error {
 }
 
 func TestExtractCodeAndMarkdownDocRefs(t *testing.T) {
+	t.Parallel()
 	tsSyms, tsRefs := extractSymbolsAndRefs("web/app.ts", "export async function fetchUser(id: string) {\n  return parseUser(id)\n}\n")
 	if len(tsSyms) != 1 || tsSyms[0].name != "fetchUser" || tsSyms[0].exported != 1 || len(tsRefs) != 1 || tsRefs[0].toName != "parseUser" {
 		t.Errorf("TS extraction: syms=%+v refs=%+v", tsSyms, tsRefs)
@@ -343,6 +352,7 @@ func TestExtractCodeAndMarkdownDocRefs(t *testing.T) {
 }
 
 func TestFyrGoCallerResolution(t *testing.T) {
+	t.Parallel()
 	declared := map[string]bool{}
 	var allRefs []symRefRow
 	for _, rootDir := range []string{"../../cmd", "../../internal"} {

@@ -11,6 +11,7 @@ import (
 )
 
 func TestPreInvocationEmitsImprovedPromptAndSkillDigests(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	writeFile(t, dir, "internal/alpha/alpha.go", "package alpha\n\nfunc AlphaWork() int { return 1 }\n")
 	writeFile(t, dir, "internal/beta/beta.go", "package beta\n\nfunc BetaWork() int { return 2 }\n")
@@ -157,6 +158,7 @@ func TestPreInvocationEmitsImprovedPromptAndSkillDigests(t *testing.T) {
 }
 
 func TestPreInvocationPassThroughEmptyZeroToken(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {

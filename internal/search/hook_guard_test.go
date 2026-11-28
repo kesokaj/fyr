@@ -15,6 +15,7 @@ import (
 )
 
 func TestStripSandboxPreamble(t *testing.T) {
+	t.Parallel()
 	preamble := "The project root is the current directory, /tmp/sb/app; ignore any other checkout. This is a print-mode run (`agy -p`): the turn's end is the run's end. "
 	cases := []struct {
 		name string
@@ -57,6 +58,7 @@ func TestStripSandboxPreamble(t *testing.T) {
 }
 
 func TestCheckTurnOrMidTurn(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
@@ -201,6 +203,7 @@ func TestSD59PureGoIgnoreCommonDirAndIndexChecks(t *testing.T) {
 }
 
 func TestAutonomousWaiverAndRunSlash(t *testing.T) {
+	t.Parallel()
 	// 1. "Run /init-project ..." is classified as FEATURE and gets PASS_THROUGH when no ADR conflict exists.
 	slashRes := VetPrompt("Run /init-project in this repository. Do not ask me anything.", "", SliceResult{}, TurnBrainContext{})
 	if slashRes.Intent != IntentFeature || slashRes.Gate != GatePassThrough {
@@ -226,6 +229,7 @@ func TestAutonomousWaiverAndRunSlash(t *testing.T) {
 }
 
 func TestHooksDisabledMarker(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	marker := filepath.Join(dir, ".agents", "scratch", "no-hooks")
@@ -259,6 +263,7 @@ func TestHooksDisabledMarker(t *testing.T) {
 }
 
 func TestHookInputNormalizationAndProjectDirResolution(t *testing.T) {
+	t.Parallel()
 	raw := []byte(`{
 		"artifact_directory_path": "/home/dev/.gemini/antigravity-cli/brain/conv-from-artifact",
 		"tool_call": {
@@ -392,6 +397,7 @@ func TestValidateCommonDirForRootRejectsUnregisteredCommonDir(t *testing.T) {
 }
 
 func TestResolveGitWorktreeDir(t *testing.T) {
+	t.Parallel()
 	t.Run("regular dotgit dir", func(t *testing.T) {
 		root := t.TempDir()
 		dotGit := filepath.Join(root, ".git")
@@ -476,6 +482,7 @@ func testCheckTurnOrMidTurnInput(dir string, in HookInput, rawPrompt string) (Se
 }
 
 func TestAdvanceOrSkipTurnConsecutiveIdenticalPromptVsF002MidTurn(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	prompt := "continue"
 	// Turn 1: inv 1, initialNumSteps=4, stepIdx=4 (fresh user turn).
@@ -503,6 +510,7 @@ func TestAdvanceOrSkipTurnConsecutiveIdenticalPromptVsF002MidTurn(t *testing.T) 
 }
 
 func TestScanTranscriptCheckpointTailJumpPartialLineAndStrictJSON(t *testing.T) {
+	t.Parallel()
 	// 1. Tail-scan jump landing mid-line right before a fake CHECKPOINT JSON object must NOT trigger.
 	tr1 := filepath.Join(t.TempDir(), "tail.jsonl")
 	fakeTail := `{"type":"CHECKPOINT"}` + "\n" + `{"type":"assistant","text":"ok"}` + "\n"
@@ -566,6 +574,7 @@ func TestScanTranscriptCheckpointTailJumpPartialLineAndStrictJSON(t *testing.T) 
 }
 
 func TestDetectDirtyPathsFastNonRegularAndAlreadyDeletedOrOversized(t *testing.T) {
+	t.Parallel()
 	dir, home := setupHookRepo(t), t.TempDir()
 	writeFile(t, dir, "gone.go", "package sample\nfunc Gone() {}\n")
 	writeFile(t, dir, "symmed.go", "package sample\nfunc Symmed() {}\n")
@@ -674,6 +683,7 @@ func TestRelayPostToolUseNotBypassedByGlobalNoHooks(t *testing.T) {
 }
 
 func TestGitCtxAndBrainTurnContextCtxCancellation(t *testing.T) {
+	t.Parallel()
 	dir, home := setupHookRepo(t), t.TempDir()
 	cctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -771,6 +781,7 @@ func TestRelayBashPreservesGitTerminalPromptOverwriteWithNoHooks(t *testing.T) {
 }
 
 func TestBrainTurnContextCtxUsedAcrossHookPaths(t *testing.T) {
+	t.Parallel()
 	dir, home := setupHookRepo(t), t.TempDir()
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
 		t.Fatalf("Index: %v", err)
@@ -830,6 +841,7 @@ func TestBrainTurnContextCtxUsedAcrossHookPaths(t *testing.T) {
 }
 
 func TestZeroIndexedInvocationNumAndBypassedSkillDigests(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	prompt := "fix ReconcileProjectIndex in service.go"
 

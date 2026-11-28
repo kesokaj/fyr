@@ -12,6 +12,7 @@ import (
 // workspace elsewhere, a remote or unparsable one included; another project's, a sibling with root's name as a
 // prefix, a non-file URI and bad JSON are left out unnamed (ledger item 77).
 func TestWorkspacesJudge(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	nested := filepath.Join(root, "vendor", "nested")
 	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {

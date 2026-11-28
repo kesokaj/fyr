@@ -46,6 +46,7 @@ func initGitGoRepoForHooks(t *testing.T) string {
 }
 
 func TestSessionStartCapsuleAndSizeCap(t *testing.T) {
+	t.Parallel()
 	dir := initGitGoRepoForHooks(t)
 	home := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "PLAN.md"), []byte("# PLAN — demo\n\n### Phase 2b — Hook events and routing\n- [x] Done step\n- [ ] Pending step\n"), 0o600); err != nil {
@@ -137,6 +138,7 @@ func TestSessionStartCapsuleAndSizeCap(t *testing.T) {
 }
 
 func TestStopHookVerifyStampLifecycle(t *testing.T) {
+	t.Parallel()
 	runStop := func(t *testing.T, home, dir string, extra map[string]any) HookDecisionOutput {
 		t.Helper()
 		payload := map[string]any{
@@ -283,6 +285,7 @@ func TestComputeGoTreeStateNonGitIgnoresCwdIndex(t *testing.T) {
 }
 
 func TestGitIndexSafetyGuards(t *testing.T) {
+	t.Parallel()
 	hdr := make([]byte, 12)
 	copy(hdr[0:4], "DIRC")
 	binary.BigEndian.PutUint32(hdr[4:8], 2)
@@ -314,6 +317,7 @@ func TestGitIndexSafetyGuards(t *testing.T) {
 }
 
 func TestSessionStartCapsuleUTF8AndClosedFence(t *testing.T) {
+	t.Parallel()
 	c := sessionStartCapsule{
 		Surface: "SESSION_START",
 		Date:    "2026-11-15",
@@ -341,6 +345,7 @@ func TestSessionStartCapsuleUTF8AndClosedFence(t *testing.T) {
 }
 
 func TestSessionStartReftableBranch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runGit := func(args ...string) string {
 		t.Helper()
@@ -433,6 +438,7 @@ func TestSessionStartReftableBranch(t *testing.T) {
 }
 
 func TestSessionStartDailyAlertAndFailOpen(t *testing.T) {
+	t.Parallel()
 	dir := initGitGoRepoForHooks(t)
 	home := t.TempDir()
 	digestPath := filepath.Join(home, harness.StateDir, "reports", "latest-daily-digest.json")
@@ -522,6 +528,7 @@ func TestSessionStartDailyAlertAndFailOpen(t *testing.T) {
 }
 
 func TestSessionStartReadBoundedTextSymlinkSizeAndRedact(t *testing.T) {
+	t.Parallel()
 	dir := initGitGoRepoForHooks(t)
 	home := t.TempDir()
 	outside := t.TempDir()

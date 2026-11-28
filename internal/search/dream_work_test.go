@@ -16,6 +16,7 @@ import (
 // written and through a symlink while the root is the resolved checkout
 // (D15): the stored workspace is the resolved form either way.
 func TestDreamWorkNotAProjectsConversation(t *testing.T) {
+	t.Parallel()
 	home := newRepo(t)
 	link := filepath.Join(t.TempDir(), "home")
 	if err := os.Symlink(home, link); err != nil {

@@ -47,6 +47,7 @@ func setupHookRepo(t *testing.T) string {
 }
 
 func TestRunHookPreInvocationCapsuleAndPreseed(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	// Pre-warm index so we also measure warm hook latency (< 50 ms).
@@ -148,6 +149,7 @@ func TestRunHookPreInvocationCapsuleAndPreseed(t *testing.T) {
 }
 
 func TestRunHookPreInvocationConfidenceGate(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
@@ -181,6 +183,7 @@ func TestRunHookPreInvocationConfidenceGate(t *testing.T) {
 }
 
 func TestRunHookPreInvocationCompactionReprimeAndKneeWarning(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	transcript := filepath.Join(t.TempDir(), "transcript.jsonl")
@@ -301,6 +304,7 @@ func assertKneeBanner(t *testing.T, msg string, b PreInvocationBanner, wantSub s
 }
 
 func TestRunHookPreInvocationPerModelKnee(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	transcript := filepath.Join(t.TempDir(), "transcript.jsonl")
@@ -317,6 +321,7 @@ func TestRunHookPreInvocationPerModelKnee(t *testing.T) {
 }
 
 func TestRunHookPreInvocationKneeOverridesAndFallback(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	if err := models.SaveCatalog(home, models.Catalog{
@@ -377,6 +382,7 @@ func seedGenMetadataModelT(t *testing.T, dbPath, model string) {
 }
 
 func TestRunHookPreInvocationDirtyFastPath(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
@@ -411,6 +417,7 @@ func TestRunHookPreInvocationDirtyFastPath(t *testing.T) {
 }
 
 func TestRunHookPreInvocationStoreDegradationFailOpen(t *testing.T) {
+	t.Parallel()
 	brokenDir := t.TempDir()
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(brokenDir, ".agents"), 0o755); err != nil {
@@ -481,6 +488,7 @@ func TestRunHookPreInvocationStoreDegradationFailOpen(t *testing.T) {
 }
 
 func TestRunHookPreInvocationAutoInitsUnindexedDir(t *testing.T) {
+	t.Parallel()
 	rawDir, home := t.TempDir(), t.TempDir()
 	writeFile(t, rawDir, "service.go", hookSampleServiceSrc)
 	for i := 0; i < 20; i++ {
@@ -540,6 +548,7 @@ func TestRunHookPreInvocationAutoInitsUnindexedDir(t *testing.T) {
 }
 
 func TestRunHookPreToolUseAndStop(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 
@@ -619,6 +628,7 @@ func TestRunHookPreToolUseAndStop(t *testing.T) {
 }
 
 func TestRunHookPreInvocationFenceAndTurnContract(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
@@ -698,6 +708,7 @@ func invokePreToolBashT(t *testing.T, dir, home, convID, cmd string) HookDecisio
 }
 
 func TestRunHookPreToolBashChainClamping(t *testing.T) {
+	t.Parallel()
 	dir, home := setupHookRepo(t), t.TempDir()
 	var big strings.Builder
 	big.WriteString("package sub\n\n")
@@ -726,6 +737,7 @@ func TestRunHookPreToolBashChainClamping(t *testing.T) {
 }
 
 func TestRunHookPreToolBashChainDedupAndBypass(t *testing.T) {
+	t.Parallel()
 	dir, home := setupHookRepo(t), t.TempDir()
 	writeFile(t, dir, "sub/a.go", "package sub\n\nfunc Alpha() int { return 1 }\n")
 	writeFile(t, dir, "sub/b.go", "package sub\n\nfunc Beta() int { return 2 }\n")
@@ -758,6 +770,7 @@ func TestRunHookPreToolBashChainDedupAndBypass(t *testing.T) {
 }
 
 func TestRunHookPreToolBashHonorsArgsCwdNoHooks(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	otherDir := setupHookRepo(t)
 	home := t.TempDir()

@@ -3,6 +3,7 @@ package search
 import "testing"
 
 func TestIsExcludedASTPathVendoredSkills(t *testing.T) {
+	t.Parallel()
 	excluded := []string{
 		"skills/frontend-slate-ui/references/components/button.ts",
 		"././skills/frontend-slate-ui/references/components/button.ts",

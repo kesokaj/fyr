@@ -10,6 +10,7 @@ import (
 )
 
 func TestReconcileBranchSwitch(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	gitT(t, root, "switch", "-q", "-c", "feature")
@@ -41,6 +42,7 @@ func TestReconcileBranchSwitch(t *testing.T) {
 }
 
 func TestReconcileDirtyAndUntracked(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"demo"}})
@@ -61,6 +63,7 @@ func TestReconcileDirtyAndUntracked(t *testing.T) {
 }
 
 func TestReconcileDeletedFileLeaves(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "gone.md", "a narwhal was here\n")
@@ -73,6 +76,7 @@ func TestReconcileDeletedFileLeaves(t *testing.T) {
 }
 
 func TestReconcileStagedRename(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "old.md", "the axolotl note\n")
@@ -91,6 +95,7 @@ func TestReconcileStagedRename(t *testing.T) {
 }
 
 func TestReconcileSkipsBinaryLargeSymlinkSubmodule(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "bin.dat", "okapi\x00binary")
@@ -113,6 +118,7 @@ func TestReconcileSkipsBinaryLargeSymlinkSubmodule(t *testing.T) {
 }
 
 func TestReconcileGC(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "a.md", "old gazelle calling `openStore`\n")
@@ -154,6 +160,7 @@ func TestReconcileGC(t *testing.T) {
 }
 
 func TestFTSFollowsGC(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "a.md", "unique wombatword\n")
@@ -174,6 +181,7 @@ func TestFTSFollowsGC(t *testing.T) {
 }
 
 func TestSameContentTwoPaths(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "one/x.md", "shared tapir text\n")
@@ -191,6 +199,7 @@ func TestSameContentTwoPaths(t *testing.T) {
 }
 
 func TestOpenRebuildsCorruptAndOldSchema(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, ".agents/scratch/search.db", "this is not a database, just text that is long enough to be read as a header")
@@ -210,6 +219,7 @@ func TestOpenRebuildsCorruptAndOldSchema(t *testing.T) {
 }
 
 func TestReconcilePopulatesSymbolsAndSymRefs(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "pkg/svc.go", "package pkg\n\ntype Runner interface {\n\tRun(name string) error\n}\n\ntype Worker struct{}\n\nfunc (w *Worker) Run(name string) error {\n\treturn helper(name)\n}\n\nfunc helper(s string) error {\n\treturn nil\n}\n")
@@ -288,6 +298,7 @@ func BenchmarkWarmApply(b *testing.B) {
 }
 
 func TestRefsOIDIndexAndBatchedLinkedRecords(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "a.go", "package main\n// see BUG-101\nfunc A() {}\n")

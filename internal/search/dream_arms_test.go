@@ -38,6 +38,7 @@ func summaries(t *testing.T, home, schema string, stmts ...string) {
 // The conversation list that cannot be copied, read or scanned fails the
 // call, and the temporary copies go with it.
 func TestAgyConversationListErrors(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name  string
 		setup func(t *testing.T, home string)
@@ -71,6 +72,7 @@ func TestAgyConversationListErrors(t *testing.T) {
 // walk refuses a message whose varint, 64-bit or 32-bit field runs past its
 // end, and steps over a whole 64-bit or 32-bit field to the prose after it.
 func TestWalkFixedAndVarintFields(t *testing.T) {
+	t.Parallel()
 	text := []byte("the operator asked for a smaller split")
 	fixed32 := append(binary.AppendUvarint(nil, 1<<3|5), 0, 0, 0, 0)
 	fixed64 := append(binary.AppendUvarint(nil, 1<<3|1), 0, 0, 0, 0, 0, 0, 0, 0)

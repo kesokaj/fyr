@@ -55,6 +55,7 @@ func seedLegacyV9SearchDB(t *testing.T, dbPath string) {
 }
 
 func TestSchemaV10InPlaceUpgrade(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "pkg/svc.go", "package pkg\n\nfunc Run() error {\n\treturn nil\n}\n")
@@ -147,6 +148,7 @@ func assertSchemaV10ToV11PreservesIndexes(t *testing.T) {
 }
 
 func TestPhase1SchemaV11ToV12Migration(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	dbPath := projectDB(root)
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
@@ -231,6 +233,7 @@ func assertSchemaBelowV9Rebuilds(t *testing.T) {
 }
 
 func TestClampRowSurvivesEdit(t *testing.T) {
+	t.Parallel()
 	dir, home := setupHookRepo(t), t.TempDir()
 	var buf strings.Builder
 	buf.WriteString("package big\n")
@@ -274,6 +277,7 @@ func TestClampRowSurvivesEdit(t *testing.T) {
 }
 
 func TestCanonicalPackageNoMainCollision(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "go.mod", "module example.com/multi\n\ngo 1.24\n")
@@ -302,6 +306,7 @@ func TestCanonicalPackageNoMainCollision(t *testing.T) {
 }
 
 func TestGoAliasAndNoPhantomEdges(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "go.mod", "module github.com/acme/proj\n\ngo 1.24\n")
@@ -366,6 +371,7 @@ func assertNoStdlibOrModlessTailPhantom(t *testing.T) {
 }
 
 func TestTSImportsAndConstSuppression(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "web/lib/util.ts", "export const PUBLIC_LIMIT = 10\nconst internalLimit = 5\nexport function formatItem(v: string): string { return v }\n")
@@ -393,6 +399,7 @@ func TestTSImportsAndConstSuppression(t *testing.T) {
 }
 
 func TestIncludeDocsExclusion(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "internal/core/svc.go", "package core\n\nfunc ExecuteCore() error { return nil }\n")
@@ -433,6 +440,7 @@ func TestIncludeDocsExclusion(t *testing.T) {
 }
 
 func TestLoadGoModulesIgnoresExcludedAndSymlinks(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	outside := t.TempDir()

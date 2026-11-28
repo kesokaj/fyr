@@ -14,6 +14,7 @@ import (
 // an opt-out (the marker deleted), and a home whose key is gone, which
 // unregisters every checkout at once (ADR-068, ADR-068a, audit-choices D3).
 func TestGlobalDropsUnregisteredRow(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		unreg func(t *testing.T, home, root string)

@@ -46,6 +46,7 @@ func runPreToolHookInDir(t *testing.T, home, dir, modelName, toolName string, ar
 }
 
 func TestPreToolUseSubagentAutoUpgradeAndSwarmModelFill(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	// 1. Guarded subagent on fast session model with omitted Model -> allow + overwrite Model="pro" preserving all args.
 	dec := runPreToolHookForTest(t, home, "gemini-3.8-flash-medium", "invoke_subagent", map[string]any{
@@ -160,6 +161,7 @@ func TestPreToolUseSubagentAutoUpgradeAndSwarmModelFill(t *testing.T) {
 }
 
 func TestPreInvocationModelSuggestorSessionDedupAndOrchestratorQuiet(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
@@ -211,6 +213,7 @@ func TestPreInvocationModelSuggestorSessionDedupAndOrchestratorQuiet(t *testing.
 }
 
 func TestInferSwarmRoleAndEffortWeight(t *testing.T) {
+	t.Parallel()
 	roleCases := []struct {
 		name  string
 		brief string
@@ -235,6 +238,7 @@ func TestInferSwarmRoleAndEffortWeight(t *testing.T) {
 }
 
 func TestPreToolUseRunWorkflowGuard(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	fastModel := "gemini-3.8-flash-medium"
 	proModel := "gemini-4-carbon-high"

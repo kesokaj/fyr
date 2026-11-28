@@ -93,6 +93,7 @@ func seedWatchdogSummaryDB(t *testing.T, home string) {
 }
 
 func TestWatchdogCircuitBreaker(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	writeFile(t, dir, "a.go", "package main\n\nfunc a() {}\n")
@@ -332,6 +333,7 @@ func TestWatchdogCircuitBreaker(t *testing.T) {
 }
 
 func TestInteractiveBashGuard(t *testing.T) {
+	t.Parallel()
 	denies := []string{
 		"git commit", "git commit -a", "git commit --amend",
 		"git rebase -i HEAD~2", "git rebase --interactive main", "git rebase -Xtheirs -i",
@@ -482,6 +484,7 @@ func TestRelayBashGuardPushAndTag(t *testing.T) {
 }
 
 func TestLookupWatchdogSummaryRoleROAndSymlinkReject(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	seedWatchdogSummaryDB(t, home)
 
@@ -522,6 +525,7 @@ func TestLookupWatchdogSummaryRoleROAndSymlinkReject(t *testing.T) {
 }
 
 func TestIsAuditSubagentRoleClassification(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		role      string
 		wantAudit bool

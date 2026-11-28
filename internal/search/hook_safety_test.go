@@ -106,6 +106,7 @@ func TestHookHardDeadlineFallsBackToAllow(t *testing.T) {
 }
 
 func TestGlobalNoHooksSwitch(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	stateDir := filepath.Join(home, harness.StateDir)
@@ -193,6 +194,7 @@ func TestGlobalNoHooksSwitch(t *testing.T) {
 }
 
 func TestNaturalLanguagePromptGetsPivotsViaFTSFallback(t *testing.T) {
+	t.Parallel()
 	dir, home := setupHookRepo(t), t.TempDir()
 	writeFile(t, dir, "internal/events/outbound.go", `package events
 
@@ -269,6 +271,7 @@ func TestEnsureHookGitCheckoutRefusesHomeWithoutGit(t *testing.T) {
 }
 
 func TestUnwrapEnvOrExec(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		kind string

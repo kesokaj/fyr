@@ -9,6 +9,7 @@ import (
 )
 
 func TestReadLedgerClampsEndLineAtByteLimit(t *testing.T) {
+	t.Parallel()
 	dir, home := setupHookRepo(t), t.TempDir()
 	// 250 lines x 232 bytes = 58,000 bytes (> 46,080 B, <= 800 lines): lines 1..198 = 45,936 B.
 	var big strings.Builder
@@ -198,6 +199,7 @@ func TestReadLedgerClampsEndLineAtByteLimit(t *testing.T) {
 }
 
 func TestUnrangedReadOf600LineFileDeniedWithSkeletonAndRangedRetryAllowed(t *testing.T) {
+	t.Parallel()
 	dir, home := setupHookRepo(t), t.TempDir()
 
 	var goSrc strings.Builder
@@ -299,6 +301,7 @@ func TestUnrangedReadOf600LineFileDeniedWithSkeletonAndRangedRetryAllowed(t *tes
 }
 
 func TestPreToolUseReadReusesStoreAndRecordsAtomicWatchdog(t *testing.T) {
+	t.Parallel()
 	dir, home := setupHookRepo(t), t.TempDir()
 	var large strings.Builder
 	large.WriteString("package sample\n\n")

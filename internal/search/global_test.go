@@ -25,6 +25,7 @@ func globalHome(t *testing.T) string {
 // the old stores reach the brain store by `fyr record import --global` alone
 // (ADR-087), and the global index holds no file.
 func TestGlobalReadsNoConfigFile(t *testing.T) {
+	t.Parallel()
 	home := globalHome(t)
 	dir := trailRepo(t)
 	for _, in := range []string{t.TempDir(), dir} {
@@ -45,6 +46,7 @@ func TestGlobalReadsNoConfigFile(t *testing.T) {
 
 // A first run that is --global registers its own registered checkout too.
 func TestGlobalRunRegistersItsCheckout(t *testing.T) {
+	t.Parallel()
 	home := globalHome(t)
 	c := trailRepo(t)
 	markRegistered(t, home, c)
@@ -55,6 +57,7 @@ func TestGlobalRunRegistersItsCheckout(t *testing.T) {
 }
 
 func TestGlobalDropsVanishedProject(t *testing.T) {
+	t.Parallel()
 	home := globalHome(t)
 	a := trailRepo(t)
 	markRegistered(t, home, a)
@@ -73,6 +76,7 @@ func TestGlobalDropsVanishedProject(t *testing.T) {
 }
 
 func TestGlobalRebuildDropsRegistry(t *testing.T) {
+	t.Parallel()
 	home := globalHome(t)
 	a := trailRepo(t)
 	markRegistered(t, home, a)

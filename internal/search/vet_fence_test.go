@@ -313,6 +313,7 @@ func parseStructuredLedgerNotice(t *testing.T, wantStatus, raw string) LedgerNot
 }
 
 func TestBuildTurnEnvelopeCompactStatusAndBanner(t *testing.T) {
+	t.Parallel()
 	brainCtx := TurnBrainContext{
 		Memories: []MatchedRecord{
 			{ID: "MEMORY-airy-ux", Kind: "memory", Title: "Short airy replies", Provenance: "operator", Body: "Lead with a short summary."},
@@ -374,6 +375,7 @@ func TestBuildTurnEnvelopeCompactStatusAndBanner(t *testing.T) {
 }
 
 func TestBuildTurnEnvelopeNoSkillsAndVetFirstTips(t *testing.T) {
+	t.Parallel()
 	res := VetResult{
 		Intent:         IntentFeature,
 		Gate:           GateVetFirst,
@@ -428,6 +430,7 @@ func TestBuildTurnEnvelopeNoSkillsAndVetFirstTips(t *testing.T) {
 }
 
 func TestZeroEmojisAndStructuredTelemetrySurfaces(t *testing.T) {
+	t.Parallel()
 	emojiRe := regexp.MustCompile("[\U0001F300-\U0001FAFF\u2600-\u27BF]")
 
 	// 1. PreInvocation degraded banner: nil score, STORE_DEGRADED gate, text fence, zero emojis.
@@ -501,6 +504,7 @@ func TestZeroEmojisAndStructuredTelemetrySurfaces(t *testing.T) {
 }
 
 func TestResolveModelDetailsAndHookFallback(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	catDir := filepath.Join(home, harness.StateDir)
 	if err := os.MkdirAll(catDir, 0o700); err != nil {
@@ -765,6 +769,7 @@ func TestResolveModelDetailsAndHookFallback(t *testing.T) {
 }
 
 func TestBuildTurnEnvelopeWithMetaAndUTF8SkillTruncate(t *testing.T) {
+	t.Parallel()
 	res := VetResult{
 		Intent:              IntentBug,
 		Gate:                GateEnrichAndProceed,

@@ -51,6 +51,7 @@ func armEntry(t *testing.T, dir, name, state string) entry {
 // it is: the blob and files passes, the last-seen update and the touched
 // mark.
 func TestApplyLockedWriteErrors(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name, op, table string
 		before          bool // apply a.md once before the trigger
@@ -89,6 +90,7 @@ func TestApplyLockedWriteErrors(t *testing.T) {
 // A project directory that cannot be opened fails the apply before any
 // blob is read.
 func TestApplyLockedRootError(t *testing.T) {
+	t.Parallel()
 	st, dir := armStore(t)
 	src := source{project: "p", dir: filepath.Join(dir, "gone"), view: []entry{armEntry(t, dir, "a.md", "tracked")}}
 	if _, err := st.apply(src); !errors.Is(err, os.ErrNotExist) {
@@ -103,6 +105,7 @@ func TestApplyLockedRootError(t *testing.T) {
 // inserter: the apply fails at the first blob that has text. The table
 // keeps oid, so gc's deletes still run and only the inserter can fail.
 func TestApplyLockedInserterError(t *testing.T) {
+	t.Parallel()
 	st, dir := armStore(t)
 	if _, err := st.db.Exec(`DROP TABLE refs; CREATE TABLE refs(oid TEXT)`); err != nil {
 		t.Fatal(err)
@@ -142,6 +145,7 @@ func viewOf(t *testing.T, root, p string) (entry, int) {
 // An unmerged path is listed once, by its work-tree bytes against its
 // first stage: a work tree holding "theirs" is modified, not their blob.
 func TestGitViewUnmergedPath(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	writeFile(t, root, "a.md", "base\n")
 	commitAll(t, root, "base")
@@ -166,6 +170,7 @@ func TestGitViewUnmergedPath(t *testing.T) {
 
 // A file that cannot be read is left out of the view, tracked or not.
 func TestGitViewUnreadableFiles(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root reads a mode-000 file")
 	}
@@ -197,6 +202,7 @@ func TestGitViewUnreadableFiles(t *testing.T) {
 // own rule, so new bytes of the same length behind an old mtime are not
 // seen (pinned with a fixed mtime; the suite hit this arm only by timing).
 func TestGitViewTrustsIndexStat(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	f := filepath.Join(root, "same.md")
 	old := time.Now().Add(-time.Hour).Truncate(time.Second)

@@ -43,6 +43,7 @@ func nonEmptyDir(t *testing.T, path string) {
 // --rebuild of the global index that cannot remove the old file says so,
 // and opens nothing.
 func TestReconcileGlobalRebuildRemoveError(t *testing.T) {
+	t.Parallel()
 	home := globalHome(t)
 	nonEmptyDir(t, globalDB(home))
 	err := Index(Options{Dir: t.TempDir(), Home: home, Global: true, Rebuild: true}, io.Discard)
@@ -54,6 +55,7 @@ func TestReconcileGlobalRebuildRemoveError(t *testing.T) {
 // The projects table that cannot be read, or holds a row that does not
 // scan, fails the global search.
 func TestReconcileGlobalRegistrationReadErrors(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ name, sql, want string }{
 		{"no table", `DROP TABLE projects`, "no such table: projects"},
 		{"null root", `INSERT INTO projects(root, name, last_seen) VALUES (NULL, 'x', 0)`, "NULL"},
@@ -75,6 +77,7 @@ func TestReconcileGlobalRegistrationReadErrors(t *testing.T) {
 // A registration that is gone but cannot be dropped fails the search, and
 // stays registered.
 func TestReconcileGlobalDropError(t *testing.T) {
+	t.Parallel()
 	home := globalHome(t)
 	root := registered(t, home)
 	st := globalStore(t, home)
@@ -93,6 +96,7 @@ func TestReconcileGlobalDropError(t *testing.T) {
 
 // index --rebuild of a checkout's own index removes the old database first.
 func TestPrepareRebuildRemovesProjectDB(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"demo"}})

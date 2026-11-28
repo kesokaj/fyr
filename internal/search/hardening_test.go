@@ -13,6 +13,7 @@ import (
 // the repository's .gitattributes and config define. The view must come from
 // commands that read objects and files only, and still tell each state apart.
 func TestGitViewRunsNoCleanFilter(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "filter-ran")
 	prog := filepath.Join(t.TempDir(), "fake-clean")
@@ -75,6 +76,7 @@ func TestGitViewRunsNoCleanFilter(t *testing.T) {
 // whose mtime is put back, written in the second the index was, is racily
 // clean and is hashed, so it reads as modified.
 func TestGitViewRacilyCleanEditIsHashed(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	run := func(args ...string) {
 		t.Helper()
@@ -109,6 +111,7 @@ func TestGitViewRacilyCleanEditIsHashed(t *testing.T) {
 // newline and a forged header cannot pin a size or mtime on another file
 // (security review of BUG-165's fix, finding 2).
 func TestIndexStatsIgnoresForgedNames(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	run := func(args ...string) {
 		t.Helper()
@@ -134,6 +137,7 @@ func TestIndexStatsIgnoresForgedNames(t *testing.T) {
 
 // No search git call starts the checkout's core.fsmonitor program.
 func TestGitViewRunsNoFsmonitor(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "fired")
 	hook := filepath.Join(t.TempDir(), "hook.sh")

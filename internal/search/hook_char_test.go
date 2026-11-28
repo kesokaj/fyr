@@ -52,6 +52,7 @@ func setupCharSearchRepo(t *testing.T) (dir, home string) {
 }
 
 func TestSearchModesCharacterization(t *testing.T) {
+	t.Parallel()
 	dir, home := setupCharSearchRepo(t)
 
 	t.Run("slice deterministic and includes 1-hop neighbor", func(t *testing.T) {
@@ -173,6 +174,7 @@ func TestSearchModesCharacterization(t *testing.T) {
 }
 
 func TestSearchHooksCharacterization(t *testing.T) {
+	t.Parallel()
 	dir, home := setupCharSearchRepo(t)
 	const convID = "conv-char-hooks"
 

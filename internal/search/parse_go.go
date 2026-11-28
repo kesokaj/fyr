@@ -34,36 +34,51 @@ func collectFuncScope(fd *ast.FuncDecl, imports map[string]string) (map[string]b
 	return locals, stdlibVars
 }
 
+func recordLocalIdent(name string, isStd bool, locals, stdlibVars map[string]bool) {
+	locals[name] = true
+	if isStd {
+		stdlibVars[name] = true
+	}
+}
+
+func collectAssignLocals(st *ast.AssignStmt, imports map[string]string, locals, stdlibVars map[string]bool) {
+	if st.Tok != token.DEFINE {
+		return
+	}
+	stdRHS := len(st.Rhs) > 0 && isStdlibExpr(st.Rhs[0], imports)
+	for _, lhs := range st.Lhs {
+		if id, ok := lhs.(*ast.Ident); ok {
+			recordLocalIdent(id.Name, stdRHS, locals, stdlibVars)
+		}
+	}
+}
+
+func collectRangeLocals(st *ast.RangeStmt, locals map[string]bool) {
+	if st.Tok != token.DEFINE {
+		return
+	}
+	for _, e := range []ast.Expr{st.Key, st.Value} {
+		if id, ok := e.(*ast.Ident); ok {
+			locals[id.Name] = true
+		}
+	}
+}
+
+func collectValueSpecLocals(st *ast.ValueSpec, imports map[string]string, locals, stdlibVars map[string]bool) {
+	isStd := isStdlibTypeExpr(st.Type, imports)
+	for _, id := range st.Names {
+		recordLocalIdent(id.Name, isStd, locals, stdlibVars)
+	}
+}
+
 func collectStmtLocals(n ast.Node, imports map[string]string, locals, stdlibVars map[string]bool) {
 	switch st := n.(type) {
 	case *ast.AssignStmt:
-		if st.Tok == token.DEFINE {
-			stdRHS := len(st.Rhs) > 0 && isStdlibExpr(st.Rhs[0], imports)
-			for _, lhs := range st.Lhs {
-				if id, ok := lhs.(*ast.Ident); ok {
-					locals[id.Name] = true
-					if stdRHS {
-						stdlibVars[id.Name] = true
-					}
-				}
-			}
-		}
+		collectAssignLocals(st, imports, locals, stdlibVars)
 	case *ast.RangeStmt:
-		if st.Tok == token.DEFINE {
-			for _, e := range []ast.Expr{st.Key, st.Value} {
-				if id, ok := e.(*ast.Ident); ok {
-					locals[id.Name] = true
-				}
-			}
-		}
+		collectRangeLocals(st, locals)
 	case *ast.ValueSpec:
-		isStd := isStdlibTypeExpr(st.Type, imports)
-		for _, id := range st.Names {
-			locals[id.Name] = true
-			if isStd {
-				stdlibVars[id.Name] = true
-			}
-		}
+		collectValueSpecLocals(st, imports, locals, stdlibVars)
 	}
 }
 
@@ -110,18 +125,25 @@ func callTarget(fset *token.FileSet, fun ast.Expr, fromSym string, imports map[s
 	return symRefRow{}, false
 }
 
+func importSelectorCallTarget(fset *token.FileSet, sel *ast.SelectorExpr, fromSym, root string, imports map[string]string, stdlibVars map[string]bool) (symRefRow, bool, bool) {
+	if imp, isImp := imports[root]; isImp {
+		if isStdlibImport(imp) {
+			return symRefRow{}, false, true
+		}
+		if _, direct := sel.X.(*ast.Ident); direct {
+			return symRefRow{fromSym: fromSym, toPkg: imp, toName: sel.Sel.Name, kind: "call", confidence: ConfidenceExtracted, weight: WeightExtracted, line: fset.Position(sel.Sel.Pos()).Line}, true, true
+		}
+	}
+	if stdlibVars[root] {
+		return symRefRow{}, false, true
+	}
+	return symRefRow{}, false, false
+}
+
 func selectorCallTarget(fset *token.FileSet, sel *ast.SelectorExpr, fromSym string, imports map[string]string, stdlibVars map[string]bool) (symRefRow, bool) {
 	if root := rootIdent(sel.X); root != "" {
-		if imp, isImp := imports[root]; isImp {
-			if isStdlibImport(imp) {
-				return symRefRow{}, false
-			}
-			if _, direct := sel.X.(*ast.Ident); direct {
-				return symRefRow{fromSym: fromSym, toPkg: imp, toName: sel.Sel.Name, kind: "call", confidence: ConfidenceExtracted, weight: WeightExtracted, line: fset.Position(sel.Sel.Pos()).Line}, true
-			}
-		}
-		if stdlibVars[root] {
-			return symRefRow{}, false
+		if row, ok, handled := importSelectorCallTarget(fset, sel, fromSym, root, imports, stdlibVars); handled {
+			return row, ok
 		}
 	}
 	if isStdlibOnlyMethod(sel.Sel.Name) || isSQLChain(sel.X) {

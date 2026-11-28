@@ -50,6 +50,7 @@ func extractWorkerCapsuleSlice(t *testing.T, enriched string) string {
 }
 
 func TestPreToolUseWorkerJITCapsuleOverwrite(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	writeFile(t, dir, "internal/alpha/alpha.go", "package alpha\n\nfunc AlphaWork(name string) error {\n\treturn nil\n}\n")
 	commitAll(t, dir, "add alpha package")
@@ -355,6 +356,7 @@ func TestHookPreToolUseSubagentModelGuard(t *testing.T) {
 }
 
 func TestPreToolSubagentUpgradesOrchestratorToPro(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	upgradeCases := []string{
 		"gemini-pro-orchestrator",
@@ -425,6 +427,7 @@ func TestPreToolSubagentUpgradesOrchestratorToPro(t *testing.T) {
 }
 
 func TestSwarmRoleMultiToken(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		want string
@@ -453,6 +456,7 @@ func TestSwarmRoleMultiToken(t *testing.T) {
 }
 
 func TestPickSwarmModelCatalogAndGenMetadataInheritance(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	catDir := filepath.Join(home, harness.StateDir)
 	if err := os.MkdirAll(catDir, 0o700); err != nil {

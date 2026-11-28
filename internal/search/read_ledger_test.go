@@ -12,6 +12,7 @@ import (
 )
 
 func TestCheckAndRecordReadConsumeOnHit(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 
@@ -101,6 +102,7 @@ func TestCheckAndRecordReadConsumeOnHit(t *testing.T) {
 }
 
 func TestRegisterCapsulePivotsAndCompactionReset(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	writeFile(t, root, "pkg/alpha.go", "package pkg\n\nfunc Alpha() int {\n\treturn 42\n}\n")
 	commitAll(t, root, "add alpha.go")
@@ -199,6 +201,7 @@ func TestRegisterCapsulePivotsAndCompactionReset(t *testing.T) {
 }
 
 func TestWorktreeCanonicalizationAndPreWriteHash(t *testing.T) {
+	t.Parallel()
 	wt1 := newRepo(t)
 	wt2 := newRepo(t)
 	writeFile(t, wt1, "pkg/shared.go", "package pkg\n\nfunc Shared() string { return \"v1\" }\n")
@@ -261,6 +264,7 @@ func TestWorktreeCanonicalizationAndPreWriteHash(t *testing.T) {
 }
 
 func TestParseBashFileReadAndInterception(t *testing.T) {
+	t.Parallel()
 	valid := []struct {
 		cmd       string
 		wantTool  string
@@ -348,6 +352,7 @@ func TestParseBashFileReadAndInterception(t *testing.T) {
 }
 
 func TestPreToolUseBlocksUnchangedRereadAndCounts(t *testing.T) {
+	t.Parallel()
 	repo, hooksDir, home := setupUnignoredPreToolRepo(t)
 	invoke := func(payload map[string]any) HookDecisionOutput {
 		t.Helper()
@@ -470,6 +475,7 @@ func assertPreToolRangedAndEnvelopeVariants(t *testing.T, repo string, invoke fu
 }
 
 func TestFitLinesToBudgetClampsHeaderAndLedgerPivot(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	var src strings.Builder
@@ -507,6 +513,7 @@ func TestFitLinesToBudgetClampsHeaderAndLedgerPivot(t *testing.T) {
 }
 
 func TestPreWritePendingHashAbortedAndMultiOccurrenceEdits(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	content := "package main\n\nfunc One() string { return \"dup\" }\nfunc Two() string { return \"dup\" }\nfunc Unique() string { return \"old\" }\n"
@@ -544,6 +551,7 @@ func TestPreWritePendingHashAbortedAndMultiOccurrenceEdits(t *testing.T) {
 }
 
 func TestPreToolUseV910BashReadDedupAndClamp(t *testing.T) {
+	t.Parallel()
 	dir, home := setupHookRepo(t), t.TempDir()
 	var dense strings.Builder
 	dense.WriteString("package sample\n\nfunc DenseBash() int {\n")
@@ -602,6 +610,7 @@ func TestPreToolUseV910BashReadDedupAndClamp(t *testing.T) {
 }
 
 func TestPreToolUseBashMultiLinePipeTracksClampsAndDedupes(t *testing.T) {
+	t.Parallel()
 	dir, home := setupHookRepo(t), t.TempDir()
 	var big strings.Builder
 	big.WriteString("package sample\n\n")

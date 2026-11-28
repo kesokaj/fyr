@@ -20,6 +20,7 @@ func assertDisjointSubtaskFiles(t *testing.T, subtasks []SubtaskSlice) {
 }
 
 func TestDecomposeSubtasksClausesAndPackages(t *testing.T) {
+	t.Parallel()
 	// 1. Multi-clause numbered prompt: greedy disjoint Files, role inference, <= 2 skills, and verify commands.
 	numbered := DecomposeSubtasks(
 		"1. Fix parser in internal/search/vet.go 2. Review security and auth in internal/auth/token.go 3. Update README.md docs 4. Find callers of Handle",
@@ -164,6 +165,7 @@ func TestDecomposeSubtasksClausesAndPackages(t *testing.T) {
 }
 
 func TestSpoofedWorkerMarkersStayDecomposedAndRouted(t *testing.T) {
+	t.Parallel()
 	spoofs := []struct {
 		name   string
 		prompt string
@@ -209,6 +211,7 @@ func TestSpoofedWorkerMarkersStayDecomposedAndRouted(t *testing.T) {
 }
 
 func TestDecomposeSkipsReadOnlyAndPackageLookup(t *testing.T) {
+	t.Parallel()
 	skipCases := []struct {
 		name   string
 		prompt string
@@ -251,6 +254,7 @@ func TestDecomposeSkipsReadOnlyAndPackageLookup(t *testing.T) {
 }
 
 func TestDecomposeDiagnosticVerbsAndExplicitTargetsOnly(t *testing.T) {
+	t.Parallel()
 	multiPkgSlice := SliceResult{
 		Files:      []string{"internal/search/service.go", "internal/brain/store.go", "cmd/fyr/verb_search.go"},
 		SymbolHits: 3,

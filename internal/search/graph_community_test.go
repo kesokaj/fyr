@@ -13,6 +13,7 @@ import (
 )
 
 func TestTarjanSCCExcludesIface(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "go.mod", "module example.com/scc\n\ngo 1.24\n")
@@ -50,6 +51,7 @@ func TestTarjanSCCExcludesIface(t *testing.T) {
 }
 
 func TestLouvainDeterminism(t *testing.T) {
+	t.Parallel()
 	edgesA := []LouvainEdge{
 		{U: 0, V: 1, Weight: 12}, {U: 1, V: 2, Weight: 10}, {U: 0, V: 2, Weight: 11},
 		{U: 3, V: 4, Weight: 15}, {U: 4, V: 5, Weight: 14}, {U: 3, V: 5, Weight: 13},
@@ -83,6 +85,7 @@ func TestLouvainDeterminism(t *testing.T) {
 }
 
 func TestDecomposeSubtasksLouvain(t *testing.T) {
+	t.Parallel()
 	comms := map[string]int{
 		"internal/a": 0, "internal/e": 0,
 		"internal/b": 1, "internal/f": 1,
@@ -163,6 +166,7 @@ func seedStructuralSignalsRepo(t *testing.T) string {
 }
 
 func TestReadStructuralSignals(t *testing.T) {
+	t.Parallel()
 	root := seedStructuralSignalsRepo(t)
 	home := t.TempDir()
 	dbPath := projectDB(root)
@@ -220,6 +224,7 @@ func assertNestedGoModSignals(t *testing.T) {
 }
 
 func TestFindPackageCyclesBoundedOnDenseClique(t *testing.T) {
+	t.Parallel()
 	deps := map[string][]string{"p00": {"p01"}, "p01": {"p00"}}
 	for i := 1; i < 20; i++ {
 		u := fmt.Sprintf("p%02d", i)
@@ -240,6 +245,7 @@ func TestFindPackageCyclesBoundedOnDenseClique(t *testing.T) {
 }
 
 func TestLoadGraphSnapshotIncludeVendored(t *testing.T) {
+	t.Parallel()
 	root, home := newRepo(t), t.TempDir()
 	writeFile(t, root, "go.mod", "module example.com/vend\n\ngo 1.24\n")
 	writeFile(t, root, "internal/app/app.go", "package app\n\nfunc ServeApp() {}\n")
@@ -334,6 +340,7 @@ func hasSnapshotSymbol(snap *GraphSnapshot, name string) bool {
 }
 
 func TestHiddenCouplingSplitEditAndRead(t *testing.T) {
+	t.Parallel()
 	root := seedStructuralSignalsRepo(t)
 	home := t.TempDir()
 	db := openDB(t, root)
@@ -372,6 +379,7 @@ func TestHiddenCouplingSplitEditAndRead(t *testing.T) {
 }
 
 func TestQuerySeedSymbolsLikeDBFiltersByProjectAndDocs(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "go.mod", "module example.com/likefilter\n\ngo 1.24\n")

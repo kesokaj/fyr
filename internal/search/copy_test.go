@@ -14,6 +14,7 @@ import (
 // A conversation database that is a FIFO or a symlink is refused at once,
 // never read or waited on (SD48 of the 2026-10-27 audit).
 func TestCopyFileRefusesNonRegular(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	fifo := filepath.Join(dir, "fifo.db")
 	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
@@ -48,6 +49,7 @@ func TestCopyFileRefusesNonRegular(t *testing.T) {
 // One conversation whose database is a FIFO is skipped; the others are read
 // and the project's dream does not fail (plan 2026-10-27-harness-audit-fix D8).
 func TestAgyConversationTextSkipsAFIFO(t *testing.T) {
+	t.Parallel()
 	home, root := t.TempDir(), newRepo(t)
 	type conv = struct {
 		workspace string

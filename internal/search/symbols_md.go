@@ -129,20 +129,19 @@ func countHeadingLevel(trimmed string) int {
 var (
 	mdTickRe  = regexp.MustCompile("`([^`\\n]{2,120})`")
 	docIdent  = regexp.MustCompile(`^(?:\(\*?([A-Za-z_][A-Za-z0-9_]*)\)\.|([A-Za-z_][A-Za-z0-9_]*)\.)?([A-Za-z_][A-Za-z0-9_]*)(?:\(.*\))?$`)
-	docStop   = map[string]bool{}
-	docExtSet = map[string]bool{}
+	docStop   = searchWordSet("true false null none main bash text json yaml html todo pass fail")
+	docExtSet = buildDocExtSet(refExtensions, "db", "txt", "log", "lock", "jsonl", "html", "css", "svg", "png")
 )
 
-func init() {
-	for _, w := range strings.Fields("true false null none main bash text json yaml html todo pass fail") {
-		docStop[w] = true
+func buildDocExtSet(base []string, extra ...string) map[string]bool {
+	out := make(map[string]bool, len(base)+len(extra))
+	for _, e := range base {
+		out[e] = true
 	}
-	for _, e := range refExtensions {
-		docExtSet[e] = true
+	for _, e := range extra {
+		out[e] = true
 	}
-	for _, e := range []string{"db", "txt", "log", "lock", "jsonl", "html", "css", "svg", "png"} {
-		docExtSet[e] = true
-	}
+	return out
 }
 
 func extractMarkdownDocRefs(text string) []symRefRow {

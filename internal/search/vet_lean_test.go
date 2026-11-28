@@ -12,6 +12,7 @@ import (
 )
 
 func TestVetPrecisionFixPlanAndSlashWords(t *testing.T) {
+	t.Parallel()
 	if got := ClassifyIntent("Ok, add this to a fix plan and research this.", 0); got == IntentBug {
 		t.Errorf("ClassifyIntent(\"fix plan\") = %s, want non-BUG", got)
 	}
@@ -44,6 +45,7 @@ func TestVetPrecisionFixPlanAndSlashWords(t *testing.T) {
 }
 
 func TestCompactHookCapsuleAndLargeFnMapOnly(t *testing.T) {
+	t.Parallel()
 	dir := newRepo(t)
 	var bigSrc strings.Builder
 	bigSrc.WriteString("package sample\n\nfunc BigWorker(root string) error {\n")
@@ -90,6 +92,7 @@ func TestCompactHookCapsuleAndLargeFnMapOnly(t *testing.T) {
 }
 
 func TestPreInvocationSessionDedupAndCompactionReset(t *testing.T) {
+	t.Parallel()
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
@@ -170,6 +173,7 @@ func TestPreInvocationSessionDedupAndCompactionReset(t *testing.T) {
 }
 
 func TestCompactSigPreservesUTF8Runes(t *testing.T) {
+	t.Parallel()
 	sig := "func Render(αβγδεζηθ string) → error"
 	for maxLen := 4; maxLen <= len(sig)+2; maxLen++ {
 		got := compactSig(sig, maxLen)

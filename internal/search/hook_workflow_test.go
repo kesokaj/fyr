@@ -14,6 +14,7 @@ import (
 )
 
 func TestPreToolUseWorkflowNonLiteralTypeRequiresExplicitProOnFast(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	fastModel := "gemini-3.8-flash-medium"
 	proModel := "gemini-4-carbon-high"
@@ -90,6 +91,7 @@ func TestPreToolUseWorkflowNonLiteralTypeRequiresExplicitProOnFast(t *testing.T)
 }
 
 func TestPreToolUseRealWorkflowScriptsAllowedOnProAndFast(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
@@ -125,6 +127,7 @@ func TestPreToolUseRealWorkflowScriptsAllowedOnProAndFast(t *testing.T) {
 }
 
 func TestPreToolUseWorkflowOrchestratorAndAutoRequirePro(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	wfDir := t.TempDir()
 	spInherit := filepath.Join(wfDir, "inh.py")
@@ -162,6 +165,7 @@ func TestPreToolUseWorkflowOrchestratorAndAutoRequirePro(t *testing.T) {
 }
 
 func TestPreToolUseWorkflowBypassAndPathHardening(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	proModel := "gemini-4-carbon-high"
 	fastModel := "gemini-3.8-flash-medium"
@@ -226,6 +230,7 @@ func TestPreToolUseWorkflowBypassAndPathHardening(t *testing.T) {
 }
 
 func TestSkipPythonWSAndComments(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		src   string
@@ -249,6 +254,7 @@ func TestSkipPythonWSAndComments(t *testing.T) {
 }
 
 func TestV910Workflow(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	wfDir := filepath.Join(home, ".gemini", "config", "workflows")
 	if err := os.MkdirAll(wfDir, 0o700); err != nil {
@@ -329,6 +335,7 @@ func TestV910Workflow(t *testing.T) {
 }
 
 func TestV910Clamp(t *testing.T) {
+	t.Parallel()
 	if maxReadFileBytes != 46080 {
 		t.Fatalf("maxReadFileBytes = %d, want 46080", maxReadFileBytes)
 	}
@@ -374,6 +381,7 @@ func TestV910Clamp(t *testing.T) {
 }
 
 func TestV910Bash(t *testing.T) {
+	t.Parallel()
 	for _, cmd := range []string{
 		`read -p "Proceed? " ans`,
 		`read -rp "Enter: " x`,
@@ -419,6 +427,7 @@ func TestV910Bash(t *testing.T) {
 }
 
 func TestV910Watchdog(t *testing.T) {
+	t.Parallel()
 	for _, role := range []string{"self", "builder", "builder-1", "builder_p7", "coder", "coder-2", "coder_x"} {
 		if !IsBuilderSubagentRole(role) {
 			t.Errorf("IsBuilderSubagentRole(%q) = false, want true", role)
@@ -505,6 +514,7 @@ func TestV910Watchdog(t *testing.T) {
 }
 
 func TestV910WorkflowClampBashAndWatchdog(t *testing.T) {
+	t.Parallel()
 	t.Run("workflow", TestV910Workflow)
 	t.Run("clamp", TestV910Clamp)
 	t.Run("bash", TestV910Bash)
@@ -512,6 +522,7 @@ func TestV910WorkflowClampBashAndWatchdog(t *testing.T) {
 }
 
 func TestHookWorkflowWorkspaceDotDotSymlinkEscape(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	wsDir := t.TempDir()
 	outsideBase := t.TempDir()

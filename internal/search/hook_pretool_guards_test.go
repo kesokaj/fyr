@@ -13,6 +13,7 @@ import (
 )
 
 func TestSubagentFlashGuardAndCrossFamilyNotice(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	catDir := filepath.Join(home, harness.StateDir)
 	if err := os.MkdirAll(catDir, 0o700); err != nil {
@@ -118,6 +119,7 @@ func itoaT(n int) string {
 }
 
 func TestPreToolUseSoftSearchNudgeGrepAndBash(t *testing.T) {
+	t.Parallel()
 	dir, home := setupHookRepo(t), t.TempDir()
 
 	callPre := func(convID, tool string, args map[string]any) HookDecisionOutput {

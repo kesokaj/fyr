@@ -14,6 +14,7 @@ import (
 // project's own files out of the hits (recall 0.633 -> 0.596 on the fixture,
 // 2026-10-01). Files beside the directory stay in.
 func TestNoIndexMarkerSkipsTheDirectory(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "docs/own.md", "the ocelot lives here\n")
@@ -53,6 +54,7 @@ func TestNoIndexMarkerSkipsTheDirectory(t *testing.T) {
 // work tree, before the removal is committed, already gives its directory
 // back to the index (code review round 3: the branch had no test).
 func TestNoIndexMarkerDeletedCountsNoMore(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "docs/own.md", "the ocelot lives here\n")
@@ -77,6 +79,7 @@ func TestNoIndexMarkerDeletedCountsNoMore(t *testing.T) {
 // not read as "nothing there" (the v2.1.0 gate's L6). The global header
 // covers many projects and stays as it was.
 func TestHeaderNamesLeftOutDirectories(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "docs/own.md", "the ocelot lives here\n")
@@ -130,6 +133,7 @@ func TestHeaderNamesLeftOutDirectories(t *testing.T) {
 // selector and other default-ignorable character, which hide text from the
 // eye while a model still reads it (BUG-152).
 func TestPrintableDropsLineAndDirectionControls(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"plain/dir/":          "plain/dir/",
 		"a\x1bb\nc":           "a?b?c",
@@ -165,6 +169,7 @@ func TestPrintableDropsLineAndDirectionControls(t *testing.T) {
 // nothing renames the operator's files, so a directory holding only
 // `.sh-agent-noindex` stays out of every index the dream reads.
 func TestOldNoIndexMarkerStillCounts(t *testing.T) {
+	t.Parallel()
 	for _, m := range []string{".fyr-noindex", ".sh-agent-noindex"} {
 		if !isNoIndexMarker("vendor/" + m) {
 			t.Fatalf("%s is not a noindex marker to search", m)
@@ -193,6 +198,7 @@ func TestOldNoIndexMarkerStillCounts(t *testing.T) {
 // The brain's export is searched as records (internal/brain), never as a
 // file: indexing it too printed every record twice (brain plan Phase 2).
 func TestTrailExportIsNotAFile(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	writeFile(t, root, ".agents/trail.jsonl", `{"date":"2026-10-25","id":"BUG-001","kind":"bug","status":"open","title":"zebrafinch","updated":"2026-10-25T00:00:00Z","body":"zebrafinch"}`+"\n")
 	writeFile(t, root, "notes.md", "zebrafinch\n")

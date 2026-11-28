@@ -14,6 +14,7 @@ import (
 )
 
 func TestListProjectsMissingDBIsEmpty(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	got, err := ListProjects(home)
 	if err != nil || len(got) != 0 {
@@ -25,6 +26,7 @@ func TestListProjectsMissingDBIsEmpty(t *testing.T) {
 }
 
 func TestListProjects(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	path := globalDB(home)
 	os.MkdirAll(filepath.Dir(path), 0o700)
@@ -129,6 +131,7 @@ func blob(parts ...string) []byte {
 }
 
 func TestAgyConversationText(t *testing.T) {
+	t.Parallel()
 	home, root := t.TempDir(), newRepo(t)
 	type conv = struct {
 		workspace string
@@ -191,6 +194,7 @@ func TestAgyConversationText(t *testing.T) {
 }
 
 func TestAgyConversationTextNoAntigravity(t *testing.T) {
+	t.Parallel()
 	got, _, err := AgyConversationText(t.TempDir(), "/p/one", time.Time{})
 	if err != nil || len(got) != 0 {
 		t.Fatalf("got %v, %v; want none, nil", got, err)
@@ -198,6 +202,7 @@ func TestAgyConversationTextNoAntigravity(t *testing.T) {
 }
 
 func TestAgyTime(t *testing.T) {
+	t.Parallel()
 	want := time.Date(2026, 9, 30, 16, 14, 7, 567153506, time.UTC)
 	for name, v := range map[string]any{
 		"time":    want,
@@ -235,6 +240,7 @@ func pbVarint(n int, v uint64) []byte {
 // characters; prose, nested or not, stays (security review of the release
 // range: a pattern scan leaked glued and split argument pieces).
 func TestProseLeaves(t *testing.T) {
+	t.Parallel()
 	arg126 := `{"AbsolutePath":"/p/one/secret.env","toolAction":"Reading a file for the user now"}`
 	for len(arg126) < 126 {
 		arg126 = arg126[:len(arg126)-1] + ` }`
@@ -354,6 +360,7 @@ func TestCopyDBRetriesOnce(t *testing.T) {
 // attempt to open the live database in place would fail to create its -wal
 // and -shm files; the copy path never touches it.
 func TestCopyDBNeverOpensSource(t *testing.T) {
+	t.Parallel()
 	src := t.TempDir()
 	db, err := sql.Open("sqlite", filepath.Join(src, "x.db"))
 	if err != nil {
@@ -384,6 +391,7 @@ func TestCopyDBNeverOpensSource(t *testing.T) {
 // D30 measurement (2026-09-30) was 971 leaves, 0 with a key; the SD1 fix is
 // re-measured the same way (guide § 3e).
 func TestAgyCorpusLeaves(t *testing.T) {
+	t.Parallel()
 	dir := os.Getenv("FYR_CORPUS")
 	if dir == "" {
 		t.Skip("measurement, not a gate: set FYR_CORPUS=<dir of db copies> to run it")
@@ -425,6 +433,7 @@ func TestAgyCorpusLeaves(t *testing.T) {
 }
 
 func TestListAgyWorkspacesAndWindow(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	if got, err := ListAgyWorkspaces(home); err != nil || len(got) != 0 {
 		t.Fatalf("missing summaries db: got %v, err=%v; want nil, nil", got, err)

@@ -38,6 +38,7 @@ func projectRoots(t *testing.T, home string) []string {
 // condition beside the marker (PLAN.md D9): before this it had no
 // .agents/docs, so no consumer of the projects table ever saw it.
 func TestTrailRegistersForGlobal(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := trailRepo(t)
 	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"demo"}})
@@ -61,6 +62,7 @@ func TestTrailRegistersForGlobal(t *testing.T) {
 // A file-era tree carries no registration: a marker over .agents/docs and no
 // trail.jsonl never joins, whatever it holds.
 func TestDocsTreeDoesNotRegister(t *testing.T) {
+	t.Parallel()
 	for _, docs := range []string{".agents/docs/plans/p.md", "docs/plans/p.md"} {
 		home := t.TempDir()
 		root := newRepo(t)
@@ -77,6 +79,7 @@ func TestDocsTreeDoesNotRegister(t *testing.T) {
 // A trail.jsonl that is not a regular file is no trail: a directory or a
 // symlink at the name neither registers a checkout nor keeps one registered.
 func TestTrailMustBeARegularFile(t *testing.T) {
+	t.Parallel()
 	plant := map[string]func(t *testing.T, path string){
 		"directory": func(t *testing.T, path string) {
 			if err := os.Mkdir(path, 0o755); err != nil {
@@ -130,6 +133,7 @@ func TestTrailMustBeARegularFile(t *testing.T) {
 // like any other file, never a trail. A heading, a status and an unticked box
 // there make no record, and a plan in them is never open (PLAN.md D4).
 func TestDocsTreeIsPlainText(t *testing.T) {
+	t.Parallel()
 	for _, dir := range []string{".agents/docs", "docs"} {
 		home := t.TempDir()
 		root := newRepo(t)
@@ -160,6 +164,7 @@ func TestDocsTreeIsPlainText(t *testing.T) {
 // The global index holds ~/.config/fyr only: a registered checkout's records
 // answer --global from the brain store, and none of its files do.
 func TestGlobalIndexHoldsNoCheckoutFiles(t *testing.T) {
+	t.Parallel()
 	home := globalHome(t)
 	root := trailRepo(t)
 	writeFile(t, root, ".agents/docs/plans/p.md", "# the heron plan\n")
@@ -179,6 +184,7 @@ func TestGlobalIndexHoldsNoCheckoutFiles(t *testing.T) {
 // checkout's, whichever worktree ran, so the dream's target and its watermark
 // never move to a worktree (ADR-086; P10a's security review, finding 1).
 func TestWorktreeRegistersTheMainRoot(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := trailRepo(t)
 	markRegistered(t, home, root)
@@ -196,6 +202,7 @@ func TestWorktreeRegistersTheMainRoot(t *testing.T) {
 // .agents itself must be a real directory, as brain's guardExportPath asks: a
 // symlink or a file there is no trail, and is a drop, never a skip each time.
 func TestTrailNeedsARealAgentsDirectory(t *testing.T) {
+	t.Parallel()
 	for name, put := range map[string]func(t *testing.T, agents string){
 		"symlink": func(t *testing.T, agents string) {
 			target := t.TempDir()
@@ -234,6 +241,7 @@ func TestTrailNeedsARealAgentsDirectory(t *testing.T) {
 // needs no ignore rule of its own, so a .gitignore naming search.db alone
 // still works (P10a's reviews: security finding 5, round 2's finding 1).
 func TestRefusesTrackedCompanion(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"search.db-wal", "search.db-shm", "search.db-journal"} {
 		root := newRepo(t)
 		rel := ".agents/scratch/" + name
@@ -251,6 +259,7 @@ func TestRefusesTrackedCompanion(t *testing.T) {
 }
 
 func TestIgnoringSearchDBAloneIsEnough(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
 	writeFile(t, root, ".gitignore", ".agents/scratch/search.db\n")
 	commitAll(t, root, "narrow ignore")
@@ -263,6 +272,7 @@ func TestIgnoringSearchDBAloneIsEnough(t *testing.T) {
 // row's root: a worktree of an unmarked repository inside a registered
 // checkout joins nothing, and only the main root's trail counts.
 func TestRegistrationReadsTheRightRoot(t *testing.T) {
+	t.Parallel()
 	t.Run("unmarked bare repository inside a registered checkout", func(t *testing.T) {
 		home := t.TempDir()
 		outer := trailRepo(t)
@@ -307,6 +317,7 @@ func TestRegistrationReadsTheRightRoot(t *testing.T) {
 }
 
 func TestHasScopeRecordsEmptyTrailAndSymlinkCompanion(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	root := newRepo(t)
 	writeFile(t, root, ".agents/trail.jsonl", "")

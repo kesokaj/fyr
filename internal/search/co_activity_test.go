@@ -92,6 +92,7 @@ func GammaHelper() string {
 }
 
 func TestStopHookRecordsCoActivityAndSurfacesHints(t *testing.T) {
+	t.Parallel()
 	dir := initCoActivityRepo(t)
 	home := t.TempDir()
 	var idxOut bytes.Buffer
@@ -265,6 +266,7 @@ func TestStopHookRecordsCoActivityAndSurfacesHints(t *testing.T) {
 }
 
 func TestCoActivityIgnoresPreExistingDirtyReadOnlyAndCapsBulk(t *testing.T) {
+	t.Parallel()
 	dir := initCoActivityRepo(t)
 	home := t.TempDir()
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {

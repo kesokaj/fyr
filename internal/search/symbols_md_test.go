@@ -7,6 +7,7 @@ import (
 )
 
 func TestExtractMarkdownSymbolsAndSkeleton(t *testing.T) {
+	t.Parallel()
 	md := `# Architecture Overview
 Intro line before sections.
 

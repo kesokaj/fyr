@@ -124,6 +124,42 @@ func normalizeRef(t string) string {
 	return t
 }
 
+func appendLineRef(out []ref, seen *map[string]bool, lineNum int, target string) []ref {
+	if target == "" {
+		return out
+	}
+	if *seen == nil {
+		*seen = map[string]bool{}
+	}
+	if (*seen)[target] {
+		return out
+	}
+	(*seen)[target] = true
+	return append(out, ref{line: lineNum, target: target})
+}
+
+func appendLineIDRefs(out []ref, seen *map[string]bool, lineNum int, line string) []ref {
+	if !strings.Contains(line, "BUG-") && !strings.Contains(line, "ADR-") {
+		return out
+	}
+	for _, m := range idToken.FindAllString(line, -1) {
+		out = appendLineRef(out, seen, lineNum, m)
+	}
+	return out
+}
+
+func appendLinePathRefs(out []ref, seen *map[string]bool, lineNum int, line string) []ref {
+	if !strings.Contains(line, "/") && !hasRefExtension(line) {
+		return out
+	}
+	for _, m := range pathToken.FindAllString(line, -1) {
+		if t := normalizeRef(m); strings.ContainsAny(t, "/.") && !idToken.MatchString(t) {
+			out = appendLineRef(out, seen, lineNum, t)
+		}
+	}
+	return out
+}
+
 // parseRefs lists the record IDs and path-shaped tokens each line names, one
 // per line and target.
 func parseRefs(text string) []ref {
@@ -133,33 +169,10 @@ func parseRefs(text string) []ref {
 		if len(seen) > 0 {
 			clear(seen)
 		}
-		add := func(t string) {
-			if t == "" {
-				return
-			}
-			if seen == nil {
-				seen = map[string]bool{}
-			}
-			if !seen[t] {
-				seen[t] = true
-				out = append(out, ref{line: i + 1, target: t})
-			}
-		}
 		// The regular expressions are the cost of a build (a quarter of it
-		// here): skip the lines that cannot match.
-		if strings.Contains(l, "BUG-") || strings.Contains(l, "ADR-") {
-			for _, m := range idToken.FindAllString(l, -1) {
-				add(m)
-			}
-		}
-		if !strings.Contains(l, "/") && !hasRefExtension(l) {
-			continue
-		}
-		for _, m := range pathToken.FindAllString(l, -1) {
-			if t := normalizeRef(m); strings.ContainsAny(t, "/.") && !idToken.MatchString(t) {
-				add(t)
-			}
-		}
+		// here): each helper skips lines that cannot match.
+		out = appendLineIDRefs(out, &seen, i+1, l)
+		out = appendLinePathRefs(out, &seen, i+1, l)
 	}
 	return out
 }
@@ -175,12 +188,11 @@ var trailKinds = map[string]string{
 	"specs": "spec", "deploy": "deploy",
 }
 
-var codeExt = map[string]bool{}
-
-func init() {
-	for _, e := range strings.Fields("go ts tsx js jsx mjs py sh rs java kt swift rb c h cc cpp cs sql tf") {
-		codeExt["."+e] = true
-	}
+var codeExt = map[string]bool{
+	".go": true, ".ts": true, ".tsx": true, ".js": true, ".jsx": true, ".mjs": true,
+	".py": true, ".sh": true, ".rs": true, ".java": true, ".kt": true, ".swift": true,
+	".rb": true, ".c": true, ".h": true, ".cc": true, ".cpp": true, ".cs": true,
+	".sql": true, ".tf": true,
 }
 
 // kindOf classifies a path. Search passes no docs root; docsRoot is for

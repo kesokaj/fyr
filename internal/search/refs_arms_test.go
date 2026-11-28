@@ -34,6 +34,7 @@ func readmeOID(t *testing.T, root string) string {
 // reference that does not scan, a pattern too
 // long for SQLite's LIKE.
 func TestRefsReadErrors(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("a", 50001)
 	for _, c := range []struct {
 		name, sql, refs, want string
@@ -64,6 +65,7 @@ func TestRefsReadErrors(t *testing.T) {
 
 // A hit whose chunk no longer reads back fails the search at its snippet.
 func TestFindSnippetError(t *testing.T) {
+	t.Parallel()
 	root, home := refsRepo(t)
 	if _, err := openDB(t, root).Exec(`UPDATE chunks SET body = NULL WHERE oid = ?`, readmeOID(t, root)); err != nil {
 		t.Fatal(err)
