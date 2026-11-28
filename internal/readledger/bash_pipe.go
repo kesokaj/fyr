@@ -1,4 +1,4 @@
-package search
+package readledger
 
 import (
 	"path/filepath"
@@ -47,7 +47,7 @@ func parseBashReadPipelineMulti(stages [][]string) ([]BashFileRead, bool) {
 }
 
 func stripLeadingEnvAssigns(toks []string) []string {
-	for len(toks) > 0 && isEnvAssignToken(toks[0]) {
+	for len(toks) > 0 && IsEnvAssignToken(toks[0]) {
 		toks = toks[1:]
 	}
 	return toks
@@ -175,26 +175,18 @@ func applyStdinTailStage(cur BashFileRead, lineMapped bool, args []string) (Bash
 func parseStdinLineCount(args []string, isTail bool) (string, bool) {
 	rawCount := "10"
 	for i := 0; i < len(args); i++ {
-		switch a := args[i]; {
-		case a == "--":
+		a := args[i]
+		if a == "--" {
 			return rawCount, i == len(args)-1 || (i+1 == len(args)-1 && args[i+1] == "-")
-		case a == "-":
-		case a == "-n" || a == "--lines":
-			if i+1 >= len(args) {
-				return "", false
-			}
-			i, rawCount = i+1, args[i+1]
-		case strings.HasPrefix(a, "-n") || strings.HasPrefix(a, "--lines="):
-			rawCount = strings.TrimPrefix(strings.TrimPrefix(a, "-n"), "--lines=")
-		case isTail && (a == "-f" || a == "-F" || strings.HasPrefix(a, "--follow")):
+		}
+		if a == "-" {
+			continue
+		}
+		if !strings.HasPrefix(a, "-") || len(a) <= 1 {
 			return "", false
-		case strings.HasPrefix(a, "-") && len(a) > 1:
-			if _, err := strconv.Atoi(a[1:]); err == nil {
-				rawCount = a[1:]
-			} else if !slices.Contains([]string{"-q", "-v", "--quiet", "--silent", "--verbose"}, a) {
-				return "", false
-			}
-		default:
+		}
+		var ok bool
+		if i, rawCount, ok = stepHeadOrTailCountFlag(args, i, rawCount, isTail); !ok {
 			return "", false
 		}
 	}
@@ -345,46 +337,46 @@ func isVerbatimPythonDump(code string) bool {
 }
 
 func extractPythonReadPaths(code string) ([]string, bool) {
-	var paths []string
 	seen := map[string]bool{}
-	addMatch := func(p, modeArgs string) bool {
-		if m := pyModeLitRe.FindStringSubmatch(modeArgs); len(m) == 3 {
-			mode := m[1]
-			if mode == "" {
-				mode = m[2]
-			}
-			if strings.ContainsAny(mode, "wax+") {
-				return false
-			}
+	paths, ok := appendPythonMatches(pyOpenCallRe, code, seen, nil)
+	if !ok {
+		return nil, false
+	}
+	paths, ok = appendPythonMatches(pyPathReadRe, code, seen, paths)
+	if !ok {
+		return nil, false
+	}
+	return paths, len(paths) > 0
+}
+
+func appendPythonMatches(re *regexp.Regexp, code string, seen map[string]bool, paths []string) ([]string, bool) {
+	for _, m := range re.FindAllStringSubmatch(code, -1) {
+		p := m[1]
+		if p == "" {
+			p = m[2]
 		}
-		if p == "" || p == "-" || strings.ContainsAny(p, "$*?[\x00") {
-			return false
+		if !validatePythonReadMatch(p, m[3]) {
+			return nil, false
 		}
 		if !seen[p] {
 			seen[p] = true
 			paths = append(paths, p)
 		}
-		return true
 	}
-	for _, m := range pyOpenCallRe.FindAllStringSubmatch(code, -1) {
-		p := m[1]
-		if p == "" {
-			p = m[2]
+	return paths, true
+}
+
+func validatePythonReadMatch(p, modeArgs string) bool {
+	if m := pyModeLitRe.FindStringSubmatch(modeArgs); len(m) == 3 {
+		mode := m[1]
+		if mode == "" {
+			mode = m[2]
 		}
-		if !addMatch(p, m[3]) {
-			return nil, false
-		}
-	}
-	for _, m := range pyPathReadRe.FindAllStringSubmatch(code, -1) {
-		p := m[1]
-		if p == "" {
-			p = m[2]
-		}
-		if !addMatch(p, m[3]) {
-			return nil, false
+		if strings.ContainsAny(mode, "wax+") {
+			return false
 		}
 	}
-	return paths, len(paths) > 0
+	return p != "" && p != "-" && !strings.ContainsAny(p, "$*?[\x00")
 }
 
 func parsePythonLineSlice(code string) (int, int) {
@@ -431,21 +423,14 @@ func parseBashMatchAllGrepRead(tool string, args []string) ([]BashFileRead, bool
 	if len(patterns) == 0 && len(pos) > 0 {
 		patterns, pos = []string{pos[0]}, pos[1:]
 	}
-	if len(pos) == 0 || !hasMatchAllGrepPattern(patterns, fixed) {
+	if !hasMatchAllGrepPattern(patterns, fixed) {
 		return nil, false
 	}
 	normTool := "grep"
 	if tool == "rg" {
 		normTool = "rg"
 	}
-	out := make([]BashFileRead, 0, len(pos))
-	for _, f := range pos {
-		if f == "" || f == "-" {
-			return nil, false
-		}
-		out = append(out, BashFileRead{Tool: normTool, Path: f, StartLine: 1, EndLine: maxCount})
-	}
-	return out, true
+	return buildUniformBashReads(normTool, pos, 1, maxCount)
 }
 
 func stepGrepReadFlag(args []string, i int, fixed bool, maxCount int, patterns []string) (int, bool, int, []string, bool) {
@@ -489,28 +474,30 @@ func stepGrepShortCluster(args []string, i int, fixed bool, maxCount int, patter
 		case 'F':
 			fixed = true
 		case 'e':
-			if j+1 < len(cl) {
-				return i, fixed, maxCount, append(patterns, cl[j+1:]), true
-			}
-			if i+1 >= len(args) {
+			nextIdx, pat, ok := consumeShortClusterArg(args, i, cl[j+1:])
+			return nextIdx, fixed, maxCount, append(patterns, pat), ok
+		case 'm':
+			nextIdx, raw, ok := consumeShortClusterArg(args, i, cl[j+1:])
+			if !ok {
 				return i, fixed, maxCount, patterns, false
 			}
-			return i + 1, fixed, maxCount, append(patterns, args[i+1]), true
-		case 'm':
-			raw := cl[j+1:]
-			if raw == "" {
-				if i+1 >= len(args) {
-					return i, fixed, maxCount, patterns, false
-				}
-				i, raw = i+1, args[i+1]
-			}
 			n, err := strconv.Atoi(raw)
-			return i, fixed, n, patterns, err == nil && n > 0
+			return nextIdx, fixed, n, patterns, err == nil && n > 0
 		default:
 			return i, fixed, maxCount, patterns, false
 		}
 	}
 	return i, fixed, maxCount, patterns, true
+}
+
+func consumeShortClusterArg(args []string, i int, tail string) (int, string, bool) {
+	if tail != "" {
+		return i, tail, true
+	}
+	if i+1 >= len(args) {
+		return i, "", false
+	}
+	return i + 1, args[i+1], true
 }
 
 func hasMatchAllGrepPattern(patterns []string, fixed bool) bool {

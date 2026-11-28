@@ -1,4 +1,4 @@
-package search
+package readledger
 
 import (
 	"regexp"
@@ -8,9 +8,10 @@ import (
 )
 
 var (
-	awkNRRangeCommaRe = regexp.MustCompile(`^\s*F?NR\s*==\s*(\d+)\s*,\s*F?NR\s*==\s*(\d+)\s*$`)
-	awkNREqRe         = regexp.MustCompile(`^\s*F?NR\s*==\s*(\d+)\s*$`)
-	awkNRCmpRe        = regexp.MustCompile(`^\s*(?:(F?NR)\s*(>=|>|<=|<)\s*(\d+)|(\d+)\s*(>=|>|<=|<)\s*(F?NR))\s*$`)
+	awkNRRangeCommaRe      = regexp.MustCompile(`^\s*F?NR\s*==\s*(\d+)\s*,\s*F?NR\s*==\s*(\d+)\s*$`)
+	awkNREqRe              = regexp.MustCompile(`^\s*F?NR\s*==\s*(\d+)\s*$`)
+	awkNRCmpRe             = regexp.MustCompile(`^\s*(?:(F?NR)\s*(>=|>|<=|<)\s*(\d+)|(\d+)\s*(>=|>|<=|<)\s*(F?NR))\s*$`)
+	awkVerbatimPrintBodyRe = regexp.MustCompile(`^print(?:\s+\$0|\s+NR(?:\s*,\s*|\s+|\s*"[^"]*"\s*|\s*,\s*"[^"]*"\s*,\s*)\$0)?$`)
 )
 
 func isUnsafeAwkArg(a string) bool {
@@ -65,10 +66,7 @@ func isReadOnlySortArgs(args []string) bool {
 		if a == "-" {
 			continue
 		}
-		if !strings.HasPrefix(a, "-") {
-			return false
-		}
-		if isBlockedSortFlag(a) {
+		if !strings.HasPrefix(a, "-") || isBlockedSortFlag(a) {
 			return false
 		}
 		if slices.Contains(valFlags, a) {
@@ -121,9 +119,7 @@ func isReadOnlyFilterArgs(tool string, args []string) bool {
 }
 
 func isStdinPatternFilter(tool string, args []string) bool {
-	hasExpr := false
-	pos := 0
-	valFlags := []string{"-e", "--regexp", "-m", "--max-count", "-A", "-B", "-C", "--after-context", "--before-context", "--context", "-g", "--glob", "-t", "--type"}
+	hasExpr, pos := false, 0
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "--" {
@@ -134,18 +130,12 @@ func isStdinPatternFilter(tool string, args []string) bool {
 			continue
 		}
 		if strings.HasPrefix(a, "-") {
-			if isBlockedPatternFlag(tool, a) {
+			nextIdx, isExpr, ok := stepStdinPatternFlag(tool, args, i)
+			if !ok {
 				return false
 			}
-			if a == "-e" || a == "--regexp" || strings.HasPrefix(a, "--regexp=") || (len(a) > 2 && !strings.HasPrefix(a, "--") && strings.HasPrefix(a, "-e")) {
-				hasExpr = true
-			}
-			if slices.Contains(valFlags, a) {
-				if i+1 >= len(args) {
-					return false
-				}
-				i++
-			}
+			hasExpr = hasExpr || isExpr
+			i = nextIdx
 			continue
 		}
 		pos++
@@ -154,6 +144,22 @@ func isStdinPatternFilter(tool string, args []string) bool {
 		return pos == 0
 	}
 	return pos <= 1
+}
+
+func stepStdinPatternFlag(tool string, args []string, i int) (int, bool, bool) {
+	a := args[i]
+	if isBlockedPatternFlag(tool, a) {
+		return i, false, false
+	}
+	isExpr := a == "-e" || a == "--regexp" || strings.HasPrefix(a, "--regexp=") || (len(a) > 2 && !strings.HasPrefix(a, "--") && strings.HasPrefix(a, "-e"))
+	valFlags := []string{"-e", "--regexp", "-m", "--max-count", "-A", "-B", "-C", "--after-context", "--before-context", "--context", "-g", "--glob", "-t", "--type"}
+	if slices.Contains(valFlags, a) {
+		if i+1 >= len(args) {
+			return i, isExpr, false
+		}
+		return i + 1, isExpr, true
+	}
+	return i, isExpr, true
 }
 
 func isBlockedPatternFlag(tool, a string) bool {
@@ -175,21 +181,29 @@ func isStdinJqFilter(args []string) bool {
 			break
 		}
 		if strings.HasPrefix(a, "-") && len(a) > 1 {
-			if isBlockedJqFlag(a) {
+			nextIdx, ok := stepStdinJqFlag(a, i)
+			if !ok {
 				return false
 			}
-			if a == "--arg" || a == "--argjson" {
-				i += 2
-				continue
-			}
-			if a == "--indent" {
-				i++
-			}
+			i = nextIdx
 			continue
 		}
 		pos++
 	}
 	return pos <= 1
+}
+
+func stepStdinJqFlag(a string, i int) (int, bool) {
+	if isBlockedJqFlag(a) {
+		return i, false
+	}
+	if a == "--arg" || a == "--argjson" {
+		return i + 2, true
+	}
+	if a == "--indent" {
+		return i + 1, true
+	}
+	return i, true
 }
 
 func isBlockedJqFlag(a string) bool {
@@ -245,22 +259,30 @@ func isStdinNoFlagVal(args, blockedLongs []string) bool {
 }
 
 func parseBashAwkRead(args []string) ([]BashFileRead, bool) {
+	prog, files, ok := splitAwkProgAndFiles(args)
+	if !ok || prog == "" || len(files) == 0 || !isSafeAwkReadProgram(prog) {
+		return nil, false
+	}
+	start, end, ok := parseAwkLineRange(prog)
+	if !ok {
+		return nil, false
+	}
+	return buildUniformBashReads("awk", files, start, end)
+}
+
+func splitAwkProgAndFiles(args []string) (string, []string, bool) {
 	var prog string
 	var files []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "--" {
-			rest := args[i+1:]
-			if prog == "" && len(rest) > 0 {
-				prog, rest = rest[0], rest[1:]
-			}
-			files = append(files, rest...)
-			break
+			prog, files = splitAwkDoubleDash(prog, files, args[i+1:])
+			return prog, files, true
 		}
 		if prog == "" && strings.HasPrefix(a, "-") && len(a) > 1 {
 			nextIdx, ok := stepSafeAwkFlag(args, i)
 			if !ok {
-				return nil, false
+				return "", nil, false
 			}
 			i = nextIdx
 			continue
@@ -271,21 +293,14 @@ func parseBashAwkRead(args []string) ([]BashFileRead, bool) {
 			files = append(files, a)
 		}
 	}
-	if prog == "" || len(files) == 0 || !isSafeAwkReadProgram(prog) {
-		return nil, false
+	return prog, files, true
+}
+
+func splitAwkDoubleDash(prog string, files, rest []string) (string, []string) {
+	if prog == "" && len(rest) > 0 {
+		prog, rest = rest[0], rest[1:]
 	}
-	start, end, ok := parseAwkLineRange(prog)
-	if !ok {
-		return nil, false
-	}
-	out := make([]BashFileRead, 0, len(files))
-	for _, f := range files {
-		if f == "" || f == "-" {
-			return nil, false
-		}
-		out = append(out, BashFileRead{Tool: "awk", Path: f, StartLine: start, EndLine: end})
-	}
-	return out, true
+	return prog, append(files, rest...)
 }
 
 func isSafeAwkReadProgram(prog string) bool {
@@ -306,8 +321,6 @@ func isSafeAwkReadProgram(prog string) bool {
 	}
 	return true
 }
-
-var awkVerbatimPrintBodyRe = regexp.MustCompile(`^print(?:\s+\$0|\s+NR(?:\s*,\s*|\s+|\s*"[^"]*"\s*|\s*,\s*"[^"]*"\s*,\s*)\$0)?$`)
 
 func isVerbatimAwkPrintBody(body string) bool {
 	if !strings.HasPrefix(body, "{") || !strings.HasSuffix(body, "}") {
@@ -331,10 +344,7 @@ func parseAwkLineRange(prog string) (int, int, bool) {
 		}
 	}
 	if cond == "" {
-		if body == "" {
-			return 0, 0, false
-		}
-		return 1, 0, true
+		return 1, 0, body != ""
 	}
 	for strings.HasPrefix(cond, "(") && strings.HasSuffix(cond, ")") {
 		cond = strings.TrimSpace(cond[1 : len(cond)-1])
@@ -380,26 +390,8 @@ func parseAwkNRBound(clause string) (bool, int, bool) {
 	if len(m) != 7 {
 		return false, 0, false
 	}
-	var op string
-	var n int
-	var err error
-	if m[1] != "" {
-		op = m[2]
-		n, err = strconv.Atoi(m[3])
-	} else {
-		n, err = strconv.Atoi(m[4])
-		switch m[5] {
-		case "<=":
-			op = ">="
-		case "<":
-			op = ">"
-		case ">=":
-			op = "<="
-		case ">":
-			op = "<"
-		}
-	}
-	if err != nil {
+	op, n, ok := decodeAwkNRCmpMatch(m)
+	if !ok {
 		return false, 0, false
 	}
 	switch op {
@@ -413,4 +405,26 @@ func parseAwkNRBound(clause string) (bool, int, bool) {
 		return false, n - 1, n >= 2
 	}
 	return false, 0, false
+}
+
+func decodeAwkNRCmpMatch(m []string) (string, int, bool) {
+	if m[1] != "" {
+		n, err := strconv.Atoi(m[3])
+		return m[2], n, err == nil
+	}
+	n, err := strconv.Atoi(m[4])
+	if err != nil {
+		return "", 0, false
+	}
+	switch m[5] {
+	case "<=":
+		return ">=", n, true
+	case "<":
+		return ">", n, true
+	case ">=":
+		return "<=", n, true
+	case ">":
+		return "<", n, true
+	}
+	return "", 0, false
 }

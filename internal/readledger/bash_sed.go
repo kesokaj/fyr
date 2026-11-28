@@ -1,4 +1,4 @@
-package search
+package readledger
 
 import (
 	"strconv"
@@ -26,32 +26,40 @@ func parseBashSedMulti(args []string) ([]BashFileRead, bool) {
 	return out, true
 }
 
+func isSedClauseSep(r rune) bool {
+	return r == ';' || r == '\n'
+}
+
 func parseSedMultiRanges(scripts []string) ([][2]int, bool) {
 	var ranges [][2]int
 	for _, sc := range scripts {
-		parts := strings.FieldsFunc(sc, func(r rune) bool { return r == ';' || r == '\n' })
-		for _, raw := range parts {
-			clause := strings.TrimSpace(raw)
-			if clause == "" {
-				continue
-			}
-			if strings.HasSuffix(clause, "q") {
-				pref := strings.TrimSpace(strings.TrimSuffix(clause, "q"))
-				if pref != "" {
-					if n, err := strconv.Atoi(pref); err != nil || n <= 0 {
-						return nil, false
-					}
-				}
-				continue
-			}
-			s, e, ok := parseSedRangeScript(clause)
+		for _, raw := range strings.FieldsFunc(sc, isSedClauseSep) {
+			rng, isRange, ok := parseSedRangeClause(strings.TrimSpace(raw))
 			if !ok {
 				return nil, false
 			}
-			ranges = append(ranges, [2]int{s, e})
+			if isRange {
+				ranges = append(ranges, rng)
+			}
 		}
 	}
 	return ranges, len(ranges) > 0
+}
+
+func parseSedRangeClause(clause string) ([2]int, bool, bool) {
+	if clause == "" {
+		return [2]int{}, false, true
+	}
+	if strings.HasSuffix(clause, "q") {
+		pref := strings.TrimSpace(strings.TrimSuffix(clause, "q"))
+		if pref == "" {
+			return [2]int{}, false, true
+		}
+		n, err := strconv.Atoi(pref)
+		return [2]int{}, false, err == nil && n > 0
+	}
+	s, e, ok := parseSedRangeScript(clause)
+	return [2]int{s, e}, ok, ok
 }
 
 func applyStdinSedStage(cur BashFileRead, lineMapped bool, args []string) (BashFileRead, bool, bool) {
@@ -79,35 +87,24 @@ func parseSedArgs(args []string, maxFiles int) (bool, []string, []string, bool) 
 	quiet := false
 	var scripts, pos []string
 	for i := 0; i < len(args); i++ {
-		switch a := args[i]; {
-		case a == "--":
-			pos, i = append(pos, args[i+1:]...), len(args)
-		case a == "-n" || a == "--quiet" || a == "--silent":
-			quiet = true
-		case a == "-e" || a == "--expression":
-			if i+1 >= len(args) {
-				return false, nil, nil, false
-			}
-			i, scripts = i+1, append(scripts, args[i+1])
-		case strings.HasPrefix(a, "--expression="):
-			scripts = append(scripts, strings.TrimPrefix(a, "--expression="))
-		case a == "-E" || a == "-r" || a == "-u" || a == "--regexp-extended" || a == "--unbuffered" || a == "--posix" || a == "--sandbox":
-		case strings.HasPrefix(a, "--"):
-			return false, nil, nil, false
-		case strings.HasPrefix(a, "-") && len(a) > 1:
-			var sc string
-			var hasScript, ok bool
-			i, quiet, sc, hasScript, ok = parseShortSedFlags(args, i, quiet)
-			if !ok {
-				return false, nil, nil, false
-			}
-			if hasScript {
-				scripts = append(scripts, sc)
-			}
-		default:
-			pos = append(pos, a)
+		a := args[i]
+		if a == "--" {
+			pos = append(pos, args[i+1:]...)
+			break
 		}
+		if strings.HasPrefix(a, "-") && len(a) > 1 {
+			var ok bool
+			if i, quiet, scripts, ok = stepSedFlag(args, i, quiet, scripts); !ok {
+				return false, nil, nil, false
+			}
+			continue
+		}
+		pos = append(pos, a)
 	}
+	return finalizeSedArgs(quiet, scripts, pos, maxFiles)
+}
+
+func finalizeSedArgs(quiet bool, scripts, pos []string, maxFiles int) (bool, []string, []string, bool) {
 	if len(scripts) == 0 && len(pos) > 0 && pos[0] != "-" {
 		if (maxFiles < 0 && len(pos) >= 2) || (maxFiles >= 0 && len(pos) == maxFiles+1) {
 			scripts, pos = []string{pos[0]}, pos[1:]
@@ -119,6 +116,33 @@ func parseSedArgs(args []string, maxFiles int) (bool, []string, []string, bool) 
 	return quiet, scripts, pos, len(pos) <= maxFiles
 }
 
+func stepSedFlag(args []string, i int, quiet bool, scripts []string) (int, bool, []string, bool) {
+	switch a := args[i]; {
+	case a == "-n" || a == "--quiet" || a == "--silent":
+		return i, true, scripts, true
+	case a == "-e" || a == "--expression":
+		if i+1 >= len(args) {
+			return i, false, nil, false
+		}
+		return i + 1, quiet, append(scripts, args[i+1]), true
+	case strings.HasPrefix(a, "--expression="):
+		return i, quiet, append(scripts, strings.TrimPrefix(a, "--expression=")), true
+	case a == "-E" || a == "-r" || a == "-u" || a == "--regexp-extended" || a == "--unbuffered" || a == "--posix" || a == "--sandbox":
+		return i, quiet, scripts, true
+	case strings.HasPrefix(a, "--"):
+		return i, false, nil, false
+	default:
+		nextIdx, nextQuiet, sc, hasScript, ok := parseShortSedFlags(args, i, quiet)
+		if !ok {
+			return i, false, nil, false
+		}
+		if hasScript {
+			scripts = append(scripts, sc)
+		}
+		return nextIdx, nextQuiet, scripts, true
+	}
+}
+
 func parseShortSedFlags(args []string, i int, quiet bool) (int, bool, string, bool, bool) {
 	a := args[i]
 	for j := 1; j < len(a); j++ {
@@ -127,13 +151,8 @@ func parseShortSedFlags(args []string, i int, quiet bool) (int, bool, string, bo
 			quiet = true
 		case 'E', 'r', 'u':
 		case 'e':
-			if j+1 < len(a) {
-				return i, quiet, a[j+1:], true, true
-			}
-			if i+1 >= len(args) {
-				return i, quiet, "", false, false
-			}
-			return i + 1, quiet, args[i+1], true, true
+			nextIdx, sc, ok := consumeShortClusterArg(args, i, a[j+1:])
+			return nextIdx, quiet, sc, ok, ok
 		default:
 			return i, quiet, "", false, false
 		}
@@ -160,39 +179,39 @@ func isSafeReadOnlySedScript(sc string) bool {
 		if i >= len(sc) {
 			break
 		}
-		if sc[i] == ';' || sc[i] == '\n' {
-			i++
-			continue
-		}
-		if sc[i] == '}' {
-			if depth == 0 {
-				return false
-			}
-			depth, i = depth-1, i+1
-			continue
-		}
-		next, hasAddr, ok := skipSedAddrRange(sc, i)
+		var cmd, ok bool
+		i, depth, cmd, ok = stepSafeSedToken(sc, i, depth)
 		if !ok {
 			return false
 		}
-		i = skipSedSpace(sc, next)
-		if hasAddr && i < len(sc) && sc[i] == '!' {
-			i = skipSedSpace(sc, i+1)
-		}
-		if i >= len(sc) {
-			return false
-		}
-		if sc[i] == '{' {
-			depth, i = depth+1, i+1
-			continue
-		}
-		after, ok := stepSafeSedCmd(sc, i)
-		if !ok {
-			return false
-		}
-		sawCmd, i = true, after
+		sawCmd = sawCmd || cmd
 	}
 	return depth == 0 && sawCmd
+}
+
+func stepSafeSedToken(sc string, i, depth int) (int, int, bool, bool) {
+	if sc[i] == ';' || sc[i] == '\n' {
+		return i + 1, depth, false, true
+	}
+	if sc[i] == '}' {
+		return i + 1, depth - 1, false, depth > 0
+	}
+	next, hasAddr, ok := skipSedAddrRange(sc, i)
+	if !ok {
+		return 0, 0, false, false
+	}
+	i = skipSedSpace(sc, next)
+	if hasAddr && i < len(sc) && sc[i] == '!' {
+		i = skipSedSpace(sc, i+1)
+	}
+	if i >= len(sc) {
+		return 0, 0, false, false
+	}
+	if sc[i] == '{' {
+		return i + 1, depth + 1, false, true
+	}
+	after, ok := stepSafeSedCmd(sc, i)
+	return after, depth, ok, ok
 }
 
 func stepSafeSedCmd(sc string, i int) (int, bool) {
@@ -200,10 +219,7 @@ func stepSafeSedCmd(sc string, i int) (int, bool) {
 	case 'p', 'P', '=', 'd', 'D', 'n', 'N', 'h', 'H', 'g', 'G', 'x':
 		i++
 	case 'q', 'Q', 'l':
-		i = skipSedSpace(sc, i+1)
-		for i < len(sc) && sc[i] >= '0' && sc[i] <= '9' {
-			i++
-		}
+		i = skipSedDigits(sc, skipSedSpace(sc, i+1))
 	default:
 		return 0, false
 	}
@@ -216,6 +232,13 @@ func stepSafeSedCmd(sc string, i int) (int, bool) {
 
 func skipSedSpace(s string, i int) int {
 	for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
+		i++
+	}
+	return i
+}
+
+func skipSedDigits(s string, i int) int {
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
 		i++
 	}
 	return i
@@ -250,26 +273,16 @@ func skipSedAddr(s string, i int, allowRel bool) (int, bool, bool) {
 		return end, ok, ok
 	}
 	if allowRel && (s[i] == '+' || s[i] == '~') {
-		start := i + 1
-		end := start
-		for end < len(s) && s[end] >= '0' && s[end] <= '9' {
-			end++
-		}
-		return end, end > start, end > start
+		end := skipSedDigits(s, i+1)
+		return end, end > i+1, end > i+1
 	}
 	if s[i] >= '0' && s[i] <= '9' {
-		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
-			i++
+		end := skipSedDigits(s, i)
+		if end < len(s) && s[end] == '~' {
+			stepEnd := skipSedDigits(s, end+1)
+			return stepEnd, stepEnd > end+1, stepEnd > end+1
 		}
-		if i < len(s) && s[i] == '~' {
-			i++
-			start := i
-			for i < len(s) && s[i] >= '0' && s[i] <= '9' {
-				i++
-			}
-			return i, i > start, i > start
-		}
-		return i, true, true
+		return end, true, true
 	}
 	return i, false, true
 }
@@ -279,40 +292,45 @@ func skipSedRegex(s string, i int) (int, bool) {
 	for i++; i < len(s); i++ {
 		ch := s[i]
 		if inClass {
-			if ch == '/' || ch == '\n' || ch == '[' {
+			var ok bool
+			if inClass, classStart, ok = stepSedRegexClass(ch, classStart); !ok {
 				return 0, false
 			}
-			if ch == ']' && !classStart {
-				inClass = false
-				continue
-			}
-			if classStart && ch == '^' {
-				continue
-			}
-			classStart = false
 			continue
 		}
-		if ch == '\\' {
+		switch ch {
+		case '\\':
 			if i+1 >= len(s) || s[i+1] == '\n' {
 				return 0, false
 			}
 			i++
-			continue
-		}
-		if ch == '[' {
+		case '[':
 			inClass, classStart = true, true
-			continue
-		}
-		if ch == '/' {
-			i++
-			for i < len(s) && (s[i] == 'I' || s[i] == 'M') {
-				i++
-			}
-			return i, true
-		}
-		if ch == '\n' {
+		case '/':
+			return skipSedRegexFlags(s, i+1), true
+		case '\n':
 			return 0, false
 		}
 	}
 	return 0, false
+}
+
+func stepSedRegexClass(ch byte, classStart bool) (bool, bool, bool) {
+	if ch == '/' || ch == '\n' || ch == '[' {
+		return false, false, false
+	}
+	if ch == ']' && !classStart {
+		return false, false, true
+	}
+	if classStart && ch == '^' {
+		return true, true, true
+	}
+	return true, false, true
+}
+
+func skipSedRegexFlags(s string, i int) int {
+	for i < len(s) && (s[i] == 'I' || s[i] == 'M') {
+		i++
+	}
+	return i
 }

@@ -131,16 +131,6 @@ func unwrapEnvOrExec(kind string, toks []string) []string {
 	return nil
 }
 
-func isEnvAssignToken(tok string) bool {
-	eq := strings.IndexByte(tok, '=')
-	for i := 0; eq > 0 && i < eq; i++ {
-		if c := tok[i]; (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && c != '_' && (i == 0 || c < '0' || c > '9') {
-			return false
-		}
-	}
-	return eq > 0
-}
-
 func checkInteractiveSegment(cmd string, args []string) string {
 	switch cmd {
 	case "vim", "nvim", "vi", "nano", "less", "more":

@@ -543,71 +543,112 @@ func TestPreWritePendingHashAbortedAndMultiOccurrenceEdits(t *testing.T) {
 	}
 }
 
-func TestParseBashFileReadsChainsAndCd(t *testing.T) {
-	cases := []struct {
-		cmd  string
-		want []BashFileRead
-	}{
-		{"cat a.go && head -n 10 b.go", []BashFileRead{{Tool: "cat", Path: "a.go", StartLine: 1}, {Tool: "head", Path: "b.go", StartLine: 1, EndLine: 10}}},
-		{"nl -ba a.go ; bat -r 5:25 b.go", []BashFileRead{{Tool: "nl", Path: "a.go", StartLine: 1}, {Tool: "bat", Path: "b.go", StartLine: 5, EndLine: 25}}},
-		{"cd dir && sed -n '1,10p' foo.go", []BashFileRead{{Tool: "sed", Path: "dir/foo.go", StartLine: 1, EndLine: 10}}},
-		{"head -n 20 a.go && cat b.go", []BashFileRead{{Tool: "head", Path: "a.go", StartLine: 1, EndLine: 20}, {Tool: "cat", Path: "b.go", StartLine: 1}}},
-		{"cd a/b && cd .. && cat c.go", []BashFileRead{{Tool: "cat", Path: "a/c.go", StartLine: 1}}},
-		{`sed -n '10,20p;21q' "my dir/a;b.go" && cat 'sub/file name.go'`, []BashFileRead{{Tool: "sed", Path: "my dir/a;b.go", StartLine: 10, EndLine: 20}, {Tool: "cat", Path: "sub/file name.go", StartLine: 1}}},
-		{"make test && cat a.go", []BashFileRead{{Tool: "cat", Path: "a.go", StartLine: 1}}},
-		{"cd ~ && cat a.go; cd - && cat b.go; cd -P sub && cat c.go", nil},
-		{"cd sub && cat /abs/path.go", []BashFileRead{{Tool: "cat", Path: "/abs/path.go", StartLine: 1}}},
-		{"(cd sub && cat a.go)", []BashFileRead{{Tool: "cat", Path: "sub/a.go", StartLine: 1}}},
+func TestPreToolUseV910BashReadDedupAndClamp(t *testing.T) {
+	dir, home := setupHookRepo(t), t.TempDir()
+	var dense strings.Builder
+	dense.WriteString("package sample\n\nfunc DenseBash() int {\n")
+	for i := 4; i < 350; i++ {
+		prefix := fmt.Sprintf("\t// line %03d ", i)
+		dense.WriteString(prefix + strings.Repeat("b", 116-len(prefix)) + "\n")
 	}
-	for _, tc := range cases {
-		got := ParseBashFileReads(tc.cmd)
-		if len(got) != len(tc.want) {
-			t.Errorf("ParseBashFileReads(%q) len=%d (%+v), want %d (%+v)", tc.cmd, len(got), got, len(tc.want), tc.want)
-			continue
+	dense.WriteString("\treturn 1\n}\n")
+	writeFile(t, dir, "dense_bash.go", dense.String())
+	writeFile(t, dir, "small.go", "package sample\n\nfunc Small() int { return 1 }\n")
+	writeFile(t, dir, "sub/c.go", "package sub\n\nfunc C() int { return 2 }\n")
+	commitAll(t, dir, "add bash test fixtures")
+
+	callTool := func(conv, tool string, args map[string]any) HookDecisionOutput {
+		t.Helper()
+		payload, _ := json.Marshal(map[string]any{
+			"conversationId": conv,
+			"workspacePaths": []string{dir},
+			"toolCall":       map[string]any{"name": tool, "args": args},
+		})
+		var out bytes.Buffer
+		if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(payload)}, &out); err != nil {
+			t.Fatalf("pre-tool-use (%s): %v", tool, err)
 		}
-		for i := range got {
-			if got[i] != tc.want[i] {
-				t.Errorf("ParseBashFileReads(%q)[%d] = %+v, want %+v", tc.cmd, i, got[i], tc.want[i])
-			}
+		var dec HookDecisionOutput
+		if err := json.Unmarshal(out.Bytes(), &dec); err != nil {
+			t.Fatalf("unmarshal %q: %v", out.String(), err)
+		}
+		return dec
+	}
+
+	if d := callTool("conv-b-clamp", "run_command", map[string]any{"CommandLine": "grep -n '' dense_bash.go"}); d.Decision != "deny" || !strings.HasPrefix(d.Reason, "[CLAMPED]\n") {
+		t.Fatalf("grep -n '' dense_bash.go = %+v, want deny [CLAMPED]", d)
+	}
+	if d := callTool("conv-b-sed", "run_command", map[string]any{"CommandLine": "sed -n '1,10p;20,30p' dense_bash.go"}); d.Decision != "allow" {
+		t.Fatalf("1st multi-range sed = %+v, want allow", d)
+	}
+	if d := callTool("conv-b-sed", "read_file", map[string]any{"Path": "dense_bash.go", "StartLine": 11, "EndLine": 19}); d.Decision != "allow" {
+		t.Fatalf("unread gap 11..19 after multi-range sed = %+v, want allow", d)
+	}
+	if d := callTool("conv-b-sed", "read_file", map[string]any{"Path": "dense_bash.go", "StartLine": 20, "EndLine": 30}); d.Decision != "deny" || !strings.HasPrefix(d.Reason, "[UNCHANGED]") {
+		t.Fatalf("re-read 20..30 after multi-range sed = %+v, want deny [UNCHANGED]", d)
+	}
+	for _, tc := range []struct{ conv, cmd string }{
+		{"conv-b-awk", "awk 'NR>=1 && NR<=10' dense_bash.go 2>/dev/null || true"},
+		{"conv-b-py", `python3 -c "print(open('small.go').read())"`},
+		{"conv-b-sub", "(cd sub && cat c.go)"},
+	} {
+		if d := callTool(tc.conv, "run_command", map[string]any{"CommandLine": tc.cmd}); d.Decision != "allow" {
+			t.Fatalf("1st %s = %+v, want allow", tc.cmd, d)
+		}
+		if d := callTool(tc.conv, "run_command", map[string]any{"CommandLine": tc.cmd}); d.Decision != "deny" || !strings.HasPrefix(d.Reason, "[UNCHANGED]") {
+			t.Fatalf("2nd %s = %+v, want deny [UNCHANGED]", tc.cmd, d)
 		}
 	}
 }
 
-func TestParseBashFileReadsIgnoresComplexShell(t *testing.T) {
-	ignored := []string{
-		"grep foo bar | head",
-		"cat a.go > out.txt",
-		"cat a.go >> out.txt",
-		"cat < a.go",
-		"cat $(echo a.go)",
-		"cat \"$(echo a.go)\"",
-		"cat `echo a.go`",
-		"cat *.go",
-		"cat a?.go",
-		"cat [ab].go",
-		"cat a.go &",
-		"cat a.go &&& cat b.go",
-		"(cd sub && cat $(echo a.go))",
-		"(for f in a.go; do cat a.go; done)",
-		"(cd sub && cat a.go | head -n 5)",
-		"(cd sub && cat a.go) | head -n 5",
-		"cat a.go || cat b.go",
-		"cat 'unterminated.go",
+func TestPreToolUseBashMultiLinePipeTracksClampsAndDedupes(t *testing.T) {
+	dir, home := setupHookRepo(t), t.TempDir()
+	var big strings.Builder
+	big.WriteString("package sample\n\n")
+	for i := 1; i <= 450; i++ {
+		fmt.Fprintf(&big, "func LineFn%03d() int { return %d }\n", i, i)
 	}
-	for _, cmd := range ignored {
-		if got := ParseBashFileReads(cmd); len(got) != 0 {
-			t.Errorf("ParseBashFileReads(%q) = %+v, want empty slice", cmd, got)
-		}
-	}
-}
+	writeFile(t, dir, "big_pipe.go", big.String())
+	commitAll(t, dir, "add big_pipe.go")
 
-func TestSplitBashReadStatements(t *testing.T) {
-	if stmts, ok := splitBashReadStatements(`cd sub && sed -n '1,10p;11q' "a;b.go" ; cat c\;d.go`, false); !ok || len(stmts) != 3 {
-		t.Fatalf("splitBashReadStatements = %+v, %v; want 3 statements", stmts, ok)
-	}
-	for _, bad := range []string{"", "  ; && ", "cat a.go &", "cat a.go &&& b", "cat a.go || b", "cat a.go |& head", "cat $(echo a.go)", "cat 'open", "(cd sub && cat a.go)"} {
-		if stmts, ok := splitBashReadStatements(bad, false); ok || len(stmts) != 0 {
-			t.Errorf("splitBashReadStatements(%q, false) = %+v, %v; want nil, false", bad, stmts, ok)
+	runBash := func(convID, cmd string) HookDecisionOutput {
+		t.Helper()
+		payload, _ := json.Marshal(map[string]any{
+			"conversationId": convID,
+			"workspacePaths": []string{dir},
+			"toolCall":       map[string]any{"name": "run_command", "args": map[string]any{"CommandLine": cmd}},
+		})
+		var out bytes.Buffer
+		if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(payload)}, &out); err != nil {
+			t.Fatalf("pre-tool-use: %v", err)
 		}
+		var dec HookDecisionOutput
+		if err := json.Unmarshal(out.Bytes(), &dec); err != nil {
+			t.Fatalf("unmarshal %q: %v", out.String(), err)
+		}
+		return dec
+	}
+
+	cmd1 := "export PATH=\"$HOME/.local/bin:$PATH\"\nnl -ba big_pipe.go | sed -n '1,50p'"
+	if d := runBash("conv-pipe-1", cmd1); d.Decision != "allow" {
+		t.Fatalf("1st ranged multi-line pipe read: got %+v, want allow", d)
+	}
+	if d := runBash("conv-pipe-1", cmd1); d.Decision != "deny" || !strings.HasPrefix(d.Reason, "[UNCHANGED]") {
+		t.Fatalf("2nd identical multi-line pipe read: got %+v, want deny [UNCHANGED]", d)
+	}
+	cmd2 := "export PATH=\"$HOME/.local/bin:$PATH\"\nnl -ba big_pipe.go | sed -n '51,100p'"
+	if d := runBash("conv-pipe-1", cmd2); d.Decision != "allow" {
+		t.Fatalf("novel range 51..100 multi-line pipe read: got %+v, want allow", d)
+	}
+	cmdUnranged := "export PATH=\"$HOME/.local/bin:$PATH\"\nnl -ba big_pipe.go"
+	if d := runBash("conv-pipe-clamp", cmdUnranged); d.Decision != "deny" || !strings.HasPrefix(d.Reason, "[CLAMPED]") {
+		t.Fatalf("unranged multi-line nl on 450-line file: got %+v, want deny [CLAMPED]", d)
+	}
+	cmdTee := "cat big_pipe.go | tee .agents/scratch/copy.txt"
+	if d := runBash("conv-pipe-tee", cmdTee); d.Decision != "allow" {
+		t.Fatalf("1st tee pipe: got %+v, want allow", d)
+	}
+	if d := runBash("conv-pipe-tee", cmdTee); d.Decision != "allow" {
+		t.Fatalf("2nd tee pipe should not be falsely tracked/denied: got %+v", d)
 	}
 }

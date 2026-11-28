@@ -1,6 +1,10 @@
 package search
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/kesokaj/fyr/internal/readledger"
+)
 
 func splitShellSegments(cmd string) []string {
 	var out, heredocs []string
@@ -105,10 +109,7 @@ func writeOpaqueAtomOrComment(cmd string, i int, cur *strings.Builder) (int, boo
 }
 
 func skipLineComment(cmd string, i int) int {
-	for i+1 < len(cmd) && cmd[i+1] != '\n' {
-		i++
-	}
-	return i
+	return readledger.SkipLineComment(cmd, i)
 }
 
 func matchShellSeparator(cmd string, i int) (int, bool) {
@@ -178,97 +179,17 @@ func scanBacktickAtom(cmd string, pos int) int {
 }
 
 func advanceShellQuote(cmd string, i int, q byte) (int, byte) {
-	if (q == '"' || q == '$') && cmd[i] == '\\' && i+1 < len(cmd) {
-		return i + 1, q
-	}
-	if (q == '$' && cmd[i] == '\'') || cmd[i] == q {
-		return i, 0
-	}
-	return i, q
+	return readledger.AdvanceShellQuote(cmd, i, q)
 }
 
 func parseHeredocDelim(cmd string, i int) (string, int) {
-	if i < len(cmd) && cmd[i] == '-' {
-		i++
-	}
-	for i < len(cmd) && (cmd[i] == ' ' || cmd[i] == '\t') {
-		i++
-	}
-	var d strings.Builder
-	for q := byte(0); i < len(cmd); i++ {
-		c := cmd[i]
-		switch {
-		case q != 0 && c == q:
-			q = 0
-		case q != 0:
-			d.WriteByte(c)
-		case c == '\'' || c == '"':
-			q = c
-		case c == '\\' && i+1 < len(cmd):
-			i++
-			d.WriteByte(cmd[i])
-		case strings.ContainsRune(" \t\r\n;|&<>()", rune(c)):
-			return d.String(), i
-		default:
-			d.WriteByte(c)
-		}
-	}
-	return d.String(), i
+	return readledger.ParseHeredocDelim(cmd, i)
 }
 
 func skipHeredocBodies(cmd string, pos int, delims []string) int {
-	for _, delim := range delims {
-		for pos < len(cmd) {
-			line := cmd[pos:]
-			if nl := strings.IndexByte(line, '\n'); nl < 0 {
-				pos = len(cmd)
-			} else {
-				line, pos = line[:nl], pos+nl+1
-			}
-			if strings.TrimLeft(strings.TrimSuffix(line, "\r"), "\t") == delim {
-				break
-			}
-		}
-	}
-	return pos
+	return readledger.SkipHeredocBodies(cmd, pos, delims)
 }
 
 func tokenizeShellSegment(seg string) []string {
-	var toks []string
-	var cur strings.Builder
-	inTok := false
-	for i, q := 0, byte(0); i < len(seg); i++ {
-		switch ch := seg[i]; {
-		case (q == '"' || q == '$') && ch == '\\' && i+1 < len(seg):
-			i++
-			cur.WriteByte(seg[i])
-		case q == '$' && ch == '\'':
-			q = 0
-		case q != 0 && ch == q:
-			q = 0
-		case q != 0:
-			cur.WriteByte(ch)
-		case ch == '$' && i+1 < len(seg) && seg[i+1] == '\'':
-			q, inTok = '$', true
-			i++
-		case ch == '\'' || ch == '"':
-			q, inTok = ch, true
-		case ch == '\\' && i+1 < len(seg):
-			i++
-			cur.WriteByte(seg[i])
-			inTok = true
-		case ch == ' ' || ch == '\t' || ch == '\r':
-			if inTok {
-				toks, inTok = append(toks, cur.String()), false
-				cur.Reset()
-			}
-		default:
-			inTok = true
-			cur.WriteByte(ch)
-		}
-	}
-	if inTok {
-		toks = append(toks, cur.String())
-	}
-	return toks
+	return readledger.TokenizeShellSegment(seg)
 }
