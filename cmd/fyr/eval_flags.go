@@ -10,18 +10,20 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-func init() {
-	verbs["eval"] = verb{flags: func(c *ctx) {
-		c.fs.StringVar(&c.evalFixture, "fixture", "", "the git repository `DIR` each row clones (default: this checkout)")
-		c.fs.BoolVar(&c.evalList, "list", false, "print the suite's rows (id, agent or -, named or wide, version, kind) and run nothing")
-		c.fs.StringVar(&c.evalModel, "model", "", "pass --model `ID` to agy for each trial (default: agy default)")
-		c.fs.IntVar(&c.evalParallel, "parallel", 1, "run up to `N` trials at once, 1 to 25 (default 1; benchmark trials stay at 1)")
-		c.fs.IntVar(&c.evalRuns, "runs", 1, "run each named row `N` times, 1 to 25, each trial in its own sandbox")
-		c.fs.String("suite-file", "", "read the suite from `PATH` outside every checkout; labels rows eval=holdout/<id>")
-		c.fs.BoolVar(&c.evalACP, "acp", false, "drive trials via agy acp --stdio --process-per-session")
-		c.fs.StringVar(&c.evalRunner, "runner", fyrisolate.DefaultRunner, "where each trial's session runs: `R` is isolate (default "+fyrisolate.DefaultRunner+")")
-		c.jsonFlag()
-	}, positional: true, readsRepo: true, run: runEval}
+func evalVerb() verb {
+	return verb{flags: registerEvalFlags, positional: true, readsRepo: true, run: runEval}
+}
+
+func registerEvalFlags(c *ctx) {
+	c.fs.StringVar(&c.evalFixture, "fixture", "", "the git repository `DIR` each row clones (default: this checkout)")
+	c.fs.BoolVar(&c.evalList, "list", false, "print the suite's rows (id, agent or -, named or wide, version, kind) and run nothing")
+	c.fs.StringVar(&c.evalModel, "model", "", "pass --model `ID` to agy for each trial (default: agy default)")
+	c.fs.IntVar(&c.evalParallel, "parallel", 1, "run up to `N` trials at once, 1 to 25 (default 1; benchmark trials stay at 1)")
+	c.fs.IntVar(&c.evalRuns, "runs", 1, "run each named row `N` times, 1 to 25, each trial in its own sandbox")
+	c.fs.String("suite-file", "", "read the suite from `PATH` outside every checkout; labels rows eval=holdout/<id>")
+	c.fs.BoolVar(&c.evalACP, "acp", false, "drive trials via agy acp --stdio --process-per-session")
+	c.fs.StringVar(&c.evalRunner, "runner", fyrisolate.DefaultRunner, "where each trial's session runs: `R` is isolate (default "+fyrisolate.DefaultRunner+")")
+	c.jsonFlag()
 }
 
 func evalSuiteFile(c *ctx) (string, bool) {

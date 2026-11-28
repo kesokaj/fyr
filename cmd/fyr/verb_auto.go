@@ -17,12 +17,20 @@ import (
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
-// auto's run is registered here, not in the verbs literal: a run's check reads
-// the vocabulary, which reads verbs, and the literal would refer to itself.
-func init() {
-	v := verbs["auto"]
-	v.run = runAuto
-	verbs["auto"] = v
+func autoVerb() verb {
+	return verb{flags: registerAutoFlags, positional: true, readsRepo: true, run: runAuto}
+}
+
+func registerAutoFlags(c *ctx) {
+	c.fs.StringVar(&c.autoConvIdle, "conversation-idle", "", "on: how long a conversation sits untouched before rating, `D`, 5m to 7d (default 1h)")
+	c.fs.StringVar(&c.autoLevel, "level", "", "on: deprecated no-op `L` (fyr auto is now binary on/off)")
+	c.fs.StringVar(&c.autoProjectIdle, "project-idle", "", "on: deprecated no-op `D` (use --conversation-idle)")
+	c.fs.StringVar(&c.autoUserIdle, "user-idle", "", "on: deprecated no-op `D` (use --conversation-idle)")
+	c.fs.IntVar(&c.limit, "limit", 0, "log: alias for --lines, print the last `N` lines of auto.log")
+	c.fs.IntVar(&c.autoLines, "lines", 0, "log: print the last `N` lines of auto.log (default 50)")
+	c.fs.BoolVar(&c.autoAll, "all", false, "log: print every line of auto.log")
+	c.fs.BoolVar(&c.force, "force", false, "run: bypass the 4h model-run cooldown")
+	c.dryRunAndJSONFlags()
 }
 
 // autoEnv is the machine a run reads; a test replaces it, and nil is the real

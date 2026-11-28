@@ -291,8 +291,8 @@ func TestVerbAutoSIMUsageGuardAndWritesState(t *testing.T) {
 		{[]string{"sim", "show", "SIM-P001"}, false},
 		{[]string{"sim"}, false},
 	} {
-		c := newCtx("auto", verbs["auto"], &bytes.Buffer{})
-		if stop, err := c.parse(verbs["auto"], append(tc.args, "--home", home)); stop || err != nil {
+		c := newCtx("auto", allVerbs()["auto"], &bytes.Buffer{})
+		if stop, err := c.parse(allVerbs()["auto"], append(tc.args, "--home", home)); stop || err != nil {
 			t.Fatalf("parse %v: stop=%v err=%v", tc.args, stop, err)
 		}
 		if got := c.writesState(); got != tc.want {

@@ -18,14 +18,21 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-func init() {
-	def := verbs["memory"]
-	prev := def.flags
-	def.flags = func(c *ctx) {
-		prev(c)
-		c.fs.String("provenance", "operator", "add: the memory's provenance `P`: operator or derived")
-	}
-	verbs["memory"] = def
+func memoryVerb() verb {
+	return verb{flags: registerMemoryFlags, positional: true, run: runMemory}
+}
+
+func registerMemoryFlags(c *ctx) {
+	c.fs.StringVar(&c.memType, "type", "", "add: the memory's type `T`: semantic, procedural or episodic")
+	c.fs.StringVar(&c.memName, "name", "", "add: the memory's slug, `SLUG`")
+	c.fs.StringVar(&c.memDesc, "description", "", "add: the memory in one line, `TEXT`")
+	c.fs.StringVar(&c.memBodyFile, "body-file", "", "add: read the body from `FILE` instead of stdin")
+	c.fs.BoolVar(&c.global, "global", false, "shared global memory scope across projects")
+	c.fs.BoolVar(&c.memIncludeLow, "include-low", false, "show: include cards with validity < 0.40")
+	c.fs.BoolVar(&c.jsonIn, "json-in", false, "add: read JSON payload from stdin")
+	c.fs.BoolVar(&c.jsonOut, "json", false, "show: print the memory index as JSON")
+	c.fs.IntVar(&c.limit, "limit", 0, "show: print at most `N` memory cards")
+	c.fs.String("provenance", "operator", "add: the memory's provenance `P`: operator or derived")
 }
 
 // runMemory needs no harness tree (R10).

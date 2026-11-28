@@ -19,13 +19,11 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-// verify and land call vocabulary(), which reads verbs; register gate verbs in
-// init() like check.go to avoid an initialization cycle.
-func init() {
-	verbs["verify"] = verb{flags: registerVerifyFlags, run: runVerify}
-	verbs["gate"] = verb{flags: registerGateFlags, positional: true, run: runGate}
-	verbs["land"] = verb{flags: registerLandFlags, positional: true, run: runLand}
-	verbs["close"] = verb{flags: registerCloseFlags, run: runClose}
+func registerGateVerbs(m map[string]verb) {
+	m["verify"] = verb{flags: registerVerifyFlags, run: runVerify}
+	m["gate"] = verb{flags: registerGateFlags, positional: true, run: runGate}
+	m["land"] = verb{flags: registerLandFlags, positional: true, run: runLand}
+	m["close"] = verb{flags: registerCloseFlags, run: runClose}
 }
 
 type stringSliceFlag []string

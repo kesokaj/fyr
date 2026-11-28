@@ -12,8 +12,8 @@ import (
 
 var watchProcLister func() ([]watch.ProcInfo, error)
 
-func init() {
-	verbs["watch"] = verb{flags: registerWatchFlags, run: runWatch}
+func watchVerb() verb {
+	return verb{flags: registerWatchFlags, run: runWatch}
 }
 
 func registerWatchFlags(c *ctx) {

@@ -12,11 +12,8 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-// check is registered here, not in the verbs literal: runCheck reads verbs
-// to build the vocabulary, and the literal would then refer to itself (an
-// initialization cycle).
-func init() {
-	verbs["check"] = verb{flags: (*ctx).jsonFlag, run: runCheck}
+func checkVerb() verb {
+	return verb{flags: (*ctx).jsonFlag, run: runCheck}
 }
 
 // runResume serves `fyr resume` (ADR-508): read-only seven-step session
@@ -144,7 +141,7 @@ var memoryFlags = map[string]map[string]bool{
 // --dir, -C) and --help, which the flag package answers.
 func vocabulary() check.Vocabulary {
 	v := check.Vocabulary{"help": {Flags: map[string]bool{"home": true, "repo": true, "dir": true, "C": true, "help": true}}}
-	for name, vb := range verbs {
+	for name, vb := range allVerbs() {
 		c := newCtx(name, vb, io.Discard)
 		flags := map[string]bool{"help": true}
 		c.fs.VisitAll(func(f *flag.Flag) { flags[f.Name] = true })

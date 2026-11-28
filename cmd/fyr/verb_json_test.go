@@ -50,11 +50,11 @@ func TestV910All30VerbsJSON(t *testing.T) {
 	}
 
 	t.Run("all_30_verbs_declare_json_and_help_fits", func(t *testing.T) {
-		if len(verbs) != 30 {
-			t.Fatalf("len(verbs) = %d, want 30", len(verbs))
+		if len(allVerbs()) != 30 {
+			t.Fatalf("len(verbs) = %d, want 30", len(allVerbs()))
 		}
 		for _, name := range verbKeys() {
-			c := newCtx(name, verbs[name], io.Discard)
+			c := newCtx(name, allVerbs()[name], io.Discard)
 			if c.fs.Lookup("json") == nil {
 				t.Errorf("verb %q does not declare --json flag", name)
 			}

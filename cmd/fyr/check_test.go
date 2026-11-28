@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,12 +17,65 @@ import (
 	"github.com/kesokaj/fyr/internal/check"
 )
 
+// TestAllVerbsAndNoProdInit pins PLAN-2026-11-27-craft-cleanup Wave 3a (C4/A4):
+// all verbs are constructed lazily via allVerbs() without any production init()
+// functions in cmd/fyr/.
+func TestAllVerbsAndNoProdInit(t *testing.T) {
+	got := allVerbs()
+	if len(got) != 30 {
+		t.Fatalf("len(allVerbs()) = %d, want 30", len(got))
+	}
+	for _, name := range []string{"check", "eval", "auto", "verify", "gate", "land", "close", "models", "memory", "state", "watch"} {
+		vb, ok := got[name]
+		if !ok || vb.run == nil {
+			t.Errorf("verb %q missing or nil run in allVerbs()", name)
+		}
+	}
+	memCtx := newCtx("memory", got["memory"], &bytes.Buffer{})
+	if memCtx.fs.Lookup("provenance") == nil {
+		t.Error("memory verb missing --provenance flag")
+	}
+	// Must-fail check: helper must flag a file declaring func init().
+	if n := countInitFuncs(t, "synthetic.go", "package main\nfunc init() {}\n"); n != 1 {
+		t.Fatalf("countInitFuncs(synthetic init) = %d, want 1", n)
+	}
+	// Must-pass check: zero production cmd/fyr/*.go files declare func init().
+	matches, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range matches {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		if n := countInitFuncs(t, path, nil); n != 0 {
+			t.Errorf("%s declares %d prod func init() (want 0)", path, n)
+		}
+	}
+}
+
+func countInitFuncs(t *testing.T, path string, src any) int {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, src, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	n := 0
+	for _, d := range f.Decls {
+		if fn, ok := d.(*ast.FuncDecl); ok && fn.Recv == nil && fn.Name.Name == "init" {
+			n++
+		}
+	}
+	return n
+}
+
 // The vocabulary is every verb of the table with the flags its FlagSet
 // really takes, the globals on all; record's subverbs take recordFlags'
 // flags, so `record get --title` is not taken (plan fyr-check D14).
 func TestVocabularyVerbsAndFlags(t *testing.T) {
 	v := vocabulary()
-	for name, vb := range verbs {
+	for name, vb := range allVerbs() {
 		spec, ok := v[name]
 		if !ok {
 			t.Errorf("verb %s is not in the vocabulary", name)

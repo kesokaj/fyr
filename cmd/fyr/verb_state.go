@@ -17,8 +17,8 @@ var stateFlags = map[string]map[string]bool{
 	"import": {"dry-run": true, "include-memory": true, "json": true},
 }
 
-func init() {
-	verbs["state"] = verb{flags: registerStateFlags, positional: true, readsRepo: true, run: runState}
+func stateVerb() verb {
+	return verb{flags: registerStateFlags, positional: true, readsRepo: true, run: runState}
 }
 
 func registerStateFlags(c *ctx) {

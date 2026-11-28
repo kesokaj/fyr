@@ -333,7 +333,7 @@ func writeFlagTable(b *strings.Builder, rows []cliFlagRow, summary string) {
 
 func collectVerbFlagMeta(verb string) map[string][2]string {
 	out := map[string][2]string{}
-	vb, ok := verbs[verb]
+	vb, ok := allVerbs()[verb]
 	if !ok {
 		return out
 	}

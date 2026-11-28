@@ -21,21 +21,20 @@ import (
 
 const bareExplainSentinel = "\x00all"
 
-func init() {
-	verbs["models"] = verb{
-		flags: func(c *ctx) {
-			c.fs.Bool("bench", false, "probe up to --max 0-run active models and record kind=bench trials")
-			c.fs.String("caller-family", "", "with --pick: caller `FAMILY` (gemini, anthropic or other)")
-			c.fs.StringVar(&c.modelsExplain, "explain", "", "print profile, score breakdown, and empirical stats for model `ID` (or all if omitted)")
-			c.fs.BoolVar(&c.jsonOut, "json", false, "print the catalog, --pick, --explain or --bench result as JSON")
-			c.fs.Int("max", models.DefaultBenchMax, "with --bench: probe at most `N` 0-run active models (default 3)")
-			c.fs.String("model", "", "with --bench: probe only the active non-interactive model `ID`")
-			c.fs.StringVar(&c.modelsPick, "pick", "", "pick one model for `ROLE` (builder, planner, judge, security, ...)")
-			c.fs.BoolVar(&c.modelsRefresh, "refresh", false, "re-query agy models and update .config/fyr/models.json")
-			c.fs.StringVar(&c.modelsTier, "tier", "", "with --pick: the tier `T`, pro, flash or light")
-		},
-		run: runModels,
-	}
+func modelsVerb() verb {
+	return verb{flags: registerModelsFlags, run: runModels}
+}
+
+func registerModelsFlags(c *ctx) {
+	c.fs.Bool("bench", false, "probe up to --max 0-run active models and record kind=bench trials")
+	c.fs.String("caller-family", "", "with --pick: caller `FAMILY` (gemini, anthropic or other)")
+	c.fs.StringVar(&c.modelsExplain, "explain", "", "print profile, score breakdown, and empirical stats for model `ID` (or all if omitted)")
+	c.fs.BoolVar(&c.jsonOut, "json", false, "print the catalog, --pick, --explain or --bench result as JSON")
+	c.fs.Int("max", models.DefaultBenchMax, "with --bench: probe at most `N` 0-run active models (default 3)")
+	c.fs.String("model", "", "with --bench: probe only the active non-interactive model `ID`")
+	c.fs.StringVar(&c.modelsPick, "pick", "", "pick one model for `ROLE` (builder, planner, judge, security, ...)")
+	c.fs.BoolVar(&c.modelsRefresh, "refresh", false, "re-query agy models and update .config/fyr/models.json")
+	c.fs.StringVar(&c.modelsTier, "tier", "", "with --pick: the tier `T`, pro, flash or light")
 }
 
 type modelsBenchFlags struct {

@@ -442,13 +442,13 @@ func TestVerbModelsPickWithoutAgyAndStderrErrors(t *testing.T) {
 	}
 
 	// writesState() parity for models.
-	cJudge := newCtx("models", verbs["models"], &bytes.Buffer{})
+	cJudge := newCtx("models", allVerbs()["models"], &bytes.Buffer{})
 	cJudge.home = home
 	cJudge.modelsPick = "judge"
 	if !cJudge.writesState() {
 		t.Errorf("writesState() = false for cross-family --pick judge")
 	}
-	cBuilder := newCtx("models", verbs["models"], &bytes.Buffer{})
+	cBuilder := newCtx("models", allVerbs()["models"], &bytes.Buffer{})
 	cBuilder.home = home
 	cBuilder.modelsPick = "builder"
 	if cBuilder.writesState() {

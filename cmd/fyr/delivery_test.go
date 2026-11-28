@@ -76,7 +76,7 @@ func TestDeliverySpecCurrent(t *testing.T) {
 		t.Fatal("SPEC-fyr-delivery has no **Built and shipped** paragraph")
 	}
 	para, _, _ = strings.Cut(para, "\n\n")
-	for name := range verbs {
+	for name := range allVerbs() {
 		if !regexp.MustCompile(`\b` + name + `\b`).MatchString(para) {
 			t.Errorf("SPEC-fyr-delivery § Where things stand does not name the verb %q", name)
 		}

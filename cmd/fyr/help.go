@@ -40,7 +40,7 @@ func verbHelp(verb string) string {
 // backquoted word of the usage string, and the usage wrapped beneath.
 func flagLines(verb string) []string {
 	var lines []string
-	newCtx(verb, verbs[verb], io.Discard).fs.VisitAll(func(f *flag.Flag) {
+	newCtx(verb, allVerbs()[verb], io.Discard).fs.VisitAll(func(f *flag.Flag) {
 		if isGlobalFlag(f.Name) {
 			return
 		}
@@ -120,7 +120,7 @@ func runHelp(args []string, out io.Writer) error {
 		return usageErr(out, "help", fmt.Sprintf("fyr help takes one command: %q", fs.Args()))
 	case fs.NArg() == 0 || name == "help":
 		fmt.Fprint(out, shortPage)
-	case verbs[name].run == nil:
+	case allVerbs()[name].run == nil:
 		return usageErr(out, "help", fmt.Sprintf("fyr help: unknown command %q", name))
 	default:
 		fmt.Fprint(out, verbHelp(name))

@@ -130,7 +130,7 @@ func TestEvalTallyFromSuite(t *testing.T) {
 // so every verb the binary has must survive metrics.Verb; one the allowlist
 // lacks reduces to bare fyr and an expect on it can never be found.
 func TestEveryVerbSurvivesTheVerbList(t *testing.T) {
-	for name := range verbs {
+	for name := range allVerbs() {
 		got := metrics.Verb("fyr " + name)
 		if len(got) != 1 || got[0] != "fyr "+name {
 			t.Errorf("fyr %s normalises to %q", name, got)

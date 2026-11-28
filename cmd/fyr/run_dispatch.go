@@ -25,7 +25,7 @@ func run(args []string, out io.Writer) error {
 	if cmd == "help" || cmd == "-h" || cmd == "-help" || cmd == "--help" {
 		return runHelp(rest, out)
 	}
-	v, ok := verbs[cmd]
+	v, ok := allVerbs()[cmd]
 	if !ok {
 		// A usage error like every other: exit 2, said on the writer (IN16),
 		// pointing at the short page rather than printing it (D19 4).

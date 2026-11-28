@@ -573,7 +573,7 @@ func TestEvalBodyLabelsAnUnreadableSource(t *testing.T) {
 
 func TestEvalVerbDefaultRunner(t *testing.T) {
 	c := &ctx{cmd: "eval", fs: flag.NewFlagSet("eval", flag.ContinueOnError), out: &bytes.Buffer{}}
-	verbs["eval"].flags(c)
+	allVerbs()["eval"].flags(c)
 	if err := c.fs.Parse([]string{"ok"}); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -584,7 +584,7 @@ func TestEvalVerbDefaultRunner(t *testing.T) {
 		t.Errorf("evalUsage default: %v", err)
 	}
 	c2 := &ctx{cmd: "eval", fs: flag.NewFlagSet("eval", flag.ContinueOnError), out: &bytes.Buffer{}}
-	verbs["eval"].flags(c2)
+	allVerbs()["eval"].flags(c2)
 	_ = c2.fs.Parse([]string{"--runner", "auto", "ok"})
 	if err := evalUsage(c2, c2.fs.Args()); err == nil {
 		t.Error("expected evalUsage to reject --runner auto")

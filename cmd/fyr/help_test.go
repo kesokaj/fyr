@@ -31,7 +31,7 @@ func helpRun(t *testing.T, args ...string) (string, int) {
 // verbKeys is every key of the command table, sorted.
 func verbKeys() []string {
 	var k []string
-	for v := range verbs {
+	for v := range allVerbs() {
 		k = append(k, v)
 	}
 	sort.Strings(k)
@@ -102,7 +102,7 @@ func TestHelpShortPageListsEveryVerb(t *testing.T) {
 func TestHelpFlagsAreTheFlagSet(t *testing.T) {
 	for _, v := range verbKeys() {
 		var want []string
-		newCtx(v, verbs[v], io.Discard).fs.VisitAll(func(f *flag.Flag) {
+		newCtx(v, allVerbs()[v], io.Discard).fs.VisitAll(func(f *flag.Flag) {
 			if !isGlobalFlag(f.Name) {
 				want = append(want, f.Name)
 			}
@@ -307,7 +307,7 @@ func TestHelpSearchKindsMatchSearch(t *testing.T) {
 	if code != 2 || !ok {
 		t.Fatalf("search --kind nosuch: exit %d\n%s", code, got)
 	}
-	_, use := flag.UnquoteUsage(newCtx("search", verbs["search"], io.Discard).fs.Lookup("kind"))
+	_, use := flag.UnquoteUsage(newCtx("search", allVerbs()["search"], io.Discard).fs.Lookup("kind"))
 	if !strings.HasSuffix(use, ": "+list) {
 		t.Errorf("search's --kind usage %q does not end with search's list %q", use, list)
 	}

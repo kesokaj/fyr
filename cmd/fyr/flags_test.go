@@ -24,7 +24,7 @@ func allFlags() *flag.FlagSet {
 	c.fs.StringVar(&c.homeFlag, "home", "", "")
 	c.fs.StringVar(&c.dirFlag, "dir", "", "")
 	c.fs.StringVar(&c.dirFlag, "C", "", "")
-	for _, v := range verbs {
+	for _, v := range allVerbs() {
 		if v.flags == nil {
 			continue
 		}
@@ -637,8 +637,8 @@ func TestReportNoIngestWritesState(t *testing.T) {
 		{"metrics_report_md_no_ingest", "metrics", []string{"report", "--md", "--no-ingest"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c := newCtx(tc.cmd, verbs[tc.cmd], &bytes.Buffer{})
-			if stop, err := c.parse(verbs[tc.cmd], tc.args); stop || err != nil {
+			c := newCtx(tc.cmd, allVerbs()[tc.cmd], &bytes.Buffer{})
+			if stop, err := c.parse(allVerbs()[tc.cmd], tc.args); stop || err != nil {
 				t.Fatalf("parse %v: stop=%v err=%v", tc.args, stop, err)
 			}
 			if got := c.writesState(); got != tc.want {

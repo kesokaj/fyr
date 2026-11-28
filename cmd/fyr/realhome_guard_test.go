@@ -66,8 +66,8 @@ func asInstalled(t *testing.T, home string) {
 func guardFor(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
-	c := newCtx(args[0], verbs[args[0]], &out)
-	if stop, err := c.parse(verbs[args[0]], args[1:]); stop {
+	c := newCtx(args[0], allVerbs()[args[0]], &out)
+	if stop, err := c.parse(allVerbs()[args[0]], args[1:]); stop {
 		t.Fatalf("%v: parse stopped: %v %s", args, err, out.String())
 	}
 	if err := c.resolveHome(); err != nil {
