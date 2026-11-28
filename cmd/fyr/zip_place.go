@@ -15,7 +15,7 @@ import (
 // its own, and a zip place records no tree, so outside a checkout neither
 // verb could run and the place could not even be told how it moves
 // (BUG-203). A path the operator named keeps its own error (D15).
-func (c *ctx) zipPlaceWithoutSource() (handled bool, err error) {
+func (c *runtimeCtx) zipPlaceWithoutSource() (handled bool, err error) {
 	if c.cmd != "status" && c.cmd != "update" {
 		return false, nil
 	}
@@ -27,7 +27,7 @@ func (c *ctx) zipPlaceWithoutSource() (handled bool, err error) {
 		return false, nil
 	}
 	if c.cmd == "status" {
-		if c.jsonOut {
+		if c.wantsJSON() {
 			return true, statusWithoutSourceJSON(st, c.home, c.out)
 		}
 		return true, statusWithoutSource(st, c.home, c.out)

@@ -13,12 +13,12 @@ import (
 )
 
 func checkVerb() verb {
-	return verb{flags: (*ctx).jsonFlag, run: runCheck}
+	return verb{flags: registerJSONFlag, run: runCheck}
 }
 
 // runResume serves `fyr resume` (ADR-508): read-only seven-step session
 // resume over the working directory's checkout. Exit 0 ok, 2 on a refusal.
-func runResume(c *ctx) error {
+func runResume(c *runtimeCtx) error {
 	wd, err := c.projectDir()
 	if err != nil {
 		return err
@@ -31,7 +31,7 @@ func runResume(c *ctx) error {
 	if err != nil {
 		return err
 	}
-	if c.jsonOut {
+	if jsonOptsOf(c).jsonOut {
 		return writeVerbJSON(c.out, dirOutputJSON{OK: true, Dir: wd, Output: out})
 	}
 	fmt.Fprint(c.out, out)
@@ -41,7 +41,7 @@ func runResume(c *ctx) error {
 // runGitCheck serves `fyr git-check`: read-only post-dispatch git status, log
 // and tag check over the working directory's checkout. Exit 0 ok, 2 on a
 // refusal.
-func runGitCheck(c *ctx) error {
+func runGitCheck(c *runtimeCtx) error {
 	wd, err := c.projectDir()
 	if err != nil {
 		return err
@@ -54,7 +54,7 @@ func runGitCheck(c *ctx) error {
 	if err != nil {
 		return err
 	}
-	if c.jsonOut {
+	if jsonOptsOf(c).jsonOut {
 		return writeVerbJSON(c.out, dirOutputJSON{OK: true, Dir: wd, Output: out})
 	}
 	fmt.Fprint(c.out, out)
@@ -65,7 +65,7 @@ func runGitCheck(c *ctx) error {
 // the working directory's checkout. Exit 0 clean, 1 with the summary line on
 // findings, 1 with no summary and the reason on stderr for a refusal; notes
 // never count.
-func runCheck(c *ctx) error {
+func runCheck(c *runtimeCtx) error {
 	wd, err := c.projectDir()
 	if err != nil {
 		return err
@@ -78,7 +78,7 @@ func runCheck(c *ctx) error {
 	if err != nil {
 		return err
 	}
-	if c.jsonOut {
+	if jsonOptsOf(c).jsonOut {
 		if err := writeCheckJSON(c.out, rep); err != nil {
 			return err
 		}

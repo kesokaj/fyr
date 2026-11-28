@@ -30,20 +30,11 @@ type runtimeCtx struct {
 	writesStateFn func(*runtimeCtx) bool
 	// global flags, accepted by every verb
 	repoFlag, homeFlag, dirFlag string
-	// per-verb flags for unmigrated verbs (Part 3)
-	dryRun, check, force, openRecords, global, rebuild                                        bool
-	jsonOut, jsonIn                                                                           bool
-	fromZip, kind, refs, memType, memName, memDesc, memBodyFile                               string
-	memIncludeLow                                                                             bool
-	limit, sliceHops, sliceBudget                                                             int
-	sliceQuery, sliceSession, contractsTarget, skeletonPath, pathFrom, pathTo, affectedTarget string
-	vetPrompt, hookEvent                                                                      string
-	repoMap, register, searchIncludeDocs                                                      bool
 	// src is the harness, resolved before run for the verbs that mark source
 	src harness.Source
 }
 
-// ctx is a temporary alias for unmigrated verbs (removed in Part 3).
+// ctx is a temporary alias for unmigrated helper/test files.
 type ctx = runtimeCtx
 
 // repo is the tree on disk, "" for the files embedded in a release binary;
@@ -62,17 +53,139 @@ func isGlobalFlag(name string) bool {
 	return name == "home" || name == "repo" || name == "dir" || name == "C"
 }
 
-func (c *runtimeCtx) dryRunFlag() {
-	c.fs.BoolVar(&c.dryRun, "dry-run", false, "print what would change, change nothing")
+// jsonOpts holds --json for verbs whose only option is JSON output.
+type jsonOpts struct {
+	jsonOut bool
 }
 
-func (c *runtimeCtx) jsonFlag() {
-	c.fs.BoolVar(&c.jsonOut, "json", false, "print the result as JSON")
+func jsonOptsOf(c *runtimeCtx) *jsonOpts {
+	if o, ok := c.opts.(*jsonOpts); ok {
+		return o
+	}
+	o := &jsonOpts{}
+	if c.opts == nil {
+		c.opts = o
+	}
+	return o
 }
 
-func (c *runtimeCtx) dryRunAndJSONFlags() {
-	c.dryRunFlag()
-	c.jsonFlag()
+func registerJSONFlag(c *runtimeCtx) {
+	o := &jsonOpts{}
+	c.opts = o
+	c.fs.BoolVar(&o.jsonOut, "json", false, "print the result as JSON")
+}
+
+// dryRunJSONOpts holds --dry-run and --json for install, sync and uninstall.
+type dryRunJSONOpts struct {
+	dryRun, jsonOut bool
+}
+
+func dryRunJSONOptsOf(c *runtimeCtx) *dryRunJSONOpts {
+	if o, ok := c.opts.(*dryRunJSONOpts); ok {
+		return o
+	}
+	o := &dryRunJSONOpts{}
+	if c.opts == nil {
+		c.opts = o
+	}
+	return o
+}
+
+func registerDryRunJSONFlags(c *runtimeCtx) {
+	o := &dryRunJSONOpts{}
+	c.opts = o
+	c.fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change, change nothing")
+	c.fs.BoolVar(&o.jsonOut, "json", false, "print the result as JSON")
+}
+
+func dryRunJSONWritesState(c *runtimeCtx) bool {
+	return !dryRunJSONOptsOf(c).dryRun
+}
+
+// updateOpts holds parsed flags for `fyr update`.
+type updateOpts struct {
+	check, dryRun, jsonOut bool
+	fromZip                string
+}
+
+func updateOptsOf(c *runtimeCtx) *updateOpts {
+	if o, ok := c.opts.(*updateOpts); ok {
+		return o
+	}
+	o := &updateOpts{}
+	if c.opts == nil {
+		c.opts = o
+	}
+	return o
+}
+
+func updateVerb() verb {
+	return verb{
+		flags: registerUpdateFlags,
+		writesState: func(c *runtimeCtx) bool {
+			o := updateOptsOf(c)
+			return !o.dryRun && !o.check
+		},
+		source: true,
+		run:    runUpdate,
+	}
+}
+
+func registerUpdateFlags(c *runtimeCtx) {
+	o := &updateOpts{}
+	c.opts = o
+	c.fs.BoolVar(&o.check, "check", false, "only report whether this place is behind; exit 2 when it is")
+	c.fs.StringVar(&o.fromZip, "from-zip", "", "install the harness in the repository zip `FILE` with the running binary")
+	c.fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change, change nothing")
+	c.fs.BoolVar(&o.jsonOut, "json", false, "print the result as JSON")
+}
+
+// adoptOpts holds parsed flags for `fyr adopt`.
+type adoptOpts struct {
+	force, jsonOut bool
+}
+
+func adoptOptsOf(c *runtimeCtx) *adoptOpts {
+	if o, ok := c.opts.(*adoptOpts); ok {
+		return o
+	}
+	o := &adoptOpts{}
+	if c.opts == nil {
+		c.opts = o
+	}
+	return o
+}
+
+func adoptVerb() verb {
+	return verb{
+		flags:       registerAdoptFlags,
+		writesState: func(*runtimeCtx) bool { return true },
+		source:      true,
+		positional:  true,
+		run:         runAdopt,
+	}
+}
+
+func registerAdoptFlags(c *runtimeCtx) {
+	o := &adoptOpts{}
+	c.opts = o
+	c.fs.BoolVar(&o.force, "force", false, "replace a skill of the same name already in skills/")
+	c.fs.BoolVar(&o.jsonOut, "json", false, "print the result as JSON")
+}
+
+// wantsJSON reports whether a source-reading verb requested --json output.
+func (c *runtimeCtx) wantsJSON() bool {
+	switch o := c.opts.(type) {
+	case *jsonOpts:
+		return o.jsonOut
+	case *dryRunJSONOpts:
+		return o.jsonOut
+	case *updateOpts:
+		return o.jsonOut
+	case *adoptOpts:
+		return o.jsonOut
+	}
+	return false
 }
 
 // verb is one command: the flags it declares, whether it reads the harness
@@ -107,10 +220,10 @@ func allVerbs() map[string]verb {
 
 func buildVerbs() map[string]verb {
 	m := map[string]verb{
-		"version":   {flags: (*runtimeCtx).jsonFlag, run: runVersion},
-		"uninstall": {flags: (*runtimeCtx).dryRunAndJSONFlags, run: runUninstall},
-		"resume":    {flags: (*runtimeCtx).jsonFlag, run: runResume},
-		"git-check": {flags: (*runtimeCtx).jsonFlag, run: runGitCheck},
+		"version":   {flags: registerJSONFlag, run: runVersion},
+		"uninstall": {flags: registerDryRunJSONFlags, writesState: dryRunJSONWritesState, run: runUninstall},
+		"resume":    {flags: registerJSONFlag, run: runResume},
+		"git-check": {flags: registerJSONFlag, run: runGitCheck},
 		"check":     checkVerb(),
 		"memory":    memoryVerb(),
 		"dream":     dreamVerb(),
@@ -118,75 +231,37 @@ func buildVerbs() map[string]verb {
 		"metrics":   metricsVerb(),
 		"report":    reportVerb(),
 		"record":    recordVerb(),
-		"search":    {flags: registerSearchFlags, positional: true, run: runSearch},
+		"search":    searchVerb(),
 		"graph":     graphVerb(),
-		"index":     {flags: registerIndexFlags, run: runSearch},
+		"index":     indexVerb(),
 		"eval":      evalVerb(),
 		"models":    modelsVerb(),
 		"state":     stateVerb(),
 		"watch":     watchVerb(),
-		"install":   {flags: (*runtimeCtx).dryRunAndJSONFlags, source: true, run: runInstall},
-		"sync":      {flags: (*runtimeCtx).dryRunAndJSONFlags, source: true, run: runInstall},
+		"install":   {flags: registerDryRunJSONFlags, writesState: dryRunJSONWritesState, source: true, run: runInstall},
+		"sync":      {flags: registerDryRunJSONFlags, writesState: dryRunJSONWritesState, source: true, run: runInstall},
 		"status":    {flags: registerStatusFlags, source: true, run: runStatusVerb},
-		"diff":      {flags: (*runtimeCtx).jsonFlag, source: true, run: runDiff},
-		"update":    {flags: registerUpdateFlags, source: true, run: runUpdate},
-		"list":      {flags: (*runtimeCtx).jsonFlag, source: true, run: runList},
-		"render":    {flags: (*runtimeCtx).jsonFlag, source: true, run: runRender},
-		"adopt":     {flags: registerAdoptFlags, source: true, positional: true, run: runAdopt},
+		"diff":      {flags: registerJSONFlag, source: true, run: runDiff},
+		"update":    updateVerb(),
+		"list":      {flags: registerJSONFlag, source: true, run: runList},
+		"render":    {flags: registerJSONFlag, source: true, run: runRender},
+		"adopt":     adoptVerb(),
 	}
 	registerGateVerbs(m)
 	return m
 }
 
-func registerSearchFlags(c *runtimeCtx) {
-	c.fs.IntVar(&c.limit, "limit", 0, "print at most `N` records and as many files, 1-50 (default 10)")
-	c.fs.StringVar(&c.kind, "kind", "", "only hits of kind `K`: bug adr plan change handoff review testing retro spec deploy trail code doc feedback proposal learning guide memory")
-	c.fs.StringVar(&c.refs, "refs", "", "every record naming `REF`: an ID, a file, or a directory (trailing /)")
-	c.fs.BoolVar(&c.openRecords, "open", false, "open bugs, plans with unticked boxes, and the other open records")
-	c.fs.BoolVar(&c.global, "global", false, "also the global records and every project registered with index --register, from the brain store")
-	c.fs.BoolVar(&c.jsonOut, "json", false, "print hits or query results as JSON")
-	c.fs.StringVar(&c.sliceQuery, "slice", "", "0/1/2-hop context capsule for `QUERY` ranked by PageRank")
-	c.fs.StringVar(&c.contractsTarget, "contracts", "", "deterministic AST signatures, linked SPEC-* contracts and ADR guardrails for `TARGET`")
-	c.fs.IntVar(&c.sliceHops, "hops", 0, "slice: maximum graph hops `N`, 0-6 (default 2)")
-	c.fs.IntVar(&c.sliceBudget, "budget", 0, "slice, contracts: token budget `N` estimated as chars/4 (default 2000; 1500 for --contracts)")
-	c.fs.StringVar(&c.sliceSession, "session", "", "slice: conversation `ID` whose read files get the 50x boost")
-	c.fs.StringVar(&c.skeletonPath, "skeleton", "", "declaration-only start-end signature lines for `FILE`")
-	c.fs.StringVar(&c.pathFrom, "path", "", "shortest call/type/interface path from `SYM` (<= 6 hops)")
-	c.fs.StringVar(&c.pathTo, "to", "", "path: target symbol `SYM` (or give as positional argument)")
-	c.fs.StringVar(&c.affectedTarget, "affected", "", "reverse-BFS blast radius (<= 2 hops) for `TARGET` path or symbol")
-	c.fs.BoolVar(&c.repoMap, "map", false, "top-10 God Nodes by PageRank, package deps and cycle check")
-	c.fs.BoolVar(&c.searchIncludeDocs, "include-docs", false, "include Markdown docs and headings in AST maps and slices")
-	c.fs.StringVar(&c.vetPrompt, "vet", "", "9-mode intent, 6-anchor vetter and skill/record match for `PROMPT`")
-	c.fs.StringVar(&c.hookEvent, "hook", "", "Antigravity lifecycle hook `EVENT`: session-start, pre-invocation, pre-tool-use, post-tool-use or stop")
-}
-
-func registerIndexFlags(c *runtimeCtx) {
-	c.fs.BoolVar(&c.global, "global", false, "the global search index, ~/.config/fyr/search.db, instead of this checkout's")
-	c.fs.BoolVar(&c.rebuild, "rebuild", false, "delete the index and build it again")
-	c.fs.BoolVar(&c.register, "register", false, "register this checkout (the operator's consent, ADR-068) so cross-project readers take it (fyr search --global, fyr record import --global, and the metrics attribution join) once it has records in brain.db or .agents/trail.jsonl, then index it")
-	c.jsonFlag()
-}
-
 func registerStatusFlags(c *runtimeCtx) {
-	c.fs.BoolVar(&c.jsonOut, "json", false, "print the status as JSON")
+	o := &jsonOpts{}
+	c.opts = o
+	c.fs.BoolVar(&o.jsonOut, "json", false, "print the status as JSON")
 }
 
 func runStatusVerb(c *runtimeCtx) error {
-	if c.jsonOut {
+	if jsonOptsOf(c).jsonOut {
 		return statusJSON(c.src, c.home, c.out)
 	}
 	return status(c.src, c.home, c.out)
-}
-
-func registerUpdateFlags(c *runtimeCtx) {
-	c.fs.BoolVar(&c.check, "check", false, "only report whether this place is behind; exit 2 when it is")
-	c.fs.StringVar(&c.fromZip, "from-zip", "", "install the harness in the repository zip `FILE` with the running binary")
-	c.dryRunAndJSONFlags()
-}
-
-func registerAdoptFlags(c *runtimeCtx) {
-	c.fs.BoolVar(&c.force, "force", false, "replace a skill of the same name already in skills/")
-	c.jsonFlag()
 }
 
 func registerGlobalFlags(fs *flag.FlagSet, c *runtimeCtx) {

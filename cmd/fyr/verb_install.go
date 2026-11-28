@@ -12,28 +12,30 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
-func runInstall(c *ctx) error {
-	if !c.jsonOut {
+func runInstall(c *runtimeCtx) error {
+	o := dryRunJSONOptsOf(c)
+	if !o.jsonOut {
 		return runInstallBody(c)
 	}
 	out, err := captureVerbOutput(c, func() error { return runInstallBody(c) })
 	if err != nil {
 		return err
 	}
-	return writeVerbJSON(c.out, installJSON{Verb: c.cmd, OK: true, DryRun: c.dryRun, Home: c.home, Output: out})
+	return writeVerbJSON(c.out, installJSON{Verb: c.cmd, OK: true, DryRun: o.dryRun, Home: c.home, Output: out})
 }
 
-func runInstallBody(c *ctx) error {
+func runInstallBody(c *runtimeCtx) error {
+	dryRun := dryRunJSONOptsOf(c).dryRun
 	repo := c.repo()
 	if repo == "" {
 		// A release binary installs the harness built into it and itself:
 		// there is no source to build from (D13).
-		if c.dryRun {
+		if dryRun {
 			fmt.Fprintf(c.out, "[dry-run] release binary %s: the harness built into it and the running binary would be installed\n", c.src.Version)
 		} else {
 			fmt.Fprintf(c.out, "release binary %s: installing the harness built into it and the running binary\n", c.src.Version)
 		}
-		return installFiles(c.src, c.home, c.dryRun, c.out)
+		return installFiles(c.src, c.home, dryRun, c.out)
 	}
 	if err := knownCheckout(c.repoFlag, c.home, repo); err != nil {
 		return err
@@ -49,30 +51,31 @@ func runInstallBody(c *ctx) error {
 	_, goErr := exec.LookPath("go")
 	own := harness.IsCheckout(repo)
 	rebuild := shouldRebuild(goErr == nil, os.Getenv(harness.ChildEnv) == "1", own)
-	if c.dryRun && rebuild {
+	if dryRun && rebuild {
 		fmt.Fprintf(c.out, "[dry-run] the binary would be rebuilt from %s\n", repo)
 	} else if rebuild {
 		return harness.Reinstall(repo, installPassArgs(c.homeFlag, c.home), c.out)
 	}
-	if !own && c.dryRun {
+	if !own && dryRun {
 		fmt.Fprintln(c.out, "[dry-run] plain copy, not its own git checkout: the running binary would be installed as is")
 	} else if !own {
 		fmt.Fprintln(c.out, "plain copy, not its own git checkout: the running binary is installed as is")
-	} else if goErr != nil && c.dryRun {
+	} else if goErr != nil && dryRun {
 		fmt.Fprintln(c.out, "[dry-run] warning: go is not on PATH; the running binary would be copied, not rebuilt — install Go and run `fyr update`")
 	} else if goErr != nil {
 		fmt.Fprintln(c.out, "warning: go is not on PATH; the running binary was copied, not rebuilt — install Go and run `fyr update`")
 	}
-	return installFiles(c.src, c.home, c.dryRun, c.out)
+	return installFiles(c.src, c.home, dryRun, c.out)
 }
 
-func runDiff(c *ctx) error {
+func runDiff(c *runtimeCtx) error {
+	jsonOut := jsonOptsOf(c).jsonOut
 	// A zip install is not compared: the zip is not kept, and the source this
 	// binary resolves (its embedded files, a checkout) is not what was
 	// installed (ADR-038).
 	if st, found, err := harness.LoadState(c.home); err == nil && found && st.Origin().Kind == harness.OriginZip {
 		msg := "diff       not compared — this home was installed from a zip that is not kept; " + zipAdvice() + "\n"
-		if c.jsonOut {
+		if jsonOut {
 			return writeVerbJSON(c.out, diffJSON{OK: true, Drift: false, Output: msg})
 		}
 		fmt.Fprint(c.out, msg)
@@ -82,7 +85,7 @@ func runDiff(c *ctx) error {
 	if err != nil {
 		return err
 	}
-	if !c.jsonOut {
+	if !jsonOut {
 		return harness.Diff(c.home, files, c.out)
 	}
 	var buf bytes.Buffer
@@ -99,32 +102,33 @@ func runDiff(c *ctx) error {
 	return err
 }
 
-func runList(c *ctx) error {
+func runList(c *runtimeCtx) error {
 	inv, err := harness.LoadInventory(c.src)
 	if err != nil {
 		return err
 	}
 	out := harness.RenderInventory(inv)
-	if c.jsonOut {
+	if jsonOptsOf(c).jsonOut {
 		return writeVerbJSON(c.out, listJSON{Source: verbSourceLabel(c.src), Output: out})
 	}
 	fmt.Fprint(c.out, out)
 	return nil
 }
 
-func runRender(c *ctx) error {
+func runRender(c *runtimeCtx) error {
 	data, err := harness.RenderContext(c.src)
 	if err != nil {
 		return err
 	}
-	if c.jsonOut {
+	if jsonOptsOf(c).jsonOut {
 		return writeVerbJSON(c.out, renderJSON{Source: verbSourceLabel(c.src), Bytes: len(data), Content: string(data)})
 	}
 	_, err = c.out.Write(data)
 	return err
 }
 
-func runAdopt(c *ctx) error {
+func runAdopt(c *runtimeCtx) error {
+	o := adoptOptsOf(c)
 	if c.fs.NArg() != 1 {
 		return usageErr(c.out, "adopt", "")
 	}
@@ -132,7 +136,7 @@ func runAdopt(c *ctx) error {
 	if repo == "" {
 		return errors.New("adopt needs a harness checkout (`git clone git@github.com:kesokaj/fyr.git`, then run adopt from a build of it); this install is a release binary and carries no tree to adopt into")
 	}
-	dest, err := harness.Adopt(repo, c.home, c.fs.Arg(0), c.force)
+	dest, err := harness.Adopt(repo, c.home, c.fs.Arg(0), o.force)
 	if err != nil {
 		return err
 	}
@@ -143,8 +147,8 @@ func runAdopt(c *ctx) error {
 		next = "copy it into your harness checkout and commit there — this tree is a plain copy with no repository"
 	}
 	out := fmt.Sprintf("adopted into %s\nnext: review it, run `fyr install`, then %s\n", dest, next)
-	if c.jsonOut {
-		return writeVerbJSON(c.out, adoptJSON{OK: true, Force: c.force, Args: c.fs.Args(), Output: out})
+	if o.jsonOut {
+		return writeVerbJSON(c.out, adoptJSON{OK: true, Force: o.force, Args: c.fs.Args(), Output: out})
 	}
 	fmt.Fprint(c.out, out)
 	return nil

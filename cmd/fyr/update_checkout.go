@@ -13,8 +13,8 @@ import (
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
-func runUpdate(c *ctx) error {
-	if !c.jsonOut {
+func runUpdate(c *runtimeCtx) error {
+	if !updateOptsOf(c).jsonOut {
 		_, err := execUpdate(c, c.out)
 		return err
 	}
@@ -30,12 +30,13 @@ func runUpdate(c *ctx) error {
 	return err
 }
 
-func execUpdate(c *ctx, out io.Writer) (bool, error) {
+func execUpdate(c *runtimeCtx, out io.Writer) (bool, error) {
 	// A dry run of update is its --check: it reports, and changes nothing —
 	// no download, no binary replaced, no pull. It says
 	// what a real update would do instead.
-	dry := c.dryRun
-	check := c.check || dry
+	o := updateOptsOf(c)
+	dry := o.dryRun
+	check := o.check || dry
 	repo := c.repo()
 	if repo == "" {
 		// A release binary has no source to build from: the newest release is

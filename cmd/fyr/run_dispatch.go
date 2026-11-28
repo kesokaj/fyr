@@ -151,17 +151,18 @@ func (c *runtimeCtx) updateFromZipFlag() (zip bool, err error) {
 	if c.cmd != "update" || !fromZipSet {
 		return false, nil
 	}
+	o := updateOptsOf(c)
 	// Every refusal comes before any command runs, and an empty value is
 	// refused rather than read as no flag — that would fall through to a
 	// normal update, which on a release binary downloads and replaces the
 	// binary.
 	switch {
-	case c.fromZip == "" || strings.HasPrefix(c.fromZip, "-"):
+	case o.fromZip == "" || strings.HasPrefix(o.fromZip, "-"):
 		// A value that looks like a flag was a flag: `--from-zip --dry-run`
 		// must not read --dry-run as the file and run a real update.
 		fmt.Fprintln(c.out, "fyr update: --from-zip needs a file: fyr update --from-zip <file>")
 		return true, exitCode(2)
-	case c.check || c.repoFlag != "":
+	case o.check || c.repoFlag != "":
 		fmt.Fprintln(c.out, "fyr update: --from-zip installs the named zip; --check/--repo do not apply to it")
 		return true, exitCode(2)
 	}
@@ -226,14 +227,6 @@ func splitLeadingVerb(args []string) (cmd string, rest []string, errMsg string) 
 func (c *runtimeCtx) writesState() bool {
 	if c.writesStateFn != nil {
 		return c.writesStateFn(c)
-	}
-	switch c.cmd {
-	case "install", "sync", "uninstall", "adopt", "index", "search":
-		return !c.dryRun
-	case "update":
-		return !c.dryRun && !c.check
-	case "memory":
-		return c.fs.Arg(0) == "add"
 	}
 	return false
 }

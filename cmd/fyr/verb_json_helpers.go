@@ -22,7 +22,7 @@ func writeVerbJSON(w io.Writer, v any) error {
 	return enc.Encode(v)
 }
 
-func captureVerbOutput(c *ctx, fn func() error) (string, error) {
+func captureVerbOutput(c *runtimeCtx, fn func() error) (string, error) {
 	var buf bytes.Buffer
 	orig := c.out
 	c.out = &buf
@@ -145,23 +145,25 @@ type updateJSON struct {
 	Output  string `json:"output"`
 }
 
-func writeUpdateJSON(c *ctx, behind, ok bool, out string) error {
+func writeUpdateJSON(c *runtimeCtx, behind, ok bool, out string) error {
+	o := updateOptsOf(c)
 	return writeVerbJSON(c.out, updateJSON{
 		OK:      ok,
-		DryRun:  c.dryRun,
-		Check:   c.check,
-		FromZip: c.fromZip,
+		DryRun:  o.dryRun,
+		Check:   o.check,
+		FromZip: o.fromZip,
 		Behind:  behind,
 		Output:  out,
 	})
 }
 
-func (c *ctx) runUpdateFromZip() error {
-	if !c.jsonOut {
-		return updateFromZip(c.fromZip, c.home, c.dryRun, c.out)
+func (c *runtimeCtx) runUpdateFromZip() error {
+	o := updateOptsOf(c)
+	if !o.jsonOut {
+		return updateFromZip(o.fromZip, c.home, o.dryRun, c.out)
 	}
 	var buf bytes.Buffer
-	if err := updateFromZip(c.fromZip, c.home, c.dryRun, &buf); err != nil {
+	if err := updateFromZip(o.fromZip, c.home, o.dryRun, &buf); err != nil {
 		return err
 	}
 	return writeUpdateJSON(c, false, true, buf.String())
@@ -183,19 +185,20 @@ type indexJSON struct {
 	Output   string `json:"output"`
 }
 
-func writeIndexJSON(c *ctx, dir, out string) error {
+func writeIndexJSON(c *runtimeCtx, dir, out string) error {
+	o := indexOptsOf(c)
 	return writeVerbJSON(c.out, indexJSON{
 		OK:       true,
-		Global:   c.global,
-		Rebuild:  c.rebuild,
-		Register: c.register,
+		Global:   o.global,
+		Rebuild:  o.rebuild,
+		Register: o.register,
 		Dir:      dir,
 		Output:   out,
 	})
 }
 
-func (c *ctx) runIndex(o search.Options) error {
-	if !c.jsonOut {
+func (c *runtimeCtx) runIndex(o search.Options) error {
+	if !indexOptsOf(c).jsonOut {
 		return search.Index(o, c.out)
 	}
 	var buf bytes.Buffer

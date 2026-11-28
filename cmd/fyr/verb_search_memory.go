@@ -18,58 +18,68 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-func memoryVerb() verb {
-	return verb{flags: registerMemoryFlags, positional: true, run: runMemory}
+// memoryOpts holds parsed flags for `fyr memory`.
+type memoryOpts struct {
+	memType, memName, memDesc, memBodyFile string
+	global, includeLow, jsonIn, jsonOut    bool
+	limit                                  int
 }
 
-func registerMemoryFlags(c *ctx) {
-	c.fs.StringVar(&c.memType, "type", "", "add: the memory's type `T`: semantic, procedural or episodic")
-	c.fs.StringVar(&c.memName, "name", "", "add: the memory's slug, `SLUG`")
-	c.fs.StringVar(&c.memDesc, "description", "", "add: the memory in one line, `TEXT`")
-	c.fs.StringVar(&c.memBodyFile, "body-file", "", "add: read the body from `FILE` instead of stdin")
-	c.fs.BoolVar(&c.global, "global", false, "shared global memory scope across projects")
-	c.fs.BoolVar(&c.memIncludeLow, "include-low", false, "show: include cards with validity < 0.40")
-	c.fs.BoolVar(&c.jsonIn, "json-in", false, "add: read JSON payload from stdin")
-	c.fs.BoolVar(&c.jsonOut, "json", false, "show: print the memory index as JSON")
-	c.fs.IntVar(&c.limit, "limit", 0, "show: print at most `N` memory cards")
+func memoryOptsOf(c *runtimeCtx) *memoryOpts {
+	if o, ok := c.opts.(*memoryOpts); ok {
+		return o
+	}
+	o := &memoryOpts{}
+	if c.opts == nil {
+		c.opts = o
+	}
+	return o
+}
+
+func memoryVerb() verb {
+	return verb{
+		flags:       registerMemoryFlags,
+		writesState: func(c *runtimeCtx) bool { return c.fs.Arg(0) == "add" },
+		positional:  true,
+		run:         runMemory,
+	}
+}
+
+func registerMemoryFlags(c *runtimeCtx) {
+	o := &memoryOpts{}
+	c.opts = o
+	c.fs.StringVar(&o.memType, "type", "", "add: the memory's type `T`: semantic, procedural or episodic")
+	c.fs.StringVar(&o.memName, "name", "", "add: the memory's slug, `SLUG`")
+	c.fs.StringVar(&o.memDesc, "description", "", "add: the memory in one line, `TEXT`")
+	c.fs.StringVar(&o.memBodyFile, "body-file", "", "add: read the body from `FILE` instead of stdin")
+	c.fs.BoolVar(&o.global, "global", false, "shared global memory scope across projects")
+	c.fs.BoolVar(&o.includeLow, "include-low", false, "show: include cards with validity < 0.40")
+	c.fs.BoolVar(&o.jsonIn, "json-in", false, "add: read JSON payload from stdin")
+	c.fs.BoolVar(&o.jsonOut, "json", false, "show: print the memory index as JSON")
+	c.fs.IntVar(&o.limit, "limit", 0, "show: print at most `N` memory cards")
 	c.fs.String("provenance", "operator", "add: the memory's provenance `P`: operator or derived")
 }
 
 // runMemory needs no harness tree (R10).
-func runMemory(c *ctx) error {
+func runMemory(c *runtimeCtx) error {
+	mo := memoryOptsOf(c)
 	given := map[string]bool{}
 	c.fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
 	args := c.fs.Args()
 	if len(args) != 1 || !slices.Contains(memorySubverbs, args[0]) {
 		return usageErr(c.out, "memory", "")
 	}
-	if args[0] == "show" && (given["type"] || given["name"] || given["description"] || given["provenance"] || given["body-file"] || given["json-in"]) {
-		fmt.Fprintln(c.out, "fyr memory: show takes no --type, --name, --description, --body-file, --json-in or --provenance")
-		return exitCode(2)
-	}
-	if args[0] == "add" && (given["json"] || given["include-low"] || given["limit"]) {
-		switch {
-		case given["include-low"]:
-			fmt.Fprintln(c.out, "fyr memory: add takes no --include-low")
-		case given["limit"]:
-			fmt.Fprintln(c.out, "fyr memory: add takes no --limit")
-		default:
-			fmt.Fprintln(c.out, "fyr memory: add takes no --json")
-		}
-		return exitCode(2)
-	}
-	if args[0] == "show" && c.limit < 0 {
-		fmt.Fprintln(c.out, "fyr memory: --limit must be >= 0")
-		return exitCode(2)
+	if err := validateMemoryFlags(args[0], mo, given, c.out); err != nil {
+		return err
 	}
 	wd, err := c.projectDir()
 	if err != nil {
 		return err
 	}
-	o := brain.Options{Home: c.home, Dir: wd, Global: c.global}
+	o := brain.Options{Home: c.home, Dir: wd, Global: mo.global}
 	if args[0] == "show" {
-		showOpts := brain.MemoryShowOptions{IncludeLow: c.memIncludeLow, Limit: c.limit}
-		if c.jsonOut {
+		showOpts := brain.MemoryShowOptions{IncludeLow: mo.includeLow, Limit: mo.limit}
+		if mo.jsonOut {
 			text, serr := brain.MemoryShowJSONWithOptions(o, showOpts)
 			return memoryFinish(serr, text, c.out)
 		}
@@ -79,7 +89,33 @@ func runMemory(c *ctx) error {
 	return c.runMemoryAdd(o, given)
 }
 
-func (c *ctx) runMemoryAdd(o brain.Options, given map[string]bool) error {
+func validateMemoryFlags(sub string, mo *memoryOpts, given map[string]bool, out io.Writer) error {
+	if sub == "show" {
+		if given["type"] || given["name"] || given["description"] || given["provenance"] || given["body-file"] || given["json-in"] {
+			fmt.Fprintln(out, "fyr memory: show takes no --type, --name, --description, --body-file, --json-in or --provenance")
+			return exitCode(2)
+		}
+		if mo.limit < 0 {
+			fmt.Fprintln(out, "fyr memory: --limit must be >= 0")
+			return exitCode(2)
+		}
+		return nil
+	}
+	switch {
+	case given["include-low"]:
+		fmt.Fprintln(out, "fyr memory: add takes no --include-low")
+	case given["limit"]:
+		fmt.Fprintln(out, "fyr memory: add takes no --limit")
+	case given["json"]:
+		fmt.Fprintln(out, "fyr memory: add takes no --json")
+	default:
+		return nil
+	}
+	return exitCode(2)
+}
+
+func (c *runtimeCtx) runMemoryAdd(o brain.Options, given map[string]bool) error {
+	mo := memoryOptsOf(c)
 	prov := "operator"
 	if f := c.fs.Lookup("provenance"); f != nil {
 		prov = f.Value.String()
@@ -88,11 +124,11 @@ func (c *ctx) runMemoryAdd(o brain.Options, given map[string]bool) error {
 		fmt.Fprintln(c.out, `fyr memory: --provenance must be operator or derived, not ""`)
 		return exitCode(2)
 	}
-	e := brain.MemoryEntry{Type: c.memType, Name: c.memName, Description: c.memDesc, Provenance: prov, Global: c.global}
-	if c.jsonIn {
+	e := brain.MemoryEntry{Type: mo.memType, Name: mo.memName, Description: mo.memDesc, Provenance: prov, Global: mo.global}
+	if mo.jsonIn {
 		return c.runMemoryAddJSON(o, e, given)
 	}
-	body, closeBody, err := openBodyReader(c.memBodyFile, given["body-file"])
+	body, closeBody, err := openBodyReader(mo.memBodyFile, given["body-file"])
 	if err != nil {
 		fmt.Fprintln(c.out, search.Printable("fyr memory: "+err.Error()))
 		return exitCode(2)
@@ -109,7 +145,7 @@ func (c *ctx) runMemoryAdd(o brain.Options, given map[string]bool) error {
 	return c.saveMemoryEntry(o, e, body)
 }
 
-func (c *ctx) runMemoryAddJSON(o brain.Options, e brain.MemoryEntry, given map[string]bool) error {
+func (c *runtimeCtx) runMemoryAddJSON(o brain.Options, e brain.MemoryEntry, given map[string]bool) error {
 	if given["body-file"] {
 		fmt.Fprintln(c.out, "fyr memory: --json-in and --body-file cannot be used together")
 		return exitCode(2)
@@ -122,7 +158,7 @@ func (c *ctx) runMemoryAddJSON(o brain.Options, e brain.MemoryEntry, given map[s
 	return c.saveMemoryEntry(o, e, body)
 }
 
-func (c *ctx) saveMemoryEntry(o brain.Options, e brain.MemoryEntry, body io.Reader) error {
+func (c *runtimeCtx) saveMemoryEntry(o brain.Options, e brain.MemoryEntry, body io.Reader) error {
 	if e.Global {
 		o.Global = true
 	}
@@ -151,21 +187,129 @@ func applyMemoryStdinEntry(dst *brain.MemoryEntry, src brain.MemoryEntry, given 
 	}
 }
 
-// runSearch serves `search` and `index`; neither needs a harness tree, and a
-// release-binary or zip place has none (plan D10).
-func runSearch(c *ctx) error {
+// searchOpts holds parsed flags for `fyr search`.
+type searchOpts struct {
+	limit, sliceHops, sliceBudget                                                             int
+	kind, refs                                                                                string
+	openRecords, global, jsonOut                                                              bool
+	sliceQuery, sliceSession, contractsTarget, skeletonPath, pathFrom, pathTo, affectedTarget string
+	vetPrompt, hookEvent                                                                      string
+	repoMap, includeDocs                                                                      bool
+}
+
+func searchOptsOf(c *runtimeCtx) *searchOpts {
+	if o, ok := c.opts.(*searchOpts); ok {
+		return o
+	}
+	o := &searchOpts{}
+	if c.opts == nil {
+		c.opts = o
+	}
+	return o
+}
+
+func searchVerb() verb {
+	return verb{
+		flags:       registerSearchFlags,
+		writesState: func(*runtimeCtx) bool { return true },
+		positional:  true,
+		run:         runSearch,
+	}
+}
+
+func registerSearchFlags(c *runtimeCtx) {
+	o := &searchOpts{}
+	c.opts = o
+	c.fs.IntVar(&o.limit, "limit", 0, "print at most `N` records and as many files, 1-50 (default 10)")
+	c.fs.StringVar(&o.kind, "kind", "", "only hits of kind `K`: bug adr plan change handoff review testing retro spec deploy trail code doc feedback proposal learning guide memory")
+	c.fs.StringVar(&o.refs, "refs", "", "every record naming `REF`: an ID, a file, or a directory (trailing /)")
+	c.fs.BoolVar(&o.openRecords, "open", false, "open bugs, plans with unticked boxes, and the other open records")
+	c.fs.BoolVar(&o.global, "global", false, "also the global records and every project registered with index --register, from the brain store")
+	c.fs.BoolVar(&o.jsonOut, "json", false, "print hits or query results as JSON")
+	c.fs.StringVar(&o.sliceQuery, "slice", "", "0/1/2-hop context capsule for `QUERY` ranked by PageRank")
+	c.fs.StringVar(&o.contractsTarget, "contracts", "", "deterministic AST signatures, linked SPEC-* contracts and ADR guardrails for `TARGET`")
+	c.fs.IntVar(&o.sliceHops, "hops", 0, "slice: maximum graph hops `N`, 0-6 (default 2)")
+	c.fs.IntVar(&o.sliceBudget, "budget", 0, "slice, contracts: token budget `N` estimated as chars/4 (default 2000; 1500 for --contracts)")
+	c.fs.StringVar(&o.sliceSession, "session", "", "slice: conversation `ID` whose read files get the 50x boost")
+	c.fs.StringVar(&o.skeletonPath, "skeleton", "", "declaration-only start-end signature lines for `FILE`")
+	c.fs.StringVar(&o.pathFrom, "path", "", "shortest call/type/interface path from `SYM` (<= 6 hops)")
+	c.fs.StringVar(&o.pathTo, "to", "", "path: target symbol `SYM` (or give as positional argument)")
+	c.fs.StringVar(&o.affectedTarget, "affected", "", "reverse-BFS blast radius (<= 2 hops) for `TARGET` path or symbol")
+	c.fs.BoolVar(&o.repoMap, "map", false, "top-10 God Nodes by PageRank, package deps and cycle check")
+	c.fs.BoolVar(&o.includeDocs, "include-docs", false, "include Markdown docs and headings in AST maps and slices")
+	c.fs.StringVar(&o.vetPrompt, "vet", "", "9-mode intent, 6-anchor vetter and skill/record match for `PROMPT`")
+	c.fs.StringVar(&o.hookEvent, "hook", "", "Antigravity lifecycle hook `EVENT`: session-start, pre-invocation, pre-tool-use, post-tool-use or stop")
+}
+
+// indexOpts holds parsed flags for `fyr index`.
+type indexOpts struct {
+	global, rebuild, register, jsonOut bool
+}
+
+func indexOptsOf(c *runtimeCtx) *indexOpts {
+	if o, ok := c.opts.(*indexOpts); ok {
+		return o
+	}
+	o := &indexOpts{}
+	if c.opts == nil {
+		c.opts = o
+	}
+	return o
+}
+
+func indexVerb() verb {
+	return verb{
+		flags:       registerIndexFlags,
+		writesState: func(*runtimeCtx) bool { return true },
+		run:         runIndexVerb,
+	}
+}
+
+func registerIndexFlags(c *runtimeCtx) {
+	o := &indexOpts{}
+	c.opts = o
+	c.fs.BoolVar(&o.global, "global", false, "the global search index, ~/.config/fyr/search.db, instead of this checkout's")
+	c.fs.BoolVar(&o.rebuild, "rebuild", false, "delete the index and build it again")
+	c.fs.BoolVar(&o.register, "register", false, "register this checkout (the operator's consent, ADR-068) so cross-project readers take it (fyr search --global, fyr record import --global, and the metrics attribution join) once it has records in brain.db or .agents/trail.jsonl, then index it")
+	c.fs.BoolVar(&o.jsonOut, "json", false, "print the result as JSON")
+}
+
+// runIndexVerb serves `index`; it needs no harness tree, and a release-binary
+// or zip place has none (plan D10).
+func runIndexVerb(c *runtimeCtx) error {
 	wd, err := c.projectDir()
 	if err != nil {
 		return err
 	}
-	cache := newTurnBrainCache(c.home, c.global)
+	opts := indexOptsOf(c)
+	o := search.Options{Dir: wd, Home: c.home, Global: opts.global, Rebuild: opts.rebuild}
+	if opts.register {
+		return runRegister(c, o)
+	}
+	err = c.runIndex(o)
+	if search.IsUsage(err) {
+		fmt.Fprintln(c.out, "fyr", err)
+		return exitCode(2)
+	}
+	return err
+}
+
+// runSearch serves `search`; it needs no harness tree, and a release-binary or
+// zip place has none (plan D10).
+func runSearch(c *runtimeCtx) error {
+	wd, err := c.projectDir()
+	if err != nil {
+		return err
+	}
+	so := searchOptsOf(c)
+	cache := newTurnBrainCache(c.home, so.global)
 	o := search.Options{
-		Dir: wd, Home: c.home, Words: c.fs.Args(), Refs: c.refs, Open: c.openRecords,
-		Kind: c.kind, Limit: c.limit, Global: c.global, Rebuild: c.rebuild,
-		Slice: c.sliceQuery, Hops: c.sliceHops, Budget: c.sliceBudget, Session: c.sliceSession,
-		Contracts: c.contractsTarget,
-		Skeleton:  c.skeletonPath, Path: c.pathFrom, To: c.pathTo, Affected: c.affectedTarget, Map: c.repoMap,
-		IncludeDocs: c.searchIncludeDocs, Vet: c.vetPrompt, Hook: c.hookEvent, HookIn: stdin,
+		Dir: wd, Home: c.home, Words: c.fs.Args(), Refs: so.refs, Open: so.openRecords,
+		Kind: so.kind, Limit: so.limit, Global: so.global,
+		Slice: so.sliceQuery, Hops: so.sliceHops, Budget: so.sliceBudget, Session: so.sliceSession,
+		Contracts: so.contractsTarget,
+		Skeleton:  so.skeletonPath, Path: so.pathFrom, To: so.pathTo, Affected: so.affectedTarget, Map: so.repoMap,
+		IncludeDocs: so.includeDocs, Vet: so.vetPrompt, Hook: so.hookEvent, HookIn: stdin,
 		BrainRefs:           makeBrainRefs(cache, wd),
 		BrainRefsForDir:     makeBrainRefsForDir(cache),
 		BrainReprime:        makeBrainReprime(),
@@ -174,11 +318,7 @@ func runSearch(c *ctx) error {
 		BrainSpecBodies:     makeBrainSpecBodies(cache),
 		SkillCatalog:        makeSkillCatalog(),
 	}
-	if c.cmd == "index" && c.register {
-		return runRegister(c, o)
-	} else if c.cmd == "index" {
-		err = c.runIndex(o)
-	} else if err = search.Validate(o); err == nil {
+	if err = search.Validate(o); err == nil {
 		err = c.execSearch(o)
 	}
 	if search.IsUsage(err) {
@@ -188,8 +328,8 @@ func runSearch(c *ctx) error {
 	return err
 }
 
-func (c *ctx) execSearch(o search.Options) error {
-	if !c.jsonOut || o.Hook != "" {
+func (c *runtimeCtx) execSearch(o search.Options) error {
+	if !searchOptsOf(c).jsonOut || o.Hook != "" {
 		if !isGraphSearchMode(o) {
 			recordHits(c, o)
 		}

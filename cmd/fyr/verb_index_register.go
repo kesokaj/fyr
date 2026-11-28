@@ -23,7 +23,7 @@ var now = time.Now
 // prepare registers the checkout in the global search index now that the marker
 // exists. The marker comes first, so a failed index leaves a valid one, and the
 // error says so.
-func runRegister(c *ctx, o search.Options) error {
+func runRegister(c *runtimeCtx, o search.Options) error {
 	if o.Global {
 		fmt.Fprintln(c.out, "fyr index: --register and --global do not go together")
 		return exitCode(2)
@@ -36,14 +36,15 @@ func runRegister(c *ctx, o search.Options) error {
 	if err != nil {
 		return fmt.Errorf("index --register: %w", err)
 	}
+	jsonOut := indexOptsOf(c).jsonOut
 	var buf bytes.Buffer
 	out := c.out
-	if c.jsonOut {
+	if jsonOut {
 		out = &buf
 	}
 	if eph := ephemeralRegisterTarget(o.Dir, top, main); eph != "" {
 		fmt.Fprintln(out, search.Printable("note: skipping registration for ephemeral path "+eph))
-		if c.jsonOut {
+		if jsonOut {
 			return writeIndexJSON(c, o.Dir, buf.String())
 		}
 		return nil
@@ -60,7 +61,7 @@ func runRegister(c *ctx, o search.Options) error {
 	if ok, err := search.HasScopeRecords(c.home, root); err == nil && !ok {
 		fmt.Fprintln(out, search.Printable("note: "+root+" has no .agents/trail.jsonl, so no cross-project read takes it until it has records (fyr record import, or the first fyr record add)"))
 	}
-	if c.jsonOut {
+	if jsonOut {
 		return writeIndexJSON(c, o.Dir, buf.String())
 	}
 	return nil
